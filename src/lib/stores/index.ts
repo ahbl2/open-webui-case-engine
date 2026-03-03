@@ -109,6 +109,17 @@ export const currentChatPage = writable(1);
 export const isLastActiveTab = writable(true);
 export const playingNotificationSound = writable(false);
 
+// Case Engine (Ticket 5)
+export {
+	caseEngineToken,
+	caseEngineUser,
+	activeCaseId,
+	activeCaseNumber,
+	scope,
+	unitFilter,
+	isCaseEngineConnected
+} from './caseEngine';
+
 export type Model = OpenAIModel | OllamaModel;
 
 type BaseModel = {

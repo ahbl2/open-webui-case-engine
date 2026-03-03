@@ -45,8 +45,12 @@
 		showEmbeds,
 		selectedTerminalId,
 		showFileNavPath,
-		showFileNavDir
+		showFileNavDir,
+		scope,
+		activeCaseId,
+		caseEngineToken
 	} from '$lib/stores';
+	import { askCase } from '$lib/apis/caseEngine';
 
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
@@ -1756,6 +1760,82 @@
 				await stopResponse();
 				await tick();
 			}
+		}
+
+		// Case Engine routing (Ticket 5): scope THIS_CASE -> POST /case-api/cases/:id/ask
+		if ($scope === 'THIS_CASE') {
+			if (!$activeCaseId) {
+				toast.error($i18n.t('Select a case to ask This Case.'));
+				return;
+			}
+			if (!$caseEngineToken) {
+				toast.error($i18n.t('Connect to Case Engine first.'));
+				return;
+			}
+			// Route to Case Engine; create user + assistant messages inline (no streaming)
+			messageInput?.setText('');
+			prompt = '';
+			const _files = structuredClone(files);
+			files = [];
+			const messages = createMessagesList(history, history.currentId);
+			let userMessageId = uuidv4();
+			let userMessage = {
+				id: userMessageId,
+				parentId: messages.length !== 0 ? messages.at(-1).id : null,
+				childrenIds: [],
+				role: 'user',
+				content: userPrompt,
+				files: _files.length > 0 ? _files : undefined,
+				timestamp: Math.floor(Date.now() / 1000),
+				models: selectedModels
+			};
+			history.messages[userMessageId] = userMessage;
+			history.currentId = userMessageId;
+			if (messages.length !== 0) {
+				history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+			}
+			const chatInput = document.getElementById('chat-input');
+			chatInput?.focus();
+			saveSessionSelectedModels();
+			let _chatId = JSON.parse(JSON.stringify($chatId));
+			if (userMessage.parentId === null) {
+				_chatId = await initChatHandler(history);
+			}
+			await tick();
+			await saveChatHandler(_chatId, history);
+			try {
+				const { answer, citations } = await askCase(
+					$activeCaseId,
+					userPrompt,
+					'case',
+					$caseEngineToken
+				);
+				const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+				const model = $models.find((m) => m.id === modelId);
+				let responseMessageId = uuidv4();
+				let responseMessage = {
+					parentId: userMessageId,
+					id: responseMessageId,
+					childrenIds: [],
+					role: 'assistant',
+					content: answer,
+					model: modelId,
+					modelName: model?.name ?? 'Case Engine',
+					modelIdx: 0,
+					timestamp: Math.floor(Date.now() / 1000),
+					done: true,
+					caseEngineCitations: citations ?? []
+				};
+				history.messages[responseMessageId] = responseMessage;
+				history.currentId = responseMessageId;
+				history.messages[userMessageId].childrenIds.push(responseMessageId);
+				await saveChatHandler(_chatId, history);
+				currentChatPage.set(1);
+				chats.set(await getChatList(localStorage.token, $currentChatPage));
+			} catch (e) {
+				toast.error(e?.message ?? $i18n.t('Case Engine request failed'));
+			}
+			return;
 		}
 
 		if (history?.currentId) {

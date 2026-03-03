@@ -13,6 +13,11 @@ export const AUDIO_API_BASE_URL = `${WEBUI_BASE_URL}/api/v1/audio`;
 export const IMAGES_API_BASE_URL = `${WEBUI_BASE_URL}/api/v1/images`;
 export const RETRIEVAL_API_BASE_URL = `${WEBUI_BASE_URL}/api/v1/retrieval`;
 
+// Case Engine (Ticket 5) - reachable behind Caddy at /case-api or configured base
+export const CASE_ENGINE_BASE_URL =
+	(typeof window !== 'undefined' && (window as any).__CASE_ENGINE_BASE_URL__) ||
+	'/case-api';
+
 export const WEBUI_VERSION = APP_VERSION;
 export const WEBUI_BUILD_HASH = APP_BUILD_HASH;
 export const REQUIRED_OLLAMA_VERSION = '0.1.16';

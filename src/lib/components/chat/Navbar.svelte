@@ -13,7 +13,10 @@
 		showControls,
 		showSidebar,
 		temporaryChatEnabled,
-		user
+		user,
+		scope,
+		activeCaseId,
+		activeCaseNumber
 	} from '$lib/stores';
 
 	import { slide } from 'svelte/transition';
@@ -114,6 +117,21 @@
 					{#if showModelSelector}
 						<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />
 					{/if}
+					<!-- Case Engine (Ticket 5): scope selector + active case badge -->
+					<div class="flex items-center gap-2 mt-1 flex-wrap">
+						<select
+							bind:value={$scope}
+							class="rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1 text-xs"
+						>
+							<option value="THIS_CASE">This Case</option>
+							<option value="CID">CID</option>
+							<option value="SIU">SIU</option>
+							<option value="ALL">ALL</option>
+						</select>
+						{#if $activeCaseId && $activeCaseNumber}
+							<span class="rounded bg-gray-200 dark:bg-gray-700 px-2 py-0.5 text-xs">Active: {$activeCaseNumber}</span>
+						{/if}
+					</div>
 				</div>
 
 				<div class="self-start flex flex-none items-center text-gray-600 dark:text-gray-400">

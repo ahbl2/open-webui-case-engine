@@ -63,6 +63,7 @@
 	import FolderModal from './Sidebar/Folders/FolderModal.svelte';
 	import Sidebar from '../icons/Sidebar.svelte';
 	import PinnedModelList from './Sidebar/PinnedModelList.svelte';
+	import CasesSection from './Sidebar/CasesSection.svelte';
 	import Note from '../icons/Note.svelte';
 	import { slide } from 'svelte/transition';
 	import HotkeyHint from '../common/HotkeyHint.svelte';
@@ -1045,6 +1046,8 @@
 						</div>
 					{/if}
 				</div>
+
+				<CasesSection />
 
 				{#if ($models ?? []).length > 0 && (($settings?.pinnedModels ?? []).length > 0 || $config?.default_pinned_models)}
 					<Folder

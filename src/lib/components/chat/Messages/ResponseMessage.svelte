@@ -87,6 +87,7 @@
 		done: boolean;
 		error?: boolean | { content: string };
 		sources?: string[];
+		caseEngineCitations?: Array<{ type: 'entry' | 'file'; id: string }>;
 		code_executions?: {
 			uuid: string;
 			name: string;
@@ -837,6 +838,20 @@
 									sources={message?.sources ?? message?.citations}
 									{readOnly}
 								/>
+							{/if}
+							{#if message?.caseEngineCitations && message.caseEngineCitations.length > 0}
+								<div class="mt-2 text-xs text-gray-600 dark:text-gray-400">
+									<span class="font-medium">Sources:</span>
+									<div class="flex flex-wrap gap-1 mt-1">
+										{#each message.caseEngineCitations as c}
+											<span
+												class="rounded bg-gray-100 dark:bg-gray-800 px-1.5 py-0.5"
+											>
+												{c.type === 'entry' ? 'Entry' : 'File'}: {c.id}
+											</span>
+										{/each}
+									</div>
+								</div>
 							{/if}
 
 							{#if message.code_executions}
