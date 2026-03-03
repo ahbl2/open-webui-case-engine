@@ -1,0 +1,74 @@
+#!/bin/sh
+# Cross-repo guard: block staging files that belong to the other repo.
+# Edit patterns at the top if too strict/loose.
+
+REPO_ROOT=$(git rev-parse --show-toplevel)
+IDENTITY_FILE="$REPO_ROOT/.repo-identity"
+PRECOMMIT_SCRIPT="$REPO_ROOT/scripts/precommit-check.ps1"
+
+# Run informational checklist if PowerShell available
+if [ -f "$PRECOMMIT_SCRIPT" ] && command -v powershell >/dev/null 2>&1; then
+  powershell -NoProfile -File "$PRECOMMIT_SCRIPT" 2>/dev/null || true
+fi
+
+# Read repo identity
+REPO=""
+if [ -f "$IDENTITY_FILE" ]; then
+  REPO=$(grep '^REPO=' "$IDENTITY_FILE" | cut -d= -f2 | tr -d '\r\n')
+fi
+
+if [ -z "$REPO" ]; then
+  echo "WARNING: No .repo-identity found, skipping cross-repo check."
+  exit 0
+fi
+
+STAGED=$(git diff --cached --name-only 2>/dev/null)
+if [ -z "$STAGED" ]; then
+  exit 0
+fi
+
+# ---- Patterns (edit these if needed) ----
+# DetectiveCaseEngine: block paths that look like WebUI
+BAD_PATTERNS_CE="open-webui webui src/lib/components/"
+# OpenWebUI-CaseEngine: block paths that look like DetectiveCaseEngine
+BAD_PATTERNS_WEBUI="DetectiveCaseEngine migrations/ case.db case_files/"
+
+OFFENDING=""
+if [ "$REPO" = "DetectiveCaseEngine" ]; then
+  for pat in $BAD_PATTERNS_CE; do
+    echo "$STAGED" | while IFS= read -r f; do
+      case "$f" in
+        *"$pat"*) echo "$f" ;;
+      esac
+    done
+  done | sort -u >"$REPO_ROOT/.githooks.tmp.offending" 2>/dev/null
+  if [ -s "$REPO_ROOT/.githooks.tmp.offending" ]; then
+    OFFENDING=$(cat "$REPO_ROOT/.githooks.tmp.offending")
+    rm -f "$REPO_ROOT/.githooks.tmp.offending"
+  fi
+elif [ "$REPO" = "OpenWebUI-CaseEngine" ]; then
+  for pat in $BAD_PATTERNS_WEBUI; do
+    echo "$STAGED" | while IFS= read -r f; do
+      case "$f" in
+        *"$pat"*) echo "$f" ;;
+      esac
+    done
+  done | sort -u >"$REPO_ROOT/.githooks.tmp.offending" 2>/dev/null
+  if [ -s "$REPO_ROOT/.githooks.tmp.offending" ]; then
+    OFFENDING=$(cat "$REPO_ROOT/.githooks.tmp.offending")
+    rm -f "$REPO_ROOT/.githooks.tmp.offending"
+  fi
+fi
+
+if [ -n "$OFFENDING" ]; then
+  echo ""
+  echo "ABORTED: files staged that look like they belong to the other repo"
+  echo ""
+  echo "$OFFENDING"
+  echo ""
+  echo "Unstage them and commit in the correct repo."
+  echo "To bypass (emergency only): git commit --no-verify"
+  exit 1
+fi
+
+exit 0

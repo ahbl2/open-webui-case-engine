@@ -1,4 +1,5 @@
 x.py
+.githooks.tmp.offending
 yarn.lock
 .DS_Store
 node_modules
