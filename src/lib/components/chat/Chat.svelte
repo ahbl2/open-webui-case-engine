@@ -48,7 +48,8 @@
 		showFileNavDir,
 		scope,
 		activeCaseId,
-		caseEngineToken
+		caseEngineToken,
+		aiCaseContext
 	} from '$lib/stores';
 	import { askCase } from '$lib/apis/caseEngine';
 
@@ -102,6 +103,7 @@
 	import ChatControls from './ChatControls.svelte';
 	import EventConfirmDialog from '../common/ConfirmDialog.svelte';
 	import Placeholder from './Placeholder.svelte';
+	import CaseContextPanel from '$lib/components/case/CaseContextPanel.svelte';
 	import FilesOverlay from './MessageInput/FilesOverlay.svelte';
 	import NotificationToast from '../NotificationToast.svelte';
 	import Spinner from '../common/Spinner.svelte';
@@ -2123,11 +2125,52 @@
 			params?.stream_response ??
 			true;
 
+		// Ticket 8: Prepend case context when aiCaseContext exists (read-only injection)
+		const MAX_CONTEXT_CHARS = 12000;
+		const ctx = get(aiCaseContext);
+		let caseContextBlock = '';
+		if (ctx) {
+			const parts: string[] = [];
+			parts.push(`[Case Context – Case ${ctx.case.case_number}: ${ctx.case.title}]`);
+			parts.push('');
+			parts.push('Timeline entries (most recent):');
+			parts.push('---');
+			let total = parts.join('\n').length;
+			for (const e of ctx.timeline) {
+				const text = (e.text_cleaned || e.text_original || '').trim();
+				const line = `[id: ${e.id}] ${e.occurred_at} | ${e.type}\n${text}`;
+				if (total + line.length > MAX_CONTEXT_CHARS) break;
+				parts.push(line);
+				parts.push('');
+				total += line.length + 1;
+			}
+			parts.push('---');
+			parts.push('');
+			parts.push('File previews:');
+			parts.push('---');
+			for (const f of ctx.files) {
+				const line = `${f.original_filename}:\n${f.extracted_text_preview || ''}`;
+				if (total + line.length > MAX_CONTEXT_CHARS) break;
+				parts.push(line);
+				parts.push('');
+				total += line.length + 1;
+			}
+			parts.push('---');
+			parts.push('');
+			parts.push('Citations: ' + ctx.citations.map((c) => (c.kind === 'timeline' ? c.id : c.id)).join(', '));
+			caseContextBlock = parts.join('\n');
+		}
+
+		const existingSystem = params?.system ?? $settings?.system ?? '';
+		const systemContent = caseContextBlock
+			? (caseContextBlock + (existingSystem ? '\n\n' + existingSystem : '')).trim()
+			: existingSystem;
+
 		let messages = [
-			params?.system || $settings.system
+			systemContent
 				? {
-						role: 'system',
-						content: `${params?.system ?? $settings?.system ?? ''}`
+						role: 'system' as const,
+						content: systemContent
 					}
 				: undefined,
 			..._messages.map((message) => ({
@@ -2789,6 +2832,7 @@
 					/>
 
 					<div id="chat-pane" class="flex flex-col flex-auto z-10 w-full @container overflow-auto">
+						<CaseContextPanel />
 						{#if ($settings?.landingPageMode === 'chat' && !$selectedFolder) || createMessagesList(history, history.currentId).length > 0}
 							<div
 								class=" pb-2.5 flex flex-col justify-between w-full flex-auto overflow-auto h-0 max-w-full z-10 scrollbar-hidden"

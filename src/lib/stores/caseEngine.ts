@@ -44,4 +44,10 @@ export const activeCaseNumber = persisted<string | null>(KEY_ACTIVE_CASE_NUMBER,
 export const scope = persisted<'THIS_CASE' | 'CID' | 'SIU' | 'ALL'>(KEY_SCOPE, 'THIS_CASE');
 export const unitFilter = persisted<'CID' | 'SIU' | 'ALL'>(KEY_UNIT_FILTER, 'ALL');
 
+/** Ticket 7: Case context (case + recent_entries) - not persisted */
+export const caseContext = writable<{ case: { id: string; case_number: string; title: string; unit: string; status: string }; recent_entries: Array<{ id: string; occurred_at: string; type: string; location_text: string | null; text_original: string; created_by: string; created_at: string }> } | null>(null);
+
+/** Ticket 8: AI context bundle (case + timeline + files + citations) - for prompt injection */
+export const aiCaseContext = writable<import('$lib/apis/caseEngine').AiContextBundle | null>(null);
+
 export const isCaseEngineConnected = derived(caseEngineToken, (t) => !!t);

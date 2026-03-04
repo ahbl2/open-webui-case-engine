@@ -117,6 +117,8 @@ export {
 	activeCaseNumber,
 	scope,
 	unitFilter,
+	caseContext,
+	aiCaseContext,
 	isCaseEngineConnected
 } from './caseEngine';
 

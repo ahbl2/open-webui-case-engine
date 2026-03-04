@@ -16,7 +16,8 @@
 		user,
 		scope,
 		activeCaseId,
-		activeCaseNumber
+		activeCaseNumber,
+		aiCaseContext
 	} from '$lib/stores';
 
 	import { slide } from 'svelte/transition';
@@ -33,6 +34,7 @@
 	import PencilSquare from '../icons/PencilSquare.svelte';
 	import Banner from '../common/Banner.svelte';
 	import Sidebar from '../icons/Sidebar.svelte';
+	import CaseSearchBar from '../case/CaseSearchBar.svelte';
 
 	import ChatBubbleDotted from '../icons/ChatBubbleDotted.svelte';
 	import ChatBubbleDottedChecked from '../icons/ChatBubbleDottedChecked.svelte';
@@ -117,7 +119,7 @@
 					{#if showModelSelector}
 						<ModelSelector bind:selectedModels showSetDefault={!shareEnabled} />
 					{/if}
-					<!-- Case Engine (Ticket 5): scope selector + active case badge -->
+					<!-- Case Engine (Ticket 5): scope selector + active case badge + global search -->
 					<div class="flex items-center gap-2 mt-1 flex-wrap">
 						<select
 							bind:value={$scope}
@@ -128,9 +130,12 @@
 							<option value="SIU">SIU</option>
 							<option value="ALL">ALL</option>
 						</select>
-						{#if $activeCaseId && $activeCaseNumber}
+						{#if $aiCaseContext?.case}
+							<span class="rounded bg-gray-200 dark:bg-gray-700 px-2 py-0.5 text-xs" title="Chat context will include this case">Scoped to case: {$aiCaseContext.case.case_number}</span>
+						{:else if $activeCaseId && $activeCaseNumber}
 							<span class="rounded bg-gray-200 dark:bg-gray-700 px-2 py-0.5 text-xs">Active: {$activeCaseNumber}</span>
 						{/if}
+						<CaseSearchBar />
 					</div>
 				</div>
 
