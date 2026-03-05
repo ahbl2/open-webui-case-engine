@@ -425,6 +425,147 @@ export async function decideIntake(
 	return data;
 }
 
+function buildExportParams(
+	format: 'html' | 'pdf',
+	opts?: { includeOriginal?: boolean; includeFiles?: boolean }
+): string {
+	const sp = new URLSearchParams();
+	sp.set('format', format);
+	if (opts?.includeOriginal) sp.set('includeOriginal', 'true');
+	if (opts?.includeFiles) sp.set('includeFiles', 'true');
+	return sp.toString();
+}
+
+/** Ticket 11: Running Case Notes export – opens HTML in new tab (auth via fetch) */
+export async function openRunningNotesHtml(
+	caseId: string,
+	token: string,
+	opts?: { includeOriginal?: boolean; includeFiles?: boolean }
+): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/export/running-notes?${buildExportParams('html', opts)}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	if (!res.ok) throw new Error(`Export failed (${res.status})`);
+	const html = await res.text();
+	const blob = new Blob([html], { type: 'text/html' });
+	const url = URL.createObjectURL(blob);
+	window.open(url, '_blank');
+	setTimeout(() => URL.revokeObjectURL(url), 2000);
+}
+
+/** Ticket 11: Download Running Notes as HTML with friendly filename */
+export async function downloadRunningNotesHtml(
+	caseId: string,
+	token: string,
+	opts?: { includeOriginal?: boolean; includeFiles?: boolean; caseNumber?: string }
+): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/export/running-notes?${buildExportParams('html', opts)}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	if (!res.ok) throw new Error(`Export failed (${res.status})`);
+	const html = await res.text();
+	const contentDisposition = res.headers.get('Content-Disposition');
+	let filename = `Case_${caseId.slice(0, 8)}_Running_Notes_${new Date().toISOString().slice(0, 10)}.html`;
+	if (contentDisposition) {
+		const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+		if (match) filename = match[1].trim();
+	} else if (opts?.caseNumber) {
+		const safe = (opts.caseNumber || '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'case';
+		filename = `Case_${safe}_Running_Notes_${new Date().toISOString().slice(0, 10)}.html`;
+	}
+	const blob = new Blob([html], { type: 'text/html' });
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
+/** Ticket 12: Cross-case AI query – search across cases within unit scope */
+export type CrossCaseCitation =
+	| {
+			source_type: 'timeline_entry';
+			id: string;
+			case_id: string;
+			case_number: string;
+			occurred_at: string;
+			snippet: string;
+	  }
+	| {
+			source_type: 'case_file';
+			id: string;
+			case_id: string;
+			case_number: string;
+			filename: string;
+			snippet: string;
+	  };
+
+export interface AskCrossCaseResponse {
+	question: string;
+	answer: string;
+	confidence: 'LOW' | 'MEDIUM' | 'HIGH';
+	citations: CrossCaseCitation[];
+	used_citations: CrossCaseCitation[];
+}
+
+export async function askCrossCase(
+	question: string,
+	token: string,
+	opts?: { topK?: number; unitScope?: 'CID' | 'SIU' | 'ALL' }
+): Promise<AskCrossCaseResponse> {
+	const body: Record<string, unknown> = { question: question.trim() };
+	if (opts?.topK != null) body.topK = opts.topK;
+	if (opts?.unitScope != null) body.unitScope = opts.unitScope;
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/ask-cross`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(body)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (res.status === 422) {
+		const err = new Error((data as { error?: string })?.error ?? 'AI returned invalid response') as Error & {
+			citations?: CrossCaseCitation[];
+		};
+		err.citations = (data as { citations?: CrossCaseCitation[] })?.citations;
+		throw err;
+	}
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Cross-case ask failed (${res.status})`);
+	}
+	return data;
+}
+
+/** Ticket 11: Download Running Notes as PDF – returns false if not implemented (501) */
+export async function downloadRunningNotesPdf(
+	caseId: string,
+	token: string,
+	opts?: { includeOriginal?: boolean; includeFiles?: boolean }
+): Promise<boolean> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/export/running-notes?${buildExportParams('pdf', opts)}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	if (res.status === 501) return false;
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `Export failed (${res.status})`);
+	}
+	const blob = await res.blob();
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = `running-notes-${caseId.slice(0, 8)}.pdf`;
+	a.click();
+	URL.revokeObjectURL(url);
+	return true;
+}
+
 export async function listCaseIntakes(caseId: string, token: string): Promise<Intake[]> {
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intakes`, {
 		headers: {
@@ -455,6 +596,147 @@ export interface SearchResponse {
 	q: string;
 	scope: string;
 	results: SearchResultItem[];
+}
+
+// ─── Ticket 13: Integrity & Audit ───────────────────────────────────────────
+
+export interface AuditLogItem {
+	id: string;
+	action: string;
+	created_at: string;
+	user_id: string;
+	user_role: string | null;
+	entity_type: string;
+	entity_id: string;
+	details: Record<string, unknown>;
+}
+
+export interface CaseAuditResponse {
+	case: { id: string; case_number: string };
+	items: AuditLogItem[];
+	next_cursor: string | null;
+}
+
+export async function getCaseAudit(
+	caseId: string,
+	token: string,
+	params?: { limit?: number; cursor?: string; before?: string; includeSystem?: boolean; includeDeleted?: boolean }
+): Promise<CaseAuditResponse> {
+	const sp = new URLSearchParams();
+	if (params?.limit != null) sp.set('limit', String(params.limit));
+	if (params?.cursor) sp.set('cursor', params.cursor);
+	if (params?.before) sp.set('before', params.before);
+	if (params?.includeSystem === false) sp.set('includeSystem', 'false');
+	if (params?.includeDeleted) sp.set('includeDeleted', 'true');
+	const qs = sp.toString();
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/audit${qs ? `?${qs}` : ''}`;
+	const res = await fetch(url, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to fetch audit (${res.status})`);
+	return data;
+}
+
+export async function exportCaseAudit(
+	caseId: string,
+	token: string,
+	format: 'json' | 'csv',
+	params?: { limit?: number; includeDeleted?: boolean }
+): Promise<void> {
+	const sp = new URLSearchParams();
+	sp.set('format', format);
+	if (params?.limit != null) sp.set('limit', String(params.limit));
+	if (params?.includeDeleted) sp.set('includeDeleted', 'true');
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/audit/export?${sp}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `Export failed (${res.status})`);
+	}
+	const blob = await res.blob();
+	const contentDisposition = res.headers.get('Content-Disposition');
+	let filename = `Case_${caseId.slice(0, 8)}_Audit_${new Date().toISOString().slice(0, 10)}.${format}`;
+	if (contentDisposition) {
+		const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+		if (match) filename = match[1].trim();
+	}
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
+export interface DeletedItemsResponse {
+	entries: Array<Record<string, unknown>>;
+	files: Array<Record<string, unknown>>;
+	intakes: Array<Record<string, unknown>>;
+}
+
+export async function getCaseDeleted(
+	caseId: string,
+	token: string,
+	types?: string
+): Promise<DeletedItemsResponse> {
+	const sp = types ? `?types=${encodeURIComponent(types)}` : '';
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/deleted${sp}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to fetch deleted items (${res.status})`);
+	return data;
+}
+
+export async function restoreTimelineEntry(caseId: string, entryId: string, token: string): Promise<Record<string, unknown>> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries/${entryId}/restore`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Restore failed (${res.status})`);
+	return data;
+}
+
+export async function restoreCaseFile(caseId: string, fileId: string, token: string): Promise<Record<string, unknown>> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/files/${fileId}/restore`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Restore failed (${res.status})`);
+	return data;
+}
+
+export interface IntakeHistoryItem {
+	[key: string]: unknown;
+	proposals?: IntakeProposal[];
+}
+
+export interface IntakeHistoryResponse {
+	intakes: IntakeHistoryItem[];
+}
+
+export async function getCaseIntakeHistory(
+	caseId: string,
+	token: string,
+	params?: { limit?: number; includeProposals?: boolean; includeDeleted?: boolean }
+): Promise<IntakeHistoryResponse> {
+	const sp = new URLSearchParams();
+	if (params?.limit != null) sp.set('limit', String(params.limit));
+	if (params?.includeProposals === false) sp.set('includeProposals', 'false');
+	if (params?.includeDeleted) sp.set('includeDeleted', 'true');
+	const qs = sp.toString();
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/intakes/history${qs ? `?${qs}` : ''}`;
+	const res = await fetch(url, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to fetch intake history (${res.status})`);
+	return data;
 }
 
 export async function searchCases(

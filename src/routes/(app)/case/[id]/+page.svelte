@@ -6,11 +6,15 @@
 	import CaseFilesTab from '$lib/components/case/CaseFilesTab.svelte';
 	import CaseAiIntakeTab from '$lib/components/case/CaseAiIntakeTab.svelte';
 	import CaseAiAskTab from '$lib/components/case/CaseAiAskTab.svelte';
+	import CaseExportTab from '$lib/components/case/CaseExportTab.svelte';
+	import CaseCrossCaseSearch from '$lib/components/case/CaseCrossCaseSearch.svelte';
+	import CaseIntegrityTab from '$lib/components/case/CaseIntegrityTab.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
+	import { caseEngineUser } from '$lib/stores';
 
 	$: caseId = $page.params.id;
 
-	let activeTab: 'files' | 'ai-intake' | 'ask' = 'files';
+	let activeTab: 'files' | 'ai-intake' | 'ask' | 'export' | 'unit-search' | 'integrity' = 'files';
 	let caseInfo: { case_number: string; title: string } | null = null;
 	let loading = true;
 	let notFound = false;
@@ -102,11 +106,44 @@
 				>
 					Ask
 				</button>
+				<button
+					type="button"
+					class="px-2 py-1.5 text-sm rounded {activeTab === 'export'
+						? 'bg-gray-200 dark:bg-gray-700 font-medium'
+						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+					on:click={() => (activeTab = 'export')}
+				>
+					Export
+				</button>
+				<button
+					type="button"
+					class="px-2 py-1.5 text-sm rounded {activeTab === 'unit-search'
+						? 'bg-gray-200 dark:bg-gray-700 font-medium'
+						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+					on:click={() => (activeTab = 'unit-search')}
+				>
+					Unit Search
+				</button>
+				<button
+					type="button"
+					class="px-2 py-1.5 text-sm rounded {activeTab === 'integrity'
+						? 'bg-gray-200 dark:bg-gray-700 font-medium'
+						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+					on:click={() => (activeTab = 'integrity')}
+				>
+					Integrity
+				</button>
 			</div>
 			{#if activeTab === 'files'}
 				<CaseFilesTab {caseId} token={$caseEngineToken} />
 			{:else if activeTab === 'ask'}
 				<CaseAiAskTab {caseId} token={$caseEngineToken} />
+			{:else if activeTab === 'export'}
+				<CaseExportTab {caseId} token={$caseEngineToken} caseNumber={caseInfo?.case_number ?? ''} />
+			{:else if activeTab === 'unit-search'}
+				<CaseCrossCaseSearch token={$caseEngineToken} />
+			{:else if activeTab === 'integrity'}
+				<CaseIntegrityTab {caseId} token={$caseEngineToken} isAdmin={$caseEngineUser?.role === 'ADMIN'} />
 			{:else}
 				<CaseAiIntakeTab {caseId} token={$caseEngineToken} />
 			{/if}
