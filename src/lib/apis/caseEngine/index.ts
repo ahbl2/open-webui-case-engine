@@ -739,6 +739,278 @@ export async function getCaseIntakeHistory(
 	return data;
 }
 
+// ─── Ticket 17: Warrant Workflow (templates, render, AI draft, warrant packet) ─────
+
+export interface TemplateMeta {
+	templateId: string;
+	label: string;
+	category: string;
+	disabled?: boolean;
+}
+
+export async function listTemplates(token: string): Promise<{ templates: TemplateMeta[] }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/templates`, {
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to list templates (${res.status})`);
+	}
+	const templates = Array.isArray((data as { templates?: TemplateMeta[] }).templates)
+		? (data as { templates: TemplateMeta[] }).templates
+		: [];
+	return { templates };
+}
+
+export interface RenderTemplateResponse {
+	templateId: string;
+	renderedHtml: string;
+	missingFields: string[];
+}
+
+export async function renderTemplate(
+	caseId: string,
+	templateId: string,
+	token: string,
+	opts?: {
+		mergeOverrides?: { case?: Record<string, unknown>; agency?: Record<string, unknown> };
+		options?: { includeDeleted?: boolean };
+	}
+): Promise<RenderTemplateResponse> {
+	const body: { templateId: string; mergeOverrides?: unknown; options?: unknown } = { templateId: templateId.trim() };
+	if (opts?.mergeOverrides) body.mergeOverrides = opts.mergeOverrides;
+	if (opts?.options) body.options = opts.options;
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/templates/render`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(body)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Render failed (${res.status})`);
+	}
+	return data as RenderTemplateResponse;
+}
+
+export interface WarrantDraftCitation {
+	claim: string;
+	evidenceItemIds: string[];
+}
+
+export interface WarrantDraftResult {
+	caseId: string;
+	purpose: string;
+	generatedAt: string;
+	evidencePack: { packVersion: number; items: unknown[] };
+	draft: {
+		title: string;
+		probableCauseNarrative: string;
+		requestedItems: string[];
+		locations: string[];
+		people: string[];
+		timelineHighlights?: string[];
+		citations: WarrantDraftCitation[];
+		confidenceNotes: string[];
+		missingInfoQuestions: string[];
+	};
+	model: { provider: string; model: string };
+}
+
+export async function requestAiWarrantDraft(
+	caseId: string,
+	token: string,
+	opts?: {
+		factsFocus?: string;
+		options?: {
+			maxEvidenceItems?: number;
+			includeFiles?: boolean;
+			includeTimeline?: boolean;
+			includeDeleted?: boolean;
+		};
+	}
+): Promise<WarrantDraftResult> {
+	const body: Record<string, unknown> = { purpose: 'probable_cause' };
+	if (opts?.factsFocus) body.factsFocus = opts.factsFocus;
+	body.options = opts?.options ?? {
+		maxEvidenceItems: 25,
+		includeFiles: true,
+		includeTimeline: true
+	};
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/ai/warrant-draft`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(body)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `AI warrant draft failed (${res.status})`);
+	}
+	return data as WarrantDraftResult;
+}
+
+export async function downloadWarrantPacket(
+	caseId: string,
+	token: string,
+	opts?: { includeDeleted?: boolean; caseNumber?: string }
+): Promise<void> {
+	const sp = new URLSearchParams();
+	sp.set('format', 'html');
+	if (opts?.includeDeleted) sp.set('includeDeleted', 'true');
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/exports/warrant-packet?${sp}`, {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `Download failed (${res.status})`);
+	}
+	const blob = await res.blob();
+	const contentDisposition = res.headers.get('Content-Disposition');
+	let filename = `Warrant_Packet_${caseId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.html`;
+	if (contentDisposition) {
+		const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+		if (match) filename = match[1].trim();
+	} else if (opts?.caseNumber) {
+		const safe = (opts.caseNumber || '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'case';
+		filename = `Warrant_Packet_${safe}_${new Date().toISOString().slice(0, 10)}.html`;
+	}
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
+/** Ticket 19: Warrant Draft Workspace */
+export interface WarrantDraftItem {
+	id: string;
+	caseId: string;
+	templateId: string;
+	title: string;
+	latestVersionId: string;
+	latestVersionAt: string;
+	createdBy: string;
+	createdAt: string;
+	updatedAt: string;
+	deletedAt: string | null;
+}
+
+export async function listWarrantDrafts(
+	caseId: string,
+	token: string,
+	opts?: { includeDeleted?: boolean }
+): Promise<{ items: WarrantDraftItem[] }> {
+	const sp = new URLSearchParams();
+	if (opts?.includeDeleted) sp.set('includeDeleted', 'true');
+	const qs = sp.toString();
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/warrant-drafts${qs ? `?${qs}` : ''}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to list drafts (${res.status})`);
+	return data as { items: WarrantDraftItem[] };
+}
+
+export interface WarrantDraftData {
+	templateId?: string;
+	facts?: {
+		affiantName?: string;
+		affiantBadge?: string;
+		targetLocation?: string;
+		requestedItemsText?: string;
+		probableCauseText?: string;
+		factsFocus?: string;
+	};
+	ai?: { used?: boolean; narrative?: string; generatedAt?: string };
+}
+
+export async function createWarrantDraft(
+	caseId: string,
+	token: string,
+	payload: { templateId: string; title?: string; data: Record<string, unknown> }
+): Promise<{ draft: WarrantDraftItem; version: { id: string; createdAt: string; createdBy: string } }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/warrant-drafts`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(payload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to create draft (${res.status})`);
+	return data;
+}
+
+export async function getWarrantDraft(
+	caseId: string,
+	draftId: string,
+	token: string,
+	opts?: { includeDeleted?: boolean }
+): Promise<{
+	draft: WarrantDraftItem;
+	latest: { versionId: string; data: Record<string, unknown>; createdAt: string; createdBy: string };
+}> {
+	const sp = new URLSearchParams();
+	if (opts?.includeDeleted) sp.set('includeDeleted', 'true');
+	const qs = sp.toString();
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/warrant-drafts/${draftId}${qs ? `?${qs}` : ''}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to get draft (${res.status})`);
+	return data;
+}
+
+export async function createWarrantDraftVersion(
+	caseId: string,
+	draftId: string,
+	token: string,
+	payload: { data: Record<string, unknown> }
+): Promise<{ version: { id: string; createdAt: string; createdBy: string } }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/warrant-drafts/${draftId}/versions`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(payload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to save version (${res.status})`);
+	return data;
+}
+
+export async function deleteWarrantDraft(caseId: string, draftId: string, token: string): Promise<void> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/warrant-drafts/${draftId}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `Failed to delete draft (${res.status})`);
+	}
+}
+
+export async function restoreWarrantDraft(
+	caseId: string,
+	draftId: string,
+	token: string
+): Promise<WarrantDraftItem> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/warrant-drafts/${draftId}/restore`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to restore draft (${res.status})`);
+	return data as WarrantDraftItem;
+}
+
+// ─── Search (Ticket 5 Part 5) ──────────────────────────────────────────────
+
 export async function searchCases(
 	params: { q: string; scope: SearchScope; caseId?: string; unit?: 'CID' | 'SIU' },
 	token: string
