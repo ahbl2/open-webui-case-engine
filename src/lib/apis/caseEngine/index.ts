@@ -580,6 +580,75 @@ export async function listCaseIntakes(caseId: string, token: string): Promise<In
 	return Array.isArray(data) ? data : [];
 }
 
+// ─── Ticket 21: Evidence Graph ──────────────────────────────────────────────
+
+export interface GraphSourceRef {
+  evidenceItemId: string;
+  offsets?: [number, number];
+}
+
+export interface GraphNode {
+  id: string;
+  type: 'person' | 'phone' | 'location' | 'event';
+  label: string;
+  normalized: string;
+  sources: GraphSourceRef[];
+}
+
+export interface GraphEdge {
+  id: string;
+  type: string;
+  from: string;
+  to: string;
+  sources: GraphSourceRef[];
+}
+
+export interface GraphEvidenceItem {
+  id: string;
+  kind: 'timeline_entry' | 'case_file';
+  sourceId: string;
+  occurredAt?: string;
+  createdAt?: string;
+  createdBy?: string;
+  uploadedAt?: string;
+  uploadedBy?: string;
+  filename?: string;
+  text: string;
+}
+
+export interface CaseGraphResponse {
+  caseId: string;
+  generatedAt: string;
+  params: { includeDeleted: boolean; maxSources: number; maxTextPerSource: number; mode: string };
+  evidencePack: { packVersion: number; items: GraphEvidenceItem[] };
+  graph: {
+    nodes: GraphNode[];
+    edges: GraphEdge[];
+    stats: { nodeCount: number; edgeCount: number; sourceCount: number };
+  };
+}
+
+export async function getCaseGraph(
+  caseId: string,
+  token: string,
+  params?: { includeDeleted?: boolean; maxSources?: number; maxTextPerSource?: number }
+): Promise<CaseGraphResponse> {
+  const sp = new URLSearchParams();
+  if (params?.includeDeleted) sp.set('includeDeleted', 'true');
+  if (params?.maxSources != null) sp.set('maxSources', String(params.maxSources));
+  if (params?.maxTextPerSource != null) sp.set('maxTextPerSource', String(params.maxTextPerSource));
+  const qs = sp.toString();
+  const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/graph${qs ? `?${qs}` : ''}`;
+  const res = await fetch(url, {
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error((data as { error?: string })?.error ?? `Failed to load graph (${res.status})`);
+  }
+  return data as CaseGraphResponse;
+}
+
 // ─── Search (Ticket 5 Part 5) ──────────────────────────────────────────────
 
 export type SearchScope = 'case' | 'unit' | 'all';
@@ -798,6 +867,50 @@ export async function renderTemplate(
 	return data as RenderTemplateResponse;
 }
 
+/** Ticket 20: Render template to PDF (download) */
+export async function renderTemplatePdf(
+	caseId: string,
+	templateId: string,
+	token: string,
+	opts?: {
+		mergeOverrides?: { case?: Record<string, unknown>; agency?: Record<string, unknown> };
+		options?: { includeDeleted?: boolean };
+		caseNumber?: string;
+	}
+): Promise<void> {
+	const body: { templateId: string; mergeOverrides?: unknown; options?: unknown } = { templateId: templateId.trim() };
+	if (opts?.mergeOverrides) body.mergeOverrides = opts.mergeOverrides;
+	if (opts?.options) body.options = opts.options;
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/templates/render-pdf`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(body)
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `PDF render failed (${res.status})`);
+	}
+	const blob = await res.blob();
+	const contentDisposition = res.headers.get('Content-Disposition');
+	let filename = `Rendered_Template_${caseId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.pdf`;
+	if (contentDisposition) {
+		const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+		if (match) filename = match[1].trim();
+	} else if (opts?.caseNumber) {
+		const safe = (opts.caseNumber || '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'case';
+		filename = `Rendered_Template_${safe}_${new Date().toISOString().slice(0, 10)}.pdf`;
+	}
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
 export interface WarrantDraftCitation {
 	claim: string;
 	evidenceItemIds: string[];
@@ -820,6 +933,58 @@ export interface WarrantDraftResult {
 		missingInfoQuestions: string[];
 	};
 	model: { provider: string; model: string };
+}
+
+/** Ticket 22: AI Case Summary Generator */
+export interface CaseSummaryEvidenceItem {
+	id: string;
+	kind: 'timeline_entry' | 'case_file';
+	sourceId: string;
+	type: string;
+	createdAt: string;
+	createdBy?: string;
+	excerpt: string;
+}
+
+export interface CaseSummaryResult {
+	caseId: string;
+	generatedAt: string;
+	params: { maxSources: number; maxTextPerSource: number };
+	evidencePack: { packVersion: number; items: CaseSummaryEvidenceItem[] };
+	summary: {
+		primarySuspects: string[];
+		keyEvents: string[];
+		evidenceHighlights: string[];
+		recommendedNextSteps: string[];
+		openQuestions: string[];
+	};
+	citations: Array<{
+		evidenceItemIds: string[];
+		note?: string;
+	}>;
+}
+
+export async function requestCaseSummary(
+	caseId: string,
+	token: string,
+	opts?: { maxSources?: number; maxTextPerSource?: number }
+): Promise<CaseSummaryResult> {
+	const body: Record<string, unknown> = {};
+	if (opts?.maxSources != null) body.maxSources = opts.maxSources;
+	if (opts?.maxTextPerSource != null) body.maxTextPerSource = opts.maxTextPerSource;
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/ai/case-summary`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(Object.keys(body).length ? body : {})
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Case summary failed (${res.status})`);
+	}
+	return data as CaseSummaryResult;
 }
 
 export async function requestAiWarrantDraft(
@@ -881,6 +1046,40 @@ export async function downloadWarrantPacket(
 	} else if (opts?.caseNumber) {
 		const safe = (opts.caseNumber || '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'case';
 		filename = `Warrant_Packet_${safe}_${new Date().toISOString().slice(0, 10)}.html`;
+	}
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	a.click();
+	URL.revokeObjectURL(url);
+}
+
+/** Ticket 20: Download warrant packet as PDF */
+export async function downloadWarrantPacketPdf(
+	caseId: string,
+	token: string,
+	opts?: { includeDeleted?: boolean; caseNumber?: string }
+): Promise<void> {
+	const sp = new URLSearchParams();
+	sp.set('format', 'pdf');
+	if (opts?.includeDeleted) sp.set('includeDeleted', 'true');
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/exports/warrant-packet?${sp}`, {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `PDF download failed (${res.status})`);
+	}
+	const blob = await res.blob();
+	const contentDisposition = res.headers.get('Content-Disposition');
+	let filename = `Warrant_Packet_${caseId.slice(0, 8)}_${new Date().toISOString().slice(0, 10)}.pdf`;
+	if (contentDisposition) {
+		const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+		if (match) filename = match[1].trim();
+	} else if (opts?.caseNumber) {
+		const safe = (opts.caseNumber || '').replace(/[^a-zA-Z0-9_-]/g, '_') || 'case';
+		filename = `Warrant_Packet_${safe}_${new Date().toISOString().slice(0, 10)}.pdf`;
 	}
 	const url = URL.createObjectURL(blob);
 	const a = document.createElement('a');

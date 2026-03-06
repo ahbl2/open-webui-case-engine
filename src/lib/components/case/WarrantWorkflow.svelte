@@ -4,15 +4,19 @@
 	import {
 		listTemplates,
 		renderTemplate,
+		renderTemplatePdf,
 		requestAiWarrantDraft,
+		requestCaseSummary,
 		downloadWarrantPacket,
+		downloadWarrantPacketPdf,
 		listWarrantDrafts,
 		createWarrantDraft,
 		getWarrantDraft,
 		createWarrantDraftVersion,
 		type TemplateMeta,
 		type WarrantDraftResult,
-		type WarrantDraftItem
+		type WarrantDraftItem,
+		type CaseSummaryResult
 	} from '$lib/apis/caseEngine';
 
 	export let caseId: string;
@@ -61,9 +65,17 @@
 	// Export
 	let exportStatus: 'idle' | 'running' | 'done' | 'error' = 'idle';
 	let exportError: string | null = null;
+	let downloadingTemplatePdf = false;
+	let downloadingPacketPdf = false;
 
 	// Admin
 	let includeDeleted = false;
+
+	// Ticket 22: Case Summary
+	let caseSummaryStatus: 'idle' | 'running' | 'done' | 'error' = 'idle';
+	let caseSummaryError: string | null = null;
+	let caseSummaryResult: CaseSummaryResult | null = null;
+	let caseSummaryOpen = false;
 
 	onMount(() => {
 		loadTemplates();
@@ -328,11 +340,192 @@
 		window.open(url, '_blank');
 		setTimeout(() => URL.revokeObjectURL(url), 2000);
 	}
+
+	async function handleDownloadTemplatePdf() {
+		if (!selectedTemplateId || !renderedHtml) return;
+		downloadingTemplatePdf = true;
+		try {
+			const mergeOverrides = {
+				case: {
+					affiant_name: affiantName,
+					affiant_badge: affiantBadge,
+					target_location: targetLocation,
+					requested_items: requestedItemsText,
+					probable_cause: probableCauseText
+				}
+			};
+			await renderTemplatePdf(caseId, selectedTemplateId, token, {
+				mergeOverrides,
+				options: { includeDeleted: isAdmin && includeDeleted },
+				caseNumber
+			});
+			toast.success('Template PDF downloaded');
+		} catch (e) {
+			toast.error((e as Error)?.message ?? 'PDF download failed');
+		} finally {
+			downloadingTemplatePdf = false;
+		}
+	}
+
+	async function handleDownloadPacketPdf() {
+		downloadingPacketPdf = true;
+		try {
+			await downloadWarrantPacketPdf(caseId, token, {
+				includeDeleted: isAdmin && includeDeleted,
+				caseNumber
+			});
+			toast.success('Warrant packet PDF downloaded');
+		} catch (e) {
+			toast.error((e as Error)?.message ?? 'PDF download failed');
+		} finally {
+			downloadingPacketPdf = false;
+		}
+	}
+
+	async function handleGenerateCaseSummary() {
+		caseSummaryStatus = 'running';
+		caseSummaryError = null;
+		caseSummaryResult = null;
+		caseSummaryOpen = true;
+		try {
+			caseSummaryResult = await requestCaseSummary(caseId, token);
+			caseSummaryStatus = 'done';
+			toast.success('Case summary generated');
+		} catch (e) {
+			caseSummaryError = (e as Error)?.message ?? 'Summary failed';
+			caseSummaryStatus = 'error';
+		}
+	}
+
+	function getEvidenceById(id: string): { excerpt: string; type: string } | null {
+		const ev = caseSummaryResult?.evidencePack?.items?.find((e) => e.id === id);
+		return ev ? { excerpt: ev.excerpt, type: ev.kind } : null;
+	}
 </script>
 
 <div class="flex flex-col gap-4 p-4">
 	<div class="text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-800 rounded px-3 py-2 text-sm">
 		Workflow is not saved to the case. Save drafts to persist your work. Copy or export outputs as needed.
+	</div>
+
+	<!-- Ticket 22: Case Summary -->
+	<div class="rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-900/30 overflow-hidden">
+		<button
+			type="button"
+			class="w-full flex items-center justify-between px-3 py-2 text-left hover:bg-gray-100 dark:hover:bg-gray-800/50"
+			on:click={() => (caseSummaryOpen = !caseSummaryOpen)}
+		>
+			<span class="font-medium">Case Summary</span>
+			<span class="text-sm text-gray-500">AI-generated structured summary from timeline + evidence</span>
+			<span class="text-gray-500">{caseSummaryOpen ? '▼' : '▶'}</span>
+		</button>
+		{#if caseSummaryOpen}
+			<div class="px-3 pb-3 pt-1 border-t border-gray-200 dark:border-gray-700">
+				<button
+					type="button"
+					class="rounded bg-blue-600 text-white px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-50"
+					on:click={handleGenerateCaseSummary}
+					disabled={caseSummaryStatus === 'running'}
+				>
+					{caseSummaryStatus === 'running' ? 'Generating…' : 'Generate Case Summary'}
+				</button>
+				{#if caseSummaryError}
+					<div class="mt-2 text-sm text-red-600 dark:text-red-400">{caseSummaryError}</div>
+				{/if}
+				{#if caseSummaryResult}
+					{@const hasContent = (caseSummaryResult.summary?.primarySuspects?.length ?? 0) > 0 || (caseSummaryResult.summary?.keyEvents?.length ?? 0) > 0 || (caseSummaryResult.summary?.evidenceHighlights?.length ?? 0) > 0 || (caseSummaryResult.summary?.recommendedNextSteps?.length ?? 0) > 0 || (caseSummaryResult.summary?.openQuestions?.length ?? 0) > 0 || (caseSummaryResult.citations?.length ?? 0) > 0}
+					<div class="mt-4 space-y-4 text-sm">
+						{#if !hasContent}
+							<div class="text-gray-500 italic">No summary content returned.</div>
+						{/if}
+						{#if caseSummaryResult.summary.primarySuspects?.length}
+							<div>
+								<h4 class="font-medium text-gray-700 dark:text-gray-300 mb-1">Primary Suspects</h4>
+								<ul class="list-disc list-inside space-y-0.5 text-gray-600 dark:text-gray-400">
+									{#each caseSummaryResult.summary.primarySuspects as s}
+										<li>{s}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+						{#if caseSummaryResult.summary.keyEvents?.length}
+							<div>
+								<h4 class="font-medium text-gray-700 dark:text-gray-300 mb-1">Key Events</h4>
+								<ul class="list-disc list-inside space-y-0.5 text-gray-600 dark:text-gray-400">
+									{#each caseSummaryResult.summary.keyEvents as e}
+										<li>{e}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+						{#if caseSummaryResult.summary.evidenceHighlights?.length}
+							<div>
+								<h4 class="font-medium text-gray-700 dark:text-gray-300 mb-1">Evidence Highlights</h4>
+								<ul class="list-disc list-inside space-y-0.5 text-gray-600 dark:text-gray-400">
+									{#each caseSummaryResult.summary.evidenceHighlights as h}
+										<li>{h}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+						{#if caseSummaryResult.summary.recommendedNextSteps?.length}
+							<div>
+								<h4 class="font-medium text-gray-700 dark:text-gray-300 mb-1">Recommended Next Steps</h4>
+								<ul class="list-disc list-inside space-y-0.5 text-gray-600 dark:text-gray-400">
+									{#each caseSummaryResult.summary.recommendedNextSteps as n}
+										<li>{n}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+						{#if caseSummaryResult.summary.openQuestions?.length}
+							<div>
+								<h4 class="font-medium text-gray-700 dark:text-gray-300 mb-1">Open Questions</h4>
+								<ul class="list-disc list-inside space-y-0.5 text-gray-600 dark:text-gray-400">
+									{#each caseSummaryResult.summary.openQuestions as q}
+										<li>{q}</li>
+									{/each}
+								</ul>
+							</div>
+						{/if}
+						{#if caseSummaryResult.citations?.length}
+							<div>
+								<h4 class="font-medium text-gray-700 dark:text-gray-300 mb-1">Citations</h4>
+								<div class="space-y-2">
+									{#each caseSummaryResult.citations as cit}
+										<details class="rounded bg-gray-100 dark:bg-gray-800 overflow-hidden">
+											<summary class="px-2 py-1.5 cursor-pointer list-none flex items-center gap-1 flex-wrap">
+												<span class="text-gray-500 select-none">▸</span>
+												{#each cit.evidenceItemIds as eid}
+													{@const ev = getEvidenceById(eid)}
+													<span class="text-blue-600 dark:text-blue-400 font-mono text-xs">{eid}</span>
+													{#if ev}
+														<span class="text-xs text-gray-500">({ev.type})</span>
+													{/if}
+												{/each}
+												{#if cit.note}
+													<span class="text-gray-500">— {cit.note}</span>
+												{/if}
+											</summary>
+											<div class="px-2 pb-2 pt-0 text-xs text-gray-600 dark:text-gray-400 space-y-1 border-t border-gray-200 dark:border-gray-700 mt-1">
+												{#each cit.evidenceItemIds as eid}
+													{@const ev = getEvidenceById(eid)}
+													{#if ev}
+														<div>
+															<span class="font-mono text-gray-500">{eid}:</span> {ev.excerpt}
+														</div>
+													{/if}
+												{/each}
+											</div>
+										</details>
+									{/each}
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
+			</div>
+		{/if}
 	</div>
 
 	{#if rbacDenied}
@@ -619,7 +812,7 @@
 							sandbox="allow-same-origin"
 						></iframe>
 					</div>
-					<div class="flex gap-2">
+					<div class="flex gap-2 flex-wrap">
 						<button
 							type="button"
 							class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800"
@@ -633,6 +826,14 @@
 							on:click={downloadRenderedTemplate}
 						>
 							Download rendered HTML
+						</button>
+						<button
+							type="button"
+							class="rounded bg-blue-600 text-white px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-50"
+							on:click={handleDownloadTemplatePdf}
+							disabled={downloadingTemplatePdf}
+						>
+							{downloadingTemplatePdf ? 'Generating…' : 'Download Rendered Template (PDF)'}
 						</button>
 					</div>
 				{/if}
@@ -674,6 +875,14 @@
 					disabled={exportStatus === 'running'}
 				>
 					{exportStatus === 'running' ? 'Downloading…' : 'Download Warrant Packet (HTML)'}
+				</button>
+				<button
+					type="button"
+					class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
+					on:click={handleDownloadPacketPdf}
+					disabled={downloadingPacketPdf}
+				>
+					{downloadingPacketPdf ? 'Generating…' : 'Download Warrant Packet (PDF)'}
 				</button>
 				{#if renderedHtml}
 					<p class="text-sm text-gray-600 dark:text-gray-400">
