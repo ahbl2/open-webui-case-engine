@@ -6,6 +6,8 @@
 		downloadCaseFile,
 		extractCaseFileText,
 		getCaseFileText,
+		addFileTag,
+		removeFileTag,
 		type CaseFile
 	} from '$lib/apis/caseEngine';
 
@@ -20,6 +22,8 @@
 	let viewTextContent: string | null = null;
 	let viewTextLoading = false;
 	let fileInput: HTMLInputElement;
+	let addingTagFileId: string | null = null;
+	let newTagInput = '';
 
 	async function loadFiles() {
 		loading = true;
@@ -97,6 +101,39 @@
 			toast.error(e?.message ?? 'Download failed');
 		}
 	}
+
+	// Ticket 25: Evidence tags
+	function startAddTag(f: CaseFile) {
+		addingTagFileId = f.id;
+		newTagInput = '';
+	}
+
+	function cancelAddTag() {
+		addingTagFileId = null;
+		newTagInput = '';
+	}
+
+	async function submitAddTag(f: CaseFile) {
+		const t = newTagInput.trim().toLowerCase().replace(/\s+/g, ' ');
+		if (!t) return;
+		try {
+			await addFileTag(caseId, f.id, t, token);
+			toast.success('Tag added');
+			f.tags = [...(f.tags ?? []), t];
+			cancelAddTag();
+		} catch (e: any) {
+			toast.error(e?.message ?? 'Add tag failed');
+		}
+	}
+
+	async function handleRemoveTag(f: CaseFile, tag: string) {
+		try {
+			await removeFileTag(caseId, f.id, tag, token);
+			f.tags = (f.tags ?? []).filter((x) => x !== tag);
+		} catch (e: any) {
+			toast.error(e?.message ?? 'Remove tag failed');
+		}
+	}
 </script>
 
 <div class="flex flex-col gap-4 p-4">
@@ -128,13 +165,14 @@
 		<div class="flex flex-col gap-2">
 			{#each files as f (f.id)}
 				<div
-					class="flex flex-wrap items-center gap-2 rounded border border-gray-200 dark:border-gray-700 p-2 text-sm"
+					class="flex flex-col gap-1 rounded border border-gray-200 dark:border-gray-700 p-2 text-sm"
 				>
-					<span class="font-medium truncate flex-1 min-w-0">{f.original_filename}</span>
-					<span class="text-gray-500 text-xs shrink-0"
-						>{f.file_size_bytes != null ? `${Math.round(f.file_size_bytes / 1024)} KB` : ''}</span
-					>
-					<button
+					<div class="flex flex-wrap items-center gap-2">
+						<span class="font-medium truncate flex-1 min-w-0">{f.original_filename}</span>
+						<span class="text-gray-500 text-xs shrink-0"
+							>{f.file_size_bytes != null ? `${Math.round(f.file_size_bytes / 1024)} KB` : ''}</span
+						>
+						<button
 						type="button"
 						class="text-blue-600 dark:text-blue-400 hover:underline text-xs"
 						on:click={() => handleDownload(f)}
@@ -156,6 +194,58 @@
 					>
 						View extracted text
 					</button>
+					</div>
+					<!-- Ticket 25: Tags -->
+					{#if (f.tags?.length ?? 0) > 0 || addingTagFileId === f.id}
+						<div class="flex flex-wrap items-center gap-1">
+							{#each f.tags ?? [] as tag (tag)}
+								<span
+									class="inline-flex items-center gap-0.5 rounded-full bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 text-xs"
+								>
+									{tag}
+									<button
+										type="button"
+										class="hover:bg-gray-300 dark:hover:bg-gray-600 rounded p-0.5"
+										on:click={() => handleRemoveTag(f, tag)}
+										aria-label="Remove tag"
+									>×</button>
+								</span>
+							{/each}
+							{#if addingTagFileId === f.id}
+								<form
+									class="inline-flex items-center gap-1"
+									on:submit|preventDefault={() => submitAddTag(f)}
+								>
+									<input
+										type="text"
+										bind:value={newTagInput}
+										placeholder="Add tag"
+										class="rounded border border-gray-300 dark:border-gray-600 bg-transparent px-1.5 py-0.5 text-xs w-24"
+										on:blur={() => newTagInput || cancelAddTag()}
+										on:keydown={(e) => e.key === 'Escape' && cancelAddTag()}
+									/>
+									<button type="submit" class="text-blue-600 dark:text-blue-400 text-xs">Add</button>
+									<button type="button" class="text-gray-500 text-xs" on:click={cancelAddTag}>Cancel</button>
+								</form>
+							{:else}
+								<button
+									type="button"
+									class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-xs"
+									on:click={() => startAddTag(f)}
+								>
+									+ Add tag
+								</button>
+							{/if}
+						</div>
+					{:else}
+						<button
+							type="button"
+							class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-xs self-start"
+							on:click={() => startAddTag(f)}
+						>
+							+ Add tag
+						</button>
+					{/if}
 				</div>
 			{/each}
 		</div>

@@ -8,6 +8,7 @@
 
 	let q = '';
 	let scopeSelect: 'case' | 'CID' | 'SIU' | 'all' = 'case';
+	let tagFilter = '';
 	let results: SearchResultItem[] = [];
 	let searching = false;
 	let showResults = false;
@@ -37,12 +38,13 @@
 		searching = true;
 		showResults = true;
 		try {
-			const params: { q: string; scope: SearchScope; caseId?: string; unit?: 'CID' | 'SIU' } = {
+			const params: { q: string; scope: SearchScope; caseId?: string; unit?: 'CID' | 'SIU'; tag?: string } = {
 				q: trimmed,
 				scope
 			};
 			if (scope === 'case' && caseId) params.caseId = caseId;
 			if (scope === 'unit' && unit) params.unit = unit;
+			if (scope === 'case' && tagFilter.trim()) params.tag = tagFilter.trim();
 			const res = await searchCases(params, token);
 			results = res.results ?? [];
 			dispatch('results', results);
@@ -87,6 +89,16 @@
 				placeholder="Search cases..."
 				class="rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1 text-xs w-28 sm:w-36 min-w-0"
 			/>
+			{#if scopeSelect === 'case'}
+				<input
+					type="text"
+					bind:value={tagFilter}
+					on:keydown={handleKeydown}
+					placeholder="Tag filter"
+					class="rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1 text-xs w-20 min-w-0"
+					title="Optional: filter by tag (case scope only)"
+				/>
+			{/if}
 			<select
 				bind:value={scopeSelect}
 				class="rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1 text-xs"

@@ -105,6 +105,8 @@ export interface CaseContextEntry {
 	text_original: string;
 	created_by: string;
 	created_at: string;
+	/** Ticket 25: Evidence tags */
+	tags?: string[];
 }
 
 export interface CaseContextResponse {
@@ -204,6 +206,8 @@ export interface CaseFile {
 	file_size_bytes: number;
 	uploaded_by: string;
 	uploaded_at: string;
+	/** Ticket 25: Evidence tags */
+	tags?: string[];
 	[key: string]: unknown;
 }
 
@@ -1266,10 +1270,84 @@ export async function restoreWarrantDraft(
 	return data as WarrantDraftItem;
 }
 
+// ─── Ticket 25: Evidence tags ───────────────────────────────────────────────
+
+/** Add tag to timeline entry */
+export async function addEntryTag(
+	caseId: string,
+	entryId: string,
+	tag: string,
+	token: string
+): Promise<void> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries/${entryId}/tags`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ tag })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Add tag failed (${res.status})`);
+}
+
+/** Remove tag from timeline entry */
+export async function removeEntryTag(
+	caseId: string,
+	entryId: string,
+	tag: string,
+	token: string
+): Promise<void> {
+	const enc = encodeURIComponent(tag);
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries/${entryId}/tags/${enc}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (res.status === 204) return;
+	const data = await res.json().catch(() => ({}));
+	throw new Error((data as { error?: string })?.error ?? `Remove tag failed (${res.status})`);
+}
+
+/** Add tag to case file */
+export async function addFileTag(
+	caseId: string,
+	fileId: string,
+	tag: string,
+	token: string
+): Promise<void> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/files/${fileId}/tags`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ tag })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Add tag failed (${res.status})`);
+}
+
+/** Remove tag from case file */
+export async function removeFileTag(
+	caseId: string,
+	fileId: string,
+	tag: string,
+	token: string
+): Promise<void> {
+	const enc = encodeURIComponent(tag);
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/files/${fileId}/tags/${enc}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (res.status === 204) return;
+	const data = await res.json().catch(() => ({}));
+	throw new Error((data as { error?: string })?.error ?? `Remove tag failed (${res.status})`);
+}
+
 // ─── Search (Ticket 5 Part 5) ──────────────────────────────────────────────
 
 export async function searchCases(
-	params: { q: string; scope: SearchScope; caseId?: string; unit?: 'CID' | 'SIU' },
+	params: { q: string; scope: SearchScope; caseId?: string; unit?: 'CID' | 'SIU'; tag?: string },
 	token: string
 ): Promise<SearchResponse> {
 	const sp = new URLSearchParams();
@@ -1277,6 +1355,7 @@ export async function searchCases(
 	sp.set('scope', params.scope);
 	if (params.caseId) sp.set('caseId', params.caseId);
 	if (params.unit) sp.set('unit', params.unit);
+	if (params.tag?.trim()) sp.set('tag', params.tag.trim());
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/search?${sp}`, {
 		headers: {
 			'Content-Type': 'application/json',
