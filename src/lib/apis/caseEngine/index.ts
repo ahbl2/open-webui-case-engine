@@ -649,6 +649,64 @@ export async function getCaseGraph(
   return data as CaseGraphResponse;
 }
 
+// ─── Ticket 23: Timeline Intelligence ───────────────────────────────────────
+
+export interface TimelineIntelligenceParams {
+	q?: string;
+	person?: string;
+	phone?: string;
+	location?: string;
+	type?: string;
+	tag?: string;
+	startDate?: string;
+	endDate?: string;
+	cluster?: 'none' | 'day' | 'week';
+}
+
+export interface TimelineIntelligenceEntry {
+	id: string;
+	occurred_at: string;
+	type: string;
+	location_text: string | null;
+	text_original: string;
+	text_cleaned: string | null;
+	cluster_key?: string;
+}
+
+export interface TimelineIntelligenceResponse {
+	caseId: string;
+	entries: TimelineIntelligenceEntry[];
+	stats: { returnedEntries: number; totalMatches?: number };
+	cluster?: string;
+}
+
+export async function getTimelineIntelligence(
+	caseId: string,
+	token: string,
+	params?: TimelineIntelligenceParams
+): Promise<TimelineIntelligenceResponse> {
+	const sp = new URLSearchParams();
+	if (params?.q) sp.set('q', params.q);
+	if (params?.person) sp.set('person', params.person);
+	if (params?.phone) sp.set('phone', params.phone);
+	if (params?.location) sp.set('location', params.location);
+	if (params?.type) sp.set('type', params.type);
+	if (params?.tag) sp.set('tag', params.tag);
+	if (params?.startDate) sp.set('startDate', params.startDate);
+	if (params?.endDate) sp.set('endDate', params.endDate);
+	if (params?.cluster) sp.set('cluster', params.cluster);
+	const qs = sp.toString();
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/timeline/intelligence${qs ? `?${qs}` : ''}`;
+	const res = await fetch(url, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Timeline intelligence failed (${res.status})`);
+	}
+	return data as TimelineIntelligenceResponse;
+}
+
 // ─── Search (Ticket 5 Part 5) ──────────────────────────────────────────────
 
 export type SearchScope = 'case' | 'unit' | 'all';

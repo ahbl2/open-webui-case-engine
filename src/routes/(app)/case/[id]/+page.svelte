@@ -10,12 +10,14 @@
 	import CaseCrossCaseSearch from '$lib/components/case/CaseCrossCaseSearch.svelte';
 	import CaseIntegrityTab from '$lib/components/case/CaseIntegrityTab.svelte';
 	import WarrantWorkflow from '$lib/components/case/WarrantWorkflow.svelte';
+	import CaseGraph from '$lib/components/case/CaseGraph.svelte';
+	import ActionRouterPanel from '$lib/components/case/ActionRouterPanel.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import { caseEngineUser } from '$lib/stores';
 
 	$: caseId = $page.params.id;
 
-	let activeTab: 'files' | 'ai-intake' | 'ask' | 'export' | 'unit-search' | 'integrity' | 'warrants' = 'files';
+	let activeTab: 'files' | 'ai-intake' | 'ask' | 'export' | 'unit-search' | 'integrity' | 'warrants' | 'graph' | 'actions' = 'files';
 	let caseInfo: { case_number: string; title: string } | null = null;
 	let loading = true;
 	let notFound = false;
@@ -143,6 +145,24 @@
 				>
 					Warrants
 				</button>
+				<button
+					type="button"
+					class="px-2 py-1.5 text-sm rounded {activeTab === 'graph'
+						? 'bg-gray-200 dark:bg-gray-700 font-medium'
+						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+					on:click={() => (activeTab = 'graph')}
+				>
+					Graph
+				</button>
+				<button
+					type="button"
+					class="px-2 py-1.5 text-sm rounded {activeTab === 'actions'
+						? 'bg-gray-200 dark:bg-gray-700 font-medium'
+						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+					on:click={() => (activeTab = 'actions')}
+				>
+					Actions
+				</button>
 			</div>
 			{#if activeTab === 'files'}
 				<CaseFilesTab {caseId} token={$caseEngineToken} />
@@ -161,6 +181,14 @@
 					caseNumber={caseInfo?.case_number ?? ''}
 					isAdmin={$caseEngineUser?.role === 'ADMIN'}
 				/>
+			{:else if activeTab === 'graph'}
+				<CaseGraph
+					{caseId}
+					token={$caseEngineToken}
+					isAdmin={$caseEngineUser?.role === 'ADMIN'}
+				/>
+			{:else if activeTab === 'actions'}
+				<ActionRouterPanel {caseId} token={$caseEngineToken} />
 			{:else}
 				<CaseAiIntakeTab {caseId} token={$caseEngineToken} />
 			{/if}

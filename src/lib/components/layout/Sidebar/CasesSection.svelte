@@ -1,6 +1,7 @@
 <script lang="ts">
 	import {
 		caseEngineToken,
+		caseEngineUser,
 		activeCaseId,
 		activeCaseNumber,
 		unitFilter,
@@ -27,6 +28,16 @@
 			(c.title ?? '').toLowerCase().includes(q)
 		);
 	});
+
+	// If we have cases but unit filter hides them all, reset to ALL so user sees their cases
+	$: if (
+		cases.length > 0 &&
+		filteredCases.length === 0 &&
+		!searchQuery.trim() &&
+		$unitFilter !== 'ALL'
+	) {
+		unitFilter.set('ALL');
+	}
 
 	async function loadCases() {
 		const token = $caseEngineToken;
@@ -89,6 +100,19 @@
 		// Reactive block will trigger fetchContextForActiveCase
 	}
 
+	function disconnect() {
+		if (!confirm('Disconnect from Case Engine? You will need to sign in again to view cases.')) {
+			return;
+		}
+		caseEngineToken.set(null);
+		caseEngineUser.set(null);
+		activeCaseId.set(null);
+		activeCaseNumber.set(null);
+		caseContext.set(null);
+		aiCaseContext.set(null);
+		cases = [];
+	}
+
 	$: activeCase = cases.find((c) => c.id === $activeCaseId);
 </script>
 
@@ -110,6 +134,19 @@
 				Connect to Case Engine
 			</button>
 		{:else}
+			<div class="flex items-center justify-between gap-1">
+				<span class="text-xs text-gray-500 truncate" title="Connected as {$caseEngineUser?.name ?? 'user'}">
+					{$caseEngineUser?.name ?? 'Connected'}
+				</span>
+				<button
+					type="button"
+					class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 shrink-0"
+					on:click={disconnect}
+					title="Disconnect and switch account"
+				>
+					Disconnect
+				</button>
+			</div>
 			<div class="flex items-center gap-1">
 				<select
 					bind:value={$unitFilter}
