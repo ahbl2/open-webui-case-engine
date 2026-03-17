@@ -9,15 +9,18 @@
 	import CaseExportTab from '$lib/components/case/CaseExportTab.svelte';
 	import CaseCrossCaseSearch from '$lib/components/case/CaseCrossCaseSearch.svelte';
 	import CaseIntegrityTab from '$lib/components/case/CaseIntegrityTab.svelte';
+	import CaseWorkflowTab from '$lib/components/case/CaseWorkflowTab.svelte';
 	import WarrantWorkflow from '$lib/components/case/WarrantWorkflow.svelte';
 	import CaseGraph from '$lib/components/case/CaseGraph.svelte';
 	import ActionRouterPanel from '$lib/components/case/ActionRouterPanel.svelte';
+	import OperationalWorkspace from '$lib/components/operations/OperationalWorkspace.svelte';
+	import NarrativeWorkspacePanel from '$lib/components/case/NarrativeWorkspacePanel.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import { caseEngineUser } from '$lib/stores';
 
 	$: caseId = $page.params.id;
 
-	let activeTab: 'files' | 'ai-intake' | 'ask' | 'export' | 'unit-search' | 'integrity' | 'warrants' | 'graph' | 'actions' = 'files';
+	let activeTab: 'files' | 'ai-intake' | 'ask' | 'export' | 'unit-search' | 'integrity' | 'workflow' | 'warrants' | 'graph' | 'actions' | 'operations' | 'narrative' = 'files';
 	let caseInfo: { case_number: string; title: string } | null = null;
 	let loading = true;
 	let notFound = false;
@@ -138,6 +141,15 @@
 				</button>
 				<button
 					type="button"
+					class="px-2 py-1.5 text-sm rounded {activeTab === 'workflow'
+						? 'bg-gray-200 dark:bg-gray-700 font-medium'
+						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+					on:click={() => (activeTab = 'workflow')}
+				>
+					Workflow
+				</button>
+				<button
+					type="button"
 					class="px-2 py-1.5 text-sm rounded {activeTab === 'warrants'
 						? 'bg-gray-200 dark:bg-gray-700 font-medium'
 						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
@@ -163,6 +175,24 @@
 				>
 					Actions
 				</button>
+				<button
+					type="button"
+					class="px-2 py-1.5 text-sm rounded {activeTab === 'operations'
+						? 'bg-gray-200 dark:bg-gray-700 font-medium'
+						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+					on:click={() => (activeTab = 'operations')}
+				>
+					Operations
+				</button>
+				<button
+					type="button"
+					class="px-2 py-1.5 text-sm rounded {activeTab === 'narrative'
+						? 'bg-gray-200 dark:bg-gray-700 font-medium'
+						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
+					on:click={() => (activeTab = 'narrative')}
+				>
+					Narrative
+				</button>
 			</div>
 			{#if activeTab === 'files'}
 				<CaseFilesTab {caseId} token={$caseEngineToken} />
@@ -174,6 +204,8 @@
 				<CaseCrossCaseSearch token={$caseEngineToken} />
 			{:else if activeTab === 'integrity'}
 				<CaseIntegrityTab {caseId} token={$caseEngineToken} isAdmin={$caseEngineUser?.role === 'ADMIN'} />
+			{:else if activeTab === 'workflow'}
+				<CaseWorkflowTab {caseId} token={$caseEngineToken} isAdmin={$caseEngineUser?.role === 'ADMIN'} />
 			{:else if activeTab === 'warrants'}
 				<WarrantWorkflow
 					{caseId}
@@ -189,6 +221,14 @@
 				/>
 			{:else if activeTab === 'actions'}
 				<ActionRouterPanel {caseId} token={$caseEngineToken} />
+			{:else if activeTab === 'operations'}
+				<OperationalWorkspace
+					{caseId}
+					token={$caseEngineToken}
+					currentUserId={$caseEngineUser?.id ?? ''}
+				/>
+			{:else if activeTab === 'narrative'}
+				<NarrativeWorkspacePanel {caseId} token={$caseEngineToken} />
 			{:else}
 				<CaseAiIntakeTab {caseId} token={$caseEngineToken} />
 			{/if}

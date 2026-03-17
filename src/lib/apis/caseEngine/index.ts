@@ -1084,6 +1084,140 @@ export async function requestAiWarrantDraft(
 	return data as WarrantDraftResult;
 }
 
+/** P15-07: Narrative timeline (Phase 15). */
+export interface NarrativeEvent {
+	event_id: string;
+	case_id: string;
+	event_type: string;
+	occurred_at: string;
+	title: string | null;
+	description: string | null;
+	source_type: string;
+	source_id: string;
+	citations: Array<{ source_type: string; source_id: string }>;
+}
+export async function getNarrativeTimeline(
+	caseId: string,
+	token: string
+): Promise<{ case_id: string; events: NarrativeEvent[] }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/narrative/timeline`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Narrative timeline failed (${res.status})`);
+	return data as { case_id: string; events: NarrativeEvent[] };
+}
+
+/** P15-07: Warrant narrative proposal (Phase 15). */
+export interface WarrantNarrativeSection {
+	section: string;
+	text: string;
+	citations: unknown[];
+}
+export async function postWarrantNarrativeProposal(
+	caseId: string,
+	token: string
+): Promise<{ case_id: string; proposal: { sections: WarrantNarrativeSection[] } }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/narrative/warrant-proposal`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Warrant proposal failed (${res.status})`);
+	return data as { case_id: string; proposal: { sections: WarrantNarrativeSection[] } };
+}
+
+/** P15-07: Exhibit list (Phase 15). */
+export interface ExhibitItem {
+	exhibit_id: string;
+	case_id: string;
+	title: string | null;
+	description: string | null;
+	source_type: string;
+	source_id: string;
+	occurred_at: string;
+	citations: unknown[];
+}
+export async function getExhibits(
+	caseId: string,
+	token: string
+): Promise<{ case_id: string; exhibits: ExhibitItem[] }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/exhibits`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Exhibits failed (${res.status})`);
+	return data as { case_id: string; exhibits: ExhibitItem[] };
+}
+
+/** P15-07: Prosecutor summary (Phase 15). */
+export interface ProsecutorSummarySection {
+	section: string;
+	text: string;
+	citations: unknown[];
+}
+export async function getProsecutorSummary(
+	caseId: string,
+	token: string
+): Promise<{ case_id: string; summary: { sections: ProsecutorSummarySection[] } }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/prosecutor-summary`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Prosecutor summary failed (${res.status})`);
+	return data as { case_id: string; summary: { sections: ProsecutorSummarySection[] } };
+}
+
+export type NarrativeExportFormat = 'json' | 'md' | 'html';
+const NARRATIVE_EXPORT_PATHS = [
+	'narrative-timeline',
+	'warrant-narrative',
+	'exhibits',
+	'prosecutor-summary',
+	'court-packet'
+] as const;
+
+/** P15-07: Download or open narrative/court export. */
+export async function fetchNarrativeExport(
+	caseId: string,
+	token: string,
+	path: (typeof NARRATIVE_EXPORT_PATHS)[number],
+	format: NarrativeExportFormat,
+	action: 'download' | 'open'
+): Promise<void> {
+	const sp = new URLSearchParams();
+	sp.set('format', format);
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/exports/${path}?${sp}`, {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `Export failed (${res.status})`);
+	}
+	const blob = await res.blob();
+	const contentType = res.headers.get('Content-Type') ?? '';
+	const contentDisposition = res.headers.get('Content-Disposition');
+	const ext = format === 'json' ? 'json' : format === 'md' ? 'md' : 'html';
+	const casePrefix = caseId.slice(0, 8);
+	let filename = `case-${casePrefix}-${path}.${ext}`;
+	if (contentDisposition) {
+		const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+		if (match) filename = match[1].trim();
+	}
+	const url = URL.createObjectURL(blob);
+	if (action === 'open' && (contentType.includes('html') || contentType.includes('markdown'))) {
+		window.open(url, '_blank', 'noopener');
+		// Revoke after a delay so the new tab can load
+		setTimeout(() => URL.revokeObjectURL(url), 5000);
+	} else {
+		const a = document.createElement('a');
+		a.href = url;
+		a.download = filename;
+		a.click();
+		URL.revokeObjectURL(url);
+	}
+}
+
 export async function downloadWarrantPacket(
 	caseId: string,
 	token: string,
@@ -1342,6 +1476,233 @@ export async function removeFileTag(
 	if (res.status === 204) return;
 	const data = await res.json().catch(() => ({}));
 	throw new Error((data as { error?: string })?.error ?? `Remove tag failed (${res.status})`);
+}
+
+// ─── P13-05: Workflow items (Phase 13) ──────────────────────────────────────
+
+export type WorkflowItemType = 'HYPOTHESIS' | 'GAP';
+export type WorkflowItemOrigin = 'INVESTIGATOR' | 'PROPOSAL';
+
+export interface WorkflowItemCitation {
+	source_type: string;
+	source_id: string;
+	note?: string;
+	[key: string]: unknown;
+}
+
+export interface WorkflowItem {
+	id: string;
+	case_id: string;
+	type: string;
+	title: string;
+	description: string | null;
+	status: string;
+	priority: number | null;
+	entity_type: string | null;
+	entity_normalized_id: string | null;
+	lead_id: string | null;
+	citations: WorkflowItemCitation[];
+	origin: WorkflowItemOrigin;
+	created_by: string;
+	created_at: string;
+	updated_at: string;
+	updated_by: string | null;
+	deleted_at: string | null;
+	deleted_by: string | null;
+}
+
+export interface WorkflowItemCreateInput {
+	type: WorkflowItemType;
+	title: string;
+	description?: string;
+	status?: string;
+	priority?: number;
+	entity_type?: string;
+	entity_normalized_id?: string;
+	citations?: WorkflowItemCitation[];
+}
+
+export interface WorkflowItemUpdateInput {
+	title?: string;
+	description?: string;
+	status?: string;
+	priority?: number;
+}
+
+export async function listWorkflowItems(
+	caseId: string,
+	token: string,
+	params?: { type?: WorkflowItemType; includeDeleted?: boolean; entityType?: string; entityNormalizedId?: string }
+): Promise<WorkflowItem[]> {
+	const sp = new URLSearchParams();
+	if (params?.type) sp.set('type', params.type);
+	if (params?.includeDeleted) sp.set('includeDeleted', 'true');
+	if (params?.entityType && params?.entityNormalizedId) {
+		sp.set('entity_type', params.entityType);
+		sp.set('entity_normalized_id', params.entityNormalizedId);
+	}
+	const qs = sp.toString();
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items${qs ? `?${qs}` : ''}`;
+	const res = await fetch(url, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to list workflow items (${res.status})`);
+	const items = (data as { workflow_items?: WorkflowItem[] }).workflow_items;
+	return Array.isArray(items) ? items : [];
+}
+
+export async function getWorkflowItem(
+	caseId: string,
+	workflowItemId: string,
+	token: string,
+	opts?: { includeDeleted?: boolean }
+): Promise<WorkflowItem> {
+	const sp = new URLSearchParams();
+	if (opts?.includeDeleted) sp.set('includeDeleted', 'true');
+	const qs = sp.toString();
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items/${workflowItemId}${qs ? `?${qs}` : ''}`;
+	const res = await fetch(url, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to get workflow item (${res.status})`);
+	return data as WorkflowItem;
+}
+
+export async function createWorkflowItem(
+	caseId: string,
+	token: string,
+	payload: WorkflowItemCreateInput
+): Promise<WorkflowItem> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(payload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to create workflow item (${res.status})`);
+	return data as WorkflowItem;
+}
+
+export async function updateWorkflowItem(
+	caseId: string,
+	workflowItemId: string,
+	token: string,
+	payload: WorkflowItemUpdateInput
+): Promise<WorkflowItem> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items/${workflowItemId}`, {
+		method: 'PATCH',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(payload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to update workflow item (${res.status})`);
+	return data as WorkflowItem;
+}
+
+export async function deleteWorkflowItem(
+	caseId: string,
+	workflowItemId: string,
+	token: string
+): Promise<WorkflowItem> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items/${workflowItemId}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to delete workflow item (${res.status})`);
+	return data as WorkflowItem;
+}
+
+export async function restoreWorkflowItem(
+	caseId: string,
+	workflowItemId: string,
+	token: string
+): Promise<WorkflowItem> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items/${workflowItemId}/restore`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Restore failed (${res.status})`);
+	return data as WorkflowItem;
+}
+
+export interface WorkflowProposal {
+	id: string;
+	case_id: string;
+	proposal_type: 'CREATE_HYPOTHESIS' | 'CREATE_GAP';
+	status: 'PENDING' | 'ACCEPTED' | 'REJECTED';
+	suggested_payload: {
+		type?: string;
+		title?: string;
+		description?: string;
+		status?: string;
+		priority?: number;
+		entity_type?: string | null;
+		entity_normalized_id?: string | null;
+		[key: string]: unknown;
+	} | null;
+	citations: Array<{ source_type: string; source_id: string; note?: string; [key: string]: unknown }>;
+	workflow_item_id: string | null;
+	created_by: string;
+	created_at: string;
+	resolved_at: string | null;
+	resolved_by: string | null;
+}
+
+/** List workflow proposals for a case. */
+export async function listWorkflowProposals(
+	caseId: string,
+	token: string,
+	params?: { status?: string }
+): Promise<WorkflowProposal[]> {
+	const sp = new URLSearchParams();
+	if (params?.status) sp.set('status', params.status);
+	const qs = sp.toString();
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-proposals${qs ? `?${qs}` : ''}`;
+	const res = await fetch(url, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to list workflow proposals (${res.status})`);
+	const items = (data as { workflow_proposals?: WorkflowProposal[] }).workflow_proposals;
+	return Array.isArray(items) ? items : [];
+}
+
+export async function acceptWorkflowProposal(
+	caseId: string,
+	proposalId: string,
+	token: string
+): Promise<{ proposal: WorkflowProposal; workflow_item: WorkflowItem }> {
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-proposals/${proposalId}/accept`;
+	const res = await fetch(url, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to accept proposal (${res.status})`);
+	return data as { proposal: WorkflowProposal; workflow_item: WorkflowItem };
+}
+
+export async function rejectWorkflowProposal(
+	caseId: string,
+	proposalId: string,
+	token: string,
+	reason?: string
+): Promise<WorkflowProposal> {
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-proposals/${proposalId}/reject`;
+	const body: { reason?: string } = {};
+	if (reason && reason.trim()) body.reason = reason.trim();
+	const res = await fetch(url, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(body)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to reject proposal (${res.status})`);
+	return data as WorkflowProposal;
 }
 
 // ─── Search (Ticket 5 Part 5) ──────────────────────────────────────────────
