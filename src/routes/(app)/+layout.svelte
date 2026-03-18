@@ -36,9 +36,13 @@
 		terminalServers,
 		showSearch,
 		showSidebar,
-		showControls,
-		mobile
-	} from '$lib/stores';
+	showControls,
+	mobile,
+	caseEngineAuthState,
+	caseModeActive
+} from '$lib/stores';
+	import { browserResolveOwuiAuth } from '$lib/apis/caseEngine';
+	import { resolveAuthStateDecision, blockedRedirectPath } from '$lib/utils/authStateDecision';
 
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
 	import SettingsModal from '$lib/components/chat/SettingsModal.svelte';
@@ -51,6 +55,9 @@
 	const i18n = getContext('i18n');
 
 	let loaded = false;
+	// P19-05: Guards app shell from rendering before Case Engine auth state is resolved.
+	// Remains false until an 'active' state is confirmed; prevents pre-redirect flash.
+	let ceAuthChecked = false;
 	let DB = null;
 	let localDBChats = [];
 
@@ -199,6 +206,46 @@
 		if (!['user', 'admin'].includes($user?.role)) {
 			return;
 		}
+
+		// P19-05: Resolve Case Engine authorization state from backend.
+		// ceAuthChecked stays false until an active state is confirmed, keeping the app
+		// shell hidden until we know the user is allowed in.
+		if (!$caseEngineAuthState && $user?.id) {
+			let resolvedState: string;
+			try {
+				const authResult = await browserResolveOwuiAuth({
+					owui_user_id: $user.id,
+					username_or_email: ($user as { email?: string }).email ?? $user.name ?? $user.id,
+					display_name: $user.name
+				});
+				caseEngineAuthState.set(authResult as import('$lib/stores').CaseEngineAuthState);
+				resolvedState = authResult.state;
+			} catch (err) {
+				// Backend unreachable — fail CLOSED: block the workspace.
+				console.error('[P19-05] Case Engine auth state resolution failed — blocking workspace:', err);
+				caseEngineAuthState.set({ state: 'unavailable', user: null, reason: 'backend_unreachable' });
+				resolvedState = 'unavailable';
+			}
+
+			const decision = resolveAuthStateDecision(resolvedState);
+			const redirectTo = blockedRedirectPath(decision);
+			if (redirectTo) {
+				await goto(redirectTo);
+				return;
+			}
+		} else if ($caseEngineAuthState) {
+			// Re-check on remount using cached state.
+			const decision = resolveAuthStateDecision($caseEngineAuthState.state);
+			const redirectTo = blockedRedirectPath(decision);
+			if (redirectTo) {
+				await goto(redirectTo);
+				return;
+			}
+		}
+
+		// Only reached when the user is confirmed active. Mark auth as checked so the
+		// app shell renders. ceAuthChecked=false keeps the shell hidden during the check.
+		ceAuthChecked = true;
 
 		clearChatInputStorage();
 		await Promise.all([
@@ -385,10 +432,16 @@
 		<div
 			class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 h-screen max-h-[100dvh] overflow-auto flex flex-row justify-end"
 		>
-			{#if !['user', 'admin'].includes($user?.role)}
-				<AccountPending />
-			{:else}
-				{#if localDBChats.length > 0}
+		{#if !['user', 'admin'].includes($user?.role)}
+			<AccountPending />
+		{:else if !ceAuthChecked}
+			<!-- P19-05: Case Engine auth state check in progress.
+			     App shell is hidden until active state is confirmed, preventing pre-redirect flash. -->
+			<div class="w-full h-full flex items-center justify-center">
+				<Spinner className="size-5" />
+			</div>
+		{:else}
+			{#if localDBChats.length > 0}
 					<div class="fixed w-full h-full flex z-50">
 						<div
 							class="absolute w-full h-full backdrop-blur-md bg-white/20 dark:bg-gray-900/50 flex justify-center"
@@ -443,7 +496,10 @@
 					</div>
 				{/if}
 
+				<!-- P19-06: Global sidebar is suppressed while inside the case workspace shell. -->
+			{#if !$caseModeActive}
 				<Sidebar />
+			{/if}
 
 				{#if loaded}
 					<slot />

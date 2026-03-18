@@ -109,7 +109,7 @@ export const currentChatPage = writable(1);
 export const isLastActiveTab = writable(true);
 export const playingNotificationSound = writable(false);
 
-// Case Engine (Ticket 5)
+// Case Engine (Ticket 5 / P19-05)
 export {
 	caseEngineToken,
 	caseEngineUser,
@@ -119,7 +119,19 @@ export {
 	unitFilter,
 	caseContext,
 	aiCaseContext,
-	isCaseEngineConnected
+	isCaseEngineConnected,
+	caseEngineAuthState,
+	caseModeActive,
+	activeCaseMeta,
+	activeThreadScope,
+	threadScopeError
+} from './caseEngine';
+export type {
+	CaseEngineAuthState,
+	CaseMeta,
+	ActiveThreadScope,
+	ThreadScopeErrorKind,
+	ThreadScopeError
 } from './caseEngine';
 
 export type Model = OpenAIModel | OllamaModel;

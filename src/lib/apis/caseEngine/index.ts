@@ -17,6 +17,31 @@ export interface CaseEngineCase {
 	[key: string]: unknown;
 }
 
+/**
+ * P19-05: Browser-accessible authorization state resolution.
+ * Called once per session after OWUI login to determine Case Engine access state
+ * without requiring a separate Case Engine login step.
+ *
+ * Security note: this endpoint trusts the reverse proxy (Caddy/Vite) to enforce
+ * OWUI session authentication before requests reach Case Engine.
+ */
+export async function browserResolveOwuiAuth(params: {
+	owui_user_id: string;
+	username_or_email: string;
+	display_name?: string;
+}): Promise<{ state: string; user: null | { id: string; role: string; units: string[]; capabilities: string[] }; reason?: string }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/browser-resolve`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json' },
+		body: JSON.stringify(params)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Failed to resolve Case Engine auth state (${res.status})`);
+	}
+	return data;
+}
+
 export async function login(name: string, password: string): Promise<{ token: string; user: { id: string; name: string; role: string } }> {
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/login`, {
 		method: 'POST',
@@ -1731,4 +1756,411 @@ export async function searchCases(
 		throw new Error(data?.error ?? `Search failed (${res.status})`);
 	}
 	return data;
+}
+
+// ─── P19-08: Thread Scope Associations ────────────────────────────────────
+
+/**
+ * Association between an OWUI chat thread (external_thread_id) and a case.
+ * Returned by all case thread association endpoints.
+ */
+export interface CaseThreadAssociation {
+	id: string;
+	case_id: string;
+	external_thread_id: string;
+	scope_type: 'case';
+	created_at: string;
+	created_by: string;
+	updated_at: string;
+}
+
+/**
+ * Association between an OWUI chat thread (thread_id) and a user's personal desktop.
+ * Returned by all personal thread association endpoints.
+ */
+export interface PersonalThreadAssociation {
+	id: string;
+	owner_user_id: string;
+	thread_id: string;
+	scope_type: 'personal';
+	created_at: string;
+	created_by: string;
+	updated_at: string;
+}
+
+/** List all active case-scoped thread associations for a case. Requires case read access. */
+export async function listCaseThreadAssociations(
+	caseId: string,
+	token: string
+): Promise<CaseThreadAssociation[]> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/threads`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list case threads (${res.status})`
+		);
+	return Array.isArray(data) ? (data as CaseThreadAssociation[]) : [];
+}
+
+/**
+ * Create or restore a case thread association (idempotent upsert).
+ * Requires case mutate access. Throws on scope conflict (400) or access denied (403).
+ */
+export async function upsertCaseThreadAssociation(
+	caseId: string,
+	threadId: string,
+	token: string
+): Promise<CaseThreadAssociation> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/threads/${encodeURIComponent(threadId)}`,
+		{
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to bind thread to case (${res.status})`
+		);
+	return data as CaseThreadAssociation;
+}
+
+/** Soft-delete a case thread association. Requires case mutate access. */
+export async function deleteCaseThreadAssociation(
+	caseId: string,
+	threadId: string,
+	token: string
+): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/threads/${encodeURIComponent(threadId)}`,
+		{
+			method: 'DELETE',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error(
+			(data as { error?: string })?.error ??
+				`Failed to remove case thread association (${res.status})`
+		);
+	}
+}
+
+/** List all active personal thread associations for the authenticated user. */
+export async function listPersonalThreadAssociations(
+	token: string
+): Promise<PersonalThreadAssociation[]> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/desktop/threads`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list personal threads (${res.status})`
+		);
+	return Array.isArray(data) ? (data as PersonalThreadAssociation[]) : [];
+}
+
+/**
+ * Create or restore a personal thread association (idempotent upsert).
+ * Throws on scope conflict (400) — thread already active in case scope.
+ */
+export async function upsertPersonalThreadAssociation(
+	threadId: string,
+	token: string
+): Promise<PersonalThreadAssociation> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/desktop/threads/${encodeURIComponent(threadId)}`,
+		{
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ??
+				`Failed to bind thread to personal desktop (${res.status})`
+		);
+	return data as PersonalThreadAssociation;
+}
+
+/** Soft-delete a personal thread association. */
+export async function deletePersonalThreadAssociation(
+	threadId: string,
+	token: string
+): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/desktop/threads/${encodeURIComponent(threadId)}`,
+		{
+			method: 'DELETE',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error(
+			(data as { error?: string })?.error ??
+				`Failed to remove personal thread association (${res.status})`
+		);
+	}
+}
+
+// ─── P19-09: Proposal Pipeline ────────────────────────────────────────────────
+
+export type ProposalScope = 'case' | 'personal';
+export type ProposalType = 'note' | 'timeline';
+export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'committed';
+
+export interface ProposalRecord {
+	id: string;
+	case_id: string;
+	source_scope: ProposalScope;
+	source_thread_id: string;
+	source_message_id: string | null;
+	proposal_type: ProposalType;
+	proposed_payload: string; // JSON string — parse in callers
+	status: ProposalStatus;
+	created_by: string;
+	created_at: string;
+	reviewed_by: string | null;
+	reviewed_at: string | null;
+	committed_at: string | null;
+	committed_record_id: string | null;
+	rejection_reason: string | null;
+}
+
+export interface CreateProposalParams {
+	source_scope: ProposalScope;
+	source_thread_id: string;
+	source_message_id?: string;
+	proposal_type: ProposalType;
+	proposed_payload: Record<string, unknown>;
+}
+
+/** List all proposals for a case. Optionally filter by status. */
+export async function listProposals(
+	caseId: string,
+	token: string,
+	status?: ProposalStatus
+): Promise<ProposalRecord[]> {
+	const url = new URL(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals`);
+	if (status) url.searchParams.set('status', status);
+	const res = await fetch(url.toString(), {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list proposals (${res.status})`
+		);
+	return Array.isArray(data) ? (data as ProposalRecord[]) : [];
+}
+
+/** Create a proposal from chat content. */
+export async function createProposal(
+	caseId: string,
+	params: CreateProposalParams,
+	token: string
+): Promise<ProposalRecord> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(params)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to create proposal (${res.status})`
+		);
+	return data as ProposalRecord;
+}
+
+/** Get a single proposal by id. */
+export async function getProposal(
+	caseId: string,
+	proposalId: string,
+	token: string
+): Promise<ProposalRecord> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals/${proposalId}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to get proposal (${res.status})`
+		);
+	return data as ProposalRecord;
+}
+
+/** Update the payload of a pending proposal. */
+export async function updateProposal(
+	caseId: string,
+	proposalId: string,
+	newPayload: Record<string, unknown>,
+	token: string
+): Promise<ProposalRecord> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals/${proposalId}`, {
+		method: 'PUT',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({ proposed_payload: newPayload })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to update proposal (${res.status})`
+		);
+	return data as ProposalRecord;
+}
+
+/** Approve a pending proposal. */
+export async function approveProposal(
+	caseId: string,
+	proposalId: string,
+	token: string
+): Promise<ProposalRecord> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals/${proposalId}/approve`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to approve proposal (${res.status})`
+		);
+	return data as ProposalRecord;
+}
+
+/** Reject a pending proposal. rejection_reason is required. */
+export async function rejectProposal(
+	caseId: string,
+	proposalId: string,
+	rejectionReason: string,
+	token: string
+): Promise<ProposalRecord> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals/${proposalId}/reject`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({ rejection_reason: rejectionReason })
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to reject proposal (${res.status})`
+		);
+	return data as ProposalRecord;
+}
+
+/** Commit an approved proposal into an official case record. */
+export async function commitProposal(
+	caseId: string,
+	proposalId: string,
+	token: string
+): Promise<ProposalRecord> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals/${proposalId}/commit`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to commit proposal (${res.status})`
+		);
+	return data as ProposalRecord;
+}
+
+// ─── P19-14: Case Notebook Notes (working drafts) ─────────────────────────────
+//
+// Notebook notes are investigator working drafts scoped to a case.
+// They are NOT official case records and must not be confused with the timeline.
+// CRUD is private per-user (the backend enforces owner_user_id scoping).
+
+export interface NotebookNote {
+	/** Integer primary key returned by the backend. */
+	id: number;
+	case_id: string;
+	owner_user_id: string;
+	title: string | null;
+	current_text: string;
+	created_at: string;
+	created_by: string;
+	updated_at: string;
+	updated_by: string;
+	deleted_at: string | null;
+	deleted_by: string | null;
+}
+
+/** List the current user's notebook notes for a case (owner-scoped by backend). */
+export async function listCaseNotebookNotes(caseId: string, token: string): Promise<NotebookNote[]> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to load notes (${res.status})`);
+	return data as NotebookNote[];
+}
+
+/** Create a new notebook note. Returns the created note. */
+export async function createCaseNotebookNote(
+	caseId: string,
+	input: { title?: string | null; text: string },
+	token: string
+): Promise<NotebookNote> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(input)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to create note (${res.status})`);
+	return data as NotebookNote;
+}
+
+/**
+ * Update a notebook note by creating a new version (backend is versioned).
+ * Returns the updated note row.
+ */
+export async function updateCaseNotebookNote(
+	caseId: string,
+	noteId: number,
+	input: { title?: string | null; text: string },
+	token: string
+): Promise<NotebookNote> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/${noteId}/versions`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(input)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to update note (${res.status})`);
+	return data as NotebookNote;
+}
+
+/** Soft-delete a notebook note. */
+export async function deleteCaseNotebookNote(
+	caseId: string,
+	noteId: number,
+	token: string
+): Promise<void> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/${noteId}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `Failed to delete note (${res.status})`);
+	}
 }

@@ -51,3 +51,90 @@ export const caseContext = writable<{ case: { id: string; case_number: string; t
 export const aiCaseContext = writable<import('$lib/apis/caseEngine').AiContextBundle | null>(null);
 
 export const isCaseEngineConnected = derived(caseEngineToken, (t) => !!t);
+
+/**
+ * P19-05: Backend-resolved Case Engine authorization state.
+ * Populated once per session after OWUI login by calling POST /auth/owui/browser-resolve.
+ * NOT persisted to localStorage — resolved fresh on each session start.
+ * Frontend routing decisions (active/pending/disabled) are derived from this state.
+ */
+export type CaseEngineAuthState = {
+	/**
+	 * 'active'            — user is approved and may enter the workspace
+	 * 'pending'           — user profile exists but is awaiting admin approval
+	 * 'disabled'          — user profile has been disabled
+	 * 'denied_no_profile' — no Case Engine profile found and auto-create is off
+	 * 'unavailable'       — Case Engine backend could not be reached; workspace is blocked
+	 *                       until a successful resolution can be made
+	 */
+	state: 'active' | 'pending' | 'disabled' | 'denied_no_profile' | 'unavailable';
+	user: null | { id: string; role: string; units: string[]; capabilities: string[] };
+	reason?: string;
+};
+
+export const caseEngineAuthState = writable<CaseEngineAuthState | null>(null);
+
+/**
+ * P19-06: True while the user is inside the case workspace shell.
+ * Used by (app)/+layout.svelte to suppress the global Open WebUI sidebar.
+ * Set to true synchronously when the case layout mounts; false on destroy.
+ */
+export const caseModeActive = writable<boolean>(false);
+
+/**
+ * P19-06: Metadata for the currently open case, populated by the case layout shell.
+ * Used by the case header and any child components that need case context without
+ * re-fetching the case list.
+ */
+export type CaseMeta = {
+	id: string;
+	case_number: string;
+	title: string;
+	unit: string;
+	status: string;
+};
+export const activeCaseMeta = writable<CaseMeta | null>(null);
+
+/**
+ * P19-08: The scope binding for the currently active (or most recently bound) OWUI thread.
+ *
+ * Populated when the user opens or creates a thread from:
+ *   - /case/[id]/chat  → scope 'case', caseId set, caseMeta set
+ *   - /home            → scope 'personal', caseId/caseMeta absent
+ *
+ * NOT persisted to localStorage. Cleared on page reload. This is intentional:
+ * the scope indicator on /c/[id] only appears when the user navigated from a
+ * known scope context in the same session. If the store is absent on direct
+ * navigation, no badge is shown (honest unknown state).
+ */
+export type ActiveThreadScope = {
+	/** OWUI chat ID (= external_thread_id in Case Engine). */
+	threadId: string;
+	scope: 'case' | 'personal';
+	/** Set when scope === 'case'. */
+	caseId?: string;
+	/** Set when scope === 'case'. Mirrors activeCaseMeta at time of binding. */
+	caseMeta?: { id: string; case_number: string; title: string };
+} | null;
+
+export const activeThreadScope = writable<ActiveThreadScope>(null);
+
+/**
+ * P19-08: Stores the most recent thread binding error.
+ * Set when upsertCaseThreadAssociation or upsertPersonalThreadAssociation throws.
+ * Cleared before each new binding attempt.
+ */
+export type ThreadScopeErrorKind =
+	| 'scope_conflict'
+	| 'access_denied'
+	| 'not_found'
+	| 'backend_unavailable'
+	| 'unknown';
+
+export type ThreadScopeError = {
+	kind: ThreadScopeErrorKind;
+	message: string;
+	threadId: string;
+} | null;
+
+export const threadScopeError = writable<ThreadScopeError>(null);
