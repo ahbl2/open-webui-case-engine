@@ -23,38 +23,6 @@ import {
 } from '$lib/components/case/workflowStatus';
 import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 
-	function getStatusBadgeClasses(status: string): string {
-		const s = status.toUpperCase();
-		if (s === 'IN_PROGRESS' || s === 'ASSIGNED') {
-			return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200';
-		}
-		if (s === 'SUPPORTED' || s === 'RESOLVED') {
-			return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200';
-		}
-		if (s === 'REJECTED') {
-			return 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200';
-		}
-		// OPEN / CLOSED / anything else → neutral
-		return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200';
-	}
-
-	function getOriginBadgeClasses(origin: string): string {
-		const o = origin.toUpperCase();
-		if (o === 'PROPOSAL') {
-			return 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200';
-		}
-		// INVESTIGATOR or anything else → subtle neutral
-		return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200';
-	}
-
-	function getPriorityEmoji(priority: number | null | undefined): string | null {
-		if (priority == null) return null;
-		if (priority >= 3) return '🔴';
-		if (priority === 2) return '🟠';
-		if (priority === 1) return '🟡';
-		return null;
-	}
-
 	export let caseId: string;
 	export let token: string;
 	export let isAdmin: boolean = false;
@@ -496,7 +464,7 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 							<td class="px-2 py-1.5">
 								<div class="font-medium">{item.title}</div>
 								{#if item.description}
-									<div class="text-xs text-gray-500 truncate max-w-xs">{item.description}</div>
+									<div class="text-xs text-gray-500 break-words max-w-xs">{item.description}</div>
 								{/if}
 								{#if item.entity_type && item.entity_normalized_id}
 									<button
@@ -794,7 +762,7 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 			{token}
 			entityType={entityWorkspaceType}
 			normalizedId={entityWorkspaceId}
-			isAdmin={$caseEngineUser?.role === 'ADMIN'}
+			isAdmin={isAdmin}
 			onClose={closeEntityWorkspace}
 		/>
 	</div>

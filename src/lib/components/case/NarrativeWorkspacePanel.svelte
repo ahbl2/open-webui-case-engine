@@ -130,8 +130,8 @@
 	}
 </script>
 
-<div class="flex flex-col h-full min-h-0">
-	<div class="shrink-0 flex gap-1 p-2 border-b border-gray-200 dark:border-gray-700">
+<div class="flex flex-col w-full">
+	<div class="flex gap-1 p-2 border-b border-gray-200 dark:border-gray-700">
 		<button
 			type="button"
 			class="px-2 py-1.5 text-sm rounded {activeTab === 'timeline'
@@ -179,7 +179,7 @@
 		</button>
 	</div>
 
-	<div class="flex-1 min-h-0 overflow-auto p-4">
+	<div class="p-4">
 		{#if activeTab === 'timeline'}
 			{#if timelineLoading}
 				<p class="text-sm text-gray-500">Loading timeline…</p>
@@ -189,20 +189,22 @@
 				{#if timelineData.events.length === 0}
 					<p class="text-sm text-gray-500">No events.</p>
 				{:else}
-					<ul class="space-y-2 text-sm">
-						{#each timelineData.events as event}
-							<li class="border-b border-gray-100 dark:border-gray-800 pb-2">
-								<span class="font-mono text-gray-600 dark:text-gray-400">{formatDate(event.occurred_at)}</span>
-								<span class="ml-2 font-medium">{event.event_type}</span>
-								{#if event.description}
-									<p class="mt-1 text-gray-700 dark:text-gray-300">{event.description}</p>
-								{/if}
-								{#if event.citations?.length}
-									<p class="mt-1 text-xs text-gray-500">Sources: {event.citations.length} citation(s)</p>
-								{/if}
-							</li>
-						{/each}
-					</ul>
+				<ul class="space-y-4 text-sm">
+					{#each timelineData.events as event}
+						<li class="border-b border-gray-100 dark:border-gray-800 pb-4">
+							<div class="flex items-center gap-2 flex-wrap mb-1">
+								<span class="font-mono text-xs text-gray-500 dark:text-gray-400 shrink-0">{formatDate(event.occurred_at)}</span>
+								<span class="text-xs font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">{event.event_type}</span>
+							</div>
+							{#if event.description}
+								<p class="text-gray-700 dark:text-gray-300 break-words">{event.description}</p>
+							{/if}
+							{#if event.citations?.length}
+								<p class="mt-1 text-xs text-gray-500">Sources: {event.citations.length} citation(s)</p>
+							{/if}
+						</li>
+					{/each}
+				</ul>
 				{/if}
 			{/if}
 		{:else if activeTab === 'warrant'}

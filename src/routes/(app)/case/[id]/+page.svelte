@@ -1,7 +1,7 @@
 <script lang="ts">
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
-	import { caseEngineToken, activeCaseId, activeCaseNumber } from '$lib/stores';
+	import { caseEngineToken, activeCaseId, activeCaseNumber, showSidebar } from '$lib/stores';
 	import { listCases } from '$lib/apis/caseEngine';
 	import CaseFilesTab from '$lib/components/case/CaseFilesTab.svelte';
 	import CaseAiIntakeTab from '$lib/components/case/CaseAiIntakeTab.svelte';
@@ -12,7 +12,6 @@
 	import CaseWorkflowTab from '$lib/components/case/CaseWorkflowTab.svelte';
 	import WarrantWorkflow from '$lib/components/case/WarrantWorkflow.svelte';
 	import CaseGraph from '$lib/components/case/CaseGraph.svelte';
-	import ActionRouterPanel from '$lib/components/case/ActionRouterPanel.svelte';
 	import OperationalWorkspace from '$lib/components/operations/OperationalWorkspace.svelte';
 	import NarrativeWorkspacePanel from '$lib/components/case/NarrativeWorkspacePanel.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
@@ -20,10 +19,16 @@
 
 	$: caseId = $page.params.id;
 
-	let activeTab: 'files' | 'ai-intake' | 'ask' | 'export' | 'unit-search' | 'integrity' | 'workflow' | 'warrants' | 'graph' | 'actions' | 'operations' | 'narrative' = 'files';
+	let activeTab: 'files' | 'ai-intake' | 'ask' | 'export' | 'unit-search' | 'integrity' | 'workflow' | 'warrants' | 'graph' | 'operations' | 'narrative' = 'files';
 	let caseInfo: { case_number: string; title: string } | null = null;
 	let loading = true;
 	let notFound = false;
+
+	let prevCaseId: string | undefined;
+	$: if (caseId && caseId !== prevCaseId) {
+		prevCaseId = caseId;
+		activeTab = 'files';
+	}
 
 	$: if (caseId && $caseEngineToken) {
 		loadCase();
@@ -54,7 +59,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full">
+<div class="flex flex-col h-full w-full {$showSidebar ? 'md:max-w-[calc(100%-var(--sidebar-width))]' : ''}">
 	<div class="shrink-0 flex items-center gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-700">
 		<button
 			type="button"
@@ -166,18 +171,9 @@
 				>
 					Graph
 				</button>
-				<button
-					type="button"
-					class="px-2 py-1.5 text-sm rounded {activeTab === 'actions'
-						? 'bg-gray-200 dark:bg-gray-700 font-medium'
-						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
-					on:click={() => (activeTab = 'actions')}
-				>
-					Actions
-				</button>
-				<button
-					type="button"
-					class="px-2 py-1.5 text-sm rounded {activeTab === 'operations'
+			<button
+				type="button"
+				class="px-2 py-1.5 text-sm rounded {activeTab === 'operations'
 						? 'bg-gray-200 dark:bg-gray-700 font-medium'
 						: 'hover:bg-gray-100 dark:hover:bg-gray-800'}"
 					on:click={() => (activeTab = 'operations')}
@@ -219,8 +215,6 @@
 					token={$caseEngineToken}
 					isAdmin={$caseEngineUser?.role === 'ADMIN'}
 				/>
-			{:else if activeTab === 'actions'}
-				<ActionRouterPanel {caseId} token={$caseEngineToken} />
 			{:else if activeTab === 'operations'}
 				<OperationalWorkspace
 					{caseId}

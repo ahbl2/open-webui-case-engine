@@ -165,45 +165,55 @@
 
 	{#if proposals.length > 0}
 		<div>
-			<h3 class="text-sm font-medium mb-2">Proposals</h3>
-			<div class="space-y-2 max-h-64 overflow-y-auto">
+			<h3 class="text-sm font-medium mb-2">Proposals ({proposals.length})</h3>
+			<div class="space-y-3 max-h-[28rem] overflow-y-auto">
 				{#each proposals as p (p.id)}
-					<div
-						class="rounded border border-gray-200 dark:border-gray-700 p-2 text-xs space-y-1"
-					>
-						<div class="flex justify-between">
-							<span class="text-gray-600 dark:text-gray-400">
-								{p.occurred_at ?? '(no date)'} | {p.type}
+					<div class="rounded border border-gray-200 dark:border-gray-700 p-3 space-y-2">
+						<!-- Header: date + type + location -->
+						<div class="flex items-center gap-2 flex-wrap">
+							<span class="font-mono text-xs text-gray-500 dark:text-gray-400 shrink-0">
+								{p.occurred_at ?? '—'}
 							</span>
+							<span class="text-xs font-medium px-1.5 py-0.5 rounded bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300">
+								{p.type}
+							</span>
+							{#if p.location_text}
+								<span class="text-xs text-gray-500 truncate">{p.location_text}</span>
+							{/if}
 						</div>
-						{#if p.location_text}
-							<div class="text-gray-500">{p.location_text}</div>
-						{/if}
-						{#if p.tags}
-							{@const tagList = Array.isArray(p.tags) ? p.tags : (typeof p.tags === 'string' ? (() => { try { const a = JSON.parse(p.tags); return Array.isArray(a) ? a : []; } catch { return []; } })() : [])}
-							<div class="text-gray-500">{tagList.join(', ')}</div>
-						{/if}
-						<div class="text-gray-800 dark:text-gray-200">
+						<!-- Body text -->
+						<div class="text-sm text-gray-800 dark:text-gray-200">
 							{#if expandedProposalId === p.id}
+								<div class="whitespace-pre-wrap break-words">{p.text_original}</div>
 								<button
 									type="button"
-									class="text-blue-600 dark:text-blue-400 underline"
+									class="mt-1 text-xs text-blue-600 dark:text-blue-400 underline"
 									on:click={() => toggleExpand(p.id)}
 								>
 									Hide original
 								</button>
-								<div class="mt-1">{p.text_original}</div>
 							{:else}
-								<span>{(p.text_cleaned ?? p.text_original ?? '').slice(0, 120)}...</span>
+								<div class="break-words">{(p.text_cleaned ?? p.text_original ?? '').slice(0, 120)}{((p.text_cleaned ?? p.text_original ?? '').length > 120) ? '…' : ''}</div>
 								<button
 									type="button"
-									class="text-blue-600 dark:text-blue-400 underline ml-1"
+									class="mt-1 text-xs text-blue-600 dark:text-blue-400 underline"
 									on:click={() => toggleExpand(p.id)}
 								>
 									Show original
 								</button>
 							{/if}
 						</div>
+						<!-- Tags -->
+						{#if p.tags}
+							{@const tagList = Array.isArray(p.tags) ? p.tags : (typeof p.tags === 'string' ? (() => { try { const a = JSON.parse(p.tags); return Array.isArray(a) ? a : []; } catch { return []; } })() : [])}
+							{#if tagList.length > 0}
+								<div class="flex flex-wrap gap-1">
+									{#each tagList as tag}
+										<span class="text-xs px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400">{tag}</span>
+									{/each}
+								</div>
+							{/if}
+						{/if}
 					</div>
 				{/each}
 			</div>

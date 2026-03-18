@@ -61,10 +61,24 @@
 	async function handleExtract(f: CaseFile) {
 		extractingId = f.id;
 		try {
-			await extractCaseFileText(f.id, token);
-			toast.success('Text extracted');
-			viewTextFileId = f.id;
-			viewTextContent = null;
+			const result = await extractCaseFileText(f.id, token);
+			const ext = fileExtLabel(f.original_filename, f.mime_type);
+
+			if (result.status === 'EXTRACTED') {
+				toast.success('Text extracted');
+				viewTextFileId = f.id;
+				viewTextContent = null;
+			} else if (result.status === 'UNSUPPORTED') {
+				toast.error(`.${ext} files are not supported for extraction. Supported: ${SUPPORTED_EXTRACT_TYPES}`);
+			} else {
+				toast.error(result.message ?? `Extraction failed for .${ext} file`);
+			}
+
+			// Keep local extraction_status in sync without requiring a full reload
+			const extractionStatus =
+				result.status === 'EXTRACTED' ? 'extracted' :
+				result.status === 'UNSUPPORTED' ? 'unsupported' : 'failed';
+			files = files.map((x) => x.id === f.id ? { ...x, extraction_status: extractionStatus } : x);
 		} catch (e: any) {
 			toast.error(e?.message ?? 'Extract failed');
 		} finally {
@@ -102,6 +116,30 @@
 		}
 	}
 
+	const SUPPORTED_EXTRACT_TYPES = 'txt, csv, log, json, pdf';
+
+	/** Return the lowercase extension from filename, falling back to MIME subtype. */
+	function fileExtLabel(filename: string, mimeType: string | null): string {
+		const dot = filename.lastIndexOf('.');
+		if (dot !== -1 && dot < filename.length - 1) {
+			return filename.slice(dot + 1).toLowerCase();
+		}
+		if (mimeType) {
+			const sub = mimeType.split('/')[1]?.split(';')[0]?.toLowerCase();
+			if (sub) return sub;
+		}
+		return '?';
+	}
+
+	/** True if the backend can extract text from this file type. */
+	function isLikelyExtractable(filename: string, mimeType: string | null): boolean {
+		const dot = filename.lastIndexOf('.');
+		const ext = dot !== -1 ? filename.slice(dot + 1).toLowerCase() : '';
+		if (['txt', 'csv', 'log', 'json', 'pdf'].includes(ext)) return true;
+		if (mimeType?.startsWith('text/') || mimeType === 'application/pdf') return true;
+		return false;
+	}
+
 	// Ticket 25: Evidence tags
 	function startAddTag(f: CaseFile) {
 		addingTagFileId = f.id;
@@ -119,7 +157,7 @@
 		try {
 			await addFileTag(caseId, f.id, t, token);
 			toast.success('Tag added');
-			f.tags = [...(f.tags ?? []), t];
+			files = files.map((x) => x.id === f.id ? { ...x, tags: [...(x.tags ?? []), t] } : x);
 			cancelAddTag();
 		} catch (e: any) {
 			toast.error(e?.message ?? 'Add tag failed');
@@ -129,7 +167,7 @@
 	async function handleRemoveTag(f: CaseFile, tag: string) {
 		try {
 			await removeFileTag(caseId, f.id, tag, token);
-			f.tags = (f.tags ?? []).filter((x) => x !== tag);
+			files = files.map((x) => x.id === f.id ? { ...x, tags: (x.tags ?? []).filter((t) => t !== tag) } : x);
 		} catch (e: any) {
 			toast.error(e?.message ?? 'Remove tag failed');
 		}
@@ -157,6 +195,10 @@
 	</form>
 
 	<!-- Files list -->
+	<div class="text-xs text-gray-500 dark:text-gray-400">
+		Text extraction supported for: <span class="font-mono">{SUPPORTED_EXTRACT_TYPES}</span>
+	</div>
+
 	{#if loading}
 		<div class="text-sm text-gray-500">Loading files...</div>
 	{:else if files.length === 0}
@@ -167,11 +209,17 @@
 				<div
 					class="flex flex-col gap-1 rounded border border-gray-200 dark:border-gray-700 p-2 text-sm"
 				>
-					<div class="flex flex-wrap items-center gap-2">
-						<span class="font-medium truncate flex-1 min-w-0">{f.original_filename}</span>
-						<span class="text-gray-500 text-xs shrink-0"
-							>{f.file_size_bytes != null ? `${Math.round(f.file_size_bytes / 1024)} KB` : ''}</span
-						>
+				<div class="flex flex-wrap items-center gap-2">
+					<span class="font-medium truncate flex-1 min-w-0">{f.original_filename}</span>
+					<span
+						class="shrink-0 font-mono text-xs px-1.5 py-0.5 rounded {isLikelyExtractable(f.original_filename, f.mime_type)
+							? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
+							: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}"
+						title={f.mime_type ?? undefined}
+					>{fileExtLabel(f.original_filename, f.mime_type)}</span>
+					<span class="text-gray-500 text-xs shrink-0"
+						>{f.file_size_bytes != null ? `${Math.round(f.file_size_bytes / 1024)} KB` : ''}</span
+					>
 						<button
 						type="button"
 						class="text-blue-600 dark:text-blue-400 hover:underline text-xs"
@@ -187,6 +235,9 @@
 					>
 						{extractingId === f.id ? 'Extracting...' : 'Extract text'}
 					</button>
+					{#if !isLikelyExtractable(f.original_filename, f.mime_type)}
+						<span class="text-xs text-amber-600 dark:text-amber-400">(type not supported)</span>
+					{/if}
 					<button
 						type="button"
 						class="text-blue-600 dark:text-blue-400 hover:underline text-xs"

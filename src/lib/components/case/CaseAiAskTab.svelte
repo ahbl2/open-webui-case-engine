@@ -6,9 +6,15 @@
 		type AskCaseQuestionResponse,
 		type AskCitation
 	} from '$lib/apis/caseEngine';
+	import { models } from '$lib/stores';
 
 	export let caseId: string;
 	export let token: string;
+
+	$: modelAvailable = $models.length > 0;
+	// Prefer the first Ollama model so the Case Engine backend uses an installed model name.
+	// Falls back to any available model id if no Ollama-specific model is present.
+	$: ollamaModel = ($models.find((m) => (m as any).owned_by === 'ollama') ?? $models[0])?.id ?? undefined;
 
 	const TOPK_OPTIONS = [4, 6, 8, 10, 12] as const;
 	let question = '';
@@ -20,7 +26,22 @@
 	let showAllContext = false;
 	let citationModal: AskCitation | null = null;
 
+	function humanizeAskError(raw: string): string {
+		const lower = raw.toLowerCase();
+		if (
+			lower.includes('ollama') ||
+			lower.includes('econnrefused') ||
+			lower.includes('502') ||
+			lower.includes('503') ||
+			lower.includes('failed to fetch')
+		) {
+			return 'AI model is unavailable. Ensure Ollama is running and a model is configured. Case data is still accessible.';
+		}
+		return raw;
+	}
+
 	async function handleAsk() {
+		if (!modelAvailable) return;
 		const q = question.trim();
 		if (q.length < 3) {
 			toast.error('Question must be at least 3 characters');
@@ -35,10 +56,10 @@
 		parseErrorCitations = [];
 		result = null;
 		try {
-			result = await askCaseQuestion(caseId, q, token, topK);
+			result = await askCaseQuestion(caseId, q, token, topK, ollamaModel);
 		} catch (e: unknown) {
 			const err = e as Error & { citations?: AskCitation[] };
-			errorMessage = err?.message ?? 'Ask failed';
+			errorMessage = humanizeAskError(err?.message ?? 'Ask failed');
 			if (err?.citations) {
 				parseErrorCitations = err.citations;
 			}
@@ -76,15 +97,24 @@
 <div class="flex flex-col gap-4 p-4">
 	<h2 class="text-sm font-medium">Case AI Q&A</h2>
 
+	{#if !modelAvailable}
+		<div class="rounded border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3">
+			<div class="text-sm font-medium text-amber-800 dark:text-amber-200">No AI model available</div>
+			<div class="text-xs text-amber-700 dark:text-amber-300 mt-0.5">
+				Connect or configure an AI provider (Ollama) to use Ask. Case data is still accessible.
+			</div>
+		</div>
+	{/if}
+
 	<div>
 		<label class="block text-xs text-gray-600 dark:text-gray-400 mb-1"
 			>Ask a question about this case…</label
 		>
 		<textarea
 			bind:value={question}
-			placeholder="e.g. What happened on 2024-01-15?"
+			placeholder={modelAvailable ? 'e.g. What happened on 2024-01-15?' : 'AI unavailable — configure a model to enable Ask'}
 			class="w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent p-2 text-sm min-h-[100px]"
-			disabled={asking}
+			disabled={asking || !modelAvailable}
 		></textarea>
 	</div>
 
@@ -94,7 +124,7 @@
 			<select
 				bind:value={topK}
 				class="rounded border border-gray-200 dark:border-gray-700 bg-transparent px-1.5 py-0.5 text-sm"
-				disabled={asking}
+				disabled={asking || !modelAvailable}
 			>
 				{#each TOPK_OPTIONS as opt}
 					<option value={opt}>{opt}</option>
@@ -105,7 +135,7 @@
 			type="button"
 			class="rounded bg-blue-600 text-white px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-50"
 			on:click={handleAsk}
-			disabled={asking || !question.trim()}
+			disabled={asking || !question.trim() || !modelAvailable}
 		>
 			{asking ? 'Asking…' : 'Ask'}
 		</button>

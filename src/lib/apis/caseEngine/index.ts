@@ -175,15 +175,18 @@ export async function askCaseQuestion(
 	caseId: string,
 	question: string,
 	token: string,
-	topK?: number
+	topK?: number,
+	model?: string
 ): Promise<AskCaseQuestionResponse> {
+	const body: Record<string, unknown> = { question: question.trim(), topK: topK ?? 8 };
+	if (model) body.model = model;
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/ask`, {
 		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`
 		},
-		body: JSON.stringify({ question: question.trim(), topK: topK ?? 8 })
+		body: JSON.stringify(body)
 	});
 	const data = await res.json().catch(() => ({}));
 	if (res.status === 422) {

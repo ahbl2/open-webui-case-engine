@@ -2941,36 +2941,36 @@
 									<!-- {$i18n.t('LLMs can make mistakes. Verify important information.')} -->
 								</div>
 							</div>
-						{:else}
-							<div class="flex items-center h-full">
-								<Placeholder
-									{history}
-									{selectedModels}
-									bind:messageInput
-									bind:files
-									bind:prompt
-									bind:autoScroll
-									bind:selectedToolIds
-									bind:selectedFilterIds
-									bind:imageGenerationEnabled
-									bind:codeInterpreterEnabled
-									bind:webSearchEnabled
-									bind:atSelectedModel
-									bind:showCommands
-									bind:dragged
-									toolServers={$toolServers}
-									{stopResponse}
-									{createMessagePair}
-									{onSelect}
-									{onUpload}
-									onChange={(data) => {
-										if (!$temporaryChatEnabled) {
-											saveDraft(data);
-										}
-									}}
-									on:submit={async (e) => {
-										clearDraft();
-										if (e.detail || files.length > 0) {
+					{:else if !$activeCaseId}
+						<div class="flex items-center h-full">
+							<Placeholder
+								{history}
+								{selectedModels}
+								bind:messageInput
+								bind:files
+								bind:prompt
+								bind:autoScroll
+								bind:selectedToolIds
+								bind:selectedFilterIds
+								bind:imageGenerationEnabled
+								bind:codeInterpreterEnabled
+								bind:webSearchEnabled
+								bind:atSelectedModel
+								bind:showCommands
+								bind:dragged
+								toolServers={$toolServers}
+								{stopResponse}
+								{createMessagePair}
+								{onSelect}
+								{onUpload}
+								onChange={(data) => {
+									if (!$temporaryChatEnabled) {
+										saveDraft(data);
+									}
+								}}
+								on:submit={async (e) => {
+									clearDraft();
+									if (e.detail || files.length > 0) {
 											await tick();
 											submitPrompt(e.detail.replaceAll('\n\n', '\n'));
 										}

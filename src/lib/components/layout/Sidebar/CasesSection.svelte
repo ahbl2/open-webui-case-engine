@@ -1,4 +1,6 @@
 <script lang="ts">
+	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
 	import {
 		caseEngineToken,
 		caseEngineUser,
@@ -95,9 +97,9 @@
 	}
 
 	function selectCase(c: CaseEngineCase) {
-		activeCaseId.set(c.id);
-		activeCaseNumber.set(c.case_number ?? null);
-		// Reactive block will trigger fetchContextForActiveCase
+		const target = `/case/${c.id}`;
+		if ($page.url.pathname === target) return;
+		goto(target);
 	}
 
 	function disconnect() {
@@ -180,15 +182,11 @@
 								type="button"
 								class="flex-1 text-left hover:bg-gray-100 dark:hover:bg-gray-800 rounded transition min-w-0"
 								on:click={() => selectCase(c)}
+								title="Open case {c.case_number ?? c.id}"
 							>
 								<span class="font-medium">{c.case_number ?? c.id}</span>
 								<span class="block truncate text-gray-600 dark:text-gray-400">{c.title ?? ''}</span>
 							</button>
-							<a
-								href="/case/{c.id}"
-								class="shrink-0 text-blue-600 dark:text-blue-400 hover:underline px-1"
-								title="View case files"
-							>Files</a>
 						</div>
 					{/each}
 					{#if filteredCases.length === 0}

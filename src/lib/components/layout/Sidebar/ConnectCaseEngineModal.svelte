@@ -1,6 +1,6 @@
 <script lang="ts">
 	import { createEventDispatcher } from 'svelte';
-	import { caseEngineToken, caseEngineUser } from '$lib/stores';
+	import { caseEngineToken, caseEngineUser, activeCaseId, activeCaseNumber } from '$lib/stores';
 	import { login } from '$lib/apis/caseEngine';
 
 	export let show = false;
@@ -21,6 +21,9 @@
 		loading = true;
 		try {
 			const { token, user } = await login(name.trim(), password);
+			// Clear active case when switching context to avoid stale chip/state.
+			activeCaseId.set(null);
+			activeCaseNumber.set(null);
 			caseEngineToken.set(token);
 			caseEngineUser.set(user);
 			dispatch('connected');
