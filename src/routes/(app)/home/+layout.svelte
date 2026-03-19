@@ -17,12 +17,11 @@
 </svelte:head>
 
 <div
-	class=" flex flex-col w-full h-screen max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
-		? 'md:max-w-[calc(100%-var(--sidebar-width))]'
-		: ''} max-w-full"
+	class="flex flex-col w-full h-screen max-h-[100dvh] transition-width duration-200 ease-in-out max-w-full"
 >
-	<nav class="   px-2.5 pt-1.5 backdrop-blur-xl w-full drag-region">
-		<div class=" flex items-center">
+	<!-- P19: My Desktop is detective-owned. No legacy OWUI tabs (Notes, Calendar, Completions). -->
+	<nav class="px-2.5 pt-1.5 backdrop-blur-xl w-full drag-region">
+		<div class="flex items-center">
 			{#if $mobile}
 				<div class="{$showSidebar ? 'md:hidden' : ''} flex flex-none items-center self-end mt-1.5">
 					<Tooltip
@@ -31,38 +30,18 @@
 					>
 						<button
 							id="sidebar-toggle-button"
-							class=" cursor-pointer flex rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition cursor-"
+							class="cursor-pointer flex rounded-lg hover:bg-gray-100 dark:hover:bg-gray-850 transition"
 							on:click={() => {
 								showSidebar.set(!$showSidebar);
 							}}
 						>
-							<div class=" self-center p-1.5">
+							<div class="self-center p-1.5">
 								<Sidebar />
 							</div>
 						</button>
 					</Tooltip>
 				</div>
 			{/if}
-
-			<div class=" flex w-full">
-				<div
-					class="flex gap-1 scrollbar-none overflow-x-auto w-fit text-center text-sm font-medium rounded-full bg-transparent pt-1"
-				>
-					<a
-						class="min-w-fit p-1.5 {$page.url.pathname.includes('/home/notes')
-							? ''
-							: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
-						href="/playground/notes">{$i18n.t('Notes')}</a
-					>
-
-					<a
-						class="min-w-fit p-1.5 {$page.url.pathname.includes('/playground/calendar')
-							? ''
-							: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition"
-						href="/playground/completions">{$i18n.t('Calendar')}</a
-					>
-				</div>
-			</div>
 		</div>
 	</nav>
 

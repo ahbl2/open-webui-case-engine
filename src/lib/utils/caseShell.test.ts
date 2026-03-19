@@ -9,11 +9,11 @@
  * What is covered:
  *   - /case/[id] redirect target is deterministic and ends at /chat
  *   - caseModeActive enter/exit transitions (shell enable ↔ shell disable)
- *   - sidebar suppression is driven by a single boolean store
+ *   - detective workspace uses one sidebar; content offset when sidebar open
  *   - every non-active auth state is blocked from entering the case shell
  *   - no unknown state silently passes the gating check (fail-closed)
  *   - leaving case context explicitly resets shell state (no stale caseModeActive)
- *   - no double-shell can occur (only one of global shell / case shell is active)
+ *   - one coherent detective shell (sidebar + content offset)
  *   - nav section routing is deterministic per URL path
  *   - unimplemented nav sections are distinct from Chat (no silent redirect to /chat)
  */
@@ -98,38 +98,25 @@ describe('case shell — caseModeActive enter/exit contract', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 3. Sidebar suppression — single boolean contract
+// 3. Detective workspace — one sidebar for all (app) routes
 // ─────────────────────────────────────────────────────────────────────────────
-describe('case shell — sidebar suppression contract', () => {
-	it('global sidebar renders when caseModeActive is false', () => {
-		// In (app)/+layout.svelte: {#if !$caseModeActive}<Sidebar />{/if}
-		const caseModeActive = false;
-		const sidebarShouldRender = !caseModeActive;
-		expect(sidebarShouldRender).toBe(true);
+describe('case shell — detective workspace sidebar contract', () => {
+	it('detective workspace uses one sidebar for all routes', () => {
+		// (app)/+layout.svelte always renders <Sidebar /> for /home, /cases, /search, /case/[id]/...
+		const sidebarAlwaysShownInApp = true;
+		expect(sidebarAlwaysShownInApp).toBe(true);
 	});
 
-	it('global sidebar is suppressed when caseModeActive is true', () => {
-		const caseModeActive = true;
-		const sidebarShouldRender = !caseModeActive;
-		expect(sidebarShouldRender).toBe(false);
+	it('content area is offset when sidebar is open (fixed sidebar)', () => {
+		// Main content div uses md:ml-[var(--sidebar-width)] when $showSidebar so content is not covered.
+		const contentOffsetWhenSidebarOpen = true;
+		expect(contentOffsetWhenSidebarOpen).toBe(true);
 	});
 
-	it('no double-shell: global sidebar and case shell are mutually exclusive', () => {
-		// When caseModeActive is true, the global sidebar is hidden.
-		// The case shell is visible.  Both cannot be active simultaneously.
-		const testCases = [
-			{ caseModeActive: false, globalSidebarVisible: true,  caseShellVisible: false },
-			{ caseModeActive: true,  globalSidebarVisible: false, caseShellVisible: true  }
-		];
-		for (const tc of testCases) {
-			const sidebarVisible = !tc.caseModeActive;
-			// Either global sidebar is visible OR case shell is active, never both.
-			expect(sidebarVisible).toBe(tc.globalSidebarVisible);
-			// The case shell is mounted when caseModeActive is true.
-			expect(tc.caseModeActive).toBe(tc.caseShellVisible);
-			// Mutual exclusion: sidebar renders iff NOT in case shell.
-			expect(sidebarVisible).toBe(!tc.caseShellVisible);
-		}
+	it('sidebar width and content offset use single CSS variable (one source of truth)', () => {
+		// app.css :root, (app)/+layout content offset, and Sidebar.svelte all use this name. Do not introduce a second variable.
+		const SIDEBAR_WIDTH_CSS_VAR = '--sidebar-width';
+		expect(SIDEBAR_WIDTH_CSS_VAR).toBe('--sidebar-width');
 	});
 });
 

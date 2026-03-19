@@ -31,28 +31,14 @@
 
 	let selectedTab = 'general';
 
-	// Get current tab from URL pathname, default to 'general'
+	// Tab from URL pathname only (last segment, e.g. /admin/settings/models → 'models'). Strict allowlist before any render.
 	$: {
 		const pathParts = $page.url.pathname.split('/');
 		const tabFromPath = pathParts[pathParts.length - 1];
-		selectedTab = [
-			'general',
-			'connections',
-			'models',
-			'evaluations',
-			'integrations',
-			'documents',
-			'web',
-			'code-execution',
-			'interface',
-			'audio',
-			'images',
-			'pipelines',
-			'db'
-		].includes(tabFromPath)
-			? tabFromPath
-			: 'general';
+		selectedTab = GOVERNANCE_ALLOWED_ADMIN_TABS.includes(tabFromPath) ? tabFromPath : 'general';
 	}
+	// Render gate: only these tabs may mount. Prevents hidden tabs from ever rendering even if selectedTab were wrong.
+	$: effectiveTab = GOVERNANCE_ALLOWED_ADMIN_TABS.includes(selectedTab) ? selectedTab : 'general';
 
 	$: if (selectedTab) {
 		// scroll to selectedTab
@@ -69,6 +55,9 @@
 	let search = '';
 	let searchDebounceTimeout;
 	let filteredSettings = [];
+
+	/** Governance: only expose General, Interface, Audio. Other OWUI admin tabs are hidden. */
+	const GOVERNANCE_ALLOWED_ADMIN_TABS = ['general', 'interface', 'audio'];
 
 	const allSettings = [
 		{
@@ -247,7 +236,8 @@
 	];
 
 	const setFilteredSettings = () => {
-		filteredSettings = allSettings.filter((tab) => {
+		const allowed = allSettings.filter((t) => GOVERNANCE_ALLOWED_ADMIN_TABS.includes(t.id));
+		filteredSettings = allowed.filter((tab) => {
 			const searchTerm = search.toLowerCase().trim();
 			return (
 				search === '' ||
@@ -506,7 +496,8 @@
 	<div
 		class="flex-1 mt-3 lg:mt-1 px-[16px] lg:pr-[16px] lg:pl-0 overflow-y-scroll scrollbar-hidden"
 	>
-		{#if selectedTab === 'general'}
+		<!-- Security: only effectiveTab (allowlisted) is used. Hidden tabs never mount. Defensive else renders General. -->
+		{#if effectiveTab === 'general'}
 			<General
 				saveHandler={async () => {
 					toast.success($i18n.t('Settings saved successfully!'));
@@ -515,73 +506,25 @@
 					await config.set(await getBackendConfig());
 				}}
 			/>
-		{:else if selectedTab === 'connections'}
-			<Connections
-				on:save={() => {
-					toast.success($i18n.t('Settings saved successfully!'));
-				}}
-			/>
-		{:else if selectedTab === 'models'}
-			<Models />
-		{:else if selectedTab === 'evaluations'}
-			<Evaluations />
-		{:else if selectedTab === 'integrations'}
-			<Integrations />
-		{:else if selectedTab === 'documents'}
-			<Documents
-				on:save={async () => {
-					toast.success($i18n.t('Settings saved successfully!'));
-
-					await tick();
-					await config.set(await getBackendConfig());
-				}}
-			/>
-		{:else if selectedTab === 'web'}
-			<WebSearch
-				saveHandler={async () => {
-					toast.success($i18n.t('Settings saved successfully!'));
-
-					await tick();
-					await config.set(await getBackendConfig());
-				}}
-			/>
-		{:else if selectedTab === 'code-execution'}
-			<CodeExecution
-				saveHandler={async () => {
-					toast.success($i18n.t('Settings saved successfully!'));
-
-					await tick();
-					await config.set(await getBackendConfig());
-				}}
-			/>
-		{:else if selectedTab === 'interface'}
+		{:else if effectiveTab === 'interface'}
 			<Interface
 				on:save={() => {
 					toast.success($i18n.t('Settings saved successfully!'));
 				}}
 			/>
-		{:else if selectedTab === 'audio'}
+		{:else if effectiveTab === 'audio'}
 			<Audio
 				saveHandler={() => {
 					toast.success($i18n.t('Settings saved successfully!'));
 				}}
 			/>
-		{:else if selectedTab === 'images'}
-			<Images
-				on:save={() => {
+		{:else}
+			<General
+				saveHandler={async () => {
 					toast.success($i18n.t('Settings saved successfully!'));
-				}}
-			/>
-		{:else if selectedTab === 'db'}
-			<Database
-				saveHandler={() => {
-					toast.success($i18n.t('Settings saved successfully!'));
-				}}
-			/>
-		{:else if selectedTab === 'pipelines'}
-			<Pipelines
-				saveHandler={() => {
-					toast.success($i18n.t('Settings saved successfully!'));
+
+					await tick();
+					await config.set(await getBackendConfig());
 				}}
 			/>
 		{/if}

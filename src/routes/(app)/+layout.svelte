@@ -39,12 +39,27 @@
 	showControls,
 	mobile,
 	caseEngineAuthState,
+	caseEngineToken,
+	caseEngineUser,
 	caseModeActive
 } from '$lib/stores';
 	import { browserResolveOwuiAuth } from '$lib/apis/caseEngine';
 	import { resolveAuthStateDecision, blockedRedirectPath } from '$lib/utils/authStateDecision';
 
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
+	import DetectiveWorkspaceSidebar from '$lib/components/layout/DetectiveWorkspaceSidebar.svelte';
+
+	/** Detective workspace routes: one coherent shell. */
+	$: isDetectiveWorkspace =
+		$page.url.pathname === '/home' ||
+		$page.url.pathname === '/cases' ||
+		$page.url.pathname === '/search' ||
+		$page.url.pathname.startsWith('/case/');
+	/** Unified sidebar shell: detective + admin. Same custom sidebar, no OWUI sidebar. */
+	$: isUnifiedSidebar =
+		isDetectiveWorkspace || $page.url.pathname.startsWith('/admin');
+	/** Suppress OWUI update banner in detective and admin shell. */
+	$: suppressUpdateBanner = isUnifiedSidebar;
 	import SettingsModal from '$lib/components/chat/SettingsModal.svelte';
 	import ChangelogModal from '$lib/components/ChangelogModal.svelte';
 	import AccountPending from '$lib/components/layout/Overlay/AccountPending.svelte';
@@ -211,6 +226,7 @@
 		// ceAuthChecked stays false until an active state is confirmed, keeping the app
 		// shell hidden until we know the user is allowed in.
 		if (!$caseEngineAuthState && $user?.id) {
+			caseEngineToken.set(null);
 			let resolvedState: string;
 			try {
 				const authResult = await browserResolveOwuiAuth({
@@ -220,6 +236,18 @@
 				});
 				caseEngineAuthState.set(authResult as import('$lib/stores').CaseEngineAuthState);
 				resolvedState = authResult.state;
+				if (authResult.state === 'active' && typeof authResult.token === 'string' && authResult.token.trim() !== '') {
+					caseEngineToken.set(authResult.token);
+					caseEngineUser.set(
+						authResult.user
+							? {
+									id: authResult.user.id,
+									name: $user.name ?? authResult.user.role,
+									role: authResult.user.role === 'admin' ? 'ADMIN' : 'detective'
+								}
+							: null
+					);
+				}
 			} catch (err) {
 				// Backend unreachable — fail CLOSED: block the workspace.
 				console.error('[P19-05] Case Engine auth state resolution failed — blocking workspace:', err);
@@ -241,6 +269,41 @@
 				await goto(redirectTo);
 				return;
 			}
+			// Cached active state: always refresh token so bind never uses a stale token (remount / multi-tab).
+			if ($caseEngineAuthState.state === 'active' && $user?.id) {
+				try {
+					const authResult = await browserResolveOwuiAuth({
+						owui_user_id: $user.id,
+						username_or_email: ($user as { email?: string }).email ?? $user.name ?? $user.id,
+						display_name: $user.name
+					});
+					caseEngineAuthState.set(authResult as import('$lib/stores').CaseEngineAuthState);
+					if (authResult.state === 'active' && typeof authResult.token === 'string' && authResult.token.trim() !== '') {
+						caseEngineToken.set(authResult.token);
+						caseEngineUser.set(
+							authResult.user
+								? {
+										id: authResult.user.id,
+										name: $user.name ?? authResult.user.role,
+										role: authResult.user.role === 'admin' ? 'ADMIN' : 'detective'
+									}
+								: null
+						);
+					} else {
+						caseEngineToken.set(null);
+					}
+				} catch (err) {
+					console.error('[P19-05] Case Engine token re-resolve failed:', err);
+					caseEngineToken.set(null);
+				}
+			}
+		}
+
+		// Fail closed: do not show the app if state is active but we have no valid token (bind would 401).
+		const hasValidToken = $caseEngineToken && typeof $caseEngineToken === 'string' && $caseEngineToken.trim() !== '';
+		if ($caseEngineAuthState?.state === 'active' && !hasValidToken) {
+			await goto('/access-unavailable');
+			return;
 		}
 
 		// Only reached when the user is confirmed active. Mark auth as checked so the
@@ -415,7 +478,7 @@
 <SettingsModal bind:show={$showSettings} />
 <ChangelogModal bind:show={$showChangelog} />
 
-{#if version && compareVersion(version.latest, version.current) && ($settings?.showUpdateToast ?? true)}
+{#if !suppressUpdateBanner && version && compareVersion(version.latest, version.current) && ($settings?.showUpdateToast ?? true)}
 	<div class=" absolute bottom-8 right-8 z-50" in:fade={{ duration: 100 }}>
 		<UpdateInfoToast
 			{version}
@@ -430,7 +493,7 @@
 {#if $user}
 	<div class="app relative">
 		<div
-			class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 h-screen max-h-[100dvh] overflow-auto flex flex-row justify-end"
+			class=" text-gray-700 dark:text-gray-100 bg-white dark:bg-gray-900 h-screen max-h-[100dvh] overflow-hidden flex flex-row"
 		>
 		{#if !['user', 'admin'].includes($user?.role)}
 			<AccountPending />
@@ -496,18 +559,27 @@
 					</div>
 				{/if}
 
-				<!-- P19-06: Global sidebar is suppressed while inside the case workspace shell. -->
-			{#if !$caseModeActive}
-				<Sidebar />
-			{/if}
+				<!-- Unified shell (detective + admin): custom sidebar; other routes use OWUI Sidebar -->
+				{#if isUnifiedSidebar}
+					<DetectiveWorkspaceSidebar />
+				{:else}
+					<Sidebar />
+				{/if}
 
 				{#if loaded}
-					<slot />
+					<!-- Main content: when unified shell, offset by full sidebar or rail (4.5rem) when collapsed; else OWUI behavior. -->
+					<div
+						class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden {isUnifiedSidebar
+							? ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : 'md:ml-[4.5rem]')
+							: ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : '')}"
+					>
+						<slot />
+					</div>
 				{:else}
 					<div
-						class="w-full flex-1 h-full flex items-center justify-center {$showSidebar
-							? '  md:max-w-[calc(100%-var(--sidebar-width))]'
-							: ' '}"
+						class="w-full flex-1 h-full flex items-center justify-center {isUnifiedSidebar
+							? ($showSidebar ? 'md:max-w-[calc(100%-var(--sidebar-width))]' : 'md:max-w-[calc(100%-4.5rem)]')
+							: ($showSidebar ? 'md:max-w-[calc(100%-var(--sidebar-width))]' : '')}"
 					>
 						<Spinner className="size-5" />
 					</div>

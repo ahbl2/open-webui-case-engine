@@ -95,6 +95,14 @@
 
 						<a
 							draggable="false"
+							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/case-engine-users')
+								? ''
+								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+							href="/admin/case-engine-users">{$i18n.t('Workspace Access')}</a
+						>
+
+						<a
+							draggable="false"
 							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/settings')
 								? ''
 								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"

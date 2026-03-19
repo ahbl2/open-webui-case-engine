@@ -4,19 +4,15 @@
 	import { goto } from '$app/navigation';
 
 	import { page } from '$app/stores';
-	import { activeCaseId, caseEngineToken, caseEngineAuthState } from '$lib/stores';
 
 	onMount(() => {
 		if ($page.url.searchParams.get('error')) {
 			toast.error($page.url.searchParams.get('error') || 'An unknown error occurred.');
 		}
-		// P19-05: Route away from the generic root to the app-controlled Cases landing.
-		// Preserve deep-link to an active case if one is already selected.
-		if ($activeCaseId && $caseEngineToken) {
-			goto(`/case/${$activeCaseId}`);
-		} else {
-			goto('/cases');
-		}
+		// P19-05: Default post-login landing is My Desktop (/home).
+		// Do NOT use activeCaseId/caseEngineToken for redirect — stale state must not
+		// hijack initial login. User reaches a case only by explicit navigation.
+		goto('/home');
 	});
 </script>
 

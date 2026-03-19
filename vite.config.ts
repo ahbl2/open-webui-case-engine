@@ -1,41 +1,58 @@
 import { sveltekit } from '@sveltejs/kit/vite';
-import { defineConfig } from 'vite';
+import { defineConfig, loadEnv } from 'vite';
 
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
-export default defineConfig({
-	plugins: [
-		sveltekit(),
-		viteStaticCopy({
-			targets: [
-				{
-					src: 'node_modules/onnxruntime-web/dist/*.jsep.*',
+export default defineConfig(({ mode }) => {
+	const env = loadEnv(mode, process.cwd(), '');
+	const owuiBackendPort = env.PUBLIC_WEBUI_BACKEND_PORT || env.WEBUI_BACKEND_PORT || '8080';
+	const owuiBackendTarget = `http://127.0.0.1:${owuiBackendPort}`;
+	const caseEngineTarget = 'http://127.0.0.1:3010';
 
-					dest: 'wasm'
-				}
-			]
-		})
-	],
-	define: {
-		APP_VERSION: JSON.stringify(process.env.npm_package_version),
-		APP_BUILD_HASH: JSON.stringify(process.env.APP_BUILD_HASH || 'dev-build')
-	},
-	server: {
-		proxy: {
-			'/case-api': {
-				target: 'http://localhost:3010',
-				changeOrigin: true,
-				rewrite: (path) => path.replace(/^\/case-api/, '')
+	return {
+		plugins: [
+			sveltekit(),
+			viteStaticCopy({
+				targets: [
+					{
+						src: 'node_modules/onnxruntime-web/dist/*.jsep.*',
+
+						dest: 'wasm'
+					}
+				]
+			})
+		],
+		define: {
+			APP_VERSION: JSON.stringify(process.env.npm_package_version),
+			APP_BUILD_HASH: JSON.stringify(process.env.APP_BUILD_HASH || 'dev-build')
+		},
+		server: {
+			host: true,
+			port: 3001,
+			proxy: {
+				'/case-api': {
+					target: caseEngineTarget,
+					changeOrigin: true,
+					rewrite: (path) => path.replace(/^\/case-api/, '')
+				},
+				'/api': { target: owuiBackendTarget, changeOrigin: true },
+				'/ollama': { target: owuiBackendTarget, changeOrigin: true },
+				'/openai': { target: owuiBackendTarget, changeOrigin: true },
+				'/ws': { target: owuiBackendTarget, changeOrigin: true, ws: true },
+				'/static': { target: owuiBackendTarget, changeOrigin: true }
+			},
+			watch: {
+				ignored: ['**/.venv/**', '**/node_modules/.pnpm/**']
 			}
+		},
+		build: {
+			sourcemap: true
+		},
+		worker: {
+			format: 'es'
+		},
+		esbuild: {
+			pure: process.env.ENV === 'dev' ? [] : ['console.log', 'console.debug', 'console.error']
 		}
-	},
-	build: {
-		sourcemap: true
-	},
-	worker: {
-		format: 'es'
-	},
-	esbuild: {
-		pure: process.env.ENV === 'dev' ? [] : ['console.log', 'console.debug', 'console.error']
-	}
+	};
 });

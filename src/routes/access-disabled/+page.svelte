@@ -1,11 +1,13 @@
 <script lang="ts">
-	import { user, caseEngineAuthState } from '$lib/stores';
+	import { user, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
 	import { userSignOut } from '$lib/apis/auths';
 
 	async function signOut() {
 		await userSignOut().catch(() => {});
 		user.set(null);
 		caseEngineAuthState.set(null);
+		caseEngineToken.set(null);
+		caseEngineUser.set(null);
 		localStorage.removeItem('token');
 		location.href = '/auth';
 	}

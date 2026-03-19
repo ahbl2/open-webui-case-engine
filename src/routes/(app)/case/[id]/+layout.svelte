@@ -2,16 +2,10 @@
 	/**
 	 * P19-06 — Case Workspace Shell
 	 *
-	 * This layout establishes the case-native workspace that replaces the generic
-	 * Open WebUI shell for all /case/[id]/* routes.  It is responsible for:
-	 *   - Suppressing the global sidebar (via caseModeActive)
+	 * This layout establishes the case-native workspace for all /case/[id]/* routes.
 	 *   - Loading and exposing case metadata to child routes
-	 *   - Rendering the structural shell regions:
-	 *       - top case header
-	 *       - left case navigation
-	 *       - main workspace slot
-	 *       - right context rail (structural — P19-08+)
-	 *       - bottom composer region (structural — P19-08)
+	 *   - Top case header, content-level tab nav (Chat, Timeline, Files, Notes, Activity),
+	 *     main workspace slot, right context rail, bottom composer region
 	 *   - Enforcing P19-05 access gating before any case content renders
 	 */
 	import { onMount, onDestroy } from 'svelte';
@@ -203,50 +197,38 @@
 		{/if}
 	</header>
 
-	<!-- ── BODY: left nav + main workspace + right rail ──────── -->
-	<div class="flex flex-1 min-h-0 overflow-hidden">
-		<!-- ── LEFT CASE NAVIGATION ──────────────────────────── -->
-		<nav
-			class="w-44 shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-800
-			       bg-gray-50 dark:bg-gray-900 pt-2 pb-4 overflow-y-auto"
-			aria-label="Case workspace sections"
-			data-testid="case-workspace-nav"
-		>
-			{#each caseNavItems as item}
-				{#if item.implemented}
-					<!-- Implemented section: clickable link with active-state indicator -->
-					<a
-						href={`/case/${$page.params.id}/${item.id}`}
-						class="group flex items-center gap-2.5 mx-2 px-3 py-2 rounded-md text-sm transition-colors
-						       {activeSection === item.id
-							? 'bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 font-medium shadow-sm'
-							: 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-gray-200'}"
-						aria-current={activeSection === item.id ? 'page' : undefined}
-					>
-						<span
-							class="shrink-0 w-1.5 h-1.5 rounded-full transition-colors
-							       {activeSection === item.id
-								? 'bg-blue-500'
-								: 'bg-gray-200 dark:bg-gray-700 group-hover:bg-gray-400 dark:group-hover:bg-gray-500'}"
-						></span>
-						<span>{item.label}</span>
-					</a>
-				{:else}
-					<!-- Not-yet-migrated section: non-interactive, clearly distinct from Chat.
-					     Will become a real link when its migration ticket (P19-08/P19-14) ships. -->
-					<span
-						class="flex items-center gap-2.5 mx-2 px-3 py-2 rounded-md text-sm
-						       text-gray-300 dark:text-gray-600 cursor-not-allowed select-none"
-						aria-disabled="true"
-						data-section={item.id}
-					>
-						<span class="shrink-0 w-1.5 h-1.5 rounded-full bg-gray-200 dark:bg-gray-700"></span>
-						<span>{item.label}</span>
-					</span>
-				{/if}
-			{/each}
-		</nav>
+	<!-- ── CONTENT-LEVEL TABS (case navigation: Chat, Timeline, Files, Notes, Activity) ── -->
+	<nav
+		class="shrink-0 flex items-center gap-0 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 px-2"
+		aria-label="Case sections"
+		data-testid="case-workspace-nav"
+	>
+		{#each caseNavItems as item}
+			{#if item.implemented}
+				<a
+					href={`/case/${$page.params.id}/${item.id}`}
+					class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px
+						{activeSection === item.id
+							? 'border-blue-500 text-blue-600 dark:text-blue-400'
+							: 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
+					aria-current={activeSection === item.id ? 'page' : undefined}
+				>
+					{item.label}
+				</a>
+			{:else}
+				<span
+					class="px-4 py-2.5 text-sm text-gray-300 dark:text-gray-600 cursor-not-allowed select-none border-b-2 border-transparent -mb-px"
+					aria-disabled="true"
+					data-section={item.id}
+				>
+					{item.label}
+				</span>
+			{/if}
+		{/each}
+	</nav>
 
+	<!-- ── BODY: main workspace + right rail ──────── -->
+	<div class="flex flex-1 min-h-0 overflow-hidden">
 		<!-- ── CENTER: main workspace + bottom composer ──────── -->
 		<div class="flex flex-col flex-1 min-w-0 min-h-0">
 			<!-- MAIN WORKSPACE SLOT

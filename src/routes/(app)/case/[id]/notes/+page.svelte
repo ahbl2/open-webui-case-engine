@@ -54,7 +54,11 @@
 	let deletingId: number | null = null;
 
 	async function loadNotes(): Promise<void> {
-		if (!$caseEngineToken) return;
+		if (!$caseEngineToken) {
+			loading = false;
+			loadError = 'Case Engine session not active.';
+			return;
+		}
 		loading = true;
 		loadError = '';
 		try {

@@ -1,19 +1,20 @@
 import { browser, dev } from '$app/environment';
-import { PUBLIC_WEBUI_BACKEND_PORT } from '$env/static/public';
 // import { version } from '../../package.json';
 
 export const APP_NAME = 'Open WebUI';
 
-const DEV_BACKEND_PORT = PUBLIC_WEBUI_BACKEND_PORT || '8080';
-export const WEBUI_HOSTNAME = browser ? (dev ? `${location.hostname}:${DEV_BACKEND_PORT}` : ``) : '';
-export const WEBUI_BASE_URL = browser ? (dev ? `http://${WEBUI_HOSTNAME}` : ``) : ``;
-export const WEBUI_API_BASE_URL = `${WEBUI_BASE_URL}/api/v1`;
+// In dev, use relative paths so the browser sends requests to the same origin (frontend dev server);
+// the Vite proxy then forwards to the local backend. No localhost/hostname in browser — works from LAN.
+// In production, BASE_URL is empty and the app is served from the same host as the API.
+export const WEBUI_HOSTNAME = '';
+export const WEBUI_BASE_URL = browser ? `` : ``;
+export const WEBUI_API_BASE_URL = `/api/v1`;
 
-export const OLLAMA_API_BASE_URL = `${WEBUI_BASE_URL}/ollama`;
-export const OPENAI_API_BASE_URL = `${WEBUI_BASE_URL}/openai`;
-export const AUDIO_API_BASE_URL = `${WEBUI_BASE_URL}/api/v1/audio`;
-export const IMAGES_API_BASE_URL = `${WEBUI_BASE_URL}/api/v1/images`;
-export const RETRIEVAL_API_BASE_URL = `${WEBUI_BASE_URL}/api/v1/retrieval`;
+export const OLLAMA_API_BASE_URL = `/ollama`;
+export const OPENAI_API_BASE_URL = `/openai`;
+export const AUDIO_API_BASE_URL = `/api/v1/audio`;
+export const IMAGES_API_BASE_URL = `/api/v1/images`;
+export const RETRIEVAL_API_BASE_URL = `/api/v1/retrieval`;
 
 // Case Engine (Ticket 5) - reachable behind Caddy at /case-api or configured base
 export const CASE_ENGINE_BASE_URL =

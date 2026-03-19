@@ -38,7 +38,7 @@ export type ThreadBindResult = ThreadBindSuccess | ThreadBindFailure;
  *
  * Classification rules (in order of precedence):
  *   'scope_conflict'      — HTTP 400 OR message contains 'Scope conflict' / 'scope conflict'
- *   'access_denied'       — HTTP 403 OR message contains 'access denied' / 'forbidden'
+ *   'access_denied'       — HTTP 401/403 OR message contains 'access denied' / 'forbidden' / 'invalid token' / 'authorization header'
  *   'not_found'           — HTTP 404 OR message contains 'not found'
  *   'backend_unavailable' — TypeError (network failure), or message contains 'fetch' / 'network' / 'ECONNREFUSED'
  *   'unknown'             — anything else
@@ -60,7 +60,14 @@ export function classifyBindError(err: unknown): ThreadScopeErrorKind {
 
 	// HTTP status codes embedded in error messages by the API layer
 	if (lower.includes('(400)') || lower.includes('scope conflict')) return 'scope_conflict';
-	if (lower.includes('(403)') || lower.includes('access denied') || lower.includes('forbidden'))
+	if (
+		lower.includes('(403)') ||
+		lower.includes('(401)') ||
+		lower.includes('access denied') ||
+		lower.includes('forbidden') ||
+		lower.includes('invalid token') ||
+		lower.includes('authorization header')
+	)
 		return 'access_denied';
 	if (lower.includes('(404)') || lower.includes('not found')) return 'not_found';
 	if (

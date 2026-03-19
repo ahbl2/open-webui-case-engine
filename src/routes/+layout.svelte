@@ -34,7 +34,10 @@
 		terminalServers,
 		showControls,
 		showFileNavPath,
-		showFileNavDir
+		showFileNavDir,
+		caseEngineToken,
+		caseEngineUser,
+		caseEngineAuthState
 	} from '$lib/stores';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -102,7 +105,17 @@
 
 	const BREAKPOINT = 768;
 
+	/** Detective workspace: use one shell; do not show OWUI AppSidebar. */
+	$: isDetectiveWorkspace =
+		$page?.url?.pathname === '/home' ||
+		$page?.url?.pathname === '/cases' ||
+		$page?.url?.pathname === '/search' ||
+		($page?.url?.pathname || '').startsWith('/case/');
+	/** Unified shell: detective + admin; hide OWUI AppSidebar for both. */
+	$: isUnifiedShell = isDetectiveWorkspace || ($page?.url?.pathname || '').startsWith('/admin');
+
 	const setupSocket = async (enableWebsocket) => {
+		// Same-origin (falsy BASE_URL → undefined) so browser hits frontend origin; Vite proxies /ws to backend. LAN-safe, no localhost.
 		const _socket = io(`${WEBUI_BASE_URL}` || undefined, {
 			reconnection: true,
 			reconnectionDelay: 1000,
@@ -634,6 +647,9 @@
 			const res = await userSignOut();
 			user.set(null);
 			localStorage.removeItem('token');
+			caseEngineToken.set(null);
+			caseEngineUser.set(null);
+			caseEngineAuthState.set(null);
 
 			location.href = res?.redirect_url ?? '/auth';
 		}
@@ -924,7 +940,7 @@
 {/if}
 
 {#if loaded}
-	{#if $isApp}
+	{#if $isApp && !isUnifiedShell}
 		<div class="flex flex-row h-screen">
 			<AppSidebar />
 

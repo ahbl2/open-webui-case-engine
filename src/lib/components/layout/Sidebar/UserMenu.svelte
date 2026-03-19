@@ -9,7 +9,17 @@
 	import { getUsage } from '$lib/apis';
 	import { getSessionUser, userSignOut } from '$lib/apis/auths';
 
-	import { showSettings, mobile, showSidebar, showShortcuts, user, config } from '$lib/stores';
+	import {
+		showSettings,
+		mobile,
+		showSidebar,
+		showShortcuts,
+		user,
+		config,
+		caseEngineToken,
+		caseEngineUser,
+		caseEngineAuthState
+	} from '$lib/stores';
 
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
@@ -349,6 +359,9 @@
 					const res = await userSignOut();
 					user.set(null);
 					localStorage.removeItem('token');
+					caseEngineToken.set(null);
+					caseEngineUser.set(null);
+					caseEngineAuthState.set(null);
 
 					location.href = res?.redirect_url ?? '/auth';
 					show = false;

@@ -31,8 +31,10 @@
 }
 
 /* --app-text-scale is updated via the UI Scale slider (Interface.svelte) */
+/* --sidebar-width: single source of truth for detective sidebar width; default here, updated at runtime by Sidebar.svelte (resize). Content offset and sidebar both use this. Future collapse can set to 0 or narrow value. */
 :root {
 	--app-text-scale: 1;
+	--sidebar-width: 260px;
 }
 
 html {

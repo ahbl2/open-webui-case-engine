@@ -22,6 +22,8 @@ export interface CaseEngineCase {
  * Called once per session after OWUI login to determine Case Engine access state
  * without requiring a separate Case Engine login step.
  *
+ * P19 Auth Bridge: When state is 'active', backend also returns a token for Case Engine API calls.
+ *
  * Security note: this endpoint trusts the reverse proxy (Caddy/Vite) to enforce
  * OWUI session authentication before requests reach Case Engine.
  */
@@ -29,7 +31,12 @@ export async function browserResolveOwuiAuth(params: {
 	owui_user_id: string;
 	username_or_email: string;
 	display_name?: string;
-}): Promise<{ state: string; user: null | { id: string; role: string; units: string[]; capabilities: string[] }; reason?: string }> {
+}): Promise<{
+	state: string;
+	user: null | { id: string; role: string; units: string[]; capabilities: string[] };
+	reason?: string;
+	token?: string;
+}> {
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/browser-resolve`, {
 		method: 'POST',
 		headers: { 'Content-Type': 'application/json' },
@@ -51,6 +58,114 @@ export async function login(name: string, password: string): Promise<{ token: st
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) {
 		throw new Error(data?.error ?? `Login failed (${res.status})`);
+	}
+	return data;
+}
+
+/** Case Engine OWUI user list (admin only). status filter optional: pending | active | disabled */
+export interface CaseEngineOwuiUserRow {
+	owui_user_id: string;
+	username_or_email: string;
+	display_name: string | null;
+	status: string;
+	role: string;
+	created_at: string;
+}
+
+export async function listCaseEngineOwuiUsers(
+	token: string,
+	status?: 'pending' | 'active' | 'disabled'
+): Promise<CaseEngineOwuiUserRow[]> {
+	const qs = status ? `?status=${status}` : '';
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/users${qs}`, {
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Failed to list users (${res.status})`);
+	}
+	return Array.isArray(data) ? data : [];
+}
+
+export async function updateCaseEngineOwuiUserStatus(
+	token: string,
+	owuiUserId: string,
+	status: 'pending' | 'active' | 'disabled'
+): Promise<{ state: string; user: unknown }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/users/${encodeURIComponent(owuiUserId)}/status`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ status })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Failed to update status (${res.status})`);
+	}
+	return data;
+}
+
+export async function updateCaseEngineOwuiUserRole(
+	token: string,
+	owuiUserId: string,
+	role: 'detective' | 'admin'
+): Promise<{ state: string; user: unknown }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/users/${encodeURIComponent(owuiUserId)}/role`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ role })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Failed to update role (${res.status})`);
+	}
+	return data;
+}
+
+export async function updateCaseEngineOwuiUserUnits(
+	token: string,
+	owuiUserId: string,
+	units: string[]
+): Promise<{ state: string; user: unknown }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/users/${encodeURIComponent(owuiUserId)}/units`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ units })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Failed to update units (${res.status})`);
+	}
+	return data;
+}
+
+export async function updateCaseEngineOwuiUserCapabilities(
+	token: string,
+	owuiUserId: string,
+	capabilities: string[]
+): Promise<{ state: string; user: unknown }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/users/${encodeURIComponent(owuiUserId)}/capabilities`, {
+		method: 'PUT',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify({ capabilities })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Failed to update capabilities (${res.status})`);
 	}
 	return data;
 }
@@ -1804,22 +1919,36 @@ export async function listCaseThreadAssociations(
 	return Array.isArray(data) ? (data as CaseThreadAssociation[]) : [];
 }
 
+/** Optional one-time 401 retry: caller provides a function to resolve a fresh token. */
+export type BindRetryOptions = { getFreshToken?: () => Promise<string | null> };
+
 /**
  * Create or restore a case thread association (idempotent upsert).
  * Requires case mutate access. Throws on scope conflict (400) or access denied (403).
+ * On 401 only: if getFreshToken is provided, resolves once, retries once, then surfaces error if still failing.
  */
 export async function upsertCaseThreadAssociation(
 	caseId: string,
 	threadId: string,
-	token: string
+	token: string,
+	options?: BindRetryOptions
 ): Promise<CaseThreadAssociation> {
-	const res = await fetch(
-		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/threads/${encodeURIComponent(threadId)}`,
-		{
+	if (!token || String(token).trim() === '') {
+		throw new Error('Case Engine token is required to bind thread to case');
+	}
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/threads/${encodeURIComponent(threadId)}`;
+	const doRequest = (t: string) =>
+		fetch(url, {
 			method: 'PUT',
-			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }
+		});
+	let res = await doRequest(token);
+	if (!res.ok && res.status === 401 && options?.getFreshToken) {
+		const newToken = await options.getFreshToken();
+		if (newToken && String(newToken).trim() !== '') {
+			res = await doRequest(newToken);
 		}
-	);
+	}
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok)
 		throw new Error(
@@ -1868,18 +1997,29 @@ export async function listPersonalThreadAssociations(
 /**
  * Create or restore a personal thread association (idempotent upsert).
  * Throws on scope conflict (400) — thread already active in case scope.
+ * On 401 only: if getFreshToken is provided, resolves once, retries once, then surfaces error if still failing.
  */
 export async function upsertPersonalThreadAssociation(
 	threadId: string,
-	token: string
+	token: string,
+	options?: BindRetryOptions
 ): Promise<PersonalThreadAssociation> {
-	const res = await fetch(
-		`${CASE_ENGINE_BASE_URL}/desktop/threads/${encodeURIComponent(threadId)}`,
-		{
+	if (!token || String(token).trim() === '') {
+		throw new Error('Case Engine token is required to bind thread to personal desktop');
+	}
+	const url = `${CASE_ENGINE_BASE_URL}/desktop/threads/${encodeURIComponent(threadId)}`;
+	const doRequest = (t: string) =>
+		fetch(url, {
 			method: 'PUT',
-			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${t}` }
+		});
+	let res = await doRequest(token);
+	if (!res.ok && res.status === 401 && options?.getFreshToken) {
+		const newToken = await options.getFreshToken();
+		if (newToken && String(newToken).trim() !== '') {
+			res = await doRequest(newToken);
 		}
-	);
+	}
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok)
 		throw new Error(

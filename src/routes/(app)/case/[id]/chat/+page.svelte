@@ -30,11 +30,13 @@
 		caseEngineAuthState,
 		activeCaseMeta,
 		activeThreadScope,
-		threadScopeError
+		threadScopeError,
+		user
 	} from '$lib/stores';
 	import {
 		listCaseThreadAssociations,
 		upsertCaseThreadAssociation,
+		browserResolveOwuiAuth,
 		type CaseThreadAssociation,
 		createProposal,
 		type ProposalType
@@ -112,7 +114,34 @@
 	 * and do NOT render the chat (fail-closed).
 	 */
 	async function openThread(threadId: string): Promise<void> {
-		if (!$caseEngineToken || !caseId) return;
+		const token = $caseEngineToken;
+		const hasValidToken = token && typeof token === 'string' && token.trim() !== '';
+		if (!hasValidToken || !caseId) {
+			if (!caseId) return;
+			const message =
+				'Case Engine session is not ready. Please refresh the page or sign in again.';
+			threadScopeError.set({ kind: 'access_denied', message, threadId });
+			return;
+		}
+
+		const getFreshToken = async (): Promise<string | null> => {
+			const u = $user;
+			if (!u?.id) return null;
+			try {
+				const authResult = await browserResolveOwuiAuth({
+					owui_user_id: u.id,
+					username_or_email: (u as { email?: string }).email ?? u.name ?? u.id,
+					display_name: u.name
+				});
+				if (authResult.state === 'active' && typeof authResult.token === 'string' && authResult.token.trim() !== '') {
+					caseEngineToken.set(authResult.token);
+					return authResult.token;
+				}
+			} catch {
+				// ignore
+			}
+			return null;
+		};
 
 		bindingInProgress = true;
 		activeChat = null;
@@ -120,7 +149,7 @@
 		threadScopeError.set(null);
 
 		try {
-			await upsertCaseThreadAssociation(caseId, threadId, $caseEngineToken);
+			await upsertCaseThreadAssociation(caseId, threadId, token, { getFreshToken });
 
 			// Binding confirmed by backend — safe to render chat.
 			activeThreadScope.set({

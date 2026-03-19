@@ -478,28 +478,15 @@
 	let search = '';
 	let searchDebounceTimeout;
 
+	/** Governance: hide OWUI-only or unsafe sections (connections, tools, personalization, data_controls). */
+	const GOVERNANCE_HIDDEN_USER_TABS = ['connections', 'tools', 'personalization', 'data_controls'];
+
 	const getAvailableSettings = () => {
 		return allSettings.filter((tab) => {
-			if (tab.id === 'connections') {
-				return $config?.features?.enable_direct_connections;
-			}
-
-			if (tab.id === 'tools') {
-				return (
-					$user?.role === 'admin' ||
-					($user?.role === 'user' && $user?.permissions?.features?.direct_tool_servers)
-				);
-			}
+			if (GOVERNANCE_HIDDEN_USER_TABS.includes(tab.id)) return false;
 
 			if (tab.id === 'interface') {
 				return $user?.role === 'admin' || ($user?.permissions?.settings?.interface ?? true);
-			}
-
-			if (tab.id === 'personalization') {
-				return (
-					$config?.features?.enable_memories &&
-					($user?.role === 'admin' || ($user?.permissions?.features?.memories ?? true))
-				);
 			}
 
 			return true;

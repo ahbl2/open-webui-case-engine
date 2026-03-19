@@ -25,10 +25,11 @@
 	import { goto } from '$app/navigation';
 	import { v4 as uuidv4 } from 'uuid';
 
-	import { caseEngineToken, activeThreadScope, threadScopeError } from '$lib/stores';
+	import { caseEngineToken, activeThreadScope, threadScopeError, user } from '$lib/stores';
 	import {
 		listPersonalThreadAssociations,
 		upsertPersonalThreadAssociation,
+		browserResolveOwuiAuth,
 		type PersonalThreadAssociation
 	} from '$lib/apis/caseEngine';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
@@ -67,15 +68,42 @@
 	 * and block navigation.
 	 */
 	async function openPersonalThread(threadId: string): Promise<void> {
-		if (!$caseEngineToken) return;
+		const token = $caseEngineToken;
+		const hasValidToken = token && typeof token === 'string' && token.trim() !== '';
+		if (!hasValidToken) {
+			const message =
+				'Case Engine session is not ready. Please refresh the page or sign in again.';
+			localBindError = message;
+			threadScopeError.set({ kind: 'access_denied', message, threadId });
+			return;
+		}
 
 		bindingInProgress = true;
 		localBindError = null;
 		activeThreadScope.set(null);
 		threadScopeError.set(null);
 
+		const getFreshToken = async (): Promise<string | null> => {
+			const u = $user;
+			if (!u?.id) return null;
+			try {
+				const authResult = await browserResolveOwuiAuth({
+					owui_user_id: u.id,
+					username_or_email: (u as { email?: string }).email ?? u.name ?? u.id,
+					display_name: u.name
+				});
+				if (authResult.state === 'active' && typeof authResult.token === 'string' && authResult.token.trim() !== '') {
+					caseEngineToken.set(authResult.token);
+					return authResult.token;
+				}
+			} catch {
+				// ignore
+			}
+			return null;
+		};
+
 		try {
-			await upsertPersonalThreadAssociation(threadId, $caseEngineToken);
+			await upsertPersonalThreadAssociation(threadId, token, { getFreshToken });
 
 			// Backend confirmed the binding — safe to navigate.
 			activeThreadScope.set({ threadId, scope: 'personal' });

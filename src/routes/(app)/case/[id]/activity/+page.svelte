@@ -29,8 +29,13 @@
 	let loadError = '';
 	let nextCursor: string | null = null;
 	let loadingMore = false;
+	/** Client-side filter: show only items with this action ('' = all). Uses already-loaded data only. */
+	let filterAction = '';
 
 	const PAGE_SIZE = 50;
+
+	$: uniqueActions = [...new Set(items.map((i) => i.action))].sort();
+	$: displayedItems = !filterAction ? items : items.filter((i) => i.action === filterAction);
 
 	async function loadActivity(cursor?: string): Promise<void> {
 		if (!$caseEngineToken) return;
@@ -124,6 +129,31 @@
 		}
 	}
 
+	/** Actor display: role + short user id from backend. No fabrication. */
+	function actorLabel(item: AuditLogItem): string {
+		const role = item.user_role ? `${item.user_role} ` : '';
+		const id = item.user_id ? item.user_id.slice(0, 8) : '—';
+		return `${role}${id}`.trim() || '—';
+	}
+
+	/** Case relevance: entity type + short id. */
+	function caseRelevanceLabel(item: AuditLogItem): string {
+		return `${entityLabel(item.entity_type)} ${item.entity_id.slice(0, 8)}`;
+	}
+
+	/** Metadata keys we skip when rendering details (internal/noise). */
+	const DETAIL_SKIP_KEYS = new Set(['_metadata_parse_error', '_raw_metadata']);
+
+	/** Useful metadata entries from backend details, for display only. */
+	function detailEntries(item: AuditLogItem): Array<{ k: string; v: string }> {
+		const d = item.details;
+		if (!d || typeof d !== 'object') return [];
+		return Object.entries(d)
+			.filter(([k, v]) => !DETAIL_SKIP_KEYS.has(k) && v !== undefined && v !== null)
+			.map(([k, v]) => ({ k, v: String(v) }))
+			.slice(0, 8);
+	}
+
 	/**
 	 * Color-code audit actions for quick scanning.
 	 */
@@ -155,12 +185,26 @@
 >
 	<!-- Section header -->
 	<div
-		class="shrink-0 flex items-center gap-2 px-4 pt-4 pb-2 border-b border-gray-100 dark:border-gray-800"
+		class="shrink-0 flex flex-wrap items-center gap-2 px-4 pt-4 pb-2 border-b border-gray-100 dark:border-gray-800"
 	>
 		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Case Activity</h2>
 		<span class="text-xs text-gray-400 dark:text-gray-500">
 			— backend audit trail, newest first
 		</span>
+		{#if items.length > 0}
+			<label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+				<span>Filter:</span>
+				<select
+					class="rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs py-1 px-2"
+					bind:value={filterAction}
+				>
+					<option value="">All</option>
+					{#each uniqueActions as action}
+						<option value={action}>{actionLabel(action)}</option>
+					{/each}
+				</select>
+			</label>
+		{/if}
 		<button
 			type="button"
 			class="ml-auto text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition"
@@ -193,40 +237,52 @@
 					Activity appears here as case actions are performed.
 				</p>
 			</div>
+		{:else if displayedItems.length === 0}
+			<div class="flex flex-col items-center justify-center h-24 gap-1">
+				<p class="text-sm text-gray-400 dark:text-gray-500">No activity matches the selected filter.</p>
+				<p class="text-xs text-gray-500 dark:text-gray-500">Choose “All” or another action.</p>
+			</div>
 		{:else}
 			<ol
 				class="flex flex-col gap-px"
 				data-testid="case-activity-list"
 				aria-label="Case activity feed"
 			>
-				{#each items as item (item.id)}
+				{#each displayedItems as item (item.id)}
 					<li
-						class="flex items-start gap-3 py-2 border-b border-gray-50 dark:border-gray-800/60 last:border-0"
+						class="py-3 px-3 border-b border-gray-100 dark:border-gray-800/80 last:border-0 rounded-sm hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors"
 						data-testid="case-activity-item"
 					>
-						<!-- Action badge -->
-						<span
-							class="shrink-0 mt-0.5 text-xs font-medium px-1.5 py-0.5 rounded whitespace-nowrap
-							       {actionBadgeClass(item.action)}"
-						>
-							{actionLabel(item.action)}
-						</span>
-
-						<!-- Entity context -->
-						<div class="flex-1 min-w-0">
-							<p class="text-xs text-gray-500 dark:text-gray-400 truncate">
-								<span class="text-gray-400 dark:text-gray-500">{entityLabel(item.entity_type)}</span>
-								<span class="font-mono text-gray-300 dark:text-gray-600 ml-1 select-all">{item.entity_id.slice(0, 8)}</span>
-							</p>
+						<!-- Row 1: Timestamp · Actor -->
+						<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
+							<time datetime={item.created_at} class="font-medium text-gray-600 dark:text-gray-300">
+								{formatDate(item.created_at)}
+							</time>
+							<span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+							<span title="Actor (from backend)"> {actorLabel(item)}</span>
 						</div>
 
-						<!-- Actor + timestamp -->
-						<div class="shrink-0 text-right">
-							<p class="text-xs text-gray-600 dark:text-gray-400">
-								{item.user_role ? `${item.user_role} ` : ''}{item.user_id.slice(0, 8)}
-							</p>
-							<p class="text-xs text-gray-400 dark:text-gray-500">{formatDate(item.created_at)}</p>
+						<!-- Row 2: Action + case relevance -->
+						<div class="flex flex-wrap items-center gap-2 min-w-0">
+							<span
+								class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded whitespace-nowrap
+								       {actionBadgeClass(item.action)}"
+							>
+								{actionLabel(item.action)}
+							</span>
+							<span class="text-xs text-gray-500 dark:text-gray-400 truncate" title={item.entity_type + ' ' + item.entity_id}>
+								{caseRelevanceLabel(item)}
+							</span>
 						</div>
+
+						<!-- Row 3: Metadata when available (backend details only) -->
+						{#if detailEntries(item).length > 0}
+							<dl class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400 dark:text-gray-500">
+								{#each detailEntries(item) as { k, v }}
+									<span class="inline"><span class="text-gray-400 dark:text-gray-500">{k}:</span> <span class="font-mono text-gray-500 dark:text-gray-400">{v.length > 32 ? v.slice(0, 32) + '…' : v}</span></span>
+								{/each}
+							</dl>
+						{/if}
 					</li>
 				{/each}
 			</ol>

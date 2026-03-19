@@ -395,7 +395,7 @@
 		isResizing = true;
 
 		startClientX = e.clientX;
-		startWidth = $sidebarWidth ?? 260;
+		startWidth = $sidebarWidth ?? 260; /* fallback matches app.css :root --sidebar-width */
 
 		document.body.style.userSelect = 'none';
 	};
@@ -716,6 +716,7 @@
 			</div>
 
 			<div class="-mt-[0.5px]">
+				{#if $caseEngineAuthState?.state !== 'active'}
 				<div class="">
 					<Tooltip content={$i18n.t('New Chat')} placement="right">
 						<a
@@ -817,6 +818,7 @@
 							</a>
 						</Tooltip>
 					</div>
+				{/if}
 				{/if}
 			</div>
 		</button>
@@ -949,6 +951,8 @@
 					}
 				}}
 			>
+				<!-- P19: When detective mode active, suppress legacy OWUI nav (New Chat, Search, Notes, Workspace). -->
+				{#if $caseEngineAuthState?.state !== 'active'}
 				<div class="pb-1.5">
 					<div class="px-[0.4375rem] flex justify-center text-gray-800 dark:text-gray-200">
 						<a
@@ -1047,6 +1051,7 @@
 						</div>
 					{/if}
 				</div>
+				{/if}
 
 				<!-- P19-05: Detective workspace global navigation (My Desktop / Cases / Search) -->
 				{#if $caseEngineAuthState?.state === 'active'}

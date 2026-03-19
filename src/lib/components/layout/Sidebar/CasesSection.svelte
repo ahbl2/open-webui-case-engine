@@ -6,7 +6,6 @@
 		caseEngineUser,
 		activeCaseId,
 		activeCaseNumber,
-		unitFilter,
 		caseContext,
 		aiCaseContext
 	} from '$lib/stores';
@@ -22,7 +21,6 @@
 	let showCases = true;
 
 	$: filteredCases = cases.filter((c) => {
-		if ($unitFilter !== 'ALL' && c.unit !== $unitFilter) return false;
 		if (!searchQuery.trim()) return true;
 		const q = searchQuery.toLowerCase();
 		return (
@@ -30,16 +28,6 @@
 			(c.title ?? '').toLowerCase().includes(q)
 		);
 	});
-
-	// If we have cases but unit filter hides them all, reset to ALL so user sees their cases
-	$: if (
-		cases.length > 0 &&
-		filteredCases.length === 0 &&
-		!searchQuery.trim() &&
-		$unitFilter !== 'ALL'
-	) {
-		unitFilter.set('ALL');
-	}
 
 	async function loadCases() {
 		const token = $caseEngineToken;
@@ -101,21 +89,6 @@
 		if ($page.url.pathname === target) return;
 		goto(target);
 	}
-
-	function disconnect() {
-		if (!confirm('Disconnect from Case Engine? You will need to sign in again to view cases.')) {
-			return;
-		}
-		caseEngineToken.set(null);
-		caseEngineUser.set(null);
-		activeCaseId.set(null);
-		activeCaseNumber.set(null);
-		caseContext.set(null);
-		aiCaseContext.set(null);
-		cases = [];
-	}
-
-	$: activeCase = cases.find((c) => c.id === $activeCaseId);
 </script>
 
 <Folder
@@ -136,35 +109,13 @@
 				Connect to Case Engine
 			</button>
 		{:else}
-			<div class="flex items-center justify-between gap-1">
-				<span class="text-xs text-gray-500 truncate" title="Connected as {$caseEngineUser?.name ?? 'user'}">
-					{$caseEngineUser?.name ?? 'Connected'}
-				</span>
-				<button
-					type="button"
-					class="text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 shrink-0"
-					on:click={disconnect}
-					title="Disconnect and switch account"
-				>
-					Disconnect
-				</button>
-			</div>
-			<div class="flex items-center gap-1">
-				<select
-					bind:value={$unitFilter}
-					class="flex-1 rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1 text-xs"
-				>
-					<option value="ALL">ALL</option>
-					<option value="CID">CID</option>
-					<option value="SIU">SIU</option>
-				</select>
+			<div class="flex flex-col gap-2">
 				<input
 					type="text"
-					placeholder="Search..."
+					placeholder="Search cases..."
 					bind:value={searchQuery}
-					class="flex-1 rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1 text-xs placeholder-gray-500"
+					class="w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-xs placeholder-gray-500"
 				/>
-			</div>
 			{#if casesError}
 				<div class="text-xs text-red-600 dark:text-red-400">{casesError}</div>
 			{/if}
@@ -194,13 +145,7 @@
 					{/if}
 				</div>
 			{/if}
-			{#if activeCase}
-				<div
-					class="rounded-lg bg-gray-100 dark:bg-gray-800 px-2 py-1.5 text-xs font-medium"
-				>
-					Active Case: {activeCase.case_number}
-				</div>
-			{/if}
+			</div>
 		{/if}
 	</div>
 </Folder>
