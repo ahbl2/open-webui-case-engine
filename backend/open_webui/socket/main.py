@@ -20,6 +20,7 @@ from open_webui.utils.redis import (
 
 from open_webui.config import (
     CORS_ALLOW_ORIGIN,
+    SOCKETIO_CORS_EXTRA_ORIGINS,
 )
 
 from open_webui.env import (
@@ -56,8 +57,17 @@ log = logging.getLogger(__name__)
 
 REDIS = None
 
-# Configure CORS for Socket.IO
-SOCKETIO_CORS_ORIGINS = "*" if CORS_ALLOW_ORIGIN == ["*"] else CORS_ALLOW_ORIGIN
+# Configure CORS for Socket.IO (path /ws/socket.io via ASGIApp below).
+# When CORS_ALLOW_ORIGIN is not '*', merge SOCKETIO_CORS_EXTRA_ORIGINS so LAN / alternate UI origins
+# can reach Engine.IO on the backend port without duplicating the full FastAPI CORS list.
+if CORS_ALLOW_ORIGIN == ["*"]:
+    SOCKETIO_CORS_ORIGINS = "*"
+else:
+    _socketio_cors = list(CORS_ALLOW_ORIGIN)
+    for _origin in SOCKETIO_CORS_EXTRA_ORIGINS:
+        if _origin not in _socketio_cors:
+            _socketio_cors.append(_origin)
+    SOCKETIO_CORS_ORIGINS = _socketio_cors
 
 if WEBSOCKET_MANAGER == "redis":
     if WEBSOCKET_SENTINEL_HOSTS:
@@ -74,7 +84,7 @@ if WEBSOCKET_MANAGER == "redis":
     sio = socketio.AsyncServer(
         cors_allowed_origins=SOCKETIO_CORS_ORIGINS,
         async_mode="asgi",
-        transports=(["websocket"] if ENABLE_WEBSOCKET_SUPPORT else ["polling"]),
+        transports=(["polling", "websocket"] if ENABLE_WEBSOCKET_SUPPORT else ["polling"]),
         allow_upgrades=ENABLE_WEBSOCKET_SUPPORT,
         always_connect=True,
         client_manager=mgr,
@@ -87,7 +97,7 @@ else:
     sio = socketio.AsyncServer(
         cors_allowed_origins=SOCKETIO_CORS_ORIGINS,
         async_mode="asgi",
-        transports=(["websocket"] if ENABLE_WEBSOCKET_SUPPORT else ["polling"]),
+        transports=(["polling", "websocket"] if ENABLE_WEBSOCKET_SUPPORT else ["polling"]),
         allow_upgrades=ENABLE_WEBSOCKET_SUPPORT,
         always_connect=True,
         logger=WEBSOCKET_SERVER_LOGGING,
@@ -343,6 +353,10 @@ async def usage(sid, data):
 
 @sio.event
 async def connect(sid, environ, auth):
+    # [WS-DIAG] Log connection attempt
+    path = environ.get("PATH_INFO", "") if environ else ""
+    query = environ.get("QUERY_STRING", "") if environ else ""
+    log.info("[WS-DIAG] connect: sid=%s path=%s query=%s", sid, path, query[:80] if query else "")
     user = None
     if auth and "token" in auth:
         data = decode_token(auth["token"])
@@ -755,6 +769,7 @@ async def yjs_awareness_update(sid, data):
 
 @sio.event
 async def disconnect(sid):
+    log.info("[WS-DIAG] disconnect: sid=%s", sid)
     if sid in SESSION_POOL:
         user = SESSION_POOL[sid]
         del SESSION_POOL[sid]

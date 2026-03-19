@@ -1798,7 +1798,22 @@ def validate_cors_origin(origin):
 # To test CORS_ALLOW_ORIGIN locally, you can set something like
 # CORS_ALLOW_ORIGIN=http://localhost:5173;http://localhost:8080
 # in your .env file depending on your frontend port, 5173 in this case.
-CORS_ALLOW_ORIGIN = os.environ.get("CORS_ALLOW_ORIGIN", "*").split(";")
+CORS_ALLOW_ORIGIN = [
+    o.strip()
+    for o in os.environ.get("CORS_ALLOW_ORIGIN", "*").split(";")
+    if o.strip()
+]
+if not CORS_ALLOW_ORIGIN:
+    CORS_ALLOW_ORIGIN = ["*"]
+
+# Extra origins for Socket.IO (Engine.IO) only, merged into cors_allowed_origins when not using '*'.
+# Use when the browser loads the UI from a host:port not already in CORS_ALLOW_ORIGIN (e.g. LAN IP
+# while CORS_ALLOW_ORIGIN lists only localhost). Semicolon-separated.
+SOCKETIO_CORS_EXTRA_ORIGINS = [
+    o.strip()
+    for o in os.environ.get("SOCKETIO_CORS_EXTRA_ORIGINS", "").split(";")
+    if o.strip()
+]
 
 # Allows custom URL schemes (e.g., app://) to be used as origins for CORS.
 # Useful for local development or desktop clients with schemes like app:// or other custom protocols.
@@ -1813,6 +1828,8 @@ else:
     # You have to pick between a single wildcard or a list of origins.
     # Doing both will result in CORS errors in the browser.
     for origin in CORS_ALLOW_ORIGIN:
+        validate_cors_origin(origin)
+    for origin in SOCKETIO_CORS_EXTRA_ORIGINS:
         validate_cors_origin(origin)
 
 
