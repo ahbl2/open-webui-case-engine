@@ -42,6 +42,12 @@ export interface ConversationState {
 	actionBody: string | null;
 	/** Location phrase extracted from the anchor turn. */
 	location: string | null;
+	/**
+	 * Date of the event being discussed, extracted from recent AI answers.
+	 * Used by time-follow-up resolution to anchor "what time was it?" to the
+	 * specific event rather than drifting to unrelated timestamps.
+	 */
+	dateHint: string | null;
 	/** Question type of the anchor user question. */
 	lastQuestionType: QuestionType;
 	/** High when at least one entity or location was extracted; Low otherwise. */
@@ -59,6 +65,41 @@ export interface ResolvedQuery {
 	state: ConversationState | null;
 }
 
+/**
+ * The specific event the conversation is currently anchored to, derived from
+ * the conversation state. Used for anchor confidence scoring and clarification hints.
+ */
+export interface EventAnchor {
+	entity: string | null;
+	actionBody: string | null;
+	location: string | null;
+	dateHint: string | null;
+	/** Excerpt of the AI answer that established this anchor (≤ 150 chars). */
+	sourceExcerpt: string | null;
+}
+
+/** Result of `computeAnchorConfidence`. */
+export interface AnchorResult {
+	level: 'high' | 'medium' | 'low';
+	/** Human-readable factors that contributed to the score (for logging). */
+	factors: string[];
+	anchor: EventAnchor;
+}
+
+/**
+ * Result of `buildProgressiveClarification`.
+ * Used to inject a conversational assistant message when a query cannot be
+ * safely resolved, replacing the previous hard-block toast.
+ */
+export interface ClarificationResult {
+	/** The clarification message to show the user as an assistant reply. */
+	message: string;
+	/** Whether context was entirely absent or just insufficiently anchored. */
+	type: 'no_context' | 'low_confidence';
+	/** Optional follow-up suggestion strings (forward-compatibility only; not rendered yet). */
+	suggestions?: string[];
+}
+
 // ─── Context-dependency detection ────────────────────────────────────────────
 
 const BARE_INTERROGATIVES = new Set([
@@ -74,6 +115,19 @@ const CONTEXT_DEPENDENT_PHRASES = [
 	/^(when exactly|when did this|when was that|when did they)\??$/i,
 	/^(where exactly|where did this|where was that|where did they)\??$/i,
 	/^(why did they|why did he|why did she|why so)\??$/i,
+	// Time follow-ups — "it" / "that" makes them context-dependent; bare "what time" too.
+	/^what\s+time\??\s*$/i,
+	/^what\s+time\s+(was\s+it|did\s+it|was\s+that|did\s+that|did\s+this|was\s+this)\b/i,
+	/^what\s+was\s+the\s+time\??\s*$/i,
+	/^at\s+what\s+time\??\s*$/i,
+	// Pronoun-referencing "where/when/what was this/it" forms
+	/^(where\s+was\s+(this|it)|where\s+is\s+(this|it))\??\s*$/i,
+	/^(when\s+was\s+(this|it)|when\s+did\s+(this|it))\??\s*$/i,
+	/^(what\s+was\s+(this|it)|what\s+is\s+(this|it))\??\s*$/i,
+	// Generic event follow-ups
+	/^what\s+happened\??\s*$/i,
+	/^what\s+happened\s+(next|after|then|afterwards)\??\s*$/i,
+	/^what\s+was\s+(the\s+)?(outcome|result|conclusion|finding)\??\s*$/i,
 ];
 
 export function isContextDependent(query: string): boolean {
@@ -81,6 +135,19 @@ export function isContextDependent(query: string): boolean {
 	if (!q) return false;
 	if (BARE_INTERROGATIVES.has(q)) return true;
 	return CONTEXT_DEPENDENT_PHRASES.some((re) => re.test(q));
+}
+
+/**
+ * True when the query is specifically asking about the time of a prior event.
+ * Called from `resolveWithState` to select the event-anchored time resolution path.
+ */
+export function isTimeQuestion(query: string): boolean {
+	const q = query.trim().toLowerCase();
+	return (
+		/^what\s+time\b/.test(q) ||
+		/^at\s+what\s+time\b/.test(q) ||
+		/^what\s+was\s+the\s+time\b/.test(q)
+	);
 }
 
 // ─── Question type classification ─────────────────────────────────────────────
@@ -176,6 +243,31 @@ export function extractLocation(text: string): string | null {
 	return null;
 }
 
+// ─── Date hint extraction ─────────────────────────────────────────────────────
+
+/**
+ * Extract a human-readable date reference from AI answer text.
+ * Prefers written dates ("December 11, 2025") over ISO strings.
+ * Used to anchor time follow-up questions to the correct event.
+ */
+export function extractDateHint(text: string): string | null {
+	const patterns = [
+		// "December 11, 2025" / "Dec 11, 2025" / "December 11 2025"
+		/\b((?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov)\s+\d{1,2}(?:st|nd|rd|th)?,?\s+\d{4})\b/i,
+		// "11 December 2025" / "11th December 2025"
+		/\b(\d{1,2}(?:st|nd|rd|th)?\s+(?:January|February|March|April|May|June|July|August|September|October|November|December|Jan|Feb|Mar|Apr|Jun|Jul|Aug|Sep|Oct|Nov)\s+\d{4})\b/i,
+		// ISO date (including ISO timestamps): extracts "2025-12-11" from "2025-12-11T14:54:00Z"
+		/\b(\d{4}-\d{2}-\d{2})(?!\d)/,
+		// Numeric: "12/11/2025"
+		/\b(\d{1,2}\/\d{1,2}\/\d{4})\b/,
+	];
+	for (const re of patterns) {
+		const m = text.match(re);
+		if (m?.[1]?.trim()) return m[1].trim();
+	}
+	return null;
+}
+
 // ─── Action body extraction ───────────────────────────────────────────────────
 
 /**
@@ -191,8 +283,14 @@ export function extractActionBody(question: string): string {
 	return question
 		.replace(/\?+$/, '')
 		.trim()
+		// Strip leading interrogative + optional auxiliary ("Who did", "When was", etc.)
 		.replace(
 			/^(?:who|what|when|where|why|how)\s+(?:did|was|were|has|have|had|is|are|would|could|should|does|do)?\s*/i,
+			''
+		)
+		// Strip "has/did/does/is/are anyone/someone" openers ("Has anyone carried…")
+		.replace(
+			/^(?:has|have|did|does|do|is|are|was|were|would|could|should)\s+(?:anyone|someone|somebody|everybody|nobody|no\s+one)\s+/i,
 			''
 		)
 		.trim();
@@ -300,6 +398,17 @@ export function buildConversationState(turns: ConversationTurn[]): ConversationS
 	const location =
 		extractLocation(anchorUserQ) ?? (anchorAssistantA ? extractLocation(anchorAssistantA) : null);
 
+	// Extract date hint from all recent AI answers (most recent wins).
+	let dateHint: string | null = null;
+	const recentAiTurns = turns.slice(-8).filter((t) => t.role === 'assistant');
+	for (let i = recentAiTurns.length - 1; i >= 0; i--) {
+		const hint = extractDateHint(recentAiTurns[i].content);
+		if (hint) {
+			dateHint = hint;
+			break;
+		}
+	}
+
 	return {
 		topic: anchorUserQ,
 		anchorAnswer: anchorAssistantA,
@@ -307,6 +416,7 @@ export function buildConversationState(turns: ConversationTurn[]): ConversationS
 		entity,
 		actionBody,
 		location,
+		dateHint,
 		lastQuestionType: classifyQuestionType(anchorUserQ),
 		confidence: allEntities.length > 0 || location !== null ? 'high' : 'low',
 	};
@@ -322,9 +432,24 @@ function buildContextSuffix(entities: string[], location: string | null): string
 	return parts.length > 0 ? ` [Context: ${parts.join(', ')}]` : '';
 }
 
+/**
+ * True when the first word of the action body is a verb (or at least not a
+ * determiner/pronoun/article), so the "What time did [entity] [body]?" template
+ * is grammatically valid.
+ */
+function bodyIsVerbLed(body: string): boolean {
+	const firstWord = body.trim().split(/\s+/)[0].toLowerCase().replace(/[^a-z]/g, '');
+	const NON_VERB_STARTERS = new Set([
+		'the', 'a', 'an', 'my', 'your', 'his', 'her', 'its', 'our', 'their',
+		'this', 'that', 'these', 'those', 'last', 'most', 'every', 'each',
+		'some', 'any', 'all', 'no',
+	]);
+	return firstWord.length > 0 && !NON_VERB_STARTERS.has(firstWord);
+}
+
 function resolveWithState(currentQuery: string, state: ConversationState): string {
 	const type = classifyQuestionType(currentQuery);
-	const { entity, entities, actionBody, location, lastQuestionType, topic, anchorAnswer } = state;
+	const { entity, entities, actionBody, location, dateHint, lastQuestionType, topic, anchorAnswer } = state;
 
 	// Same interrogative as the prior question → return the anchor as-is.
 	if (type === lastQuestionType) {
@@ -333,6 +458,38 @@ function resolveWithState(currentQuery: string, state: ConversationState): strin
 
 	const suffix = buildContextSuffix(entities, location);
 	const bodyNorm = actionBody ? normaliseBodyVerb(actionBody) : null;
+
+	// ── Time-specific resolution ──────────────────────────────────────────────
+	// Handles: "what time was it", "what time", "at what time", "what was the time".
+	// Builds a query rich enough for RAG to retrieve the correct event entry
+	// (entity + action + location + date) rather than any entry containing a timestamp.
+	if (isTimeQuestion(currentQuery)) {
+		const verbBody = bodyNorm && bodyIsVerbLed(bodyNorm) ? bodyNorm : null;
+		if (entity && verbBody && dateHint) {
+			return `What time did ${entity} ${verbBody} on ${dateHint}?`;
+		}
+		if (entity && verbBody) {
+			return `What time did ${entity} ${verbBody}?`;
+		}
+		if (entity && location && dateHint) {
+			return `What time was ${entity} at ${location} on ${dateHint}?`;
+		}
+		if (entity && location) {
+			return `What time was ${entity} at ${location}?`;
+		}
+		if (entity && dateHint) {
+			return `What time did this event involving ${entity} occur on ${dateHint}?${suffix}`;
+		}
+		// Last resort: use a second entity as a location hint if present
+		const locHint = entities.find((e) => e !== entity) ?? null;
+		if (entity && locHint) {
+			return `What time was ${entity} at ${locHint}?${suffix}`;
+		}
+		if (location) {
+			return `What time did this occur at ${location}?${suffix}`;
+		}
+		return `What time exactly?${suffix}`;
+	}
 
 	switch (type) {
 		case 'who':
@@ -376,6 +533,276 @@ function resolveWithState(currentQuery: string, state: ConversationState): strin
 			return `${currentQuery.trim()}\n\n[${ctxLines.join('\n')}]`;
 		}
 	}
+}
+
+// ─── Anchor confidence scoring ────────────────────────────────────────────────
+
+/**
+ * Compute how confident we are that a context-dependent follow-up question is
+ * referring to the same specific event tracked by the conversation state.
+ *
+ * Scoring:
+ *  HIGH  (≥4 pts, entity + location or action) — resolved query can be trusted
+ *  MEDIUM (≥2 pts)                              — enrich resolved query with context block
+ *  LOW   (<2 pts)                               — insufficient anchor; ask for clarification
+ *
+ * Callers should only invoke this when `state` is non-null (i.e. after a
+ * successful `buildConversationState` call).
+ */
+export function computeAnchorConfidence(state: ConversationState, currentQuery: string): AnchorResult {
+	const anchor: EventAnchor = {
+		entity: state.entity,
+		actionBody: state.actionBody,
+		location: state.location,
+		dateHint: state.dateHint,
+		sourceExcerpt: state.anchorAnswer ? state.anchorAnswer.slice(0, 150) : null,
+	};
+
+	const factors: string[] = [];
+	let score = 0;
+
+	if (state.entity) { score += 2; factors.push('entity'); }
+	if (state.location) { score += 2; factors.push('location'); }
+	if (state.actionBody) { score += 1; factors.push('action'); }
+	if (state.dateHint) { score += 1; factors.push('date'); }
+	if (state.anchorAnswer) { score += 1; factors.push('ai-answer'); }
+
+	const qt = classifyQuestionType(currentQuery);
+	if (qt !== 'other') factors.push(`question-type:${qt}`);
+
+	// HIGH requires entity + a spatial/temporal anchor (location or date) + action body.
+	// Entity alone, even with a high score from AI-answer, is not enough to safely
+	// pin a follow-up to a specific event.
+	let level: 'high' | 'medium' | 'low';
+	if (score >= 4 && state.entity && (state.location || state.dateHint) && state.actionBody) {
+		level = 'high';
+	} else if (score >= 2) {
+		level = 'medium';
+	} else {
+		level = 'low';
+	}
+
+	return { level, factors, anchor };
+}
+
+/**
+ * Build a plain-language clarification hint for display when anchor confidence
+ * is too low to safely send a follow-up to the AI.
+ * @deprecated Prefer `buildProgressiveClarification` for new call sites.
+ */
+export function buildClarificationHint(state: ConversationState): string {
+	const parts: string[] = [];
+	if (state.entity) parts.push(state.entity);
+	if (state.location) parts.push(`the ${state.location}`);
+	if (state.dateHint) parts.push(state.dateHint);
+
+	if (parts.length === 0) {
+		return "Could you give me a bit more context about which event you mean?";
+	}
+	return `Are you asking about the event involving ${parts.join(', ')}? Could you be more specific?`;
+}
+
+/**
+ * Generate a progressive clarification message for display as an inline
+ * assistant reply when a query cannot be safely resolved.
+ *
+ * Returns a structured `ClarificationResult` so callers can distinguish the
+ * reason (no_context vs low_confidence) for logging and future UI rendering.
+ *
+ * No backend call should be made when this function returns a result —
+ * its entire purpose is to replace the unsafe query with a conversational
+ * clarifying turn.
+ */
+export function buildProgressiveClarification(
+	state: ConversationState | null,
+	query: string
+): ClarificationResult {
+	if (state === null) {
+		// No conversation context — provide query-type-specific investigative guidance.
+		if (isTimeQuestion(query)) {
+			return {
+				type: 'no_context',
+				message:
+					"What event are you asking about? For example, you can ask about when someone arrived, left, or performed an action in this case.",
+				suggestions: [
+					"What time did the most recent event in this case occur?",
+					"What time is documented in the narrative?",
+					"When did the key activity take place?",
+				],
+			};
+		}
+
+		const qt = classifyQuestionType(query);
+		const GUIDANCE: Record<QuestionType, string> = {
+			who:   "Who are you referring to? You can ask about a specific person, event, or location in this case.",
+			what:  "What event are you referring to? You can ask about what happened, what was found, or what was documented.",
+			when:  "When are you asking about? Try specifying an event, action, or person you want the timing for.",
+			where: "What event or activity are you asking about? I can look up locations once I know the specific event.",
+			why:   "What are you asking about? I can look for documented explanations once I know the specific event or activity.",
+			how:   "What event or action are you asking about? I can describe how it occurred once I know the specific activity.",
+			other: "I'm not sure what you're referring to. Could you tell me a bit more about what you'd like to know?",
+		};
+		const NO_CONTEXT_SUGGESTIONS: Record<QuestionType, string[]> = {
+			who:   [
+				"Who is involved in the most recent case activity?",
+				"Who were the key persons documented?",
+				"Who was most recently recorded in this case?",
+			],
+			what:  [
+				"What happened in the most recent documented activity?",
+				"What evidence is recorded in this case?",
+				"What was the most significant action taken?",
+			],
+			when:  [
+				"When did the most recent event in this case occur?",
+				"When was the last significant activity documented?",
+				"When were the key events recorded?",
+			],
+			where: [
+				"Where did the most recent activity take place?",
+				"Where was the evidence collected?",
+				"Where is the investigation currently focused?",
+			],
+			why:   [
+				"Why is the most recent activity significant?",
+				"What documentation explains the reason for the activity?",
+				"What was the stated purpose or motive in the record?",
+			],
+			how:   [
+				"How was the most recent activity carried out?",
+				"How were the events connected in the record?",
+				"How was evidence documented?",
+			],
+			other: [
+				"Who is involved in this case?",
+				"What happened most recently?",
+				"When did the key events occur?",
+			],
+		};
+		return {
+			type: 'no_context',
+			message: GUIDANCE[qt],
+			suggestions: NO_CONTEXT_SUGGESTIONS[qt],
+		};
+	}
+
+	// Low anchor confidence — use available state to make the clarification specific.
+	const parts: string[] = [];
+	if (state.entity) parts.push(state.entity);
+	if (state.location) parts.push(`the ${state.location}`);
+	if (state.dateHint) parts.push(state.dateHint);
+
+	if (parts.length === 0) {
+		return {
+			type: 'low_confidence',
+			message: "I want to make sure I understand — which specific event or activity are you referring to?",
+			suggestions: [
+				"Who is involved in the most recent activity?",
+				"What happened most recently in this case?",
+				"When did the last documented event occur?",
+			],
+		};
+	}
+
+	// Build targeted suggestions from state fields.
+	const suggestions: string[] = [];
+	if (state.entity && state.location) {
+		suggestions.push(`What did ${state.entity} do at the ${state.location}?`);
+		suggestions.push(`When did ${state.entity} arrive at the ${state.location}?`);
+		suggestions.push(`Who else was present at the ${state.location}?`);
+	} else if (state.entity) {
+		suggestions.push(`What did ${state.entity} do?`);
+		suggestions.push(`When was ${state.entity} last documented?`);
+		suggestions.push(`Where was ${state.entity} observed?`);
+	} else if (state.location) {
+		suggestions.push(`What occurred at the ${state.location}?`);
+		suggestions.push(`Who was at the ${state.location}?`);
+		suggestions.push(`When did the activity at the ${state.location} occur?`);
+	}
+
+	return {
+		type: 'low_confidence',
+		message: `Are you asking about the activity involving ${parts.join(', ')}? If so, could you be more specific about what you'd like to know?`,
+		suggestions: suggestions.slice(0, 4),
+	};
+}
+
+/**
+ * Generate 2–4 deterministic follow-up suggestion strings after a successful
+ * case answer, based on the question type and any available conversation state.
+ *
+ * Suggestions go through the normal chat submit flow when clicked — they are
+ * NOT pre-computed answers and all guards still apply.
+ */
+export function buildAnswerFollowUpSuggestions(
+	state: ConversationState | null,
+	questionType: QuestionType
+): string[] {
+	const BASE: Record<QuestionType, string[]> = {
+		who:   ["What did they do?", "When did that happen?", "Where did it occur?"],
+		what:  ["Who was involved?", "When did that occur?", "Where did it take place?"],
+		when:  ["Who was involved?", "What happened?", "Where did it occur?"],
+		where: ["Who was there?", "What happened?", "When did it occur?"],
+		why:   ["What supports that?", "What was the outcome?", "Who was involved?"],
+		how:   ["Who carried it out?", "When did it occur?", "What was the result?"],
+		other: ["Who is involved?", "What happened?", "When did it occur?"],
+	};
+
+	const suggestions = [...(BASE[questionType] ?? BASE.other)];
+
+	// Append one state-aware suggestion when safe (entity/location come from the
+	// conversation record, so they are not fabricated).
+	if (state?.entity && suggestions.length < 4) {
+		suggestions.push(`What else is documented about ${state.entity}?`);
+	} else if (state?.location && suggestions.length < 4) {
+		suggestions.push(`What else occurred at the ${state.location}?`);
+	}
+
+	return suggestions.slice(0, 4);
+}
+
+// ─── First-turn safe default rewrites ────────────────────────────────────────
+
+/**
+ * Bare interrogative → safe, generic, case-scoped question.
+ * Used ONLY for the very first message in a chat (no prior turns) when the
+ * query is context-dependent but there is no anchor to resolve against.
+ * These queries produce zero RAG terms if sent unmodified; the rewrites give
+ * retrieval a meaningful signal without fabricating specificity.
+ */
+const FIRST_TURN_BARE: Record<string, string> = {
+	who:   'Who are the primary individuals involved based on the most recent case activity?',
+	what:  'What activity is documented in the most recent case entries?',
+	when:  'When did the most recent relevant activity in this case occur?',
+	where: 'Where did the most recent relevant activity in this case take place?',
+	why:   'Is there any documented explanation or stated reason for the most recent activity in this case?',
+	how:   'How is the most recent activity in this case described in the record?',
+};
+
+const FIRST_TURN_PHRASE: Array<[RegExp, string]> = [
+	[/^what\s+time\b/,          'What time is documented for the most recent relevant activity in this case?'],
+	[/^where\s+was\s+this\b/,   'Where did the most recent relevant activity in this case take place?'],
+	[/^where\s+was\s+it\b/,     'Where did the most recent relevant activity in this case take place?'],
+	[/^when\s+was\s+this\b/,    'When did the most recent relevant activity in this case occur?'],
+	[/^when\s+was\s+it\b/,      'When did the most recent relevant activity in this case occur?'],
+	[/^what\s+was\s+this\b/,    'What activity is documented in the most recent case entries?'],
+	[/^what\s+was\s+it\b/,      'What activity is documented in the most recent case entries?'],
+	[/^who\s+was\s+it\b/,       'Who are the primary individuals involved based on the most recent case activity?'],
+	[/^what\s+happened\b/,      'What activity is documented in the most recent case entries?'],
+];
+
+/**
+ * Return a safe generic case-scoped rewrite for a first-turn context-dependent
+ * query, or `null` if no mapping applies (in which case the query should be
+ * blocked and the user asked for more context).
+ */
+export function resolveFirstTurnFallback(query: string): string | null {
+	const q = query.trim().toLowerCase().replace(/\?+$/, '').trim();
+	if (FIRST_TURN_BARE[q]) return FIRST_TURN_BARE[q];
+	for (const [re, fallback] of FIRST_TURN_PHRASE) {
+		if (re.test(q)) return fallback;
+	}
+	return null;
 }
 
 // ─── Main entry point ─────────────────────────────────────────────────────────

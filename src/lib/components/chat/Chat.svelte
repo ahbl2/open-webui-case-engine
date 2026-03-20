@@ -62,7 +62,16 @@
 		getCreateNewChatIdOption,
 		shouldRewriteBrowserUrlToStandaloneChatPath
 	} from '$lib/utils/chatThreadCreateOptions';
-	import { resolveConversationalQuery } from '$lib/utils/conversationalContextResolver';
+	import {
+		resolveConversationalQuery,
+		isContextDependent,
+		resolveFirstTurnFallback,
+		computeAnchorConfidence,
+		buildProgressiveClarification,
+		buildAnswerFollowUpSuggestions,
+		classifyQuestionType,
+		type ClarificationResult
+	} from '$lib/utils/conversationalContextResolver';
 
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
@@ -1790,12 +1799,83 @@
 				toast.error($i18n.t('Connect to Case Engine first.'));
 				return;
 			}
-			// Route to Case Engine; create user + assistant messages inline (no streaming)
+
+			// Build conversation context BEFORE mutating history so that guards can
+			// return early without leaving an orphaned user message in the thread.
+			const messages = createMessagesList(history, history.currentId);
+			const priorTurns = messages.map((m) => ({
+				role: m.role as 'user' | 'assistant',
+				content: typeof m.content === 'string' ? m.content : ''
+			}));
+			const ctxResolution = resolveConversationalQuery(userPrompt, priorTurns);
+			// `let` because a first-turn fallback may override the resolved prompt.
+			let resolvedPrompt = ctxResolution.resolved;
+
+			// Detect intake intent early (intake bypasses Q&A guards).
+			const intakeIntent = detectCaseChatIntakeIntent(userPrompt);
+
+			// Guards compute a clarification result (if needed) BEFORE mutating history,
+			// so the user message always appears in the thread regardless of which path runs.
+			let clarificationResult: ClarificationResult | null = null;
+
+			if (!intakeIntent) {
+				// Guard 1 — Zero-term / no-context: context-dependent query with no usable
+				// conversation state (resolver found no anchor to expand from).
+				// First-turn: try a safe generic rewrite before falling back to clarification.
+				if (isContextDependent(userPrompt) && ctxResolution.state === null) {
+					const isFirstTurn = priorTurns.length === 0;
+					if (isFirstTurn) {
+						const firstTurnFallback = resolveFirstTurnFallback(userPrompt);
+						if (firstTurnFallback) {
+							resolvedPrompt = firstTurnFallback;
+							console.debug('[case-ask] first-turn fallback applied', {
+								original: userPrompt,
+								fallback: resolvedPrompt
+							});
+						} else {
+							clarificationResult = buildProgressiveClarification(null, userPrompt);
+						}
+					} else {
+						clarificationResult = buildProgressiveClarification(null, userPrompt);
+					}
+				}
+
+				// Guard 2 — Low anchor confidence: follow-up cannot be reliably pinned to a
+				// specific event. Generate a clarification instead of guessing.
+				if (!clarificationResult && ctxResolution.contextDependent && ctxResolution.state) {
+					const { level, factors, anchor } = computeAnchorConfidence(
+						ctxResolution.state,
+						userPrompt
+					);
+					console.debug('[case-ask] anchor confidence', {
+						level,
+						factors,
+						anchor,
+						resolved: resolvedPrompt
+					});
+					if (level === 'low') {
+						clarificationResult = buildProgressiveClarification(
+							ctxResolution.state,
+							userPrompt
+						);
+					}
+				}
+			}
+
+			if (ctxResolution.contextDependent && !clarificationResult) {
+				console.debug('[case-ask] context resolution', {
+					original: ctxResolution.original,
+					resolved: resolvedPrompt,
+					state: ctxResolution.state
+				});
+			}
+
+			// Commit user message to history (always — even on the clarification path,
+			// so the user sees their question followed by the assistant's clarifying reply).
 			messageInput?.setText('');
 			prompt = '';
 			const _files = structuredClone(files);
 			files = [];
-			const messages = createMessagesList(history, history.currentId);
 			let userMessageId = uuidv4();
 			let userMessage = {
 				id: userMessageId,
@@ -1821,24 +1901,43 @@
 			}
 			await tick();
 			await saveChatHandler(_chatId, history);
-			try {
-				// Resolve context-dependent follow-ups ("who", "when", "where", etc.) into
-				// self-contained questions before intake detection and RAG retrieval.
-				const priorTurns = messages.map((m) => ({
-					role: m.role as 'user' | 'assistant',
-					content: typeof m.content === 'string' ? m.content : ''
-				}));
-				const ctxResolution = resolveConversationalQuery(userPrompt, priorTurns);
-				const resolvedPrompt = ctxResolution.resolved;
-				if (ctxResolution.contextDependent) {
-					console.debug('[case-ask] context resolution', {
-						original: ctxResolution.original,
-						resolved: resolvedPrompt,
-						state: ctxResolution.state
-					});
-				}
 
-				const intakeIntent = detectCaseChatIntakeIntent(userPrompt);
+			// Clarification path: show an inline assistant reply and return without
+			// calling the backend. The user message is already persisted above.
+			if (clarificationResult) {
+				console.debug('[case-ask] progressive clarification', {
+					original: userPrompt,
+					contextDependent: ctxResolution.contextDependent,
+					statePresent: ctxResolution.state !== null,
+					type: clarificationResult.type
+				});
+				const clarifyModelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+				const clarifyModel = $models.find((m) => m.id === clarifyModelId);
+				const clarifyMsgId = uuidv4();
+				const clarifyMsg = {
+					parentId: userMessageId,
+					id: clarifyMsgId,
+					childrenIds: [],
+					role: 'assistant',
+					content: clarificationResult.message,
+					model: clarifyModelId,
+					modelName: clarifyModel?.name ?? 'Case Engine',
+					modelIdx: 0,
+					timestamp: Math.floor(Date.now() / 1000),
+					done: true,
+					caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>,
+					followUps: clarificationResult.suggestions ?? []
+				};
+				history.messages[clarifyMsgId] = clarifyMsg;
+				history.currentId = clarifyMsgId;
+				history.messages[userMessageId].childrenIds.push(clarifyMsgId);
+				await saveChatHandler(_chatId, history);
+				currentChatPage.set(1);
+				chats.set(await getChatList(localStorage.token, $currentChatPage));
+				return;
+			}
+
+			try {
 				if (intakeIntent) {
 					const proposal = await draftChatIntakeProposal($activeCaseId, $caseEngineToken, {
 						raw_message: userPrompt,
@@ -1899,7 +1998,11 @@
 					modelIdx: 0,
 					timestamp: Math.floor(Date.now() / 1000),
 					done: true,
-					caseEngineCitations: citations ?? []
+					caseEngineCitations: citations ?? [],
+					followUps: buildAnswerFollowUpSuggestions(
+						ctxResolution.state,
+						classifyQuestionType(resolvedPrompt)
+					)
 				};
 				history.messages[responseMessageId] = responseMessage;
 				history.currentId = responseMessageId;

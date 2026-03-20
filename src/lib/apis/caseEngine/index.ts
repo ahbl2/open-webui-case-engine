@@ -332,17 +332,37 @@ export async function askCaseQuestion(
 ): Promise<AskCaseQuestionResponse> {
 	const body: Record<string, unknown> = { question: question.trim(), topK: topK ?? 8 };
 	if (model) body.model = model;
-	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/ask`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
-		},
-		body: JSON.stringify(body)
-	});
-	const data = await res.json().catch(() => ({}));
+
+	const doFetch = () =>
+		fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/ask`, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify(body)
+		});
+
+	let res = await doFetch();
+	let retryAttempted = false;
+
+	// Transparent single retry on 422 — this is an intermittent LLM JSON parse failure
+	// (Ollama occasionally returns prose instead of the required JSON envelope).
+	// Retrying with the identical payload usually succeeds on the next generation.
 	if (res.status === 422) {
-		const err = new Error(data?.error ?? 'AI returned invalid response') as Error & { citations?: AskCitation[] };
+		retryAttempted = true;
+		console.debug('[case-engine] /ask returned 422 (LLM parse failure), retrying once', {
+			question: question.trim()
+		});
+		res = await doFetch();
+	}
+
+	const data = await res.json().catch(() => ({}));
+
+	if (res.status === 422) {
+		if (retryAttempted) {
+			console.debug('[case-engine] /ask retry also returned 422, giving up');
+		}
+		const err = new Error(data?.error ?? 'AI returned invalid response') as Error & {
+			citations?: AskCitation[];
+		};
 		err.citations = data?.citations;
 		throw err;
 	}

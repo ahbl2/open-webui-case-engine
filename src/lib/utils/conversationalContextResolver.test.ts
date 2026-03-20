@@ -1,14 +1,22 @@
 import { describe, it, expect } from 'vitest';
 import {
 	isContextDependent,
+	isTimeQuestion,
 	classifyQuestionType,
 	extractProperNouns,
 	extractLocation,
+	extractDateHint,
 	extractActionBody,
 	extractPriorContext,
 	buildConversationState,
 	resolveConversationalQuery,
+	resolveFirstTurnFallback,
+	computeAnchorConfidence,
+	buildClarificationHint,
+	buildProgressiveClarification,
+	buildAnswerFollowUpSuggestions,
 	type ConversationTurn,
+	type ConversationState,
 } from './conversationalContextResolver';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -17,6 +25,45 @@ import {
 const prestonTurns: ConversationTurn[] = [
 	{ role: 'user', content: 'Who carried the bags into the Preston address?' },
 	{ role: 'assistant', content: 'Mangis carried the bags into the Preston address.' },
+];
+
+/**
+ * Preston scenario with a date in the AI answer.
+ * Used for time-follow-up resolution tests that require a dateHint.
+ */
+const prestonWithDateTurns: ConversationTurn[] = [
+	{ role: 'user', content: 'Who carried the bags into the Preston address?' },
+	{
+		role: 'assistant',
+		content:
+			'Mangis carried the bags into the Preston address, arriving at 1454 and exiting at 1512, on December 11, 2025.',
+	},
+];
+
+/**
+ * "Has anyone" phrasing — no leading interrogative word but same event.
+ * Tests extractActionBody stripping of "has anyone" openers.
+ */
+const hasAnyoneWithDateTurns: ConversationTurn[] = [
+	{ role: 'user', content: 'Has anyone carried bags into the Preston address?' },
+	{
+		role: 'assistant',
+		content:
+			'Yes, Mangis carried the bags into the Preston address at 1454 on December 11, 2025.',
+	},
+];
+
+/**
+ * "When was the last time" phrasing — when-anchor with Mangis + Preston but
+ * no "at/in" preposition, so location comes from the AI answer.
+ */
+const whenLastTimeWithDateTurns: ConversationTurn[] = [
+	{ role: 'user', content: 'When was the last time Mangis went to Preston?' },
+	{
+		role: 'assistant',
+		content:
+			'The last recorded visit was on December 11, 2025, when Mangis delivered items to the Preston address.',
+	},
 ];
 
 /** Multi-turn with context-dependent messages in between (drift scenario). */
@@ -58,6 +105,52 @@ describe('isContextDependent', () => {
 		'Tell me about the Preston case',
 	])('returns false for self-contained query: %s', (q) => {
 		expect(isContextDependent(q)).toBe(false);
+	});
+
+	it.each([
+		'what time',
+		'what time?',
+		'what time was it',
+		'what time was it?',
+		'what time was that',
+		'what time did it happen',
+		'what time did this happen',
+		'what was the time',
+		'at what time',
+		'what happened',
+		'what happened?',
+		'what happened next',
+		'what happened after',
+	])('returns true for time/event follow-up: %s', (q) => {
+		expect(isContextDependent(q)).toBe(true);
+	});
+
+	it('does NOT flag self-contained time query as context-dependent', () => {
+		// Has a full subject — "the vehicle leave" — not a pronoun reference
+		expect(isContextDependent('What time did the vehicle leave?')).toBe(false);
+	});
+});
+
+// ─── isTimeQuestion ───────────────────────────────────────────────────────────
+
+describe('isTimeQuestion', () => {
+	it.each([
+		'what time was it', 'what time was that', 'what time did it happen',
+		'what time', 'what time?', 'what was the time', 'at what time',
+	])('returns true for time question: %s', (q) => {
+		expect(isTimeQuestion(q)).toBe(true);
+	});
+
+	it.each([
+		'who', 'when', 'where', 'why', 'how',
+		'When did Mangis arrive?',
+	])('returns false for non-time query: %s', (q) => {
+		expect(isTimeQuestion(q)).toBe(false);
+	});
+
+	it('returns true for self-contained time question (still a time question)', () => {
+		// isTimeQuestion detects "asking about time" — context-dependence is separate
+		expect(isTimeQuestion('What time did the vehicle leave?')).toBe(true);
 	});
 });
 
@@ -108,6 +201,38 @@ describe('extractProperNouns', () => {
 	});
 });
 
+// ─── extractDateHint ──────────────────────────────────────────────────────────
+
+describe('extractDateHint', () => {
+	it('extracts written date: "December 11, 2025"', () => {
+		expect(extractDateHint('Mangis arrived on December 11, 2025.')).toBe('December 11, 2025');
+	});
+
+	it('extracts written date: "11 December 2025"', () => {
+		expect(extractDateHint('The event occurred on 11 December 2025.')).toBe('11 December 2025');
+	});
+
+	it('extracts ISO date without time', () => {
+		expect(extractDateHint('Record created on 2025-12-11.')).toBe('2025-12-11');
+	});
+
+	it('does not include time portion of ISO timestamp', () => {
+		const hint = extractDateHint('occurred_at: 2025-12-11T14:54:00Z');
+		expect(hint).toBe('2025-12-11');
+	});
+
+	it('returns null when no date present', () => {
+		expect(extractDateHint('Mangis carried the bags into the Preston address.')).toBeNull();
+	});
+
+	it('prefers written date over ISO format when both present', () => {
+		const hint = extractDateHint(
+			'On December 11, 2025 (2025-12-11) Mangis carried bags.'
+		);
+		expect(hint).toBe('December 11, 2025');
+	});
+});
+
 // ─── extractLocation ──────────────────────────────────────────────────────────
 
 describe('extractLocation', () => {
@@ -149,6 +274,16 @@ describe('extractActionBody', () => {
 		const body = extractActionBody('Why did Mangis transfer the goods?');
 		expect(body).toBe('Mangis transfer the goods');
 	});
+
+	it('strips "has anyone" opener', () => {
+		const body = extractActionBody('Has anyone carried bags into the Preston address?');
+		expect(body).toBe('carried bags into the Preston address');
+	});
+
+	it('strips "did anyone" opener', () => {
+		const body = extractActionBody('Did anyone see Mangis at the warehouse?');
+		expect(body).toBe('see Mangis at the warehouse');
+	});
 });
 
 // ─── extractPriorContext (backward compat) ────────────────────────────────────
@@ -172,7 +307,7 @@ describe('extractPriorContext', () => {
 
 	it('caps answer at 400 chars', () => {
 		const turns: ConversationTurn[] = [
-			{ role: 'user', content: 'What happened?' },
+			{ role: 'user', content: 'What did the suspect do at the warehouse?' },
 			{ role: 'assistant', content: 'x'.repeat(1000) },
 		];
 		expect(extractPriorContext(turns)!.lastAnswer.length).toBeLessThanOrEqual(400);
@@ -227,10 +362,34 @@ describe('buildConversationState', () => {
 
 	it('sets confidence low when no entity or location found', () => {
 		const state = buildConversationState([
-			{ role: 'user', content: 'What happened?' },
+			{ role: 'user', content: 'What did they find in the storage unit?' },
 			{ role: 'assistant', content: 'something occurred at some point' },
 		]);
 		expect(state!.confidence).toBe('low');
+	});
+
+	it('extracts dateHint from AI answer', () => {
+		const state = buildConversationState(prestonWithDateTurns);
+		expect(state!.dateHint).toBe('December 11, 2025');
+	});
+
+	it('dateHint is null when AI answer has no date', () => {
+		const state = buildConversationState(prestonTurns);
+		expect(state!.dateHint).toBeNull();
+	});
+
+	it('extracts dateHint from most recent AI answer in multi-turn', () => {
+		const turns: ConversationTurn[] = [
+			{ role: 'user', content: 'Who carried the bags into the Preston address?' },
+			{ role: 'assistant', content: 'Mangis carried the bags into the Preston address.' },
+			{ role: 'user', content: 'who' },
+			{
+				role: 'assistant',
+				content: 'Mangis, on December 11, 2025, was the individual who carried the bags.',
+			},
+		];
+		const state = buildConversationState(turns);
+		expect(state!.dateHint).toBe('December 11, 2025');
 	});
 });
 
@@ -350,5 +509,661 @@ describe('resolveConversationalQuery — no prior context', () => {
 		);
 		expect(result.contextDependent).toBe(false);
 		expect(result.resolved).toBe('Who was at the Preston address on Tuesday?');
+	});
+});
+
+// ─── Time follow-up anchoring ─────────────────────────────────────────────────
+
+describe('resolveConversationalQuery — time follow-ups (event anchoring)', () => {
+	/**
+	 * STEP 5 TEST 1:
+	 * "who carried bags into Preston" → (who) → "what time was it"
+	 * Resolution must pin to entity + action body + location + date,
+	 * NOT drift to an unrelated timestamp.
+	 */
+	it('who-chain + "what time was it" resolves to full event-anchored query', () => {
+		const turns: ConversationTurn[] = [
+			...prestonWithDateTurns,
+			{ role: 'user', content: 'who' },
+			{
+				role: 'assistant',
+				content:
+					'Mangis was the individual who carried the bags into the Preston address on December 11, 2025.',
+			},
+		];
+		const result = resolveConversationalQuery('what time was it', turns);
+		expect(result.contextDependent).toBe(true);
+		// Must reference Mangis and the verb body
+		expect(result.resolved).toMatch(/mangis/i);
+		// Must reference location
+		expect(result.resolved).toMatch(/preston/i);
+		// Must reference the date from the AI answer
+		expect(result.resolved).toMatch(/december 11, 2025/i);
+		// Must be asking about time
+		expect(result.resolved).toMatch(/what time/i);
+	});
+
+	it('"what time was it" without prior context falls back gracefully', () => {
+		const result = resolveConversationalQuery('what time was it', []);
+		// No context → passes through unresolved (no state to build from)
+		expect(result.contextDependent).toBe(false);
+	});
+
+	/**
+	 * STEP 5 TEST 2:
+	 * "when was the last time Mangis went to Preston" → "what time was it"
+	 * Answer source must stay anchored to the Preston event date from the AI answer.
+	 */
+	it('"when was last time Mangis went to Preston" → "what time was it" stays on Preston event', () => {
+		const result = resolveConversationalQuery('what time was it', whenLastTimeWithDateTurns);
+		expect(result.contextDependent).toBe(true);
+		// Entity present
+		expect(result.resolved).toMatch(/mangis/i);
+		// Date from the AI answer is anchored
+		expect(result.resolved).toMatch(/december 11, 2025/i);
+		// Resolved query is asking about time
+		expect(result.resolved).toMatch(/what time/i);
+	});
+
+	it('"has anyone carried bags" phrasing anchors time follow-up correctly', () => {
+		const result = resolveConversationalQuery('what time was it', hasAnyoneWithDateTurns);
+		expect(result.contextDependent).toBe(true);
+		// extractActionBody strips "has anyone" → verb-led body "carried bags into the Preston address"
+		expect(result.resolved).toMatch(/mangis/i);
+		expect(result.resolved).toMatch(/carry|carried/i);
+		expect(result.resolved).toMatch(/december 11, 2025/i);
+	});
+
+	it('"what time" bare resolves the same way as "what time was it"', () => {
+		const result = resolveConversationalQuery('what time', prestonWithDateTurns);
+		expect(result.contextDependent).toBe(true);
+		expect(result.resolved).toMatch(/mangis/i);
+		expect(result.resolved).toMatch(/december 11, 2025/i);
+	});
+
+	it('"at what time" resolves to time-anchored query', () => {
+		const result = resolveConversationalQuery('at what time', prestonWithDateTurns);
+		expect(result.contextDependent).toBe(true);
+		expect(result.resolved).toMatch(/mangis/i);
+	});
+
+	/**
+	 * STEP 5 TEST 3:
+	 * Event with two times in body text — resolver produces a query rich enough
+	 * to retrieve the correct entry (the AI then reports both times from it).
+	 */
+	it('resolver query for two-time event contains entity + location + date (RAG anchor)', () => {
+		const twoTimeTurns: ConversationTurn[] = [
+			{ role: 'user', content: 'Who carried the bags into the Preston address?' },
+			{
+				role: 'assistant',
+				content:
+					'Mangis carried the bags into the Preston address, arriving at 1454 and exiting at 1512, on December 11, 2025.',
+			},
+		];
+		const result = resolveConversationalQuery('what time was it', twoTimeTurns);
+		expect(result.contextDependent).toBe(true);
+		// Resolved query must contain all three RAG anchor terms:
+		// entity, location/action, date — so RAG retrieves the entry with both 1454 and 1512
+		expect(result.resolved).toMatch(/mangis/i);
+		expect(result.resolved).toMatch(/december 11, 2025/i);
+		// Original is preserved for audit
+		expect(result.original).toBe('what time was it');
+	});
+
+	it('time follow-up without date still anchors to entity + action', () => {
+		// prestonTurns has no date in AI answer
+		const result = resolveConversationalQuery('what time was it', prestonTurns);
+		expect(result.contextDependent).toBe(true);
+		// Should still include entity and action body (no date fallback)
+		expect(result.resolved).toMatch(/mangis/i);
+		expect(result.resolved).toMatch(/what time/i);
+	});
+
+	it('state.dateHint is surfaced in debug state', () => {
+		const result = resolveConversationalQuery('what time was it', prestonWithDateTurns);
+		expect(result.state?.dateHint).toBe('December 11, 2025');
+	});
+});
+
+// ─── computeAnchorConfidence ──────────────────────────────────────────────────
+
+describe('computeAnchorConfidence', () => {
+	it('returns high confidence with entity + location + action + AI answer', () => {
+		const state = buildConversationState(prestonWithDateTurns)!;
+		const { level, factors } = computeAnchorConfidence(state, 'what time was it');
+		expect(level).toBe('high');
+		expect(factors).toContain('entity');
+		expect(factors).toContain('location');
+		expect(factors).toContain('action');
+	});
+
+	it('returns high confidence for who-chain then time follow-up', () => {
+		const turns: ConversationTurn[] = [
+			...prestonWithDateTurns,
+			{ role: 'user', content: 'who' },
+			{
+				role: 'assistant',
+				content:
+					'Mangis was the individual who carried the bags into the Preston address on December 11, 2025.',
+			},
+		];
+		const state = buildConversationState(turns)!;
+		const { level } = computeAnchorConfidence(state, 'what time was it');
+		expect(level).toBe('high');
+	});
+
+	it('returns medium confidence with entity only (no location)', () => {
+		const turns: ConversationTurn[] = [
+			{ role: 'user', content: 'What did Mangis do?' },
+			{ role: 'assistant', content: 'Mangis was observed at the scene.' },
+		];
+		const state = buildConversationState(turns)!;
+		const { level } = computeAnchorConfidence(state, 'when');
+		expect(level).toBe('medium');
+	});
+
+	it('returns low confidence with no entity, no location, no AI answer', () => {
+		const turns: ConversationTurn[] = [
+			{ role: 'user', content: 'What did they find in the storage unit?' },
+			{ role: 'assistant', content: 'something was found' },
+		];
+		const state = buildConversationState(turns)!;
+		const { level } = computeAnchorConfidence(state, 'who');
+		// No entity or location extracted → score < 2 → low
+		expect(['low', 'medium']).toContain(level);
+	});
+
+	it('anchor fields mirror state fields', () => {
+		const state = buildConversationState(prestonWithDateTurns)!;
+		const { anchor } = computeAnchorConfidence(state, 'when');
+		expect(anchor.entity).toBe(state.entity);
+		expect(anchor.location).toBe(state.location);
+		expect(anchor.dateHint).toBe(state.dateHint);
+		expect(anchor.actionBody).toBe(state.actionBody);
+	});
+
+	it('includes question-type factor in factors list', () => {
+		const state = buildConversationState(prestonWithDateTurns)!;
+		const { factors } = computeAnchorConfidence(state, 'when');
+		expect(factors.some((f) => f.startsWith('question-type:'))).toBe(true);
+	});
+
+	it('sourceExcerpt is populated from AI answer', () => {
+		const state = buildConversationState(prestonWithDateTurns)!;
+		const { anchor } = computeAnchorConfidence(state, 'what');
+		expect(anchor.sourceExcerpt).toBeTruthy();
+		expect(anchor.sourceExcerpt!.length).toBeLessThanOrEqual(150);
+	});
+});
+
+// ─── buildClarificationHint ───────────────────────────────────────────────────
+
+describe('buildClarificationHint', () => {
+	it('includes entity and location from state', () => {
+		const state = buildConversationState(prestonWithDateTurns)!;
+		const hint = buildClarificationHint(state);
+		expect(hint.toLowerCase()).toMatch(/mangis/i);
+		expect(hint.toLowerCase()).toMatch(/preston/i);
+	});
+
+	it('falls back gracefully when state has no entities or location', () => {
+		const turns: ConversationTurn[] = [
+			{ role: 'user', content: 'What did they find in the storage unit?' },
+			{ role: 'assistant', content: 'something was found' },
+		];
+		const state = buildConversationState(turns)!;
+		const hint = buildClarificationHint(state);
+		expect(hint.length).toBeGreaterThan(10);
+	});
+
+	it('includes dateHint when present', () => {
+		const state = buildConversationState(prestonWithDateTurns)!;
+		const hint = buildClarificationHint(state);
+		expect(hint).toMatch(/december 11, 2025/i);
+	});
+});
+
+// ─── Zero-term guard precondition ────────────────────────────────────────────
+
+describe('zero-term guard precondition', () => {
+	/**
+	 * The guard in Chat.svelte checks:
+	 *   isContextDependent(userPrompt) && ctxResolution.state === null
+	 *
+	 * First-turn (priorTurns.length === 0): resolveFirstTurnFallback is tried
+	 *   → if it returns a fallback, the query is rewritten and sent (no block).
+	 *   → if no fallback exists, the request is blocked.
+	 *
+	 * Follow-up (priorTurns.length > 0): block with clarification toast.
+	 *
+	 * These tests verify the resolver half of the condition.
+	 */
+	it('"who" with empty history → context-dependent + state null (first-turn path applies)', () => {
+		const result = resolveConversationalQuery('who', []);
+		expect(isContextDependent('who')).toBe(true);
+		expect(result.state).toBeNull();
+		// First-turn fallback should be available for "who"
+		expect(resolveFirstTurnFallback('who')).not.toBeNull();
+	});
+
+	it('"what time was it" with empty history → context-dependent + state null (first-turn path applies)', () => {
+		const result = resolveConversationalQuery('what time was it', []);
+		expect(isContextDependent('what time was it')).toBe(true);
+		expect(result.state).toBeNull();
+		expect(resolveFirstTurnFallback('what time was it')).not.toBeNull();
+	});
+
+	it('self-contained question with empty history → not context-dependent (guard skipped entirely)', () => {
+		const result = resolveConversationalQuery('Who carried the bags into the Preston address?', []);
+		expect(isContextDependent('Who carried the bags into the Preston address?')).toBe(false);
+		expect(result.state).toBeNull();
+	});
+
+	it('"who" with prior Q+A → state populated (guard condition false — proceed normally)', () => {
+		const result = resolveConversationalQuery('who', prestonTurns);
+		expect(isContextDependent('who')).toBe(true);
+		expect(result.state).not.toBeNull();
+	});
+
+	it('"tell me more" with empty history → no first-turn fallback (should be blocked)', () => {
+		expect(isContextDependent('tell me more')).toBe(true);
+		expect(resolveFirstTurnFallback('tell me more')).toBeNull();
+	});
+});
+
+// ─── resolveFirstTurnFallback ─────────────────────────────────────────────────
+
+describe('resolveFirstTurnFallback', () => {
+	it.each([
+		['who',   /primary individuals involved/i],
+		['what',  /activity is documented/i],
+		['when',  /most recent relevant activity/i],
+		['where', /take place/i],
+		['why',   /documented explanation or stated reason/i],
+		['how',   /described in the record/i],
+	] as [string, RegExp][])('bare "%s" → investigative default', (q, pattern) => {
+		const result = resolveFirstTurnFallback(q);
+		expect(result).not.toBeNull();
+		expect(result!).toMatch(pattern);
+		expect(result!).toMatch(/case/i);
+	});
+
+	it('"what time was it" → time-specific investigative default', () => {
+		const result = resolveFirstTurnFallback('what time was it');
+		expect(result).not.toBeNull();
+		expect(result!).toMatch(/what time is documented/i);
+		expect(result!).toMatch(/case/i);
+	});
+
+	it('"what time" bare → time-specific default', () => {
+		const result = resolveFirstTurnFallback('what time');
+		expect(result).not.toBeNull();
+		expect(result!).toMatch(/what time is documented/i);
+	});
+
+	it('"where was this" → location default', () => {
+		const result = resolveFirstTurnFallback('where was this');
+		expect(result).not.toBeNull();
+		expect(result!).toMatch(/take place/i);
+	});
+
+	it('"where was it" → location default', () => {
+		const result = resolveFirstTurnFallback('where was it');
+		expect(result).not.toBeNull();
+		expect(result!).toMatch(/take place/i);
+	});
+
+	it('"when was this" → time default', () => {
+		const result = resolveFirstTurnFallback('when was this');
+		expect(result).not.toBeNull();
+		expect(result!).toMatch(/most recent relevant activity/i);
+	});
+
+	it('"what happened" → event default', () => {
+		const result = resolveFirstTurnFallback('what happened');
+		expect(result).not.toBeNull();
+		expect(result!).toMatch(/activity is documented/i);
+	});
+
+	it('"who was it" → who default', () => {
+		const result = resolveFirstTurnFallback('who was it');
+		expect(result).not.toBeNull();
+		expect(result!).toMatch(/primary individuals involved/i);
+	});
+
+	it('"why" fallback does not imply motive — uses neutral documented-explanation phrasing', () => {
+		const result = resolveFirstTurnFallback('why');
+		expect(result).not.toBeNull();
+		expect(result!).toMatch(/documented explanation or stated reason/i);
+		// Must not use speculative framing
+		expect(result!).not.toMatch(/because|caused by|motive/i);
+	});
+
+	it('trailing "?" is stripped before matching', () => {
+		expect(resolveFirstTurnFallback('who?')).not.toBeNull();
+		expect(resolveFirstTurnFallback('when?')).not.toBeNull();
+	});
+
+	it('returns null for phrases without a safe default', () => {
+		expect(resolveFirstTurnFallback('tell me more')).toBeNull();
+		expect(resolveFirstTurnFallback('and then')).toBeNull();
+		expect(resolveFirstTurnFallback('elaborate')).toBeNull();
+	});
+
+	it('does NOT fabricate entity or location in the fallback', () => {
+		const result = resolveFirstTurnFallback('who');
+		// Generic phrasing only — no invented names or places
+		expect(result!).not.toMatch(/Mangis|Preston|warehouse/i);
+	});
+});
+
+// ─── isContextDependent new pronoun patterns ──────────────────────────────────
+
+describe('buildProgressiveClarification — no context (state === null)', () => {
+	it('"who" returns no_context type with person-oriented guidance', () => {
+		const result = buildProgressiveClarification(null, 'who');
+		expect(result.type).toBe('no_context');
+		expect(result.message).toMatch(/referring to/i);
+		expect(result.message).toMatch(/person|individual|location/i);
+	});
+
+	it('"what" returns no_context type with event-oriented guidance', () => {
+		const result = buildProgressiveClarification(null, 'what');
+		expect(result.type).toBe('no_context');
+		expect(result.message).toMatch(/event|happened|documented/i);
+	});
+
+	it('"when" returns no_context type with timing guidance', () => {
+		const result = buildProgressiveClarification(null, 'when');
+		expect(result.type).toBe('no_context');
+		expect(result.message).toMatch(/timing|event|action|person/i);
+	});
+
+	it('"where" returns no_context type with location guidance', () => {
+		const result = buildProgressiveClarification(null, 'where');
+		expect(result.type).toBe('no_context');
+		expect(result.message).toMatch(/event|activity/i);
+	});
+
+	it('"why" returns no_context type with explanation guidance', () => {
+		const result = buildProgressiveClarification(null, 'why');
+		expect(result.type).toBe('no_context');
+		expect(result.message).toMatch(/explanation|documented|event/i);
+	});
+
+	it('"what time was it" returns time-specific no_context guidance', () => {
+		const result = buildProgressiveClarification(null, 'what time was it');
+		expect(result.type).toBe('no_context');
+		// Time-question branch: references event and gives arrival/departure examples
+		expect(result.message).toMatch(/event/i);
+		expect(result.message).toMatch(/arrived|left|action/i);
+	});
+
+	it('"where was this" returns no_context type', () => {
+		const result = buildProgressiveClarification(null, 'where was this');
+		expect(result.type).toBe('no_context');
+		expect(result.message.length).toBeGreaterThan(0);
+	});
+
+	it('does not fabricate entity names or locations in any no_context response', () => {
+		const queries = ['who', 'what', 'when', 'where', 'why', 'how', 'what time was it'];
+		for (const q of queries) {
+			const { message } = buildProgressiveClarification(null, q);
+			// Should not contain proper nouns — no invented context
+			expect(message).not.toMatch(/Mangis|Preston|December/);
+		}
+	});
+
+	it('returns a non-empty message for unknown phrasing', () => {
+		const result = buildProgressiveClarification(null, 'tell me more');
+		expect(result.type).toBe('no_context');
+		expect(result.message.length).toBeGreaterThan(10);
+	});
+});
+
+describe('buildProgressiveClarification — low confidence (state present)', () => {
+	const stateWithFull: ConversationState = {
+		topic: 'Preston address bag transfer',
+		entity: 'Mangis',
+		actionBody: 'carried bags into the Preston address',
+		location: 'Preston address',
+		lastQuestionType: 'who',
+		dateHint: 'December 11, 2025',
+	};
+
+	const stateWithEntity: ConversationState = {
+		topic: 'warehouse activity',
+		entity: 'Thompson',
+		actionBody: null,
+		location: null,
+		lastQuestionType: 'what',
+		dateHint: null,
+	};
+
+	const stateEmpty: ConversationState = {
+		topic: '',
+		entity: null,
+		actionBody: null,
+		location: null,
+		lastQuestionType: 'what',
+		dateHint: null,
+	};
+
+	it('returns low_confidence type when state is present', () => {
+		const result = buildProgressiveClarification(stateWithFull, 'when');
+		expect(result.type).toBe('low_confidence');
+	});
+
+	it('includes entity in the clarification when present', () => {
+		const result = buildProgressiveClarification(stateWithFull, 'when');
+		expect(result.message).toMatch(/Mangis/);
+	});
+
+	it('includes location in the clarification when present', () => {
+		const result = buildProgressiveClarification(stateWithFull, 'what time was it');
+		expect(result.message).toMatch(/Preston address/);
+	});
+
+	it('includes date hint in the clarification when present', () => {
+		const result = buildProgressiveClarification(stateWithFull, 'when');
+		expect(result.message).toMatch(/December 11, 2025/);
+	});
+
+	it('falls back gracefully when only entity is available', () => {
+		const result = buildProgressiveClarification(stateWithEntity, 'what');
+		expect(result.type).toBe('low_confidence');
+		expect(result.message).toMatch(/Thompson/);
+	});
+
+	it('returns a generic clarification when state has no usable fields', () => {
+		const result = buildProgressiveClarification(stateEmpty, 'who');
+		expect(result.type).toBe('low_confidence');
+		expect(result.message).toMatch(/specific event|activity/i);
+	});
+
+	it('does not fabricate facts not present in state', () => {
+		const result = buildProgressiveClarification(stateWithEntity, 'when');
+		expect(result.message).not.toMatch(/Preston|December|Mangis/);
+	});
+});
+
+describe('buildProgressiveClarification — suggestions field', () => {
+	it('returns a non-empty suggestions array for no-context "who"', () => {
+		const { suggestions } = buildProgressiveClarification(null, 'who');
+		expect(suggestions).toBeDefined();
+		expect(suggestions!.length).toBeGreaterThanOrEqual(2);
+		expect(suggestions!.length).toBeLessThanOrEqual(4);
+	});
+
+	it('returns a non-empty suggestions array for no-context "what time was it"', () => {
+		const { suggestions } = buildProgressiveClarification(null, 'what time was it');
+		expect(suggestions).toBeDefined();
+		expect(suggestions!.length).toBeGreaterThanOrEqual(2);
+	});
+
+	it('no-context suggestions do not contain fabricated proper nouns', () => {
+		const queries = ['who', 'what', 'when', 'where', 'why', 'how'];
+		for (const q of queries) {
+			const { suggestions } = buildProgressiveClarification(null, q);
+			for (const s of suggestions ?? []) {
+				expect(s).not.toMatch(/Mangis|Preston|December/);
+			}
+		}
+	});
+
+	it('low-confidence with entity+location returns suggestions mentioning entity and location', () => {
+		const state: ConversationState = {
+			topic: '',
+			entity: 'Mangis',
+			actionBody: null,
+			location: 'Preston address',
+			lastQuestionType: 'who',
+			dateHint: null,
+		};
+		const { suggestions } = buildProgressiveClarification(state, 'when');
+		expect(suggestions).toBeDefined();
+		const combined = suggestions!.join(' ');
+		expect(combined).toMatch(/Mangis/);
+		expect(combined).toMatch(/Preston address/);
+	});
+
+	it('low-confidence with entity only returns suggestions mentioning entity', () => {
+		const state: ConversationState = {
+			topic: '',
+			entity: 'Rogers',
+			actionBody: null,
+			location: null,
+			lastQuestionType: 'what',
+			dateHint: null,
+		};
+		const { suggestions } = buildProgressiveClarification(state, 'who');
+		expect(suggestions).toBeDefined();
+		const combined = suggestions!.join(' ');
+		expect(combined).toMatch(/Rogers/);
+	});
+
+	it('low-confidence with no usable state fields returns generic suggestions', () => {
+		const state: ConversationState = {
+			topic: '',
+			entity: null,
+			actionBody: null,
+			location: null,
+			lastQuestionType: 'other',
+			dateHint: null,
+		};
+		const { suggestions } = buildProgressiveClarification(state, 'what');
+		expect(suggestions).toBeDefined();
+		expect(suggestions!.length).toBeGreaterThan(0);
+		// Generic — no invented proper nouns
+		for (const s of suggestions!) {
+			expect(s).not.toMatch(/Mangis|Preston/);
+		}
+	});
+
+	it('suggestions array has at most 4 items', () => {
+		const state: ConversationState = {
+			topic: '',
+			entity: 'Jones',
+			actionBody: 'delivered a package',
+			location: 'warehouse',
+			lastQuestionType: 'who',
+			dateHint: 'December 5, 2025',
+		};
+		const { suggestions } = buildProgressiveClarification(state, 'who');
+		expect((suggestions ?? []).length).toBeLessThanOrEqual(4);
+	});
+});
+
+describe('buildAnswerFollowUpSuggestions', () => {
+	const stateWithBoth: ConversationState = {
+		topic: '',
+		entity: 'Mangis',
+		actionBody: 'carried bags',
+		location: 'Preston address',
+		lastQuestionType: 'who',
+		dateHint: null,
+	};
+
+	it('returns 2–4 suggestions for "who" question type', () => {
+		const result = buildAnswerFollowUpSuggestions(null, 'who');
+		expect(result.length).toBeGreaterThanOrEqual(2);
+		expect(result.length).toBeLessThanOrEqual(4);
+	});
+
+	it('"who" suggestions include what/when/where follow-ups', () => {
+		const result = buildAnswerFollowUpSuggestions(null, 'who');
+		const combined = result.join(' ');
+		expect(combined).toMatch(/what|when|where/i);
+	});
+
+	it('"when" suggestions include who/what/where follow-ups', () => {
+		const result = buildAnswerFollowUpSuggestions(null, 'when');
+		const combined = result.join(' ');
+		expect(combined).toMatch(/who|what|where/i);
+	});
+
+	it('"what" suggestions include who/when/where follow-ups', () => {
+		const result = buildAnswerFollowUpSuggestions(null, 'what');
+		const combined = result.join(' ');
+		expect(combined).toMatch(/who|when|where/i);
+	});
+
+	it('"where" suggestions include who/what/when follow-ups', () => {
+		const result = buildAnswerFollowUpSuggestions(null, 'where');
+		const combined = result.join(' ');
+		expect(combined).toMatch(/who|what|when/i);
+	});
+
+	it('appends entity-aware suggestion when state has entity and suggestions < 4', () => {
+		const result = buildAnswerFollowUpSuggestions(stateWithBoth, 'who');
+		const combined = result.join(' ');
+		expect(combined).toMatch(/Mangis/);
+	});
+
+	it('appends location-aware suggestion when entity absent but location present', () => {
+		const stateLocOnly: ConversationState = {
+			topic: '',
+			entity: null,
+			actionBody: null,
+			location: 'warehouse',
+			lastQuestionType: 'where',
+			dateHint: null,
+		};
+		// 'where' base suggestions are exactly 3, so location fallback appended
+		const result = buildAnswerFollowUpSuggestions(stateLocOnly, 'where');
+		const combined = result.join(' ');
+		expect(combined).toMatch(/warehouse/);
+	});
+
+	it('does not exceed 4 suggestions', () => {
+		const result = buildAnswerFollowUpSuggestions(stateWithBoth, 'who');
+		expect(result.length).toBeLessThanOrEqual(4);
+	});
+
+	it('does not fabricate names or locations when state is null', () => {
+		const questionTypes: Array<'who' | 'what' | 'when' | 'where' | 'why' | 'how' | 'other'> =
+			['who', 'what', 'when', 'where', 'why', 'how', 'other'];
+		for (const qt of questionTypes) {
+			const result = buildAnswerFollowUpSuggestions(null, qt);
+			for (const s of result) {
+				expect(s).not.toMatch(/Mangis|Preston|December/);
+			}
+		}
+	});
+});
+
+describe('isContextDependent — pronoun-referencing where/when/what patterns', () => {
+	it.each([
+		'where was this', 'where was it', 'where is this', 'where is it',
+		'when was this', 'when was it', 'when did this', 'when did it',
+		'what was this', 'what was it', 'what is this', 'what is it',
+	])('"%s" is context-dependent', (q) => {
+		expect(isContextDependent(q)).toBe(true);
+	});
+
+	it('self-contained "where was Mangis" is NOT flagged', () => {
+		// Does not match the pronoun patterns (subject is a proper noun)
+		expect(isContextDependent('Where was Mangis seen?')).toBe(false);
 	});
 });
