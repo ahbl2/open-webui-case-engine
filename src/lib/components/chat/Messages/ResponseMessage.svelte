@@ -63,7 +63,9 @@
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
 	import CaseChatIntakeProposalCard from './CaseChatIntakeProposalCard.svelte';
+	import BehaviorTracePanel from './ResponseMessage/BehaviorTracePanel.svelte';
 	import type { ProposalRecord } from '$lib/apis/caseEngine';
+	import type { BehaviorTrace } from '$lib/types/behaviorTrace';
 
 	interface MessageType {
 		id: string;
@@ -116,6 +118,10 @@
 			usage?: unknown;
 		};
 		annotation?: { type: string; rating: number };
+		followUps?: string[];
+		topSuggestionLabel?: string;
+		// DEV-only observability — ephemeral, never persisted, never sent to backend.
+		behaviorTrace?: BehaviorTrace;
 	}
 
 	export let chatId = '';
@@ -184,6 +190,8 @@
 	let loadingSpeech = false;
 
 	let showRateComment = false;
+	// DEV-only — per-message trace panel toggle; no global state, no persistence.
+	let showTrace = false;
 
 	const copyToClipboard = async (text) => {
 		text = removeAllDetails(text);
@@ -1478,25 +1486,40 @@
 						/>
 					{/if}
 
-					{#if (isLastMessage || ($settings?.keepFollowUpPrompts ?? false)) && message.done && !readOnly && (message?.followUps ?? []).length > 0}
-						<div class="mt-2.5" in:fade={{ duration: 100 }}>
-						<FollowUps
-							followUps={message?.followUps}
-							topSuggestionLabel={message?.topSuggestionLabel}
-							onClick={(prompt) => {
-								if ($settings?.insertFollowUpPrompt ?? false) {
-									// Insert the follow-up prompt into the input box
-									setInputText(prompt);
-								} else {
-									// Submit the follow-up prompt directly
-									submitMessage(message?.id, prompt);
-								}
-							}}
-						/>
-						</div>
-					{/if}
+				{#if (isLastMessage || ($settings?.keepFollowUpPrompts ?? false)) && message.done && !readOnly && (message?.followUps ?? []).length > 0}
+					<div class="mt-2.5" in:fade={{ duration: 100 }}>
+					<FollowUps
+						followUps={message?.followUps}
+						topSuggestionLabel={message?.topSuggestionLabel}
+						onClick={(prompt) => {
+							if ($settings?.insertFollowUpPrompt ?? false) {
+								// Insert the follow-up prompt into the input box
+								setInputText(prompt);
+							} else {
+								// Submit the follow-up prompt directly
+								submitMessage(message?.id, prompt);
+							}
+						}}
+					/>
+					</div>
 				{/if}
-			</div>
+			{/if}
+
+			{#if import.meta.env.DEV && message.behaviorTrace}
+				<div class="mt-2">
+					<button
+						class="text-[10px] font-mono text-gray-400 dark:text-gray-600 hover:text-gray-600 dark:hover:text-gray-400 border border-gray-200 dark:border-gray-700 rounded px-1.5 py-0.5 transition select-none"
+						on:click={() => (showTrace = !showTrace)}
+						title="Toggle BehaviorTrace (dev only)"
+					>
+						trace {showTrace ? '▴' : '▾'}
+					</button>
+					{#if showTrace}
+						<BehaviorTracePanel trace={message.behaviorTrace} />
+					{/if}
+				</div>
+			{/if}
+		</div>
 		</div>
 	</div>
 {/key}

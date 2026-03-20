@@ -71,8 +71,13 @@
 		buildAnswerFollowUpSuggestions,
 		classifyQuestionType,
 		getTopSuggestionLabel,
+		detectQueryContext,
+		scoreFollowUpSuggestion,
+		getSuggestionBucket,
+		type SuggestionRankingContext,
 		type ClarificationResult
 	} from '$lib/utils/conversationalContextResolver';
+	import type { BehaviorTrace, ContextResolutionTrace, GuardExplanation, GuardReasonCode, SuggestionTraceEntry } from '$lib/types/behaviorTrace';
 
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
@@ -1812,6 +1817,14 @@
 			// `let` because a first-turn fallback may override the resolved prompt.
 			let resolvedPrompt = ctxResolution.resolved;
 
+			// ── BehaviorTrace instrumentation (passive, ephemeral, no logic change) ──
+			// These three variables are updated as the guard sequence runs and are
+			// assembled into a BehaviorTrace at each message construction point.
+			// Nothing here changes existing guard or retrieval behaviour.
+			let _btGuardDecision: BehaviorTrace['guardDecision'] = 'proceed';
+			let _btAnchorConfidence: BehaviorTrace['anchorConfidence'] | undefined;
+			let _btFirstTurnFallback = false;
+
 			// Detect intake intent early (intake bypasses Q&A guards).
 			const intakeIntent = detectCaseChatIntakeIntent(userPrompt);
 
@@ -1829,6 +1842,7 @@
 						const firstTurnFallback = resolveFirstTurnFallback(userPrompt);
 						if (firstTurnFallback) {
 							resolvedPrompt = firstTurnFallback;
+							_btFirstTurnFallback = true; // trace: first-turn rewrite applied
 							console.debug('[case-ask] first-turn fallback applied', {
 								original: userPrompt,
 								fallback: resolvedPrompt
@@ -1848,6 +1862,7 @@
 						ctxResolution.state,
 						userPrompt
 					);
+					_btAnchorConfidence = { level, factors }; // trace: capture confidence result
 					console.debug('[case-ask] anchor confidence', {
 						level,
 						factors,
@@ -1870,6 +1885,125 @@
 					state: ctxResolution.state
 				});
 			}
+
+			// ── Resolve guard decision for trace (read-only; derived from existing results) ──
+			if (clarificationResult) {
+				_btGuardDecision =
+					ctxResolution.state === null
+						? 'clarification_no_context'
+						: 'clarification_low_confidence';
+			} else if (_btFirstTurnFallback) {
+				_btGuardDecision = 'first_turn_fallback';
+			} // else remains 'proceed' (default)
+
+			// ── Assemble guard explanation for trace (passive; reads only already-computed values) ──
+			// All variables used here were set during the guard sequence above.
+			// This block runs after guards complete and does not affect any decision.
+			const _btIsFirstTurn = priorTurns.length === 0;
+			const _btStatePresent = ctxResolution.state !== null;
+			const _btFallbackAttempted =
+				ctxResolution.contextDependent && !_btStatePresent && _btIsFirstTurn && !intakeIntent;
+			const _btAnchorChecked = _btAnchorConfidence !== undefined;
+
+			const _btReasons: string[] = [];
+			const _btCodes: GuardReasonCode[] = [];
+			if (intakeIntent) {
+				_btReasons.push('Intake intent detected — Q&A guards bypassed, direct proposal path');
+				_btCodes.push('INTAKE_BYPASSED');
+			} else if (!ctxResolution.contextDependent) {
+				_btReasons.push('Self-contained query — guards not triggered');
+				_btCodes.push('SELF_CONTAINED_QUERY');
+				_btCodes.push('PROCEEDED_TO_RETRIEVAL');
+			} else if (!_btStatePresent) {
+				if (_btIsFirstTurn) {
+					_btReasons.push('First turn — no prior conversation state available');
+					_btCodes.push('FIRST_TURN_NO_STATE');
+					if (_btFirstTurnFallback) {
+						_btReasons.push('First-turn fallback pattern matched — query rewritten and sent to retrieval');
+						_btCodes.push('FIRST_TURN_FALLBACK_MATCHED');
+						_btCodes.push('PROCEEDED_TO_RETRIEVAL');
+					} else {
+						_btReasons.push('First-turn fallback: no pattern matched for this query');
+						_btReasons.push('Clarification injected (no context available)');
+						_btCodes.push('FIRST_TURN_NO_PATTERN_MATCH');
+						_btCodes.push('CLARIFICATION_INJECTED');
+					}
+				} else {
+					_btReasons.push('Multi-turn conversation but no stable anchor could be built from history');
+					_btReasons.push('Clarification injected (no context available)');
+					_btCodes.push('MULTI_TURN_NO_STABLE_ANCHOR');
+					_btCodes.push('CLARIFICATION_INJECTED');
+				}
+			} else if (_btAnchorChecked) {
+				if (_btAnchorConfidence!.level === 'low') {
+					_btReasons.push('Context-dependent with state, but anchor confidence is low');
+					_btReasons.push(
+						'Confidence factors present: ' +
+							(_btAnchorConfidence!.factors.join(', ') || 'none')
+					);
+					_btReasons.push('Clarification injected (low anchor confidence)');
+					_btCodes.push('ANCHOR_CONFIDENCE_LOW');
+					_btCodes.push('CLARIFICATION_INJECTED');
+				} else {
+					_btReasons.push(
+						`Context-dependent with state, anchor confidence ${_btAnchorConfidence!.level} — proceeded to retrieval`
+					);
+					_btCodes.push(
+						_btAnchorConfidence!.level === 'high'
+							? 'ANCHOR_CONFIDENCE_HIGH'
+							: 'ANCHOR_CONFIDENCE_MEDIUM'
+					);
+					_btCodes.push('PROCEEDED_TO_RETRIEVAL');
+				}
+			} else {
+				_btReasons.push('Query proceeded — guard conditions not met for any block');
+				_btCodes.push('PROCEEDED_TO_RETRIEVAL');
+			}
+
+			const _btGuardExplanation: GuardExplanation = {
+				isFirstTurn: _btIsFirstTurn,
+				statePresent: _btStatePresent,
+				firstTurnFallbackAttempted: _btFallbackAttempted,
+				firstTurnFallbackMatched: _btFirstTurnFallback,
+				anchorConfidenceChecked: _btAnchorChecked,
+				reasons: _btReasons,
+				codes: _btCodes
+			};
+
+			// ── Assemble context resolution trace (passive; all values already computed) ──
+			const _btResolutionStrategy = ((): ContextResolutionTrace['resolutionStrategy'] => {
+				if (intakeIntent) return 'intake_bypassed';
+				if (_btGuardDecision === 'clarification_no_context') return 'clarification_no_context';
+				if (_btGuardDecision === 'clarification_low_confidence') return 'clarification_low_confidence';
+				if (_btGuardDecision === 'first_turn_fallback') return 'first_turn_fallback';
+				if (!ctxResolution.contextDependent) return 'self_contained';
+				return 'state_resolved';
+			})();
+
+			const _btContextResolution: ContextResolutionTrace = {
+				originalQuery: ctxResolution.original,
+				resolvedQuery: resolvedPrompt,
+				contextDependent: ctxResolution.contextDependent,
+				priorTurnsCount: priorTurns.length,
+				usedPriorState: _btStatePresent,
+				...(ctxResolution.state && {
+					stateSignals: {
+						topic: ctxResolution.state.topic,
+						entity: ctxResolution.state.entity,
+						actionBody: ctxResolution.state.actionBody,
+						location: ctxResolution.state.location,
+						dateHint: ctxResolution.state.dateHint,
+						lastQuestionType: ctxResolution.state.lastQuestionType,
+						stateConfidence: ctxResolution.state.confidence
+					}
+				}),
+				anchorDetected: _btAnchorChecked,
+				...(_btAnchorConfidence && {
+					anchorConfidenceLevel: _btAnchorConfidence.level,
+					anchorConfidenceFactors: _btAnchorConfidence.factors
+				}),
+				resolutionStrategy: _btResolutionStrategy
+			};
 
 			// Commit user message to history (always — even on the clarification path,
 			// so the user sees their question followed by the assistant's clarifying reply).
@@ -1916,6 +2050,20 @@
 				const clarifyModel = $models.find((m) => m.id === clarifyModelId);
 				const clarifyMsgId = uuidv4();
 				const clarifyFollowUps = clarificationResult.suggestions ?? [];
+
+				// Build trace for this clarification turn.
+				const _btClarify: BehaviorTrace = {
+					inputQuery: userPrompt,
+					resolvedQuery: resolvedPrompt,
+					contextDependent: ctxResolution.contextDependent,
+					state: ctxResolution.state,
+					contextResolution: _btContextResolution,
+					anchorConfidence: _btAnchorConfidence,
+					guardDecision: _btGuardDecision,
+					guardExplanation: _btGuardExplanation
+				};
+				if (import.meta.env.DEV) console.debug('[BehaviorTrace]', _btClarify);
+
 				const clarifyMsg = {
 					parentId: userMessageId,
 					id: clarifyMsgId,
@@ -1931,7 +2079,8 @@
 					followUps: clarifyFollowUps,
 					topSuggestionLabel: clarifyFollowUps[0]
 						? getTopSuggestionLabel(clarifyFollowUps[0], clarificationResult.type)
-						: undefined
+						: undefined,
+					behaviorTrace: _btClarify
 				};
 				history.messages[clarifyMsgId] = clarifyMsg;
 				history.currentId = clarifyMsgId;
@@ -1992,11 +2141,50 @@
 				const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
 				const model = $models.find((m) => m.id === modelId);
 				let responseMessageId = uuidv4();
+				// Extract question type once — used by both the suggestion call and the trace.
+				const _qType = classifyQuestionType(resolvedPrompt);
 				const answerFollowUps = buildAnswerFollowUpSuggestions(
 					ctxResolution.state,
-					classifyQuestionType(resolvedPrompt),
+					_qType,
 					resolvedPrompt
 				);
+
+				// Build trace for this successful answer turn.
+				const _btQueryContext = detectQueryContext(ctxResolution.state, _qType, resolvedPrompt);
+
+				// Re-score the final suggestions using the same SuggestionRankingContext
+				// that buildAnswerFollowUpSuggestions used internally. scoreFollowUpSuggestion
+				// is a pure deterministic function — same inputs produce identical scores.
+				// We score the post-diversity-pass list, so finalPosition reflects actual
+				// displayed order (not raw-score order before diversity shaping).
+				const _btRankCtx: SuggestionRankingContext = {
+					questionType: _qType,
+					state: ctxResolution.state,
+					currentQuery: resolvedPrompt,
+					queryContext: _btQueryContext
+				};
+				const _btSuggestions: SuggestionTraceEntry[] = answerFollowUps.map((text, idx) => ({
+					text,
+					finalPosition: idx,
+					score: scoreFollowUpSuggestion(text, _btRankCtx),
+					bucket: getSuggestionBucket(text),
+					isTopChip: idx === 0
+				}));
+
+				const _btSuccess: BehaviorTrace = {
+					inputQuery: userPrompt,
+					resolvedQuery: resolvedPrompt,
+					contextDependent: ctxResolution.contextDependent,
+					state: ctxResolution.state,
+					contextResolution: _btContextResolution,
+					anchorConfidence: _btAnchorConfidence,
+					guardDecision: _btGuardDecision,
+					guardExplanation: _btGuardExplanation,
+					queryContext: _btQueryContext,
+					suggestions: _btSuggestions
+				};
+				if (import.meta.env.DEV) console.debug('[BehaviorTrace]', _btSuccess);
+
 				let responseMessage = {
 					parentId: userMessageId,
 					id: responseMessageId,
@@ -2012,7 +2200,8 @@
 					followUps: answerFollowUps,
 					topSuggestionLabel: answerFollowUps[0]
 						? getTopSuggestionLabel(answerFollowUps[0])
-						: undefined
+						: undefined,
+					behaviorTrace: _btSuccess
 				};
 				history.messages[responseMessageId] = responseMessage;
 				history.currentId = responseMessageId;

@@ -723,9 +723,9 @@ const PROGRESSION_PATTERNS: Record<QuestionType, RegExp[]> = {
 };
 
 /** Semantic bucket for a suggestion string — used in diversity enforcement. */
-type SuggestionBucket = 'person' | 'action' | 'time' | 'location' | 'evidence' | 'reasoning' | 'general';
+export type SuggestionBucket = 'person' | 'action' | 'time' | 'location' | 'evidence' | 'reasoning' | 'general';
 
-function getSuggestionBucket(s: string): SuggestionBucket {
+export function getSuggestionBucket(s: string): SuggestionBucket {
 	const lower = s.toLowerCase();
 	if (/\b(evidence|supports?|important|significant|tied to)\b/.test(lower)) return 'evidence';
 	if (/^why\b/.test(lower)) return 'reasoning';
@@ -769,7 +769,7 @@ export function applyDiversityPass(suggestions: string[], maxPerBucket = 2): str
 	return kept;
 }
 
-function scoreFollowUpSuggestion(suggestion: string, ctx: SuggestionRankingContext): number {
+export function scoreFollowUpSuggestion(suggestion: string, ctx: SuggestionRankingContext): number {
 	const s = suggestion.toLowerCase();
 	let score = 0;
 
