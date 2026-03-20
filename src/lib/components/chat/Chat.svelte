@@ -70,6 +70,7 @@
 		buildProgressiveClarification,
 		buildAnswerFollowUpSuggestions,
 		classifyQuestionType,
+		getTopSuggestionLabel,
 		type ClarificationResult
 	} from '$lib/utils/conversationalContextResolver';
 
@@ -1914,6 +1915,7 @@
 				const clarifyModelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
 				const clarifyModel = $models.find((m) => m.id === clarifyModelId);
 				const clarifyMsgId = uuidv4();
+				const clarifyFollowUps = clarificationResult.suggestions ?? [];
 				const clarifyMsg = {
 					parentId: userMessageId,
 					id: clarifyMsgId,
@@ -1926,7 +1928,10 @@
 					timestamp: Math.floor(Date.now() / 1000),
 					done: true,
 					caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>,
-					followUps: clarificationResult.suggestions ?? []
+					followUps: clarifyFollowUps,
+					topSuggestionLabel: clarifyFollowUps[0]
+						? getTopSuggestionLabel(clarifyFollowUps[0], clarificationResult.type)
+						: undefined
 				};
 				history.messages[clarifyMsgId] = clarifyMsg;
 				history.currentId = clarifyMsgId;
@@ -1987,6 +1992,11 @@
 				const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
 				const model = $models.find((m) => m.id === modelId);
 				let responseMessageId = uuidv4();
+				const answerFollowUps = buildAnswerFollowUpSuggestions(
+					ctxResolution.state,
+					classifyQuestionType(resolvedPrompt),
+					resolvedPrompt
+				);
 				let responseMessage = {
 					parentId: userMessageId,
 					id: responseMessageId,
@@ -1999,10 +2009,10 @@
 					timestamp: Math.floor(Date.now() / 1000),
 					done: true,
 					caseEngineCitations: citations ?? [],
-					followUps: buildAnswerFollowUpSuggestions(
-						ctxResolution.state,
-						classifyQuestionType(resolvedPrompt)
-					)
+					followUps: answerFollowUps,
+					topSuggestionLabel: answerFollowUps[0]
+						? getTopSuggestionLabel(answerFollowUps[0])
+						: undefined
 				};
 				history.messages[responseMessageId] = responseMessage;
 				history.currentId = responseMessageId;

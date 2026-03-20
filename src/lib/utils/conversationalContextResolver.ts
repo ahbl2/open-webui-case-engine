@@ -96,8 +96,69 @@ export interface ClarificationResult {
 	message: string;
 	/** Whether context was entirely absent or just insufficiently anchored. */
 	type: 'no_context' | 'low_confidence';
-	/** Optional follow-up suggestion strings (forward-compatibility only; not rendered yet). */
+	/** Ranked follow-up suggestion strings to render as clickable chips. */
 	suggestions?: string[];
+}
+
+/**
+ * Context passed to `rankFollowUpSuggestions`.
+ * Keep this minimal — scoring is deterministic and does not call external services.
+ */
+export interface SuggestionRankingContext {
+	/** Question type of the current query (drives progression preferences). */
+	questionType: QuestionType;
+	/** Current conversation state, if any (enables entity/location boosting). */
+	state: ConversationState | null;
+	/** The raw current query string (enables redundancy detection and time-question override). */
+	currentQuery: string;
+	/**
+	 * High-level query context derived by `detectQueryContext`.
+	 * When supplied, enables targeted context-specific score boosts in the scorer.
+	 */
+	queryContext?: QueryContext;
+}
+
+/**
+ * High-level investigative context for the current turn.
+ * Used to select context-appropriate base suggestions and apply targeted scoring boosts.
+ */
+export type QueryContext = 'person' | 'timeline' | 'location' | 'evidence' | 'general';
+
+/**
+ * Classify the current turn into a high-level investigative context so
+ * suggestion generation and ranking can make context-appropriate choices.
+ *
+ * Priority order (first match wins):
+ *   1. Evidence keywords in the query
+ *   2. Entity + who/what → person focus
+ *   3. Location + where → location focus
+ *   4. Rich event state (actionBody/dateHint) → timeline focus
+ *   5. Entity present (weak signal) → person focus
+ *   6. Fallback → general
+ */
+export function detectQueryContext(
+	state: ConversationState | null,
+	questionType: QuestionType,
+	currentQuery: string
+): QueryContext {
+	const q = currentQuery.toLowerCase();
+
+	if (/\b(evidence|important|significant|supports?|proves?|key finding|critical)\b/.test(q)) {
+		return 'evidence';
+	}
+	if (state?.entity && (questionType === 'who' || questionType === 'what')) {
+		return 'person';
+	}
+	if (state?.location && questionType === 'where') {
+		return 'location';
+	}
+	if (state?.actionBody || state?.dateHint) {
+		return 'timeline';
+	}
+	if (state?.entity) {
+		return 'person';
+	}
+	return 'general';
 }
 
 // ─── Context-dependency detection ────────────────────────────────────────────
@@ -602,6 +663,211 @@ export function buildClarificationHint(state: ConversationState): string {
 	return `Are you asking about the event involving ${parts.join(', ')}? Could you be more specific?`;
 }
 
+// ─── Top-suggestion label ─────────────────────────────────────────────────────
+
+/**
+ * Derive a short dynamic label for the top-ranked follow-up suggestion chip.
+ *
+ * The label helps the user understand WHY this suggestion is first without
+ * making them read the text before deciding to engage.
+ *
+ * Rules are deterministic and text-pattern based — no LLM involved.
+ *
+ * @param topSuggestion  The text of the first (top-ranked) suggestion.
+ * @param clarificationType  When present, the caller is in the progressive
+ *   clarification flow (not a normal answer), so the label is always "Clarify event".
+ */
+export function getTopSuggestionLabel(
+	topSuggestion: string,
+	clarificationType?: 'no_context' | 'low_confidence'
+): string {
+	if (clarificationType !== undefined) {
+		return 'Clarify event';
+	}
+
+	const s = topSuggestion.toLowerCase();
+
+	// Evidence/support reasoning: the suggestion pushes into evidence analysis.
+	if (/\b(supports?|evidence|important|significant|why\b)/.test(s)) {
+		return 'Follow evidence';
+	}
+
+	// Timeline/event continuation: the suggestion advances the narrative thread.
+	if (/\bhappened\b/.test(s) || /^what did\b/.test(s) || /\b(next|after|then|timeline)\b/.test(s)) {
+		return 'Continue timeline';
+	}
+
+	// State-grounded deep-dive: the suggestion references known context fields
+	// (entity or location), making it the most contextually anchored option.
+	if (/\b(documented about|occurred at|else\b.*\bat|further)\b/.test(s)) {
+		return 'Most relevant';
+	}
+
+	return 'Best next step';
+}
+
+// ─── Suggestion ranking ───────────────────────────────────────────────────────
+
+/**
+ * Natural investigative progressions for each question type.
+ * The position in the array determines the boost: earlier = higher score.
+ */
+const PROGRESSION_PATTERNS: Record<QuestionType, RegExp[]> = {
+	who:   [/^what did\b/, /^what happened\b/, /^when\b/, /^where\b/],
+	what:  [/^who\b/, /^what happened\b/, /^when\b/, /^where\b/],
+	when:  [/^what happened\b/, /^what did\b/, /^who\b/, /^where\b/],
+	where: [/^who\b/, /^what happened\b/, /^what did\b/, /^when\b/],
+	why:   [/^what supports\b/, /^what was the outcome\b/, /^who\b/],
+	how:   [/^who carried\b/, /^what was the result\b/, /^when\b/],
+	other: [/^who\b/, /^what\b/, /^when\b/, /^where\b/],
+};
+
+/** Semantic bucket for a suggestion string — used in diversity enforcement. */
+type SuggestionBucket = 'person' | 'action' | 'time' | 'location' | 'evidence' | 'reasoning' | 'general';
+
+function getSuggestionBucket(s: string): SuggestionBucket {
+	const lower = s.toLowerCase();
+	if (/\b(evidence|supports?|important|significant|tied to)\b/.test(lower)) return 'evidence';
+	if (/^why\b/.test(lower)) return 'reasoning';
+	if (/^who\b/.test(lower)) return 'person';
+	if (/^when\b|^what time\b/.test(lower)) return 'time';
+	if (/^where\b/.test(lower)) return 'location';
+	if (/^what (did|happened|occurred|was done|happened next|happened before)\b/.test(lower)) return 'action';
+	return 'general';
+}
+
+/**
+ * Light diversity enforcement: prevent one semantic bucket from dominating the
+ * final suggestion set. At most `maxPerBucket` suggestions from the same bucket
+ * are kept in their ranked position; remaining same-bucket suggestions are
+ * deferred and only appended if other buckets cannot fill the remaining slots.
+ *
+ * This runs AFTER ranking so intra-bucket order is always preserved.
+ */
+export function applyDiversityPass(suggestions: string[], maxPerBucket = 2): string[] {
+	const bucketCount: Record<string, number> = {};
+	const kept: string[] = [];
+	const deferred: string[] = [];
+
+	for (const s of suggestions) {
+		const bucket = getSuggestionBucket(s);
+		const count = bucketCount[bucket] ?? 0;
+		if (count < maxPerBucket) {
+			kept.push(s);
+			bucketCount[bucket] = count + 1;
+		} else {
+			deferred.push(s);
+		}
+	}
+
+	// Fill remaining slots with deferred when no other-bucket candidates were available.
+	for (const s of deferred) {
+		if (kept.length >= 4) break;
+		kept.push(s);
+	}
+
+	return kept;
+}
+
+function scoreFollowUpSuggestion(suggestion: string, ctx: SuggestionRankingContext): number {
+	const s = suggestion.toLowerCase();
+	let score = 0;
+
+	// A. Context richness: suggestions grounded in known state are more investigatively
+	//    valuable because they are immediately actionable and cannot fabricate facts.
+	if (ctx.state?.entity && s.includes(ctx.state.entity.toLowerCase())) score += 2;
+	if (ctx.state?.location && s.includes(ctx.state.location.toLowerCase())) score += 1;
+
+	// B. Investigative progression: prefer the natural next-step sequence for the
+	//    current question type. Time questions always use the 'when' progression.
+	//    Skipped in evidence context — the dedicated F-block below handles ordering there.
+	const queryCtxEarly = ctx.queryContext ?? 'general';
+	if (queryCtxEarly !== 'evidence') {
+		const effectiveType: QuestionType = isTimeQuestion(ctx.currentQuery) ? 'when' : ctx.questionType;
+		const progression = PROGRESSION_PATTERNS[effectiveType] ?? PROGRESSION_PATTERNS.other;
+		for (let i = 0; i < progression.length; i++) {
+			if (progression[i].test(s)) {
+				score += (progression.length - i) * 2;
+				break;
+			}
+		}
+	}
+
+	// C. Actionability: suggestions that explicitly advance the investigation.
+	if (/what (did|happened|supports|should|was the)/.test(s)) score += 1;
+	if (/\b(next|else|further|involved)\b/.test(s)) score += 1;
+
+	// D. Time-question override: after a time query, event/action follow-ups are
+	//    the most useful continuation and receive an extra boost.
+	if (isTimeQuestion(ctx.currentQuery) && /^what (happened|did|occurred)\b/.test(s)) score += 4;
+
+	// E. Redundancy: penalise suggestions that repeat the user's own question type
+	//    unless the suggestion is grounded in a known entity or location (making it
+	//    meaningfully distinct from the original query).
+	const currentFirstWord = ctx.currentQuery.trim().toLowerCase().split(/\s+/)[0] ?? '';
+	const suggestionFirstWord = s.split(/\s+/)[0] ?? '';
+	const isGrounded = !!(ctx.state?.entity || ctx.state?.location);
+	if (currentFirstWord === suggestionFirstWord && !isGrounded) score -= 2;
+
+	// F. Context-specific boosts: strong targeted lifts when the active investigative
+	//    context makes a particular suggestion type clearly the best next step.
+	const queryCtx = queryCtxEarly;
+	if (queryCtx === 'evidence') {
+		if (/\b(why\b|important|significant)/.test(s)) score += 5;
+		if (/\bsupports?\b/.test(s)) score += 5;
+		if (/\btied to\b/.test(s)) score += 3;
+		if (/\bshould be done\b/.test(s)) score += 2;
+	}
+	if (queryCtx === 'person') {
+		if (/^what did\b/.test(s)) score += 4;
+		if (ctx.state?.entity && s.includes(ctx.state.entity.toLowerCase()) && /^what did\b/.test(s)) score += 3;
+	}
+	if (queryCtx === 'location') {
+		if (/^what (happened|occurred)\b/.test(s) || /\bhappened (there|at)\b/.test(s)) score += 4;
+		if (ctx.state?.location && s.includes(ctx.state.location.toLowerCase())) score += 3;
+	}
+	if (queryCtx === 'timeline') {
+		if (/\bnext\b/.test(s)) score += 4;
+		if (/\bbefore\b/.test(s)) score += 3;
+		if (/who else\b/.test(s)) score += 2;
+	}
+
+	return score;
+}
+
+/**
+ * Deduplicate and rank a list of follow-up suggestion strings.
+ *
+ * Scoring factors (deterministic, no LLM):
+ *   - entity/location mention from conversation state → grounded context boost
+ *   - natural investigative progression for the question type
+ *   - actionability keywords (what happened, what supports, etc.)
+ *   - time-question override (event/action suggestions float to the top)
+ *   - redundancy penalty when the suggestion mirrors the user's current question type
+ *
+ * Ties preserve original insertion order (stable sort).
+ * The result is capped at 4 items by the callers.
+ */
+export function rankFollowUpSuggestions(
+	suggestions: string[],
+	ctx: SuggestionRankingContext
+): string[] {
+	// Deduplicate (case-insensitive exact match).
+	const seen = new Set<string>();
+	const deduped = suggestions.filter((s) => {
+		const key = s.toLowerCase().trim();
+		if (seen.has(key)) return false;
+		seen.add(key);
+		return true;
+	});
+
+	// Score, then stable-sort (ties keep original order via secondary idx comparison).
+	const scored = deduped.map((s, idx) => ({ s, score: scoreFollowUpSuggestion(s, ctx), idx }));
+	scored.sort((a, b) => b.score - a.score || a.idx - b.idx);
+
+	return scored.map((x) => x.s);
+}
+
 /**
  * Generate a progressive clarification message for display as an inline
  * assistant reply when a query cannot be safely resolved.
@@ -617,6 +883,12 @@ export function buildProgressiveClarification(
 	state: ConversationState | null,
 	query: string
 ): ClarificationResult {
+	// Compute effective question type once. Time questions use 'when' for ranking
+	// purposes so event/action follow-ups bubble correctly.
+	const qt: QuestionType = isTimeQuestion(query) ? 'when' : classifyQuestionType(query);
+	const queryContext = detectQueryContext(state, qt, query);
+	const rankCtx: SuggestionRankingContext = { questionType: qt, state, currentQuery: query, queryContext };
+
 	if (state === null) {
 		// No conversation context — provide query-type-specific investigative guidance.
 		if (isTimeQuestion(query)) {
@@ -624,15 +896,14 @@ export function buildProgressiveClarification(
 				type: 'no_context',
 				message:
 					"What event are you asking about? For example, you can ask about when someone arrived, left, or performed an action in this case.",
-				suggestions: [
+				suggestions: rankFollowUpSuggestions([
 					"What time did the most recent event in this case occur?",
 					"What time is documented in the narrative?",
 					"When did the key activity take place?",
-				],
+				], rankCtx),
 			};
 		}
 
-		const qt = classifyQuestionType(query);
 		const GUIDANCE: Record<QuestionType, string> = {
 			who:   "Who are you referring to? You can ask about a specific person, event, or location in this case.",
 			what:  "What event are you referring to? You can ask about what happened, what was found, or what was documented.",
@@ -682,7 +953,7 @@ export function buildProgressiveClarification(
 		return {
 			type: 'no_context',
 			message: GUIDANCE[qt],
-			suggestions: NO_CONTEXT_SUGGESTIONS[qt],
+			suggestions: rankFollowUpSuggestions(NO_CONTEXT_SUGGESTIONS[qt] ?? [], rankCtx),
 		};
 	}
 
@@ -696,35 +967,107 @@ export function buildProgressiveClarification(
 		return {
 			type: 'low_confidence',
 			message: "I want to make sure I understand — which specific event or activity are you referring to?",
-			suggestions: [
+			suggestions: rankFollowUpSuggestions([
 				"Who is involved in the most recent activity?",
 				"What happened most recently in this case?",
 				"When did the last documented event occur?",
-			],
+			], rankCtx),
 		};
 	}
 
 	// Build targeted suggestions from state fields.
-	const suggestions: string[] = [];
+	const stateSuggestions: string[] = [];
 	if (state.entity && state.location) {
-		suggestions.push(`What did ${state.entity} do at the ${state.location}?`);
-		suggestions.push(`When did ${state.entity} arrive at the ${state.location}?`);
-		suggestions.push(`Who else was present at the ${state.location}?`);
+		stateSuggestions.push(`What did ${state.entity} do at the ${state.location}?`);
+		stateSuggestions.push(`When did ${state.entity} arrive at the ${state.location}?`);
+		stateSuggestions.push(`Who else was present at the ${state.location}?`);
 	} else if (state.entity) {
-		suggestions.push(`What did ${state.entity} do?`);
-		suggestions.push(`When was ${state.entity} last documented?`);
-		suggestions.push(`Where was ${state.entity} observed?`);
+		stateSuggestions.push(`What did ${state.entity} do?`);
+		stateSuggestions.push(`When was ${state.entity} last documented?`);
+		stateSuggestions.push(`Where was ${state.entity} observed?`);
 	} else if (state.location) {
-		suggestions.push(`What occurred at the ${state.location}?`);
-		suggestions.push(`Who was at the ${state.location}?`);
-		suggestions.push(`When did the activity at the ${state.location} occur?`);
+		stateSuggestions.push(`What occurred at the ${state.location}?`);
+		stateSuggestions.push(`Who was at the ${state.location}?`);
+		stateSuggestions.push(`When did the activity at the ${state.location} occur?`);
 	}
 
 	return {
 		type: 'low_confidence',
 		message: `Are you asking about the activity involving ${parts.join(', ')}? If so, could you be more specific about what you'd like to know?`,
-		suggestions: suggestions.slice(0, 4),
+		suggestions: rankFollowUpSuggestions(stateSuggestions, rankCtx).slice(0, 4),
 	};
+}
+
+/**
+ * Context-specific base suggestion pools.
+ * Each pool is tailored to the detected investigative context and may include
+ * state-grounded text (entity/location) when available.
+ */
+function getContextBaseSuggestions(
+	state: ConversationState | null,
+	questionType: QuestionType,
+	currentQuery: string,
+	context: QueryContext
+): string[] {
+	const entity = state?.entity;
+	const location = state?.location;
+
+	switch (context) {
+		case 'evidence':
+			return [
+				"Why is that important?",
+				"What supports that?",
+				"Who is tied to that evidence?",
+				"What should be done next?",
+			];
+
+		case 'person':
+			return [
+				entity ? `What did ${entity} do?` : "What did they do?",
+				"When did that happen?",
+				entity ? `Where was ${entity} observed?` : "Where did it occur?",
+				entity ? `What else is documented about ${entity}?` : "What else is on record?",
+			];
+
+		case 'location':
+			return [
+				location ? `What happened at the ${location}?` : "What happened there?",
+				"Who was involved there?",
+				"When did that occur?",
+				location ? `Has the ${location} appeared in other events?` : "Where else did this occur?",
+			];
+
+		case 'timeline':
+			return [
+				"What happened next?",
+				"Who else was involved?",
+				"What time did that occur?",
+				"What happened before this?",
+			];
+
+		case 'general':
+		default: {
+			const BASE_BY_TYPE: Record<QuestionType, string[]> = {
+				who:   ["What did they do?", "When did that happen?", "Where did it occur?"],
+				what:  ["Who was involved?", "When did that occur?", "Where did it take place?"],
+				when:  ["Who was involved?", "What happened?", "Where did it occur?"],
+				where: ["Who was there?", "What happened?", "When did it occur?"],
+				why:   ["What supports that?", "What was the outcome?", "Who was involved?"],
+				how:   ["Who carried it out?", "When did it occur?", "What was the result?"],
+				other: ["Who is involved?", "What happened?", "When did it occur?"],
+			};
+			// Time questions classified as 'what' use the 'when' pool for better continuations.
+			const effectiveType: QuestionType = isTimeQuestion(currentQuery) ? 'when' : questionType;
+			const base = [...(BASE_BY_TYPE[effectiveType] ?? BASE_BY_TYPE.other)];
+			// Append one state-aware suggestion when context is general and state has fields.
+			if (entity && base.length < 4) {
+				base.push(`What else is documented about ${entity}?`);
+			} else if (location && base.length < 4) {
+				base.push(`What else occurred at the ${location}?`);
+			}
+			return base;
+		}
+	}
 }
 
 /**
@@ -736,29 +1079,14 @@ export function buildProgressiveClarification(
  */
 export function buildAnswerFollowUpSuggestions(
 	state: ConversationState | null,
-	questionType: QuestionType
+	questionType: QuestionType,
+	currentQuery: string = ''
 ): string[] {
-	const BASE: Record<QuestionType, string[]> = {
-		who:   ["What did they do?", "When did that happen?", "Where did it occur?"],
-		what:  ["Who was involved?", "When did that occur?", "Where did it take place?"],
-		when:  ["Who was involved?", "What happened?", "Where did it occur?"],
-		where: ["Who was there?", "What happened?", "When did it occur?"],
-		why:   ["What supports that?", "What was the outcome?", "Who was involved?"],
-		how:   ["Who carried it out?", "When did it occur?", "What was the result?"],
-		other: ["Who is involved?", "What happened?", "When did it occur?"],
-	};
-
-	const suggestions = [...(BASE[questionType] ?? BASE.other)];
-
-	// Append one state-aware suggestion when safe (entity/location come from the
-	// conversation record, so they are not fabricated).
-	if (state?.entity && suggestions.length < 4) {
-		suggestions.push(`What else is documented about ${state.entity}?`);
-	} else if (state?.location && suggestions.length < 4) {
-		suggestions.push(`What else occurred at the ${state.location}?`);
-	}
-
-	return suggestions.slice(0, 4);
+	const context = detectQueryContext(state, questionType, currentQuery);
+	const raw = getContextBaseSuggestions(state, questionType, currentQuery, context);
+	const rankCtx: SuggestionRankingContext = { questionType, state, currentQuery, queryContext: context };
+	const ranked = rankFollowUpSuggestions(raw, rankCtx);
+	return applyDiversityPass(ranked).slice(0, 4);
 }
 
 // ─── First-turn safe default rewrites ────────────────────────────────────────

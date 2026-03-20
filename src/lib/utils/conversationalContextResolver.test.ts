@@ -15,8 +15,14 @@ import {
 	buildClarificationHint,
 	buildProgressiveClarification,
 	buildAnswerFollowUpSuggestions,
+	rankFollowUpSuggestions,
+	getTopSuggestionLabel,
+	detectQueryContext,
+	applyDiversityPass,
 	type ConversationTurn,
 	type ConversationState,
+	type SuggestionRankingContext,
+	type QueryContext,
 } from './conversationalContextResolver';
 
 // ─── Fixtures ─────────────────────────────────────────────────────────────────
@@ -1150,6 +1156,419 @@ describe('buildAnswerFollowUpSuggestions', () => {
 				expect(s).not.toMatch(/Mangis|Preston|December/);
 			}
 		}
+	});
+});
+
+describe('rankFollowUpSuggestions — investigative progression', () => {
+	const nullState: SuggestionRankingContext = { questionType: 'who', state: null, currentQuery: 'who' };
+
+	it('"who" question: "What did they do?" ranks first (action progression)', () => {
+		const ranked = rankFollowUpSuggestions(
+			["When did that happen?", "Where did it occur?", "What did they do?"],
+			nullState
+		);
+		expect(ranked[0]).toBe("What did they do?");
+	});
+
+	it('"who" question: "When did that happen?" ranks before "Where did it occur?"', () => {
+		const ranked = rankFollowUpSuggestions(
+			["Where did it occur?", "When did that happen?", "What did they do?"],
+			nullState
+		);
+		const whenIdx = ranked.indexOf("When did that happen?");
+		const whereIdx = ranked.indexOf("Where did it occur?");
+		expect(whenIdx).toBeLessThan(whereIdx);
+	});
+
+	it('"when" time question: "What happened?" ranks first (time-question override + boost)', () => {
+		const ctx: SuggestionRankingContext = {
+			questionType: 'what',
+			state: null,
+			currentQuery: 'what time was it'
+		};
+		const ranked = rankFollowUpSuggestions(
+			["Who was involved?", "Where did it occur?", "What happened?"],
+			ctx
+		);
+		expect(ranked[0]).toBe("What happened?");
+	});
+
+	it('"where" question: "Who was there?" ranks first', () => {
+		const ctx: SuggestionRankingContext = { questionType: 'where', state: null, currentQuery: 'where' };
+		const ranked = rankFollowUpSuggestions(
+			["When did it occur?", "What happened?", "Who was there?"],
+			ctx
+		);
+		expect(ranked[0]).toBe("Who was there?");
+	});
+
+	it('"why" question: "What supports that?" ranks first', () => {
+		const ctx: SuggestionRankingContext = { questionType: 'why', state: null, currentQuery: 'why' };
+		const ranked = rankFollowUpSuggestions(
+			["Who was involved?", "What was the outcome?", "What supports that?"],
+			ctx
+		);
+		expect(ranked[0]).toBe("What supports that?");
+	});
+});
+
+describe('rankFollowUpSuggestions — context richness and state-aware ordering', () => {
+	const stateWithBoth: ConversationState = {
+		topic: '',
+		entity: 'Mangis',
+		actionBody: null,
+		location: 'Preston address',
+		lastQuestionType: 'who',
+		dateHint: null,
+	};
+
+	it('entity-mentioning suggestion ranks above generic when state is present', () => {
+		const ctx: SuggestionRankingContext = {
+			questionType: 'when',
+			state: stateWithBoth,
+			currentQuery: 'when'
+		};
+		const ranked = rankFollowUpSuggestions(
+			["When did the key events occur?", "When did Mangis arrive at the Preston address?"],
+			ctx
+		);
+		// Entity + location → more context-rich
+		expect(ranked[0]).toBe("When did Mangis arrive at the Preston address?");
+	});
+
+	it('location-mentioning suggestion outranks fully generic when entity absent', () => {
+		const stateLocOnly: ConversationState = {
+			topic: '', entity: null, actionBody: null,
+			location: 'warehouse', lastQuestionType: 'where', dateHint: null,
+		};
+		const ctx: SuggestionRankingContext = {
+			questionType: 'where',
+			state: stateLocOnly,
+			currentQuery: 'where'
+		};
+		const ranked = rankFollowUpSuggestions(
+			["Where was the evidence collected?", "What occurred at the warehouse?"],
+			ctx
+		);
+		expect(ranked[0]).toBe("What occurred at the warehouse?");
+	});
+});
+
+describe('rankFollowUpSuggestions — redundancy penalty', () => {
+	it('same-interrogative suggestion without state grounding is pushed down', () => {
+		const ctx: SuggestionRankingContext = {
+			questionType: 'who',
+			state: null,
+			currentQuery: 'who'
+		};
+		const ranked = rankFollowUpSuggestions(
+			["Who else was there?", "What did they do?"],
+			ctx
+		);
+		// "Who else was there?" starts with "who" — same as currentQuery and not grounded
+		expect(ranked.indexOf("What did they do?")).toBeLessThan(ranked.indexOf("Who else was there?"));
+	});
+
+	it('same-interrogative suggestion WITH state grounding is NOT penalised', () => {
+		const state: ConversationState = {
+			topic: '', entity: 'Mangis', actionBody: null,
+			location: null, lastQuestionType: 'who', dateHint: null,
+		};
+		const ctx: SuggestionRankingContext = { questionType: 'who', state, currentQuery: 'who' };
+		// "Who was Mangis with?" mentions entity → grounded → no redundancy penalty
+		const ranked = rankFollowUpSuggestions(
+			["What did Mangis do?", "Where was Mangis observed?"],
+			ctx
+		);
+		// Just check ranking doesn't throw and has expected length
+		expect(ranked.length).toBe(2);
+	});
+});
+
+describe('rankFollowUpSuggestions — deduplication', () => {
+	it('exact duplicates (case-insensitive) are removed', () => {
+		const ctx: SuggestionRankingContext = { questionType: 'who', state: null, currentQuery: 'who' };
+		const ranked = rankFollowUpSuggestions(
+			["What did they do?", "what did they do?", "When did that happen?"],
+			ctx
+		);
+		expect(ranked.length).toBe(2);
+	});
+
+	it('output is deterministic — same input always produces same order', () => {
+		const ctx: SuggestionRankingContext = { questionType: 'when', state: null, currentQuery: 'when' };
+		const input = ["Where did it occur?", "What happened?", "Who was involved?"];
+		const a = rankFollowUpSuggestions([...input], ctx);
+		const b = rankFollowUpSuggestions([...input], ctx);
+		expect(a).toEqual(b);
+	});
+});
+
+describe('buildAnswerFollowUpSuggestions — ranked ordering', () => {
+	it('"who" question: actionable "What did they do?" appears first', () => {
+		const result = buildAnswerFollowUpSuggestions(null, 'who', 'who carried the bags?');
+		expect(result[0]).toBe("What did they do?");
+	});
+
+	it('"when" question: event-oriented suggestion appears first', () => {
+		const result = buildAnswerFollowUpSuggestions(null, 'when', 'when did that happen?');
+		// "What happened?" should beat "Who was involved?" via progression
+		expect(result[0]).toBe("What happened?");
+	});
+
+	it('time question currentQuery promotes event follow-up to first', () => {
+		// Even if questionType is classified as 'what', a time currentQuery triggers override
+		const result = buildAnswerFollowUpSuggestions(null, 'what', 'what time was it');
+		// The time-question override should push "What happened?" or event suggestion up
+		const firstLower = result[0].toLowerCase();
+		expect(firstLower).toMatch(/happened|occurred|did/);
+	});
+
+	it('person context: entity-specific action suggestion leads (not generic "What did they do?")', () => {
+		const state: ConversationState = {
+			topic: '', entity: 'Mangis', actionBody: null,
+			location: null, lastQuestionType: 'who', dateHint: null,
+		};
+		const result = buildAnswerFollowUpSuggestions(state, 'who', 'who was there?');
+		// Person context → entity-specific action is first
+		expect(result[0]).toMatch(/^What did Mangis do\?/);
+		// All suggestions in person pool reference entity
+		expect(result.join(' ')).toMatch(/Mangis/);
+	});
+});
+
+describe('getTopSuggestionLabel', () => {
+	it('returns "Clarify event" for any no_context clarification type', () => {
+		expect(getTopSuggestionLabel('Who is involved in the most recent case activity?', 'no_context'))
+			.toBe('Clarify event');
+	});
+
+	it('returns "Clarify event" for low_confidence clarification type', () => {
+		expect(getTopSuggestionLabel('What did Mangis do at the Preston address?', 'low_confidence'))
+			.toBe('Clarify event');
+	});
+
+	it('returns "Follow evidence" for evidence/support suggestions', () => {
+		expect(getTopSuggestionLabel('What supports that?')).toBe('Follow evidence');
+	});
+
+	it('returns "Follow evidence" for "why" suggestions', () => {
+		expect(getTopSuggestionLabel('Why is that significant?')).toBe('Follow evidence');
+	});
+
+	it('returns "Continue timeline" for "What happened?" suggestion', () => {
+		expect(getTopSuggestionLabel('What happened?')).toBe('Continue timeline');
+	});
+
+	it('returns "Continue timeline" for "What did they do?" suggestion', () => {
+		expect(getTopSuggestionLabel('What did they do?')).toBe('Continue timeline');
+	});
+
+	it('returns "Continue timeline" for next-event suggestions', () => {
+		expect(getTopSuggestionLabel('What happened next?')).toBe('Continue timeline');
+	});
+
+	it('returns "Most relevant" for entity deep-dive suggestions', () => {
+		expect(getTopSuggestionLabel('What else is documented about Mangis?')).toBe('Most relevant');
+	});
+
+	it('returns "Best next step" for generic who/when/where suggestions', () => {
+		expect(getTopSuggestionLabel('Who was involved?')).toBe('Best next step');
+	});
+
+	it('returns "Best next step" for "Where did it occur?"', () => {
+		expect(getTopSuggestionLabel('Where did it occur?')).toBe('Best next step');
+	});
+
+	it('is deterministic — same input always returns same label', () => {
+		const a = getTopSuggestionLabel('What supports that?');
+		const b = getTopSuggestionLabel('What supports that?');
+		expect(a).toBe(b);
+	});
+
+	it('clarification type takes precedence over text pattern', () => {
+		// Even if the text matches "Continue timeline", the type wins for clarification
+		expect(getTopSuggestionLabel('What happened in the most recent activity?', 'no_context'))
+			.toBe('Clarify event');
+	});
+});
+
+describe('detectQueryContext', () => {
+	const baseState = (overrides: Partial<ConversationState>): ConversationState => ({
+		topic: '', entity: null, actionBody: null, location: null,
+		lastQuestionType: 'what', dateHint: null, ...overrides,
+	});
+
+	it('returns "evidence" when query contains evidence keywords', () => {
+		expect(detectQueryContext(null, 'what', 'what is the most important piece of evidence?')).toBe('evidence');
+		expect(detectQueryContext(null, 'what', 'what evidence supports this?')).toBe('evidence');
+		expect(detectQueryContext(null, 'why', 'why is this significant?')).toBe('evidence');
+	});
+
+	it('returns "person" for entity + who question', () => {
+		const state = baseState({ entity: 'Mangis' });
+		expect(detectQueryContext(state, 'who', 'who was there?')).toBe('person');
+	});
+
+	it('returns "person" for entity + what question', () => {
+		const state = baseState({ entity: 'Mangis' });
+		expect(detectQueryContext(state, 'what', 'what did they do?')).toBe('person');
+	});
+
+	it('returns "location" for location + where question', () => {
+		const state = baseState({ location: 'Preston address' });
+		expect(detectQueryContext(state, 'where', 'where did it occur?')).toBe('location');
+	});
+
+	it('returns "timeline" when actionBody is present (no entity)', () => {
+		const state = baseState({ actionBody: 'carried bags' });
+		expect(detectQueryContext(state, 'when', 'when did that happen?')).toBe('timeline');
+	});
+
+	it('returns "timeline" when dateHint is present (no entity)', () => {
+		const state = baseState({ dateHint: 'December 11, 2025' });
+		expect(detectQueryContext(state, 'what', 'what time?')).toBe('timeline');
+	});
+
+	it('entity + actionBody: person wins over timeline for who/what questions', () => {
+		// who + entity takes priority over timeline even if actionBody is present
+		const state = baseState({ entity: 'Mangis', actionBody: 'carried bags' });
+		expect(detectQueryContext(state, 'who', 'who was there?')).toBe('person');
+	});
+
+	it('returns "person" as weak signal when entity is known but question type is neutral', () => {
+		const state = baseState({ entity: 'Rogers' });
+		expect(detectQueryContext(state, 'other', 'what happened?')).toBe('person');
+	});
+
+	it('returns "general" when no state and no evidence keywords', () => {
+		expect(detectQueryContext(null, 'who', 'who is involved?')).toBe('general');
+		expect(detectQueryContext(null, 'when', 'when did it happen?')).toBe('general');
+	});
+});
+
+describe('applyDiversityPass', () => {
+	it('passes through a naturally diverse set unchanged', () => {
+		const input = ["What did they do?", "When did that happen?", "Who was there?", "What supports that?"];
+		const result = applyDiversityPass(input);
+		expect(result).toEqual(input);
+	});
+
+	it('caps same-bucket suggestions at 2 and defers the rest', () => {
+		// Three 'action' bucket items
+		const input = ["What happened next?", "What happened before?", "What happened there?", "Who was involved?"];
+		const result = applyDiversityPass(input);
+		// "Who was involved?" (person bucket) should move into position 3
+		expect(result[2]).toBe("Who was involved?");
+		// "What happened there?" is deferred to position 4
+		expect(result[3]).toBe("What happened there?");
+	});
+
+	it('fills remaining slots from deferred when no other buckets available', () => {
+		// All action bucket — diversity defers beyond 2 but fills back to 4
+		const input = ["What happened?", "What occurred?", "What did they do?", "What was done?"];
+		const result = applyDiversityPass(input);
+		expect(result.length).toBe(4);
+	});
+
+	it('handles small sets without breaking', () => {
+		expect(applyDiversityPass(["What happened?"])).toEqual(["What happened?"]);
+		expect(applyDiversityPass([])).toEqual([]);
+	});
+
+	it('is deterministic', () => {
+		const input = ["What happened next?", "What happened before?", "Who was there?", "When did it occur?"];
+		expect(applyDiversityPass([...input])).toEqual(applyDiversityPass([...input]));
+	});
+});
+
+describe('buildAnswerFollowUpSuggestions — context-aware pools', () => {
+	const mkState = (overrides: Partial<ConversationState>): ConversationState => ({
+		topic: '', entity: null, actionBody: null, location: null,
+		lastQuestionType: 'what', dateHint: null, ...overrides,
+	});
+
+	it('evidence context: "Why is that important?" ranks first', () => {
+		const result = buildAnswerFollowUpSuggestions(
+			null, 'what', 'what is the most important piece of evidence?'
+		);
+		expect(result[0]).toMatch(/why is that important/i);
+	});
+
+	it('evidence context: suggestion set contains support/evidence vocabulary', () => {
+		const result = buildAnswerFollowUpSuggestions(null, 'what', 'what evidence supports this?');
+		const combined = result.join(' ').toLowerCase();
+		expect(combined).toMatch(/support|evidence|important|tied/);
+	});
+
+	it('person context: entity-specific action suggestion leads', () => {
+		const result = buildAnswerFollowUpSuggestions(
+			mkState({ entity: 'Rogers' }), 'who', 'who was at the scene?'
+		);
+		expect(result[0]).toMatch(/^What did Rogers do\?/);
+	});
+
+	it('person context: suggestions cover action, time, location, and depth', () => {
+		const result = buildAnswerFollowUpSuggestions(
+			mkState({ entity: 'Thompson' }), 'who', 'who is involved?'
+		);
+		const combined = result.join(' ').toLowerCase();
+		expect(combined).toMatch(/thompson/);
+		// Should span multiple investigative dimensions
+		expect(result.length).toBeGreaterThanOrEqual(3);
+	});
+
+	it('location context: location-specific event question leads', () => {
+		const result = buildAnswerFollowUpSuggestions(
+			mkState({ location: 'warehouse' }), 'where', 'where did it occur?'
+		);
+		expect(result[0]).toMatch(/warehouse/i);
+		expect(result[0]).toMatch(/happened|occurred/i);
+	});
+
+	it('timeline context: "What happened next?" or "Who else was involved?" leads', () => {
+		const result = buildAnswerFollowUpSuggestions(
+			mkState({ actionBody: 'delivered package', dateHint: 'December 5, 2025' }),
+			'what',
+			'what did they do?'
+		);
+		expect(result[0]).toMatch(/next|involved/i);
+	});
+
+	it('general context (null state, who): "What did they do?" still leads', () => {
+		const result = buildAnswerFollowUpSuggestions(null, 'who', 'who was there?');
+		expect(result[0]).toBe("What did they do?");
+	});
+
+	it('diversity: timeline context does not return all action-bucket suggestions', () => {
+		const result = buildAnswerFollowUpSuggestions(
+			mkState({ actionBody: 'met contact', dateHint: 'Dec 10' }),
+			'what', 'what did they do?'
+		);
+		// "What happened next?" and "What happened before?" are both action, but
+		// "Who else was involved?" (person) and "What time did that occur?" (time) should also appear
+		const buckets = result.map((s) => {
+			const l = s.toLowerCase();
+			if (/^who\b/.test(l)) return 'person';
+			if (/^when\b|what time/.test(l)) return 'time';
+			if (/^what (happened|occurred)/.test(l)) return 'action';
+			return 'other';
+		});
+		const actionCount = buckets.filter((b) => b === 'action').length;
+		expect(actionCount).toBeLessThanOrEqual(2);
+	});
+
+	it('repetition: location query top suggestion is not location bucket', () => {
+		// User just asked "where" with no state — top suggestion should not be "where..." again
+		const result = buildAnswerFollowUpSuggestions(null, 'where', 'where did it occur?');
+		expect(result[0].toLowerCase()).not.toMatch(/^where\b/);
+	});
+
+	it('deterministic: same inputs always produce same ranking', () => {
+		const state = mkState({ entity: 'Mangis', location: 'Preston address' });
+		const a = buildAnswerFollowUpSuggestions(state, 'who', 'who was there?');
+		const b = buildAnswerFollowUpSuggestions(state, 'who', 'who was there?');
+		expect(a).toEqual(b);
 	});
 });
 

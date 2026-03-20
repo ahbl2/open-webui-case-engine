@@ -1480,18 +1480,19 @@
 
 					{#if (isLastMessage || ($settings?.keepFollowUpPrompts ?? false)) && message.done && !readOnly && (message?.followUps ?? []).length > 0}
 						<div class="mt-2.5" in:fade={{ duration: 100 }}>
-							<FollowUps
-								followUps={message?.followUps}
-								onClick={(prompt) => {
-									if ($settings?.insertFollowUpPrompt ?? false) {
-										// Insert the follow-up prompt into the input box
-										setInputText(prompt);
-									} else {
-										// Submit the follow-up prompt directly
-										submitMessage(message?.id, prompt);
-									}
-								}}
-							/>
+						<FollowUps
+							followUps={message?.followUps}
+							topSuggestionLabel={message?.topSuggestionLabel}
+							onClick={(prompt) => {
+								if ($settings?.insertFollowUpPrompt ?? false) {
+									// Insert the follow-up prompt into the input box
+									setInputText(prompt);
+								} else {
+									// Submit the follow-up prompt directly
+									submitMessage(message?.id, prompt);
+								}
+							}}
+						/>
 						</div>
 					{/if}
 				{/if}
