@@ -120,7 +120,11 @@ export function notFoundMessage(): string {
  * Returns a user-facing message for any ThreadScopeErrorKind.
  * Use this as a fallback when you do not have a specific scope to pass.
  */
-export function bindErrorMessage(kind: ThreadScopeErrorKind, scope?: 'case' | 'personal'): string {
+export function bindErrorMessage(
+	kind: ThreadScopeErrorKind,
+	scope?: 'case' | 'personal',
+	originalMessage?: string | null
+): string {
 	switch (kind) {
 		case 'scope_conflict':
 			return scopeConflictMessage(scope ?? 'case');
@@ -131,6 +135,10 @@ export function bindErrorMessage(kind: ThreadScopeErrorKind, scope?: 'case' | 'p
 		case 'not_found':
 			return notFoundMessage();
 		default:
+			// When unknown, surface the actual backend/client error so the real cause is diagnosable.
+			if (originalMessage && typeof originalMessage === 'string' && originalMessage.trim().length > 0) {
+				return originalMessage;
+			}
 			return 'An unexpected error occurred while binding this thread. Please try again.';
 	}
 }

@@ -1,4 +1,5 @@
 import { browser, dev } from '$app/environment';
+import { env } from '$env/dynamic/public';
 // import { version } from '../../package.json';
 
 export const APP_NAME = 'Open WebUI';
@@ -122,3 +123,26 @@ export const PASTED_TEXT_CHARACTER_LIMIT = 1000;
 // This feature, akin to $env/static/private, exclusively incorporates environment variables
 // that are prefixed with config.kit.env.publicPrefix (usually set to PUBLIC_).
 // Consequently, these variables can be securely exposed to client-side code.
+
+/**
+ * Origin for Socket.IO client (`io(origin, { path: '/ws/socket.io', ... })`).
+ * Do not include a path; the path is fixed in the client options.
+ *
+ * Resolution:
+ * 1. `PUBLIC_WS_URL` when set (e.g. LAN dev: `http://192.168.1.194:8080`)
+ * 2. Dev fallback: same host as the page, port `PUBLIC_WEBUI_BACKEND_PORT` or `8080` (OWUI backend, not Vite)
+ * 3. Production: `undefined` → same origin as the deployed app (FastAPI + static on one host)
+ */
+export function getSocketIoOrigin(): string | undefined {
+	if (!browser) return undefined;
+	const explicit = String(env.PUBLIC_WS_URL ?? '').trim();
+	if (explicit) {
+		return explicit.replace(/\/+$/, '');
+	}
+	if (dev) {
+		const portRaw = String(env.PUBLIC_WEBUI_BACKEND_PORT ?? '').trim();
+		const port = portRaw || '8080';
+		return `${window.location.protocol}//${window.location.hostname}:${port}`;
+	}
+	return undefined;
+}

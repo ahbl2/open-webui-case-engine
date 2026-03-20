@@ -245,6 +245,12 @@ describe('bindErrorMessage', () => {
 		expect(msg.length).toBeGreaterThan(0);
 	});
 
+	it('surfaces originalMessage when unknown and provided', () => {
+		const backendErr = 'Failed to bind thread to case (500)';
+		expect(bindErrorMessage('unknown', 'case', backendErr)).toBe(backendErr);
+		expect(bindErrorMessage('unknown', 'personal', backendErr)).toBe(backendErr);
+	});
+
 	it('uses case scope as default for scope_conflict when scope is absent', () => {
 		expect(bindErrorMessage('scope_conflict')).toBe(scopeConflictMessage('case'));
 	});

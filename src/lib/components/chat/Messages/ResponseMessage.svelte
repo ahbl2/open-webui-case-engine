@@ -62,6 +62,8 @@
 	import RegenerateMenu from './ResponseMessage/RegenerateMenu.svelte';
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
+	import CaseChatIntakeProposalCard from './CaseChatIntakeProposalCard.svelte';
+	import type { ProposalRecord } from '$lib/apis/caseEngine';
 
 	interface MessageType {
 		id: string;
@@ -88,6 +90,7 @@
 		error?: boolean | { content: string };
 		sources?: string[];
 		caseEngineCitations?: Array<{ type: 'entry' | 'file'; id: string }>;
+		caseEngineChatIntake?: { caseId: string; proposal: ProposalRecord };
 		code_executions?: {
 			uuid: string;
 			name: string;
@@ -852,6 +855,17 @@
 										{/each}
 									</div>
 								</div>
+							{/if}
+
+							{#if message.caseEngineChatIntake}
+								<CaseChatIntakeProposalCard
+									caseId={message.caseEngineChatIntake.caseId}
+									proposal={message.caseEngineChatIntake.proposal}
+									onProposalUpdated={(p) => {
+										history.messages[messageId].caseEngineChatIntake.proposal = p;
+										updateChat();
+									}}
+								/>
 							{/if}
 
 							{#if message.code_executions}

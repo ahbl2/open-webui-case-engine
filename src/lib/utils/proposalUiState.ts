@@ -201,7 +201,9 @@ export function payloadPreview(proposedPayload: string, proposalType: string): s
 			const parts: string[] = [];
 			if (payload.occurred_at) parts.push(String(payload.occurred_at));
 			if (payload.type) parts.push(String(payload.type));
-			if (payload.text_original) parts.push(String(payload.text_original));
+			const cleaned = payload.text_cleaned != null ? String(payload.text_cleaned).trim() : '';
+			if (cleaned) parts.push(cleaned);
+			else if (payload.text_original) parts.push(String(payload.text_original));
 			preview = parts.join(' — ');
 		} else {
 			preview = JSON.stringify(payload);

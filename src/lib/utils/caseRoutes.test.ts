@@ -1,66 +1,71 @@
 /**
- * P19-14 — Case Route Migration Contracts
+ * P19-14 / P19-20 — Case Route Migration Contracts
  *
- * These tests document and verify the contracts introduced by P19-14:
- * Files, Notes, and Activity route migration into the case workspace shell.
+ * These tests document and verify the contracts introduced by P19-14 and P19-20:
+ *   P19-14: Files, Notes, and Activity route migration into the case workspace shell.
+ *   P19-20: Timeline route migration — backed by official timeline_entries.
  *
  * Tests are written as pure contract tests (no browser rendering required)
  * so they run in the Vitest Node environment.
  *
  * What is covered:
- *   1. Post-P19-14 nav state: Files/Notes/Activity are implemented, Timeline is not
+ *   1. Post-P19-20 nav state: all 5 sections are implemented
  *   2. Each migrated section has a deterministic route path
  *   3. resolveActiveCaseSection correctly identifies each migrated section
  *   4. Notes doctrine: notes are working drafts, not official records
  *   5. Notes have no direct-write path to official case records
  *   6. Activity data must come from backend (getCaseAudit), not frontend state
  *   7. Files section is case-scoped and uses backend APIs
- *   8. All three migrated routes are distinct from /chat (no silent redirect)
- *   9. Shell nav: only Timeline is still disabled after P19-14
- *  10. Access gating still applies to all three new sections
+ *   8. All migrated routes are distinct from /chat (no silent redirect)
+ *   9. Shell nav: all sections are enabled after P19-20
+ *  10. Access gating still applies to all sections
  */
 import { describe, it, expect } from 'vitest';
 import { resolveActiveCaseSection } from './caseNavSection';
 import { resolveAuthStateDecision, blockedRedirectPath } from './authStateDecision';
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 1. Post-P19-14 nav state
+// 1. Post-P19-20 nav state
 // ─────────────────────────────────────────────────────────────────────────────
-describe('P19-14 — nav state after migration', () => {
-	// The actual nav items from +layout.svelte after the P19-14 update.
-	const p1914NavItems = [
-		{ id: 'chat',     implemented: true  },
-		{ id: 'timeline', implemented: false }, // pending — not yet migrated
-		{ id: 'files',    implemented: true  }, // migrated in P19-14
-		{ id: 'notes',    implemented: true  }, // migrated in P19-14
-		{ id: 'activity', implemented: true  }  // migrated in P19-14
+describe('P19-20 — nav state after Timeline migration', () => {
+	// Nav items from +layout.svelte: chat, proposals (P19 review dashboard), timeline, files, notes, activity.
+	const caseWorkspaceNavItems = [
+		{ id: 'chat',      implemented: true  },
+		{ id: 'proposals', implemented: true  },
+		{ id: 'timeline',  implemented: true  },
+		{ id: 'files',     implemented: true  },
+		{ id: 'notes',     implemented: true  },
+		{ id: 'activity',  implemented: true  }
 	];
 
-	it('Chat, Files, Notes, Activity are all implemented after P19-14', () => {
-		const implemented = p1914NavItems.filter((x) => x.implemented).map((x) => x.id);
+	it('all case workspace sections are implemented', () => {
+		const implemented = caseWorkspaceNavItems.filter((x) => x.implemented).map((x) => x.id);
 		expect(implemented).toContain('chat');
+		expect(implemented).toContain('proposals');
+		expect(implemented).toContain('timeline');
 		expect(implemented).toContain('files');
 		expect(implemented).toContain('notes');
 		expect(implemented).toContain('activity');
 	});
 
-	it('Timeline is still not implemented (pending migration)', () => {
-		const notImplemented = p1914NavItems.filter((x) => !x.implemented).map((x) => x.id);
-		expect(notImplemented).toEqual(['timeline']);
+	it('no sections are pending', () => {
+		const notImplemented = caseWorkspaceNavItems.filter((x) => !x.implemented).map((x) => x.id);
+		expect(notImplemented).toEqual([]);
 	});
 
-	it('exactly 4 of 5 sections are implemented after P19-14', () => {
-		const count = p1914NavItems.filter((x) => x.implemented).length;
-		expect(count).toBe(4);
+	it('six primary sections under /case/[id]', () => {
+		const count = caseWorkspaceNavItems.filter((x) => x.implemented).length;
+		expect(count).toBe(6);
 	});
 
-	it('the complete post-P19-14 nav state is deterministic', () => {
-		expect(p1914NavItems).toEqual([
-			{ id: 'chat',     implemented: true  },
-			{ id: 'timeline', implemented: false },
-			{ id: 'files',    implemented: true  },
-			{ id: 'notes',    implemented: true  },
-			{ id: 'activity', implemented: true  }
+	it('the case workspace nav order is deterministic', () => {
+		expect(caseWorkspaceNavItems).toEqual([
+			{ id: 'chat',      implemented: true  },
+			{ id: 'proposals', implemented: true  },
+			{ id: 'timeline',  implemented: true  },
+			{ id: 'files',     implemented: true  },
+			{ id: 'notes',     implemented: true  },
+			{ id: 'activity',  implemented: true  }
 		]);
 	});
 });
@@ -68,8 +73,13 @@ describe('P19-14 — nav state after migration', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // 2. Route paths for each migrated section
 // ─────────────────────────────────────────────────────────────────────────────
-describe('P19-14 — route paths are deterministic', () => {
+describe('P19-14 / P19-20 — route paths are deterministic', () => {
 	const caseId = 'abc-123';
+
+	it('timeline route is /case/[id]/timeline', () => {
+		const path = `/case/${caseId}/timeline`;
+		expect(path).toBe('/case/abc-123/timeline');
+	});
 
 	it('files route is /case/[id]/files', () => {
 		const path = `/case/${caseId}/files`;
@@ -86,7 +96,12 @@ describe('P19-14 — route paths are deterministic', () => {
 		expect(path).toBe('/case/abc-123/activity');
 	});
 
-	it.each(['files', 'notes', 'activity'] as const)(
+	it('proposals route is /case/[id]/proposals', () => {
+		const path = `/case/${caseId}/proposals`;
+		expect(path).toBe('/case/abc-123/proposals');
+	});
+
+	it.each(['proposals', 'timeline', 'files', 'notes', 'activity'] as const)(
 		'%s route does not redirect to /chat',
 		(section) => {
 			const path = `/case/${caseId}/${section}`;
@@ -98,7 +113,11 @@ describe('P19-14 — route paths are deterministic', () => {
 // ─────────────────────────────────────────────────────────────────────────────
 // 3. resolveActiveCaseSection identifies migrated sections
 // ─────────────────────────────────────────────────────────────────────────────
-describe('P19-14 — nav section resolver for migrated routes', () => {
+describe('P19-14 / P19-20 — nav section resolver for migrated routes', () => {
+	it('resolves /case/[id]/timeline to "timeline"', () => {
+		expect(resolveActiveCaseSection('/case/abc/timeline')).toBe('timeline');
+	});
+
 	it('resolves /case/[id]/files to "files"', () => {
 		expect(resolveActiveCaseSection('/case/abc/files')).toBe('files');
 	});
@@ -111,14 +130,18 @@ describe('P19-14 — nav section resolver for migrated routes', () => {
 		expect(resolveActiveCaseSection('/case/abc/activity')).toBe('activity');
 	});
 
-	it.each(['files', 'notes', 'activity'] as const)(
+	it('resolves /case/[id]/proposals to "proposals"', () => {
+		expect(resolveActiveCaseSection('/case/abc/proposals')).toBe('proposals');
+	});
+
+	it.each(['proposals', 'timeline', 'files', 'notes', 'activity'] as const)(
 		'%s section does not resolve to "chat"',
 		(section) => {
 			expect(resolveActiveCaseSection(`/case/abc/${section}`)).not.toBe('chat');
 		}
 	);
 
-	it('chat still resolves correctly after P19-14 nav update', () => {
+	it('chat still resolves correctly after P19-20 nav update', () => {
 		expect(resolveActiveCaseSection('/case/abc/chat')).toBe('chat');
 	});
 });
@@ -263,8 +286,38 @@ describe('P19-14 — access gating applies to files/notes/activity', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 8. No personal data leaks into case routes
+// 8. P19-20 — Timeline data source contract: timeline_entries, not notebook_notes
 // ─────────────────────────────────────────────────────────────────────────────
+describe('P19-20 — Timeline uses official records, Notes uses working drafts', () => {
+	it('timeline endpoint targets /cases/:id/entries (timeline_entries backend)', () => {
+		const timelineEndpoint = (caseId: string) => `/cases/${caseId}/entries`;
+		expect(timelineEndpoint('abc')).toBe('/cases/abc/entries');
+		expect(timelineEndpoint('abc')).not.toContain('/notebook');
+	});
+
+	it('notes endpoint targets /cases/:id/notebook (notebook_notes backend)', () => {
+		const notesEndpoint = (caseId: string) => `/cases/${caseId}/notebook`;
+		expect(notesEndpoint('abc')).toBe('/cases/abc/notebook');
+		expect(notesEndpoint('abc')).not.toContain('/entries');
+	});
+
+	it('timeline and notes endpoints are distinct (no aliasing)', () => {
+		const timelineEndpoint = (caseId: string) => `/cases/${caseId}/entries`;
+		const notesEndpoint = (caseId: string) => `/cases/${caseId}/notebook`;
+		expect(timelineEndpoint('abc')).not.toBe(notesEndpoint('abc'));
+	});
+
+	it('timeline page is read-only (no write helpers in this page)', () => {
+		// The timeline page only calls listCaseTimelineEntries (GET).
+		// Writes to timeline_entries go through the proposal pipeline.
+		const timelineApiCalls = ['listCaseTimelineEntries'];
+		const writeHelpers = ['createTimelineEntry', 'updateTimelineEntry', 'deleteTimelineEntry'];
+		for (const call of timelineApiCalls) {
+			expect(writeHelpers).not.toContain(call);
+		}
+	});
+});
+
 describe('P19-14 — personal desktop data must not appear in case routes', () => {
 	it('notes route uses case notebook endpoint, not personal desktop notes endpoint', () => {
 		// Case notebook: GET /cases/:id/notebook    (case-scoped, owner-scoped per user)

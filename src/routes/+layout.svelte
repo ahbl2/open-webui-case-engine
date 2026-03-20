@@ -1,5 +1,4 @@
 <script>
-	import { io } from 'socket.io-client';
 	import { spring } from 'svelte/motion';
 	import PyodideWorker from '$lib/workers/pyodide.worker?worker';
 	import { Toaster, toast } from 'svelte-sonner';
@@ -15,8 +14,6 @@
 		settings,
 		theme,
 		WEBUI_NAME,
-		WEBUI_VERSION,
-		WEBUI_DEPLOYMENT_ID,
 		mobile,
 		socket,
 		chatId,
@@ -50,12 +47,13 @@
 	import '../app.css';
 	import 'tippy.js/dist/tippy.css';
 
-	import { executeToolServer, getBackendConfig, getVersion } from '$lib/apis';
+	import { executeToolServer, getBackendConfig } from '$lib/apis';
 	import { getSessionUser, userSignOut } from '$lib/apis/auths';
 	import { getAllTags, getChatList } from '$lib/apis/chats';
 	import { chatCompletion } from '$lib/apis/openai';
 
-	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL, WEBUI_HOSTNAME } from '$lib/constants';
+	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL, WEBUI_HOSTNAME, getSocketIoOrigin } from '$lib/constants';
+	import { getSocket } from '$lib/socket';
 	import { bestMatchingLanguage, displayFileHandler } from '$lib/utils';
 	import { setTextScale } from '$lib/utils/text-scale';
 
@@ -114,40 +112,33 @@
 	/** Unified shell: detective + admin; hide OWUI AppSidebar for both. */
 	$: isUnifiedShell = isDetectiveWorkspace || ($page?.url?.pathname || '').startsWith('/admin');
 
+	/** Ensures a single Socket.IO client; see `$lib/socket` (no duplicate `io()`). */
+	let socketLayoutInitialized = false;
+
 	const setupSocket = async (enableWebsocket) => {
-		// Same-origin (falsy BASE_URL → undefined) so browser hits frontend origin; Vite proxies /ws to backend. LAN-safe, no localhost.
-		const _socket = io(`${WEBUI_BASE_URL}` || undefined, {
-			reconnection: true,
-			reconnectionDelay: 1000,
-			reconnectionDelayMax: 5000,
-			randomizationFactor: 0.5,
+		if (socketLayoutInitialized) {
+			await socket.set(getSocket());
+			return;
+		}
+		socketLayoutInitialized = true;
+
+		const ioUrl = getSocketIoOrigin();
+		// [WS-DIAG] Log once at init
+		console.log('[WS-DIAG] socket.io init:', {
+			url: ioUrl ?? 'undefined (same-origin)',
 			path: '/ws/socket.io',
-			transports: enableWebsocket ? ['websocket'] : ['polling', 'websocket'],
-			auth: { token: localStorage.token }
+			transports: ['websocket', 'polling']
 		});
+		const _socket = getSocket();
 		await socket.set(_socket);
 
 		_socket.on('connect_error', (err) => {
-			console.log('connect_error', err);
+			console.log('[WS-DIAG] connect_error:', err?.message ?? err, 'transport:', _socket.io?.engine?.transport?.name);
 		});
 
 		_socket.on('connect', async () => {
-			console.log('connected', _socket.id);
-			const res = await getVersion(localStorage.token);
-
-			const deploymentId = res?.deployment_id ?? null;
-			const version = res?.version ?? null;
-
-			if (version !== null || deploymentId !== null) {
-				if (
-					($WEBUI_VERSION !== null && version !== $WEBUI_VERSION) ||
-					($WEBUI_DEPLOYMENT_ID !== null && deploymentId !== $WEBUI_DEPLOYMENT_ID)
-				) {
-					await unregisterServiceWorkers();
-					location.href = location.href;
-					return;
-				}
-			}
+			console.log('[WS-DIAG] connected:', _socket.id, 'transport:', _socket.io?.engine?.transport?.name);
+			// Detective: upstream version-check-and-reload disabled — controlled deployment only.
 
 			// Send heartbeat every 30 seconds
 			heartbeatInterval = setInterval(() => {
@@ -156,16 +147,6 @@
 					_socket.emit('heartbeat', {});
 				}
 			}, 30000);
-
-			if (deploymentId !== null) {
-				WEBUI_DEPLOYMENT_ID.set(deploymentId);
-			}
-
-			if (version !== null) {
-				WEBUI_VERSION.set(version);
-			}
-
-			console.log('version', version);
 
 			if (localStorage.getItem('token')) {
 				// Emit user-join event with auth token
@@ -176,15 +157,15 @@
 		});
 
 		_socket.on('reconnect_attempt', (attempt) => {
-			console.log('reconnect_attempt', attempt);
+			console.log('[WS-DIAG] reconnect_attempt:', attempt);
 		});
 
 		_socket.on('reconnect_failed', () => {
-			console.log('reconnect_failed');
+			console.log('[WS-DIAG] reconnect_failed');
 		});
 
 		_socket.on('disconnect', (reason, details) => {
-			console.log(`Socket ${_socket.id} disconnected due to ${reason}`);
+			console.log('[WS-DIAG] disconnect:', { reason, details, transport: _socket.io?.engine?.transport?.name });
 
 			if (heartbeatInterval) {
 				clearInterval(heartbeatInterval);

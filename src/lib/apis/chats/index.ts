@@ -1,8 +1,19 @@
 import { WEBUI_API_BASE_URL } from '$lib/constants';
 import { getTimeRange } from '$lib/utils';
 
-export const createNewChat = async (token: string, chat: object, folderId: string | null) => {
+export const createNewChat = async (
+	token: string,
+	chat: object,
+	folderId: string | null,
+	options?: { id?: string }
+) => {
 	let error = null;
+
+	const body: Record<string, unknown> = {
+		chat: chat,
+		folder_id: folderId ?? null
+	};
+	if (options?.id) body.id = options.id;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/chats/new`, {
 		method: 'POST',
@@ -11,10 +22,7 @@ export const createNewChat = async (token: string, chat: object, folderId: strin
 			'Content-Type': 'application/json',
 			authorization: `Bearer ${token}`
 		},
-		body: JSON.stringify({
-			chat: chat,
-			folder_id: folderId ?? null
-		})
+		body: JSON.stringify(body)
 	})
 		.then(async (res) => {
 			if (!res.ok) throw await res.json();
@@ -31,6 +39,28 @@ export const createNewChat = async (token: string, chat: object, folderId: strin
 	}
 
 	return res;
+};
+
+/**
+ * Ensure an OWUI chat exists for the given thread id (get-or-create).
+ * Used before navigating to /c/[id] for personal/case threads.
+ */
+export const ensureChatForThread = async (
+	token: string,
+	threadId: string
+): Promise<{ id: string } | null> => {
+	try {
+		const chat = await createNewChat(
+			token,
+			{ title: 'New Chat', history: { messages: {}, currentId: null } },
+			null,
+			{ id: threadId }
+		);
+		if (!chat?.id) return null;
+		return { id: chat.id };
+	} catch {
+		return null;
+	}
 };
 
 export const unarchiveAllChats = async (token: string) => {

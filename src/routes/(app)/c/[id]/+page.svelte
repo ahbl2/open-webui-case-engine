@@ -16,7 +16,14 @@
 	 * return to the thread management hub.
 	 */
 	import { page } from '$app/stores';
-	import { activeThreadScope } from '$lib/stores';
+	import {
+		activeThreadScope,
+		scope,
+		activeCaseId,
+		activeCaseNumber,
+		caseContext,
+		aiCaseContext
+	} from '$lib/stores';
 
 	import Chat from '$lib/components/chat/Chat.svelte';
 
@@ -26,8 +33,24 @@
 	// If there is a mismatch (stale store or direct navigation), show nothing.
 	$: boundScope =
 		$activeThreadScope?.threadId === chatId ? $activeThreadScope : null;
+
+	// Keep persisted case-chat routing aligned with the known thread binding for this /c/[id] route.
+	$: if (boundScope?.scope === 'personal') {
+		scope.set('ALL');
+		activeCaseId.set(null);
+		activeCaseNumber.set(null);
+		caseContext.set(null);
+		aiCaseContext.set(null);
+	} else if (boundScope?.scope === 'case' && boundScope.caseId) {
+		scope.set('THIS_CASE');
+		activeCaseId.set(boundScope.caseId);
+		if (boundScope.caseMeta?.case_number) {
+			activeCaseNumber.set(boundScope.caseMeta.case_number);
+		}
+	}
 </script>
 
+<div class="flex flex-col flex-1 min-h-0 h-full w-full">
 {#if boundScope}
 	<!-- Scope indicator bar — visible above the OWUI chat area -->
 	<div
@@ -71,4 +94,7 @@
 	</div>
 {/if}
 
-<Chat chatIdProp={chatId} />
+<div class="flex-1 min-h-0 flex flex-col overflow-hidden">
+	<Chat chatIdProp={chatId} />
+</div>
+</div>

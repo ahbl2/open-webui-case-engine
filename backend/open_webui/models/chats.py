@@ -126,6 +126,7 @@ class ChatFileModel(BaseModel):
 class ChatForm(BaseModel):
     chat: dict
     folder_id: Optional[str] = None
+    id: Optional[str] = None  # If provided (valid UUID), get-or-create chat with this id
 
 
 class ChatImportForm(ChatForm):
@@ -290,11 +291,27 @@ class ChatTable:
 
         return changed
 
+    def _is_valid_uuid4(self, s: str) -> bool:
+        try:
+            uuid.UUID(s, version=4)
+            return True
+        except (ValueError, TypeError):
+            return False
+
     def insert_new_chat(
         self, user_id: str, form_data: ChatForm, db: Optional[Session] = None
     ) -> Optional[ChatModel]:
         with get_db_context(db) as db:
-            id = str(uuid.uuid4())
+            requested_id = (
+                form_data.id.strip() if form_data.id and isinstance(form_data.id, str) else None
+            )
+            if requested_id and self._is_valid_uuid4(requested_id):
+                existing = self.get_chat_by_id_and_user_id(requested_id, user_id, db=db)
+                if existing:
+                    return existing
+                id = requested_id
+            else:
+                id = str(uuid.uuid4())
             chat = ChatModel(
                 **{
                     "id": id,

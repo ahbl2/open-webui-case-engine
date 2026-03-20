@@ -1496,9 +1496,18 @@ async def inspect_websocket(request: Request, call_next):
     ):
         upgrade = (request.headers.get("Upgrade") or "").lower()
         connection = (request.headers.get("Connection") or "").lower().split(",")
+        # [WS-DIAG] Log websocket upgrade attempt
+        logger.info(
+            "[WS-DIAG] websocket upgrade: path=%s transport=%s upgrade=%s connection=%s",
+            request.url.path,
+            request.query_params.get("transport"),
+            upgrade,
+            connection,
+        )
         # Check that there's the correct headers for an upgrade, else reject the connection
         # This is to work around this upstream issue: https://github.com/miguelgrinberg/python-engineio/issues/367
         if upgrade != "websocket" or "upgrade" not in connection:
+            logger.warning("[WS-DIAG] websocket upgrade REJECTED: missing Upgrade/Connection headers")
             return JSONResponse(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 content={"detail": "Invalid WebSocket upgrade request"},
@@ -2090,37 +2099,42 @@ async def list_tasks_by_chat_id_endpoint(
 
 @app.get("/api/config")
 async def get_app_config(request: Request):
+    import traceback
+
+    log.info("[DEBUG /api/config] request started")
     user = None
     token = None
 
-    auth_header = request.headers.get("Authorization")
-    if auth_header:
-        cred = get_http_authorization_cred(auth_header)
-        if cred:
-            token = cred.credentials
+    try:
+        auth_header = request.headers.get("Authorization")
+        if auth_header:
+            cred = get_http_authorization_cred(auth_header)
+            if cred:
+                token = cred.credentials
 
-    if not token and "token" in request.cookies:
-        token = request.cookies.get("token")
+        if not token and "token" in request.cookies:
+            token = request.cookies.get("token")
 
-    if token:
-        try:
-            data = decode_token(token)
-        except Exception as e:
-            log.debug(e)
-            raise HTTPException(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                detail="Invalid token",
-            )
-        if data is not None and "id" in data:
-            user = Users.get_user_by_id(data["id"])
+        if token:
+            try:
+                data = decode_token(token)
+            except Exception as e:
+                log.debug(e)
+                raise HTTPException(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    detail="Invalid token",
+                )
+            if data is not None and "id" in data:
+                user = Users.get_user_by_id(data["id"])
 
-    user_count = Users.get_num_users()
-    onboarding = False
+        user_count = Users.get_num_users()
+        log.info("[DEBUG /api/config] user_count=%s, user=%s", user_count, user)
+        onboarding = False
 
-    if user is None:
-        onboarding = user_count == 0
+        if user is None:
+            onboarding = user_count == 0
 
-    return {
+        result = {
         **({"onboarding": True} if onboarding else {}),
         "status": True,
         "name": app.state.WEBUI_NAME,
@@ -2260,6 +2274,12 @@ async def get_app_config(request: Request):
             }
         ),
     }
+        log.info("[DEBUG /api/config] success, returning config")
+        return result
+    except Exception as e:
+        log.error("[DEBUG /api/config] FAILED: %s", e)
+        log.error(traceback.format_exc())
+        raise
 
 
 class UrlForm(BaseModel):

@@ -31,7 +31,8 @@
 		activeCaseMeta,
 		activeThreadScope,
 		threadScopeError,
-		user
+		user,
+		scope
 	} from '$lib/stores';
 	import {
 		listCaseThreadAssociations,
@@ -41,6 +42,7 @@
 		createProposal,
 		type ProposalType
 	} from '$lib/apis/caseEngine';
+	import { ensureChatForThread } from '$lib/apis/chats';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
 
 	// Legacy case tool components — preserved for P19-14 migration.
@@ -151,6 +153,12 @@
 		try {
 			await upsertCaseThreadAssociation(caseId, threadId, token, { getFreshToken });
 
+			// Ensure OWUI has a chat for this thread_id (get-or-create) before render.
+			const owuiToken = typeof window !== 'undefined' ? localStorage?.token : null;
+			if (owuiToken) {
+				await ensureChatForThread(owuiToken, threadId);
+			}
+
 			// Binding confirmed by backend — safe to render chat.
 			activeThreadScope.set({
 				threadId,
@@ -164,13 +172,16 @@
 						}
 					: undefined
 			});
+			// Case workspace chat must use Case Engine ask path in Chat.svelte (THIS_CASE + activeCaseId).
+			scope.set('THIS_CASE');
 			activeChat = threadId;
 
 			// Refresh thread list to include any newly created association.
 			await loadThreads(caseId);
 		} catch (err) {
 			const kind = classifyBindError(err);
-			const message = bindErrorMessage(kind, 'case');
+			const originalMsg = err instanceof Error ? err.message : typeof err === 'string' ? err : null;
+			const message = bindErrorMessage(kind, 'case', originalMsg);
 			threadScopeError.set({ kind, message, threadId });
 			activeChat = null;
 		} finally {

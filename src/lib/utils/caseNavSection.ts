@@ -6,10 +6,10 @@
  * can be used by both the shell layout and any future section-aware components.
  */
 
-export type CaseNavSection = 'chat' | 'timeline' | 'files' | 'notes' | 'activity';
+export type CaseNavSection = 'chat' | 'proposals' | 'timeline' | 'files' | 'notes' | 'activity';
 
 /** All recognised section IDs in precedence order (most-specific first). */
-const CASE_SECTIONS: CaseNavSection[] = ['timeline', 'files', 'notes', 'activity', 'chat'];
+const CASE_SECTIONS: CaseNavSection[] = ['timeline', 'files', 'notes', 'activity', 'proposals', 'chat'];
 
 /**
  * Returns the active CaseNavSection for the given pathname.

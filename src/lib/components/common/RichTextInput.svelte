@@ -126,7 +126,7 @@
 	import FloatingMenu from '@tiptap/extension-floating-menu';
 
 	import { TableKit } from '@tiptap/extension-table';
-	import { ListKit } from '@tiptap/extension-list';
+	import { TaskList, TaskItem } from '@tiptap/extension-list';
 	import { Placeholder, CharacterCount } from '@tiptap/extensions';
 
 	import Image from './RichTextInput/Image/index.js';
@@ -692,6 +692,8 @@
 			extensions: [
 				StarterKit.configure({
 					link: link,
+					// CodeBlockLowlight registers `codeBlock`; disable StarterKit's default.
+					codeBlock: false,
 					// When rich text is off, disable Strike from StarterKit so we can
 					// re-add it below without its Mod-Shift-s shortcut (which conflicts
 					// with the Toggle Sidebar shortcut). When rich text is on, the user
@@ -711,11 +713,9 @@
 							TableKit.configure({
 								table: { resizable: true }
 							}),
-							ListKit.configure({
-								taskItem: {
-									nested: true
-								}
-							})
+							// Task lists only — bullet/ordered/listItem/listKeymap come from StarterKit
+							TaskList,
+							TaskItem.configure({ nested: true })
 						]
 					: []),
 				...(suggestions

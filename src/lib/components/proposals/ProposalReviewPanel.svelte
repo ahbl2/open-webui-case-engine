@@ -14,11 +14,13 @@
 	 *   - Self-review and capability errors are distinct from generic 403s.
 	 */
 	import { onMount } from 'svelte';
+	import { afterNavigate } from '$app/navigation';
 	import {
 		listProposals,
 		approveProposal,
 		rejectProposal,
 		commitProposal,
+		reviseChatIntakeProposal,
 		type ProposalRecord,
 		type ProposalStatus
 	} from '$lib/apis/caseEngine';
@@ -41,6 +43,15 @@
 
 	export let caseId: string;
 	export let token: string;
+	/** `page` = full-height dashboard; `compact` = e.g. Case Tools sidebar. */
+	export let layout: 'compact' | 'page' = 'compact';
+	/** When true, refetch when returning from another case route (e.g. chat → proposals). */
+	export let refreshOnNav = false;
+
+	let typeFilter: 'all' | 'timeline' | 'note' = 'all';
+
+	let chatIntakeRevisingId = '';
+	let chatIntakeReviseFeedback = '';
 
 	// ── Data state ─────────────────────────────────────────────────────────────
 
@@ -84,7 +95,11 @@
 
 	// ── Computed ───────────────────────────────────────────────────────────────
 
-	$: grouped = groupByStatus(proposals);
+	$: proposalsFiltered =
+		typeFilter === 'all'
+			? proposals
+			: proposals.filter((p) => p.proposal_type === typeFilter);
+	$: grouped = groupByStatus(proposalsFiltered);
 	$: pendingCount = grouped.pending.length;
 	$: approvedCount = grouped.approved.length;
 	$: rejectedCount = grouped.rejected.length;
@@ -291,6 +306,44 @@
 		}
 	}
 
+	function isChatIntakePayload(payload: Record<string, unknown>): boolean {
+		return payload._ce_chat_intake === true;
+	}
+
+	function startChatIntakeRevise(id: string): void {
+		chatIntakeRevisingId = id;
+		chatIntakeReviseFeedback = '';
+		clearProposalError(id);
+		const next = new Set(expanded);
+		next.add(id);
+		expanded = next;
+	}
+
+	function cancelChatIntakeRevise(): void {
+		chatIntakeRevisingId = '';
+		chatIntakeReviseFeedback = '';
+	}
+
+	async function handleChatIntakeRevise(id: string): Promise<void> {
+		if (!chatIntakeReviseFeedback.trim()) return;
+		clearProposalError(id);
+		setInProgress(id, true);
+		try {
+			const updated = await reviseChatIntakeProposal(
+				caseId,
+				id,
+				token,
+				chatIntakeReviseFeedback.trim()
+			);
+			proposals = proposals.map((p) => (p.id === id ? updated : p));
+			cancelChatIntakeRevise();
+		} catch (err) {
+			setProposalError(id, classifyApiError(err));
+		} finally {
+			setInProgress(id, false);
+		}
+	}
+
 	async function handleBulkCommit(): Promise<void> {
 		bulkError = '';
 		bulkProcessing = true;
@@ -347,24 +400,57 @@
 	onMount(() => {
 		loadProposals();
 	});
+
+	afterNavigate(({ from }) => {
+		if (!refreshOnNav || !from) return;
+		if (!token || !caseId) return;
+		void loadProposals();
+	});
 </script>
 
-<div class="flex flex-col text-xs" data-testid="proposal-review-panel">
+<div
+	class="flex flex-col text-xs {layout === 'page' ? 'h-full min-h-0 overflow-hidden' : ''}"
+	data-testid="proposal-review-panel"
+	data-layout={layout}
+>
 
 	<!-- ── HEADER ──────────────────────────────────────────────────────────── -->
-	<div class="flex items-center justify-between px-3 pt-3 pb-2 shrink-0">
-		<span class="font-semibold text-gray-700 dark:text-gray-300 text-xs uppercase tracking-wide">
-			Proposals
-		</span>
+	<div class="flex items-center justify-between px-3 pt-3 pb-2 shrink-0 gap-2">
+		{#if layout === 'compact'}
+			<span class="font-semibold text-gray-700 dark:text-gray-300 text-xs uppercase tracking-wide">
+				Proposals
+			</span>
+		{:else}
+			<span class="text-[11px] text-gray-500 dark:text-gray-400">Review queue</span>
+		{/if}
 		<button
 			type="button"
-			class="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
+			class="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50 shrink-0"
 			on:click={loadProposals}
 			disabled={loading}
 			data-testid="proposals-refresh-btn"
 		>
 			{loading ? 'Loading…' : '↻ Refresh'}
 		</button>
+	</div>
+
+	<!-- ── TYPE FILTER ─────────────────────────────────────────────────────── -->
+	<div
+		class="flex items-center gap-2 px-3 py-1.5 shrink-0 border-b border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-900/50"
+	>
+		<label for="proposal-type-filter-{caseId}" class="text-[10px] text-gray-500 dark:text-gray-400 shrink-0"
+			>Type</label
+		>
+		<select
+			id="proposal-type-filter-{caseId}"
+			bind:value={typeFilter}
+			class="text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 py-0.5 px-1.5 max-w-[11rem]"
+			data-testid="proposal-type-filter"
+		>
+			<option value="all">All types</option>
+			<option value="timeline">Timeline</option>
+			<option value="note">Note</option>
+		</select>
 	</div>
 
 	<!-- ── STATUS TAB BAR ──────────────────────────────────────────────────── -->
@@ -517,11 +603,17 @@
 
 	<!-- ── LOAD ERROR ───────────────────────────────────────────────────────── -->
 	{#if loadError}
-		<div class="px-3 py-2 text-red-600 dark:text-red-400 text-[11px]" data-testid="load-error">
+		<div class="px-3 py-2 text-red-600 dark:text-red-400 text-[11px] shrink-0" data-testid="load-error">
 			{loadError}
 		</div>
 	{/if}
 
+	<div
+		class="{layout === 'page'
+			? 'flex-1 min-h-0 overflow-y-auto flex flex-col'
+			: 'flex flex-col'}"
+		data-testid="proposal-panel-scroll"
+	>
 	<!-- ── EMPTY / LOADING ─────────────────────────────────────────────────── -->
 	{#if loading && proposals.length === 0}
 		<div class="px-3 py-4 text-gray-400 dark:text-gray-500 italic text-[11px]">
@@ -530,7 +622,8 @@
 	{:else if !loading && activeProposals.length === 0}
 		<div class="px-3 py-4 text-gray-400 dark:text-gray-500 italic text-[11px]" data-testid="empty-state">
 			{#if activeTab === 'pending'}
-				No pending proposals. Use "+ Propose to Case" while a thread is active.
+				No pending proposals. Create drafts from <strong>Chat</strong> (intake phrases) or use case
+				thread tools. Committed items move to Timeline (official).
 			{:else if activeTab === 'approved'}
 				No approved proposals awaiting commit.
 			{:else if activeTab === 'rejected'}
@@ -620,6 +713,15 @@
 									{proposal.source_scope === 'personal' ? 'Personal Thread' : 'Case Thread'}
 								</span>
 
+								{#if isChatIntakePayload(payload)}
+									<span
+										class="px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0
+										       bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200"
+									>
+										Chat intake
+									</span>
+								{/if}
+
 								<!-- Date -->
 								<span class="ml-auto text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
 									{formatDate(proposal.created_at)}
@@ -695,6 +797,24 @@
 									</button>
 								{/if}
 
+								<!-- Chat intake AI revision — pending only -->
+								{#if canApprove(proposal.status) && isChatIntakePayload(payload)}
+									<button
+										type="button"
+										class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 hover:bg-amber-200
+										       text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 transition
+										       disabled:opacity-50"
+										on:click={() =>
+											chatIntakeRevisingId === proposal.id
+												? cancelChatIntakeRevise()
+												: startChatIntakeRevise(proposal.id)}
+										disabled={isInProgress}
+										data-testid="chat-intake-revise-toggle"
+									>
+										{chatIntakeRevisingId === proposal.id ? 'Cancel revise' : 'AI revise'}
+									</button>
+								{/if}
+
 								<!-- Reject — only for pending -->
 								{#if canReject(proposal.status)}
 									{#if isRejectingThis}
@@ -767,6 +887,31 @@
 								Full Payload
 							</p>
 
+							{#if chatIntakeRevisingId === proposal.id && canApprove(proposal.status)}
+								<div
+									class="mb-3 rounded border border-amber-300 dark:border-amber-700 bg-amber-50/50 dark:bg-amber-950/30 px-2 py-2 space-y-1.5"
+								>
+									<label class="text-[10px] font-medium text-amber-900 dark:text-amber-200 block" for="cir-{proposal.id}"
+										>Revision instructions</label
+									>
+									<textarea
+										id="cir-{proposal.id}"
+										bind:value={chatIntakeReviseFeedback}
+										rows="3"
+										class="w-full text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 p-1.5"
+										placeholder="e.g. Use Preston Hwy; keep full subject name…"
+									/>
+									<button
+										type="button"
+										class="px-2 py-1 rounded text-[10px] font-medium bg-amber-600 hover:bg-amber-700 text-white disabled:opacity-50"
+										disabled={!chatIntakeReviseFeedback.trim() || isInProgress}
+										on:click={() => handleChatIntakeRevise(proposal.id)}
+									>
+										{isInProgress ? '…' : 'Apply revision'}
+									</button>
+								</div>
+							{/if}
+
 							{#if proposal.proposal_type === 'note'}
 								<!-- Note payload -->
 								<div class="space-y-1">
@@ -780,9 +925,19 @@
 											</span>
 										</div>
 									{/if}
+									{#if payload.text_original != null && String(payload.text_original).trim() !== ''}
+										<div class="flex gap-2 items-start">
+											<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-20 shrink-0">
+												Original
+											</span>
+											<span class="text-[11px] text-gray-700 dark:text-gray-300 flex-1 whitespace-pre-wrap break-words font-mono leading-relaxed">
+												{String(payload.text_original)}
+											</span>
+										</div>
+									{/if}
 									<div class="flex gap-2 items-start">
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-20 shrink-0">
-											Content
+											{payload.text_original ? 'Cleaned' : 'Content'}
 										</span>
 										<span class="text-[11px] text-gray-700 dark:text-gray-300 flex-1 whitespace-pre-wrap break-words font-mono leading-relaxed">
 											{payload.content ?? '(empty)'}
@@ -811,12 +966,32 @@
 									</div>
 									<div class="flex gap-2 items-start">
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
-											Text
+											Original
 										</span>
 										<span class="text-[11px] text-gray-700 dark:text-gray-300 flex-1 whitespace-pre-wrap break-words font-mono leading-relaxed">
 											{payload.text_original ?? '—'}
 										</span>
 									</div>
+									{#if payload.text_cleaned != null && String(payload.text_cleaned).trim() !== ''}
+										<div class="flex gap-2 items-start">
+											<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
+												Cleaned
+											</span>
+											<span class="text-[11px] text-gray-700 dark:text-gray-300 flex-1 whitespace-pre-wrap break-words font-mono leading-relaxed">
+												{String(payload.text_cleaned)}
+											</span>
+										</div>
+									{/if}
+									{#if Array.isArray(payload.tags) && payload.tags.length > 0}
+										<div class="flex gap-2">
+											<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
+												Tags
+											</span>
+											<span class="text-[11px] text-gray-700 dark:text-gray-300">
+												{payload.tags.join(', ')}
+											</span>
+										</div>
+									{/if}
 									{#if payload.location_text}
 										<div class="flex gap-2">
 											<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
@@ -864,4 +1039,5 @@
 			{/each}
 		</div>
 	{/if}
+	</div>
 </div>

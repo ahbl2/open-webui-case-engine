@@ -51,7 +51,17 @@
 		caseEngineToken,
 		aiCaseContext
 	} from '$lib/stores';
-	import { askCase } from '$lib/apis/caseEngine';
+	import {
+		askCase,
+		askCrossCase,
+		draftChatIntakeProposal,
+		type CrossCaseCitation
+	} from '$lib/apis/caseEngine';
+	import { detectCaseChatIntakeIntent } from '$lib/utils/chatIntakeIntent';
+	import {
+		getCreateNewChatIdOption,
+		shouldRewriteBrowserUrlToStandaloneChatPath
+	} from '$lib/utils/chatThreadCreateOptions';
 
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
@@ -183,79 +193,84 @@
 
 	const navigateHandler = async () => {
 		loading = true;
+		try {
+			// Save current queue to sessionStorage before navigating away
+			if (messageQueue.length > 0 && $chatId) {
+				sessionStorage.setItem(`chat-queue-${$chatId}`, JSON.stringify(messageQueue));
+			}
 
-		// Save current queue to sessionStorage before navigating away
-		if (messageQueue.length > 0 && $chatId) {
-			sessionStorage.setItem(`chat-queue-${$chatId}`, JSON.stringify(messageQueue));
-		}
+			prompt = '';
+			messageInput?.setText('');
 
-		prompt = '';
-		messageInput?.setText('');
+			files = [];
+			messageQueue = [];
+			selectedToolIds = [];
+			selectedFilterIds = [];
+			webSearchEnabled = false;
+			imageGenerationEnabled = false;
 
-		files = [];
-		messageQueue = [];
-		selectedToolIds = [];
-		selectedFilterIds = [];
-		webSearchEnabled = false;
-		imageGenerationEnabled = false;
+			const storageChatInput = sessionStorage.getItem(
+				`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`
+			);
 
-		const storageChatInput = sessionStorage.getItem(
-			`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`
-		);
+			const loaded = chatIdProp ? await loadChat().catch(() => null) : false;
+			if (chatIdProp && loaded) {
+				await tick();
+				loading = false;
+				window.setTimeout(() => scrollToBottom(), 0);
 
-		if (chatIdProp && (await loadChat())) {
-			await tick();
-			loading = false;
-			window.setTimeout(() => scrollToBottom(), 0);
+				await tick();
 
-			await tick();
+				// Restore queue from sessionStorage
+				const storedQueueData = sessionStorage.getItem(`chat-queue-${chatIdProp}`);
+				if (storedQueueData) {
+					try {
+						const restoredQueue = JSON.parse(storedQueueData);
 
-			// Restore queue from sessionStorage
-			const storedQueueData = sessionStorage.getItem(`chat-queue-${chatIdProp}`);
-			if (storedQueueData) {
-				try {
-					const restoredQueue = JSON.parse(storedQueueData);
-
-					if (restoredQueue.length > 0) {
-						sessionStorage.removeItem(`chat-queue-${chatIdProp}`);
-						// Check if there are pending tasks (still generating)
-						const hasPendingTask = taskIds !== null && taskIds.length > 0;
-						if (!hasPendingTask) {
-							// No pending tasks - process the queue
-							files = restoredQueue.flatMap((m) => m.files);
-							await tick();
-							const combinedPrompt = restoredQueue.map((m) => m.prompt).join('\n\n');
-							await submitPrompt(combinedPrompt);
-						} else {
-							// Has pending tasks - show as queued (chatCompletedHandler will process)
-							messageQueue = restoredQueue;
+						if (restoredQueue.length > 0) {
+							sessionStorage.removeItem(`chat-queue-${chatIdProp}`);
+							// Check if there are pending tasks (still generating)
+							const hasPendingTask = taskIds !== null && taskIds.length > 0;
+							if (!hasPendingTask) {
+								// No pending tasks - process the queue
+								files = restoredQueue.flatMap((m) => m.files);
+								await tick();
+								const combinedPrompt = restoredQueue.map((m) => m.prompt).join('\n\n');
+								await submitPrompt(combinedPrompt);
+							} else {
+								// Has pending tasks - show as queued (chatCompletedHandler will process)
+								messageQueue = restoredQueue;
+							}
 						}
-					}
-				} catch (e) {}
-			}
+					} catch (e) {}
+				}
 
-			if (storageChatInput) {
-				try {
-					const input = JSON.parse(storageChatInput);
+				if (storageChatInput) {
+					try {
+						const input = JSON.parse(storageChatInput);
 
-					if (!$temporaryChatEnabled) {
-						messageInput?.setText(input.prompt);
-						files = input.files;
-						selectedToolIds = input.selectedToolIds;
-						selectedFilterIds = input.selectedFilterIds;
-						webSearchEnabled = input.webSearchEnabled;
-						imageGenerationEnabled = input.imageGenerationEnabled;
-						codeInterpreterEnabled = input.codeInterpreterEnabled;
-					}
-				} catch (e) {}
+						if (!$temporaryChatEnabled) {
+							messageInput?.setText(input.prompt);
+							files = input.files;
+							selectedToolIds = input.selectedToolIds;
+							selectedFilterIds = input.selectedFilterIds;
+							webSearchEnabled = input.webSearchEnabled;
+							imageGenerationEnabled = input.imageGenerationEnabled;
+							codeInterpreterEnabled = input.codeInterpreterEnabled;
+						}
+					} catch (e) {}
+				} else {
+					await setDefaults();
+				}
+
+				const chatInput = document.getElementById('chat-input');
+				chatInput?.focus();
 			} else {
-				await setDefaults();
+				loading = false;
+				await goto('/');
 			}
-
-			const chatInput = document.getElementById('chat-input');
-			chatInput?.focus();
-		} else {
-			await goto('/');
+		} finally {
+			loading = false;
 		}
 	};
 
@@ -1806,6 +1821,47 @@
 			await tick();
 			await saveChatHandler(_chatId, history);
 			try {
+				const intakeIntent = detectCaseChatIntakeIntent(userPrompt);
+				if (intakeIntent) {
+					const proposal = await draftChatIntakeProposal($activeCaseId, $caseEngineToken, {
+						raw_message: userPrompt,
+						source_thread_id: _chatId,
+						source_message_id: userMessageId,
+						intake_kind: intakeIntent.kind
+					});
+					const intro =
+						intakeIntent.kind === 'note'
+							? 'Draft notebook note from your message — review and approve when ready.'
+							: 'Draft timeline entry from your message — review and approve when ready.';
+					const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+					const model = $models.find((m) => m.id === modelId);
+					let responseMessageId = uuidv4();
+					const responseMessage = {
+						parentId: userMessageId,
+						id: responseMessageId,
+						childrenIds: [],
+						role: 'assistant',
+						content: intro,
+						model: modelId,
+						modelName: model?.name ?? 'Case Engine',
+						modelIdx: 0,
+						timestamp: Math.floor(Date.now() / 1000),
+						done: true,
+						caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>,
+						caseEngineChatIntake: {
+							caseId: $activeCaseId,
+							proposal
+						}
+					};
+					history.messages[responseMessageId] = responseMessage;
+					history.currentId = responseMessageId;
+					history.messages[userMessageId].childrenIds.push(responseMessageId);
+					await saveChatHandler(_chatId, history);
+					currentChatPage.set(1);
+					chats.set(await getChatList(localStorage.token, $currentChatPage));
+					return;
+				}
+
 				const { answer, citations } = await askCase(
 					$activeCaseId,
 					userPrompt,
@@ -1827,6 +1883,88 @@
 					timestamp: Math.floor(Date.now() / 1000),
 					done: true,
 					caseEngineCitations: citations ?? []
+				};
+				history.messages[responseMessageId] = responseMessage;
+				history.currentId = responseMessageId;
+				history.messages[userMessageId].childrenIds.push(responseMessageId);
+				await saveChatHandler(_chatId, history);
+				currentChatPage.set(1);
+				chats.set(await getChatList(localStorage.token, $currentChatPage));
+			} catch (e) {
+				toast.error(e?.message ?? $i18n.t('Case Engine request failed'));
+			}
+			return;
+		}
+
+		// P19 desktop / standalone `/c/:id` chat: authorized cross-case retrieval (not generic OWUI completion).
+		// Case workspace uses `/case/:id/chat` + THIS_CASE above; this branch must not run there.
+		const pathname = $page.url?.pathname ?? '';
+		const isStandaloneOwuiChatPath = /^\/c\/[^/]+$/.test(pathname);
+		const workspaceUnitScope =
+			$scope === 'CID' ? 'CID' : $scope === 'SIU' ? 'SIU' : 'ALL';
+		if (
+			isStandaloneOwuiChatPath &&
+			$scope !== 'THIS_CASE' &&
+			$caseEngineToken &&
+			userPrompt.trim().length >= 3
+		) {
+			messageInput?.setText('');
+			prompt = '';
+			const _files = structuredClone(files);
+			files = [];
+			const messages = createMessagesList(history, history.currentId);
+			let userMessageId = uuidv4();
+			let userMessage = {
+				id: userMessageId,
+				parentId: messages.length !== 0 ? messages.at(-1).id : null,
+				childrenIds: [],
+				role: 'user',
+				content: userPrompt,
+				files: _files.length > 0 ? _files : undefined,
+				timestamp: Math.floor(Date.now() / 1000),
+				models: selectedModels
+			};
+			history.messages[userMessageId] = userMessage;
+			history.currentId = userMessageId;
+			if (messages.length !== 0) {
+				history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+			}
+			document.getElementById('chat-input')?.focus();
+			saveSessionSelectedModels();
+			let _chatId = JSON.parse(JSON.stringify($chatId));
+			if (userMessage.parentId === null) {
+				_chatId = await initChatHandler(history);
+			}
+			await tick();
+			await saveChatHandler(_chatId, history);
+			try {
+				const res = await askCrossCase(userPrompt, $caseEngineToken, {
+					topK: 8,
+					unitScope: workspaceUnitScope
+				});
+				const citations =
+					res.used_citations?.map((c: CrossCaseCitation) => ({
+						type: (c.source_type === 'timeline_entry' ? 'entry' : 'file') as 'entry' | 'file',
+						id:
+							c.case_number && c.case_number.length > 0
+								? `${c.case_number} · ${c.id}`
+								: c.id
+					})) ?? [];
+				const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+				const model = $models.find((m) => m.id === modelId);
+				let responseMessageId = uuidv4();
+				let responseMessage = {
+					parentId: userMessageId,
+					id: responseMessageId,
+					childrenIds: [],
+					role: 'assistant',
+					content: res.answer,
+					model: modelId,
+					modelName: model?.name ?? 'Case Engine',
+					modelIdx: 0,
+					timestamp: Math.floor(Date.now() / 1000),
+					done: true,
+					caseEngineCitations: citations
 				};
 				history.messages[responseMessageId] = responseMessage;
 				history.currentId = responseMessageId;
@@ -2607,6 +2745,11 @@
 
 	const initChatHandler = async (history) => {
 		let _chatId = $chatId;
+		const createIdOption = getCreateNewChatIdOption({
+			chatIdProp,
+			storeChatId: _chatId,
+			temporaryChatEnabled: $temporaryChatEnabled
+		});
 
 		if (!$temporaryChatEnabled) {
 			chat = await createNewChat(
@@ -2622,13 +2765,17 @@
 					tags: [],
 					timestamp: Date.now()
 				},
-				$selectedFolder?.id
+				$selectedFolder?.id,
+				createIdOption
 			);
 
 			_chatId = chat.id;
 			await chatId.set(_chatId);
 
-			window.history.replaceState(history.state, '', `/c/${_chatId}`);
+			// Embedded case workspace (`chatIdProp`): keep `/case/.../chat` — do not rewrite to `/c/...`.
+			if (shouldRewriteBrowserUrlToStandaloneChatPath(chatIdProp)) {
+				window.history.replaceState(history.state, '', `/c/${_chatId}`);
+			}
 
 			await tick();
 
@@ -2741,7 +2888,7 @@
 />
 
 <div
-	class="h-screen max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
+	class="h-full min-h-0 max-h-[100dvh] transition-width duration-200 ease-in-out {$showSidebar
 		? '  md:max-w-[calc(100%-var(--sidebar-width))]'
 		: ' '} w-full max-w-full flex flex-col"
 	id="chat-container"
@@ -2831,9 +2978,9 @@
 						}}
 					/>
 
-					<div id="chat-pane" class="flex flex-col flex-auto z-10 w-full @container overflow-auto">
+					<div id="chat-pane" class="flex flex-col flex-1 min-h-0 z-10 w-full @container overflow-hidden">
 						<CaseContextPanel />
-						{#if ($settings?.landingPageMode === 'chat' && !$selectedFolder) || createMessagesList(history, history.currentId).length > 0}
+						{#if ($settings?.landingPageMode === 'chat' && !$selectedFolder) || createMessagesList(history, history.currentId).length > 0 || $activeCaseId}
 							<div
 								class=" pb-2.5 flex flex-col justify-between w-full flex-auto overflow-auto h-0 max-w-full z-10 scrollbar-hidden"
 								id="messages-container"

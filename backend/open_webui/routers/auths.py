@@ -753,17 +753,19 @@ async def signup(
 ):
     has_users = Users.has_users(db=db)
 
-    if WEBUI_AUTH:
-        if (
-            not request.app.state.config.ENABLE_SIGNUP
-            or not request.app.state.config.ENABLE_LOGIN_FORM
-        ):
-            if has_users or not ENABLE_INITIAL_ADMIN_SIGNUP:
+    # Bootstrap: when user_count == 0, always allow first admin creation regardless of
+    # ENABLE_SIGNUP, ENABLE_LOGIN_FORM, or ENABLE_INITIAL_ADMIN_SIGNUP.
+    if has_users:
+        if WEBUI_AUTH:
+            if (
+                not request.app.state.config.ENABLE_SIGNUP
+                or not request.app.state.config.ENABLE_LOGIN_FORM
+            ):
                 raise HTTPException(
-                    status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
+                    status.HTTP_403_FORBIDDEN,
+                    detail=ERROR_MESSAGES.ACCESS_PROHIBITED,
                 )
-    else:
-        if has_users:
+        else:
             raise HTTPException(
                 status.HTTP_403_FORBIDDEN, detail=ERROR_MESSAGES.ACCESS_PROHIBITED
             )

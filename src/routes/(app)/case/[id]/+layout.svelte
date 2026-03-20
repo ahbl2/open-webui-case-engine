@@ -4,7 +4,7 @@
 	 *
 	 * This layout establishes the case-native workspace for all /case/[id]/* routes.
 	 *   - Loading and exposing case metadata to child routes
-	 *   - Top case header, content-level tab nav (Chat, Timeline, Files, Notes, Activity),
+	 *   - Top case header, content-level tab nav (Chat, Proposals, Timeline, Files, Notes, Activity),
 	 *     main workspace slot, right context rail, bottom composer region
 	 *   - Enforcing P19-05 access gating before any case content renders
 	 */
@@ -107,13 +107,15 @@
 	//                         wrong section.
 	// P19-08: Chat migrated.
 	// P19-14: Files, Notes, Activity migrated to dedicated routes.
-	// Timeline remains pending (not yet migrated).
+	// P19-20: Timeline migrated — backed by official timeline_entries.
+	// Proposals: P19 proposal_records review (same lifecycle as chat intake drafts).
 	const caseNavItems: Array<{ id: string; label: string; implemented: boolean }> = [
-		{ id: 'chat',     label: 'Chat',     implemented: true  },
-		{ id: 'timeline', label: 'Timeline', implemented: false },
-		{ id: 'files',    label: 'Files',    implemented: true  },
-		{ id: 'notes',    label: 'Notes',    implemented: true  },
-		{ id: 'activity', label: 'Activity', implemented: true  }
+		{ id: 'chat',      label: 'Chat',      implemented: true  },
+		{ id: 'proposals', label: 'Proposals', implemented: true  },
+		{ id: 'timeline',  label: 'Timeline',  implemented: true  },
+		{ id: 'files',     label: 'Files',     implemented: true  },
+		{ id: 'notes',     label: 'Notes',     implemented: true  },
+		{ id: 'activity',  label: 'Activity',  implemented: true  }
 	];
 
 	$: activeSection = resolveActiveCaseSection($page.url.pathname);
@@ -197,7 +199,7 @@
 		{/if}
 	</header>
 
-	<!-- ── CONTENT-LEVEL TABS (case navigation: Chat, Timeline, Files, Notes, Activity) ── -->
+	<!-- ── CONTENT-LEVEL TABS (Chat, Proposals, Timeline, Files, Notes, Activity) ── -->
 	<nav
 		class="shrink-0 flex items-center gap-0 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 px-2"
 		aria-label="Case sections"

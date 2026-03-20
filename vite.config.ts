@@ -12,6 +12,19 @@ export default defineConfig(({ mode }) => {
 	return {
 		plugins: [
 			sveltekit(),
+			{
+				name: 'detective-stack-log-targets',
+				configureServer(server) {
+					server.httpServer?.once('listening', () => {
+						console.log('');
+						console.log('  [Detective Stack] Proxy targets:');
+						console.log('    Case Engine:     ', caseEngineTarget);
+						console.log('    WebUI backend:   ', owuiBackendTarget);
+						console.log('    WebSocket /ws:   ', owuiBackendTarget);
+						console.log('');
+					});
+				}
+			},
 			viteStaticCopy({
 				targets: [
 					{
@@ -29,6 +42,7 @@ export default defineConfig(({ mode }) => {
 		server: {
 			host: true,
 			port: 3001,
+			strictPort: true,
 			proxy: {
 				'/case-api': {
 					target: caseEngineTarget,

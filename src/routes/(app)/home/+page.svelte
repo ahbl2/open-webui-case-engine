@@ -25,13 +25,24 @@
 	import { goto } from '$app/navigation';
 	import { v4 as uuidv4 } from 'uuid';
 
-	import { caseEngineToken, activeThreadScope, threadScopeError, user } from '$lib/stores';
+	import {
+		caseEngineToken,
+		activeThreadScope,
+		threadScopeError,
+		user,
+		scope,
+		activeCaseId,
+		activeCaseNumber,
+		caseContext,
+		aiCaseContext
+	} from '$lib/stores';
 	import {
 		listPersonalThreadAssociations,
 		upsertPersonalThreadAssociation,
 		browserResolveOwuiAuth,
 		type PersonalThreadAssociation
 	} from '$lib/apis/caseEngine';
+	import { ensureChatForThread } from '$lib/apis/chats';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
 
 	// ── Personal thread list ─────────────────────────────────────────────────
@@ -105,12 +116,26 @@
 		try {
 			await upsertPersonalThreadAssociation(threadId, token, { getFreshToken });
 
+			// Ensure OWUI has a chat for this thread_id (get-or-create) before navigate.
+			const owuiToken = typeof window !== 'undefined' ? localStorage?.token : null;
+			if (owuiToken) {
+				await ensureChatForThread(owuiToken, threadId);
+			}
+
 			// Backend confirmed the binding — safe to navigate.
 			activeThreadScope.set({ threadId, scope: 'personal' });
+			// Clear single-case chat routing: Chat.svelte uses persisted `scope`===THIS_CASE + activeCaseId
+			// for Case Engine ask; desktop threads must use normal LLM path (user-wide / ALL).
+			scope.set('ALL');
+			activeCaseId.set(null);
+			activeCaseNumber.set(null);
+			caseContext.set(null);
+			aiCaseContext.set(null);
 			await goto(`/c/${threadId}`);
 		} catch (err) {
 			const kind = classifyBindError(err);
-			const message = bindErrorMessage(kind, 'personal');
+			const originalMsg = err instanceof Error ? err.message : typeof err === 'string' ? err : null;
+			const message = bindErrorMessage(kind, 'personal', originalMsg);
 			localBindError = message;
 			threadScopeError.set({ kind, message, threadId });
 			activeThreadScope.set(null);

@@ -4,6 +4,18 @@
  */
 import { CASE_ENGINE_BASE_URL } from '$lib/constants';
 
+/** Extract error message from API response; avoids [object Object] when backend returns { error: { message: '...' } }. */
+function extractApiErrorMessage(data: unknown, fallback: string): string {
+	if (data != null && typeof data === 'object') {
+		const d = data as Record<string, unknown>;
+		if (typeof d.error === 'string') return d.error;
+		if (d.error != null && typeof d.error === 'object' && typeof (d.error as Record<string, unknown>).message === 'string')
+			return (d.error as Record<string, unknown>).message as string;
+		if (typeof d.message === 'string') return d.message;
+	}
+	return fallback;
+}
+
 export type CaseEngineScope = 'case' | 'CID' | 'SIU' | 'ALL';
 export type CaseEngineCitation = { type: 'entry' | 'file'; id: string };
 
@@ -965,6 +977,32 @@ export async function getCaseDeleted(
 	return data;
 }
 
+// ─── Official Case Timeline (timeline_entries) ────────────────────────────────
+
+export interface TimelineEntry {
+	id: string;
+	case_id: string;
+	occurred_at: string;
+	created_at: string;
+	created_by: string;
+	type: string;
+	location_text: string | null;
+	tags: string[];
+	text_original: string;
+	text_cleaned: string | null;
+	deleted_at: string | null;
+}
+
+/** List all non-deleted official timeline entries for a case, ordered by occurred_at ASC. */
+export async function listCaseTimelineEntries(caseId: string, token: string): Promise<TimelineEntry[]> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to load timeline (${res.status})`);
+	return data as TimelineEntry[];
+}
+
 export async function restoreTimelineEntry(caseId: string, entryId: string, token: string): Promise<Record<string, unknown>> {
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries/${entryId}/restore`, {
 		method: 'POST',
@@ -1913,9 +1951,7 @@ export async function listCaseThreadAssociations(
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok)
-		throw new Error(
-			(data as { error?: string })?.error ?? `Failed to list case threads (${res.status})`
-		);
+		throw new Error(extractApiErrorMessage(data, `Failed to list case threads (${res.status})`));
 	return Array.isArray(data) ? (data as CaseThreadAssociation[]) : [];
 }
 
@@ -1951,9 +1987,7 @@ export async function upsertCaseThreadAssociation(
 	}
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok)
-		throw new Error(
-			(data as { error?: string })?.error ?? `Failed to bind thread to case (${res.status})`
-		);
+		throw new Error(extractApiErrorMessage(data, `Failed to bind thread to case (${res.status})`));
 	return data as CaseThreadAssociation;
 }
 
@@ -1973,8 +2007,7 @@ export async function deleteCaseThreadAssociation(
 	if (!res.ok) {
 		const data = await res.json().catch(() => ({}));
 		throw new Error(
-			(data as { error?: string })?.error ??
-				`Failed to remove case thread association (${res.status})`
+			extractApiErrorMessage(data, `Failed to remove case thread association (${res.status})`)
 		);
 	}
 }
@@ -1988,9 +2021,7 @@ export async function listPersonalThreadAssociations(
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok)
-		throw new Error(
-			(data as { error?: string })?.error ?? `Failed to list personal threads (${res.status})`
-		);
+		throw new Error(extractApiErrorMessage(data, `Failed to list personal threads (${res.status})`));
 	return Array.isArray(data) ? (data as PersonalThreadAssociation[]) : [];
 }
 
@@ -2023,8 +2054,7 @@ export async function upsertPersonalThreadAssociation(
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok)
 		throw new Error(
-			(data as { error?: string })?.error ??
-				`Failed to bind thread to personal desktop (${res.status})`
+			extractApiErrorMessage(data, `Failed to bind thread to personal desktop (${res.status})`)
 		);
 	return data as PersonalThreadAssociation;
 }
@@ -2044,8 +2074,7 @@ export async function deletePersonalThreadAssociation(
 	if (!res.ok) {
 		const data = await res.json().catch(() => ({}));
 		throw new Error(
-			(data as { error?: string })?.error ??
-				`Failed to remove personal thread association (${res.status})`
+			extractApiErrorMessage(data, `Failed to remove personal thread association (${res.status})`)
 		);
 	}
 }
@@ -2218,6 +2247,58 @@ export async function commitProposal(
 	if (!res.ok)
 		throw new Error(
 			(data as { error?: string })?.error ?? `Failed to commit proposal (${res.status})`
+		);
+	return data as ProposalRecord;
+}
+
+/** Server-side AI draft + P19 proposal (chat-intake marker; creator may approve in-app). */
+export async function draftChatIntakeProposal(
+	caseId: string,
+	token: string,
+	params: {
+		raw_message: string;
+		source_thread_id: string;
+		source_message_id?: string | null;
+		intake_kind: 'timeline' | 'note';
+	}
+): Promise<ProposalRecord> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/chat-intake/draft`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({
+			raw_message: params.raw_message,
+			source_thread_id: params.source_thread_id,
+			source_message_id: params.source_message_id ?? undefined,
+			intake_kind: params.intake_kind,
+			source_scope: 'case'
+		})
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			extractApiErrorMessage(data, `Failed to draft chat intake (${res.status})`)
+		);
+	return data as ProposalRecord;
+}
+
+export async function reviseChatIntakeProposal(
+	caseId: string,
+	proposalId: string,
+	token: string,
+	feedback: string
+): Promise<ProposalRecord> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/chat-intake/proposals/${encodeURIComponent(proposalId)}/revise`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({ feedback })
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			extractApiErrorMessage(data, `Failed to revise proposal (${res.status})`)
 		);
 	return data as ProposalRecord;
 }
