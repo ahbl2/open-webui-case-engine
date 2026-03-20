@@ -62,6 +62,7 @@
 		getCreateNewChatIdOption,
 		shouldRewriteBrowserUrlToStandaloneChatPath
 	} from '$lib/utils/chatThreadCreateOptions';
+	import { resolveConversationalQuery } from '$lib/utils/conversationalContextResolver';
 
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 
@@ -1821,6 +1822,22 @@
 			await tick();
 			await saveChatHandler(_chatId, history);
 			try {
+				// Resolve context-dependent follow-ups ("who", "when", "where", etc.) into
+				// self-contained questions before intake detection and RAG retrieval.
+				const priorTurns = messages.map((m) => ({
+					role: m.role as 'user' | 'assistant',
+					content: typeof m.content === 'string' ? m.content : ''
+				}));
+				const ctxResolution = resolveConversationalQuery(userPrompt, priorTurns);
+				const resolvedPrompt = ctxResolution.resolved;
+				if (ctxResolution.contextDependent) {
+					console.debug('[case-ask] context resolution', {
+						original: ctxResolution.original,
+						resolved: resolvedPrompt,
+						state: ctxResolution.state
+					});
+				}
+
 				const intakeIntent = detectCaseChatIntakeIntent(userPrompt);
 				if (intakeIntent) {
 					const proposal = await draftChatIntakeProposal($activeCaseId, $caseEngineToken, {
@@ -1864,7 +1881,7 @@
 
 				const { answer, citations } = await askCase(
 					$activeCaseId,
-					userPrompt,
+					resolvedPrompt,
 					'case',
 					$caseEngineToken
 				);
@@ -1938,7 +1955,19 @@
 			await tick();
 			await saveChatHandler(_chatId, history);
 			try {
-				const res = await askCrossCase(userPrompt, $caseEngineToken, {
+				const crossPriorTurns = messages.map((m) => ({
+					role: m.role as 'user' | 'assistant',
+					content: typeof m.content === 'string' ? m.content : ''
+				}));
+				const crossCtx = resolveConversationalQuery(userPrompt, crossPriorTurns);
+				if (crossCtx.contextDependent) {
+					console.debug('[cross-ask] context resolution', {
+						original: crossCtx.original,
+						resolved: crossCtx.resolved,
+						state: crossCtx.state
+					});
+				}
+				const res = await askCrossCase(crossCtx.resolved, $caseEngineToken, {
 					topK: 8,
 					unitScope: workspaceUnitScope
 				});
