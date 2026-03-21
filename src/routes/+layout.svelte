@@ -148,11 +148,21 @@
 				}
 			}, 30000);
 
-			if (localStorage.getItem('token')) {
-				// Emit user-join event with auth token
-				_socket.emit('user-join', { auth: { token: localStorage.token } });
-			} else {
-				console.warn('No token found in localStorage, user-join event not emitted');
+			const emitUserJoin = () => {
+				const t = localStorage.getItem('token');
+				if (t) {
+					_socket.emit('user-join', { auth: { token: t } });
+					return true;
+				}
+				return false;
+			};
+			if (!emitUserJoin()) {
+				// P19.75-01: Token is sometimes written after connect; retry without noisy false warnings.
+				queueMicrotask(() => {
+					if (!emitUserJoin() && import.meta.env.DEV) {
+						console.warn('No token found in localStorage, user-join event not emitted');
+					}
+				});
 			}
 		});
 

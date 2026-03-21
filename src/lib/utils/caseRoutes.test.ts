@@ -275,6 +275,13 @@ describe('P19-14 — access gating applies to files/notes/activity', () => {
 		}
 	);
 
+	it.each(['rate_limited', 'auth_http_error', 'ce_server_error', 'ce_client_error'] as const)(
+		'%s (P19.75-02) does not use /access-unavailable redirect',
+		(state) => {
+			expect(blockedRedirectPath(resolveAuthStateDecision(state))).toBeNull();
+		}
+	);
+
 	it('blocked redirect path is the same regardless of which section is targeted', () => {
 		// The P19-05 gating fires in the +layout.svelte before the child route renders.
 		// Whether the user navigates to /files, /notes, or /activity, the same gating

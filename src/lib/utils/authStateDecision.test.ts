@@ -24,6 +24,13 @@ describe('resolveAuthStateDecision', () => {
 		expect(resolveAuthStateDecision('unavailable')).toBe('unavailable');
 	});
 
+	it('returns transient_ce for P19.75-02 HTTP-classified states (no access-unavailable redirect)', () => {
+		expect(resolveAuthStateDecision('rate_limited')).toBe('transient_ce');
+		expect(resolveAuthStateDecision('auth_http_error')).toBe('transient_ce');
+		expect(resolveAuthStateDecision('ce_server_error')).toBe('transient_ce');
+		expect(resolveAuthStateDecision('ce_client_error')).toBe('transient_ce');
+	});
+
 	it('returns pending for pending state', () => {
 		expect(resolveAuthStateDecision('pending')).toBe('pending');
 	});
@@ -62,6 +69,10 @@ describe('blockedRedirectPath', () => {
 	it('routes unavailable to /access-unavailable — not to workspace', () => {
 		expect(blockedRedirectPath('unavailable')).toBe('/access-unavailable');
 	});
+
+	it('does not route transient_ce to any /access-* page', () => {
+		expect(blockedRedirectPath('transient_ce')).toBeNull();
+	});
 });
 
 describe('gating completeness — no state is allowed to reach the workspace unblocked', () => {
@@ -76,7 +87,7 @@ describe('gating completeness — no state is allowed to reach the workspace unb
 		'anything_unknown'
 	];
 
-	it('every non-active state produces a blocked decision with a non-null redirect path', () => {
+	it('every hard-gated non-active state produces a blocked decision with a non-null redirect path', () => {
 		for (const state of allNonActiveStates) {
 			const decision = resolveAuthStateDecision(state);
 			expect(decision).not.toBe('proceed');
@@ -86,7 +97,8 @@ describe('gating completeness — no state is allowed to reach the workspace unb
 		}
 	});
 
-	it('active is the only state that maps to a null redirect (allowed to proceed)', () => {
+	it('active and transient_ce are the only decisions with null redirect (shell may render)', () => {
 		expect(blockedRedirectPath(resolveAuthStateDecision('active'))).toBeNull();
+		expect(blockedRedirectPath('transient_ce')).toBeNull();
 	});
 });

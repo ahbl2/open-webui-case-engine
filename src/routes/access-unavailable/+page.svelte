@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { goto } from '$app/navigation';
+	import { goto, invalidateAll } from '$app/navigation';
 	import { user, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
 	import { userSignOut } from '$lib/apis/auths';
 
@@ -14,9 +14,10 @@
 	}
 
 	async function retry() {
-		// Clear cached unavailable state so the layout will re-attempt resolution
+		// P19.75-01: Re-run bootstrap — clear gate state, reload server data, land in workspace shell.
 		caseEngineAuthState.set(null);
-		await goto('/');
+		await invalidateAll();
+		await goto('/home');
 	}
 </script>
 

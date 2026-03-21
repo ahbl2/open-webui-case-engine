@@ -7,12 +7,15 @@
  *
  * DOCTRINE:
  * - 'active'  → proceed; user is authorized to enter the workspace
- * - anything else → blocked; the frontend must NOT load the workspace
- * - 'unavailable' is treated as blocked (fail-closed, not fail-open)
+ * - 'transient_ce' → P19.75-02: CE responded with a non-network HTTP error (429, 401, 5xx, …);
+ *   stay in the OWUI shell with no redirect to /access-unavailable (Case Engine features gated elsewhere)
+ * - anything else → blocked; the frontend must NOT load the detective workspace as “fully authorized”
+ * - 'unavailable' is treated as blocked (fail-closed, not fail-open) — only for true reachability failure
  */
 
 export type AuthStateDecision =
 	| 'proceed'       // active user — workspace may load
+	| 'transient_ce' // P19.75-02: rate_limited / HTTP auth or server errors from browser-resolve — no access-* redirect
 	| 'pending'       // pending/denied_no_profile — route to /access-pending
 	| 'disabled'      // disabled — route to /access-disabled
 	| 'unavailable';  // backend unreachable — route to /access-unavailable
@@ -25,6 +28,14 @@ export function resolveAuthStateDecision(state: string | null | undefined): Auth
 	if (state === 'active') return 'proceed';
 	if (state === 'disabled') return 'disabled';
 	if (state === 'unavailable') return 'unavailable';
+	if (
+		state === 'rate_limited' ||
+		state === 'auth_http_error' ||
+		state === 'ce_server_error' ||
+		state === 'ce_client_error'
+	) {
+		return 'transient_ce';
+	}
 	// 'pending', 'denied_no_profile', null, undefined, or any unknown value → pending gate
 	return 'pending';
 }
@@ -36,6 +47,7 @@ export function resolveAuthStateDecision(state: string | null | undefined): Auth
 export function blockedRedirectPath(decision: AuthStateDecision): string | null {
 	switch (decision) {
 		case 'proceed':       return null;
+		case 'transient_ce':  return null; // P19.75-02: not “service unavailable”; shell may render
 		case 'disabled':      return '/access-disabled';
 		case 'unavailable':   return '/access-unavailable';
 		case 'pending':

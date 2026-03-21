@@ -138,6 +138,13 @@ describe('case shell — access gating for blocked auth states', () => {
 		}
 	);
 
+	it.each(['rate_limited', 'auth_http_error', 'ce_server_error', 'ce_client_error'] as const)(
+		'%s (P19.75-02 transient) does not redirect to /access-unavailable',
+		(state) => {
+			expect(blockedRedirectPath(resolveAuthStateDecision(state))).toBeNull();
+		}
+	);
+
 	it('no unknown or empty auth state silently enters case shell (fail-closed)', () => {
 		const nonActiveStates = ['unknown', '', null, undefined, 'expired', 'ACTIVE'];
 		for (const state of nonActiveStates) {

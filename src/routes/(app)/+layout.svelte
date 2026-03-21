@@ -1,6 +1,7 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
 	import { onMount, tick, getContext } from 'svelte';
+	import { get } from 'svelte/store';
 	import { openDB, deleteDB } from 'idb';
 	import fileSaver from 'file-saver';
 	const { saveAs } = fileSaver;
@@ -40,8 +41,47 @@
 	caseEngineUser,
 	caseModeActive
 } from '$lib/stores';
-	import { browserResolveOwuiAuth } from '$lib/apis/caseEngine';
+	import {
+		browserResolveOwuiAuth,
+		BrowserResolveFailure,
+		type BrowserResolveFailureClassification
+	} from '$lib/apis/caseEngine';
 	import { resolveAuthStateDecision, blockedRedirectPath } from '$lib/utils/authStateDecision';
+	import type { CaseEngineAuthState } from '$lib/stores/caseEngine';
+
+	/** P19.75-02: Map classified browser-resolve failures to Case Engine auth store (not all imply “unavailable”). */
+	function mapBrowserResolveFailureToAuthState(err: BrowserResolveFailure): CaseEngineAuthState {
+		switch (err.classification) {
+			case 'network_unreachable':
+				return { state: 'unavailable', user: null, reason: 'backend_unreachable' };
+			case 'rate_limited':
+				return { state: 'rate_limited', user: null, reason: 'RATE_LIMIT_EXCEEDED' };
+			case 'unauthorized':
+				return { state: 'auth_http_error', user: null, reason: 'HTTP_UNAUTHORIZED' };
+			case 'server_error':
+				return { state: 'ce_server_error', user: null, reason: 'HTTP_5XX' };
+			case 'client_error':
+				return { state: 'ce_client_error', user: null, reason: 'HTTP_4XX' };
+		}
+	}
+
+	function gateLabelForClassification(c: BrowserResolveFailureClassification): string {
+		if (c === 'network_unreachable') return 'redirect_access_unavailable';
+		return 'stay_in_app_transient_ce';
+	}
+
+	function toastForBrowserResolveFailure(err: BrowserResolveFailure): void {
+		if (err.classification === 'network_unreachable') return;
+		const msg =
+			err.classification === 'rate_limited'
+				? 'Case Engine is rate-limiting authorization checks. Wait a moment and try again.'
+				: err.classification === 'unauthorized'
+					? 'Case Engine rejected the authorization check. Try refreshing or signing in again.'
+					: err.classification === 'server_error'
+						? 'Case Engine returned a server error. Try again shortly.'
+						: 'Case Engine rejected the authorization request.';
+		toast.warning(msg);
+	}
 
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
 	import DetectiveWorkspaceSidebar from '$lib/components/layout/DetectiveWorkspaceSidebar.svelte';
@@ -218,7 +258,6 @@
 		// ceAuthChecked stays false until an active state is confirmed, keeping the app
 		// shell hidden until we know the user is allowed in.
 		if (!$caseEngineAuthState && $user?.id) {
-			caseEngineToken.set(null);
 			let resolvedState: string;
 			try {
 				const authResult = await browserResolveOwuiAuth({
@@ -228,23 +267,66 @@
 				});
 				caseEngineAuthState.set(authResult as import('$lib/stores').CaseEngineAuthState);
 				resolvedState = authResult.state;
-				if (authResult.state === 'active' && typeof authResult.token === 'string' && authResult.token.trim() !== '') {
-					caseEngineToken.set(authResult.token);
-					caseEngineUser.set(
-						authResult.user
-							? {
-									id: authResult.user.id,
-									name: $user.name ?? authResult.user.role,
-									role: authResult.user.role === 'admin' ? 'ADMIN' : 'detective'
-								}
-							: null
-					);
+				if (authResult.state === 'active') {
+					if (typeof authResult.token === 'string' && authResult.token.trim() !== '') {
+						caseEngineToken.set(authResult.token);
+						caseEngineUser.set(
+							authResult.user
+								? {
+										id: authResult.user.id,
+										name: $user.name ?? authResult.user.role,
+										role: authResult.user.role === 'admin' ? 'ADMIN' : 'detective'
+									}
+								: null
+						);
+					} else {
+						// P19.75-01: Server may omit token in body; keep persisted JWT if present.
+						const existing = get(caseEngineToken);
+						if (!existing || String(existing).trim() === '') {
+							caseEngineToken.set(null);
+							caseEngineUser.set(null);
+						}
+					}
+				} else {
+					caseEngineToken.set(null);
+					caseEngineUser.set(null);
 				}
 			} catch (err) {
-				// Backend unreachable — fail CLOSED: block the workspace.
-				console.error('[P19-05] Case Engine auth state resolution failed — blocking workspace:', err);
-				caseEngineAuthState.set({ state: 'unavailable', user: null, reason: 'backend_unreachable' });
-				resolvedState = 'unavailable';
+				if (err instanceof BrowserResolveFailure) {
+					const mapped = mapBrowserResolveFailureToAuthState(err);
+					caseEngineAuthState.set(mapped);
+					resolvedState = mapped.state;
+					toastForBrowserResolveFailure(err);
+					if (import.meta.env.DEV) {
+						console.debug('[P19.75-02] browser-resolve (initial)', {
+							httpStatus: err.httpStatus,
+							classification: err.classification,
+							gateDecision: gateLabelForClassification(err.classification),
+							caseEngineState: mapped.state
+						});
+					}
+					if (err.classification !== 'network_unreachable') {
+						console.warn(
+							'[P19-05] Case Engine browser-resolve returned HTTP error — not treating as unreachable:',
+							err.classification,
+							err.httpStatus
+						);
+					} else {
+						console.error('[P19-05] Case Engine auth state resolution failed — blocking workspace:', err);
+					}
+				} else {
+					// Unknown error — conservative: treat like unreachable (legacy behavior).
+					console.error('[P19-05] Case Engine auth state resolution failed — blocking workspace:', err);
+					if (import.meta.env.DEV) {
+						console.debug('[P19.75-01] browser-resolve failed', {
+							endpoint: 'POST /auth/owui/browser-resolve',
+							reason: 'exception_after_retries',
+							hadPersistedToken: !!(get(caseEngineToken) && String(get(caseEngineToken)).trim())
+						});
+					}
+					caseEngineAuthState.set({ state: 'unavailable', user: null, reason: 'backend_unreachable' });
+					resolvedState = 'unavailable';
+				}
 			}
 
 			const decision = resolveAuthStateDecision(resolvedState);
@@ -261,8 +343,9 @@
 				await goto(redirectTo);
 				return;
 			}
-			// Cached active state: always refresh token so bind never uses a stale token (remount / multi-tab).
+			// Cached active state: refresh token so bind never uses a stale token (remount / multi-tab).
 			if ($caseEngineAuthState.state === 'active' && $user?.id) {
+				const tokenBeforeRefresh = get(caseEngineToken);
 				try {
 					const authResult = await browserResolveOwuiAuth({
 						owui_user_id: $user.id,
@@ -281,19 +364,75 @@
 									}
 								: null
 						);
+					} else if (authResult.state === 'active') {
+						// P19.75-01: Do not clear JWT on refresh when the server returns active without a new token (transient or rotation skipped).
+						if (!tokenBeforeRefresh || String(tokenBeforeRefresh).trim() === '') {
+							caseEngineToken.set(null);
+							caseEngineUser.set(null);
+						}
 					} else {
 						caseEngineToken.set(null);
+						caseEngineUser.set(null);
 					}
 				} catch (err) {
-					console.error('[P19-05] Case Engine token re-resolve failed:', err);
-					caseEngineToken.set(null);
+					if (err instanceof BrowserResolveFailure) {
+						if (err.classification === 'network_unreachable') {
+							// P19.75-01: True network failure — keep prior token + active state.
+							console.error('[P19-05] Case Engine token re-resolve failed (network):', err);
+							if (import.meta.env.DEV) {
+								console.debug('[P19.75-02] browser-resolve (refresh)', {
+									httpStatus: err.httpStatus,
+									classification: err.classification,
+									gateDecision: 'keep_prior_state_and_token',
+									keptPriorToken: !!(tokenBeforeRefresh && String(tokenBeforeRefresh).trim())
+								});
+							}
+						} else {
+							const mappedRefresh = mapBrowserResolveFailureToAuthState(err);
+							caseEngineAuthState.set(mappedRefresh);
+							if (err.classification === 'unauthorized') {
+								caseEngineToken.set(null);
+								caseEngineUser.set(null);
+							}
+							toastForBrowserResolveFailure(err);
+							if (import.meta.env.DEV) {
+								console.debug('[P19.75-02] browser-resolve (refresh)', {
+									httpStatus: err.httpStatus,
+									classification: err.classification,
+									gateDecision: 'set_transient_ce_state',
+									caseEngineState: mappedRefresh.state
+								});
+							}
+						}
+					} else {
+						// P19.75-01: Unknown error — do not wipe token.
+						console.error('[P19-05] Case Engine token re-resolve failed:', err);
+						if (import.meta.env.DEV) {
+							console.debug('[P19.75-01] token refresh failed; keeping prior token if any', {
+								endpoint: 'POST /auth/owui/browser-resolve',
+								keptPriorToken: !!(tokenBeforeRefresh && String(tokenBeforeRefresh).trim())
+							});
+						}
+					}
 				}
+			}
+			// After refresh, state may have changed from active → unavailable/pending; re-run gate.
+			const postRefreshDecision = resolveAuthStateDecision($caseEngineAuthState.state);
+			const postRefreshRedirect = blockedRedirectPath(postRefreshDecision);
+			if (postRefreshRedirect) {
+				await goto(postRefreshRedirect);
+				return;
 			}
 		}
 
-		// Fail closed: do not show the app if state is active but we have no valid token (bind would 401).
+		// Fail closed only when active but there is truly no JWT anywhere (never had one and refresh did not supply one).
 		const hasValidToken = $caseEngineToken && typeof $caseEngineToken === 'string' && $caseEngineToken.trim() !== '';
 		if ($caseEngineAuthState?.state === 'active' && !hasValidToken) {
+			if (import.meta.env.DEV) {
+				console.debug('[P19.75-01] redirect access-unavailable: active but no case engine token', {
+					endpoint: 'POST /auth/owui/browser-resolve'
+				});
+			}
 			await goto('/access-unavailable');
 			return;
 		}

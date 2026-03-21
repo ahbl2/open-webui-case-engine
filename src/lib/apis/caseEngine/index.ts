@@ -30,11 +30,47 @@ export interface CaseEngineCase {
 }
 
 /**
+ * P19.75-02: Explicit failure classification for POST /auth/owui/browser-resolve.
+ * Distinguishes true network failure from HTTP 429 / 401 / 5xx so the UI does not
+ * treat a reachable but rate-limited Case Engine as “service unavailable.”
+ */
+export type BrowserResolveFailureClassification =
+	| 'network_unreachable'
+	| 'rate_limited'
+	| 'unauthorized'
+	| 'server_error'
+	| 'client_error';
+
+export class BrowserResolveFailure extends Error {
+	override readonly name = 'BrowserResolveFailure';
+	constructor(
+		public readonly classification: BrowserResolveFailureClassification,
+		message: string,
+		public readonly httpStatus?: number,
+		public readonly body?: unknown
+	) {
+		super(message);
+		Object.setPrototypeOf(this, new.target.prototype);
+	}
+}
+
+function classifyBrowserResolveHttpStatus(status: number): BrowserResolveFailureClassification {
+	if (status === 429) return 'rate_limited';
+	if (status === 401 || status === 403) return 'unauthorized';
+	if (status >= 500 && status <= 599) return 'server_error';
+	if (status >= 400 && status <= 499) return 'client_error';
+	return 'server_error';
+}
+
+/**
  * P19-05: Browser-accessible authorization state resolution.
  * Called once per session after OWUI login to determine Case Engine access state
  * without requiring a separate Case Engine login step.
  *
  * P19 Auth Bridge: When state is 'active', backend also returns a token for Case Engine API calls.
+ *
+ * P19.75-02: Non-OK HTTP responses throw {@link BrowserResolveFailure} with a stable classification.
+ * Only {@link BrowserResolveFailureClassification} `network_unreachable` should map to /access-unavailable.
  *
  * Security note: this endpoint trusts the reverse proxy (Caddy/Vite) to enforce
  * OWUI session authentication before requests reach Case Engine.
@@ -49,16 +85,51 @@ export async function browserResolveOwuiAuth(params: {
 	reason?: string;
 	token?: string;
 }> {
-	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/browser-resolve`, {
-		method: 'POST',
-		headers: { 'Content-Type': 'application/json' },
-		body: JSON.stringify(params)
-	});
-	const data = await res.json().catch(() => ({}));
-	if (!res.ok) {
-		throw new Error(data?.error ?? `Failed to resolve Case Engine auth state (${res.status})`);
+	const url = `${CASE_ENGINE_BASE_URL}/auth/owui/browser-resolve`;
+	const body = JSON.stringify(params);
+	const maxAttempts = 3;
+	let lastErr: unknown;
+
+	for (let attempt = 0; attempt < maxAttempts; attempt++) {
+		try {
+			const res = await fetch(url, {
+				method: 'POST',
+				headers: { 'Content-Type': 'application/json' },
+				body
+			});
+			const data = await res.json().catch(() => ({}));
+			if (!res.ok) {
+				const msg = extractApiErrorMessage(
+					data,
+					`Failed to resolve Case Engine auth state (${res.status})`
+				);
+				throw new BrowserResolveFailure(classifyBrowserResolveHttpStatus(res.status), msg, res.status, data);
+			}
+			return data;
+		} catch (e) {
+			if (e instanceof BrowserResolveFailure) {
+				throw e;
+			}
+			lastErr = e;
+			const msg = e instanceof Error ? e.message : String(e);
+			const isNetworkFailure =
+				e instanceof TypeError ||
+				/failed to fetch|networkerror|load failed|network request failed/i.test(msg);
+			if (!isNetworkFailure || attempt === maxAttempts - 1) {
+				if (isNetworkFailure) {
+					throw new BrowserResolveFailure(
+						'network_unreachable',
+						msg,
+						undefined,
+						undefined
+					);
+				}
+				throw e;
+			}
+			await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+		}
 	}
-	return data;
+	throw lastErr;
 }
 
 export async function login(name: string, password: string): Promise<{ token: string; user: { id: string; name: string; role: string } }> {
@@ -2137,9 +2208,9 @@ export async function listProposals(
 	token: string,
 	status?: ProposalStatus
 ): Promise<ProposalRecord[]> {
-	const url = new URL(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals`);
-	if (status) url.searchParams.set('status', status);
-	const res = await fetch(url.toString(), {
+	// Relative `/case-api` base: do not use `new URL()` without a base (throws before fetch).
+	const qs = status ? `?status=${encodeURIComponent(status)}` : '';
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals${qs}`, {
 		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 	});
 	const data = await res.json().catch(() => ({}));

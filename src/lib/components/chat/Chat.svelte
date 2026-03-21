@@ -58,6 +58,7 @@
 		type CrossCaseCitation
 	} from '$lib/apis/caseEngine';
 	import { detectCaseChatIntakeIntent } from '$lib/utils/chatIntakeIntent';
+	import { finalizeAssistantStopState } from '$lib/utils/chatSiblingCompletion';
 	import {
 		getCreateNewChatIdOption,
 		shouldRewriteBrowserUrlToStandaloneChatPath
@@ -471,11 +472,8 @@
 					chatCompletionEventHandler(data, message, event.chat_id);
 				} else if (type === 'chat:tasks:cancel') {
 					taskIds = null;
-					const responseMessage = history.messages[history.currentId];
-					// Set all response messages to done
-					for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
-						history.messages[messageId].done = true;
-					}
+					finalizeAssistantStopState(history.messages, history.currentId);
+					history = history;
 				} else if (type === 'chat:message:delta' || type === 'message') {
 					message.content += data.content;
 				} else if (type === 'chat:message' || type === 'replace') {
@@ -2439,7 +2437,7 @@
 		history = history;
 
 		// Create new chat if newChat is true and first user message
-		if (newChat && _history.messages[_history.currentId].parentId === null) {
+		if (newChat && _history.messages[_history.currentId]?.parentId === null) {
 			_chatId = await initChatHandler(_history);
 		}
 
@@ -2544,7 +2542,11 @@
 
 	const sendMessageSocket = async (model, _messages, _history, responseMessageId, _chatId) => {
 		const responseMessage = _history.messages[responseMessageId];
-		const userMessage = _history.messages[responseMessage.parentId];
+		if (!responseMessage) {
+			return;
+		}
+		const userMessage =
+			responseMessage.parentId != null ? _history.messages[responseMessage.parentId] : undefined;
 
 		const chatMessageFiles = _messages
 			.filter((message) => message.files)
@@ -2894,27 +2896,27 @@
 	const stopResponse = async () => {
 		if (taskIds) {
 			for (const taskId of taskIds) {
-				const res = await stopTask(localStorage.token, taskId).catch((error) => {
+				if (taskId == null || String(taskId) === '') continue;
+				await stopTask(localStorage.token, taskId).catch((error) => {
 					toast.error(`${error}`);
 					return null;
 				});
 			}
 
 			taskIds = null;
+		}
 
-			const responseMessage = history.messages[history.currentId];
-			// Set all response messages to done
-			if (responseMessage.parentId && history.messages[responseMessage.parentId]) {
-				for (const messageId of history.messages[responseMessage.parentId].childrenIds) {
-					history.messages[messageId].done = true;
-				}
-			}
+		const responseMessage = history.messages[history.currentId];
+		finalizeAssistantStopState(history.messages, history.currentId);
 
+		if (responseMessage) {
 			history.messages[history.currentId] = responseMessage;
+		}
 
-			if (autoScroll) {
-				scrollToBottom();
-			}
+		history = history;
+
+		if (autoScroll) {
+			scrollToBottom();
 		}
 
 		if (generating) {
@@ -3035,7 +3037,7 @@
 			const [res, controller] = await generateMoACompletion(
 				localStorage.token,
 				message.model ?? '',
-				message.parentId ? history.messages[message.parentId].content : '',
+				message.parentId ? (history.messages[message.parentId]?.content ?? '') : '',
 				responses
 			);
 

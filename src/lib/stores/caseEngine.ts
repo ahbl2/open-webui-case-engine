@@ -64,10 +64,22 @@ export type CaseEngineAuthState = {
 	 * 'pending'           — user profile exists but is awaiting admin approval
 	 * 'disabled'          — user profile has been disabled
 	 * 'denied_no_profile' — no Case Engine profile found and auto-create is off
-	 * 'unavailable'       — Case Engine backend could not be reached; workspace is blocked
-	 *                       until a successful resolution can be made
+	 * 'unavailable'       — Case Engine backend could not be reached (true network failure)
+	 * 'rate_limited'      — P19.75-02: CE reachable; POST /auth/owui/browser-resolve returned 429
+	 * 'auth_http_error'   — P19.75-02: 401/403 on browser-resolve (not “service down”)
+	 * 'ce_server_error'   — P19.75-02: 5xx on browser-resolve
+	 * 'ce_client_error'   — P19.75-02: other 4xx (not 401/403/429)
 	 */
-	state: 'active' | 'pending' | 'disabled' | 'denied_no_profile' | 'unavailable';
+	state:
+		| 'active'
+		| 'pending'
+		| 'disabled'
+		| 'denied_no_profile'
+		| 'unavailable'
+		| 'rate_limited'
+		| 'auth_http_error'
+		| 'ce_server_error'
+		| 'ce_client_error';
 	user: null | { id: string; role: string; units: string[]; capabilities: string[] };
 	reason?: string;
 };
