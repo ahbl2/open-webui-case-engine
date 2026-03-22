@@ -19,6 +19,12 @@
 	let showRevise = false;
 	let feedback = '';
 
+	interface DateAmbiguity {
+		issue: string;
+		original_input: string;
+		suggested_interpretations: string[];
+	}
+
 	function stripInternalFields(obj: Record<string, unknown>): Record<string, unknown> {
 		const copy = { ...obj };
 		delete copy._ce_chat_intake;
@@ -30,16 +36,22 @@
 		cleaned: string;
 		occurredAt: string | null;
 		entryType: string;
+		dateAmbiguity: DateAmbiguity | null;
 	} {
 		try {
 			const raw = JSON.parse(pr.proposed_payload) as Record<string, unknown>;
 			const p = stripInternalFields(raw) as Record<string, unknown>;
+			const dateAmbiguity =
+				p._date_ambiguity != null && typeof p._date_ambiguity === 'object'
+					? (p._date_ambiguity as DateAmbiguity)
+					: null;
 			if (pr.proposal_type === 'note') {
 				return {
 					original: String(p.text_original ?? p.content ?? ''),
 					cleaned: String(p.content ?? ''),
 					occurredAt: null,
-					entryType: 'note'
+					entryType: 'note',
+					dateAmbiguity: null
 				};
 			}
 			return {
@@ -49,10 +61,11 @@
 					p.occurred_at != null && String(p.occurred_at).trim()
 						? String(p.occurred_at).trim()
 						: null,
-				entryType: String(p.type ?? '')
+				entryType: String(p.type ?? ''),
+				dateAmbiguity
 			};
 		} catch {
-			return { original: '', cleaned: '', occurredAt: null, entryType: '' };
+			return { original: '', cleaned: '', occurredAt: null, entryType: '', dateAmbiguity: null };
 		}
 	}
 
@@ -61,10 +74,33 @@
 		proposal.proposal_type === 'timeline' &&
 		proposal.status === 'pending' &&
 		!isIsoOccurredAtWithTimezone(display.occurredAt);
+	$: hasDateAmbiguity =
+		proposal.proposal_type === 'timeline' &&
+		proposal.status === 'pending' &&
+		display.dateAmbiguity != null;
 	$: canAct = proposal.status === 'pending' && $caseEngineToken && !busy;
 
+	async function confirmDateInterpretation(interpretation: string) {
+		if (!$caseEngineToken) return;
+		busy = 'revise';
+		try {
+			const p = await reviseChatIntakeProposal(
+				caseId,
+				proposal.id,
+				$caseEngineToken,
+				`Date confirmed: ${interpretation} — please update occurred_at to match exactly and keep all other fields unchanged.`
+			);
+			onProposalUpdated(p);
+			toast.message('Date confirmed — review the updated proposal.');
+		} catch (e) {
+			toast.error((e as Error)?.message ?? 'Date confirmation failed');
+		} finally {
+			busy = null;
+		}
+	}
+
 	async function onApprove() {
-		if (!$caseEngineToken || timelineNeedsDate) return;
+		if (!$caseEngineToken || timelineNeedsDate || hasDateAmbiguity) return;
 		busy = 'approve';
 		try {
 			let p = await approveProposal(caseId, proposal.id, $caseEngineToken);
@@ -159,7 +195,29 @@
 	</div>
 
 	{#if proposal.status === 'pending'}
-		{#if timelineNeedsDate}
+		{#if hasDateAmbiguity && display.dateAmbiguity}
+			<div class="rounded-md border border-red-400 bg-red-50 dark:bg-red-950/40 dark:border-red-500/60 px-3 py-2 space-y-2">
+				<p class="text-xs font-semibold text-red-800 dark:text-red-200">
+					⚠️ Date is ambiguous — confirm before committing
+				</p>
+				<p class="text-xs text-red-700 dark:text-red-300">
+					{display.dateAmbiguity.issue}. The AI defaulted to current century but has not confirmed
+					the year. Select the correct interpretation:
+				</p>
+				<div class="flex flex-wrap gap-2">
+					{#each display.dateAmbiguity.suggested_interpretations as interp}
+						<button
+							type="button"
+							class="rounded bg-red-100 dark:bg-red-900/60 border border-red-300 dark:border-red-600 px-2 py-1 text-xs font-medium text-red-900 dark:text-red-100 hover:bg-red-200 dark:hover:bg-red-800 disabled:opacity-50"
+							disabled={!canAct}
+							on:click={() => confirmDateInterpretation(interp)}
+						>
+							{busy === 'revise' ? 'Working…' : `Use: ${interp}`}
+						</button>
+					{/each}
+				</div>
+			</div>
+		{:else if timelineNeedsDate}
 			<p class="text-xs text-amber-900 dark:text-amber-100">
 				Add a timezone-qualified date/time (e.g. via <strong>Request revision</strong>) before you can approve.
 			</p>
@@ -169,7 +227,7 @@
 			<button
 				type="button"
 				class="rounded-md bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-				disabled={!canAct || timelineNeedsDate}
+				disabled={!canAct || timelineNeedsDate || hasDateAmbiguity}
 				on:click={onApprove}
 			>
 				{busy === 'approve' ? 'Working…' : 'Approve'}

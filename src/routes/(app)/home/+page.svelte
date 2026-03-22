@@ -42,7 +42,6 @@
 		browserResolveOwuiAuth,
 		type PersonalThreadAssociation
 	} from '$lib/apis/caseEngine';
-	import { ensureChatForThread } from '$lib/apis/chats';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
 
 	// ── Personal thread list ─────────────────────────────────────────────────
@@ -116,13 +115,8 @@
 		try {
 			await upsertPersonalThreadAssociation(threadId, token, { getFreshToken });
 
-			// Ensure OWUI has a chat for this thread_id (get-or-create) before navigate.
-			const owuiToken = typeof window !== 'undefined' ? localStorage?.token : null;
-			if (owuiToken) {
-				await ensureChatForThread(owuiToken, threadId);
-			}
-
 			// Backend confirmed the binding — safe to navigate.
+			// OWUI chat record is NOT created here; it is created on first message send.
 			activeThreadScope.set({ threadId, scope: 'personal' });
 			// Clear single-case chat routing: Chat.svelte uses persisted `scope`===THIS_CASE + activeCaseId
 			// for Case Engine ask; desktop threads must use normal LLM path (user-wide / ALL).
@@ -146,6 +140,7 @@
 
 	async function newChat(): Promise<void> {
 		const threadId = uuidv4();
+		sessionStorage.setItem(`rt:${threadId}`, '1');
 		await openPersonalThread(threadId);
 	}
 

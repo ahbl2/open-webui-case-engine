@@ -81,6 +81,7 @@ if WEBSOCKET_MANAGER == "redis":
         mgr = socketio.AsyncRedisManager(
             WEBSOCKET_REDIS_URL, redis_options=WEBSOCKET_REDIS_OPTIONS
         )
+    # Session / transport debugging: set WEBSOCKET_SERVER_LOGGING=true and WEBSOCKET_SERVER_ENGINEIO_LOGGING=true in .env
     sio = socketio.AsyncServer(
         cors_allowed_origins=SOCKETIO_CORS_ORIGINS,
         async_mode="asgi",
@@ -94,6 +95,7 @@ if WEBSOCKET_MANAGER == "redis":
         engineio_logger=WEBSOCKET_SERVER_ENGINEIO_LOGGING,
     )
 else:
+    # Session / transport debugging: set WEBSOCKET_SERVER_LOGGING=true and WEBSOCKET_SERVER_ENGINEIO_LOGGING=true in .env
     sio = socketio.AsyncServer(
         cors_allowed_origins=SOCKETIO_CORS_ORIGINS,
         async_mode="asgi",
@@ -262,9 +264,14 @@ async def periodic_usage_pool_cleanup():
         release_func()
 
 
+# IMPORTANT:
+# Frontend connects to /ws/socket.io (see SOCKET_IO_SERVER_PATH in the Svelte app) via the Vite proxy.
+# socketio_path MUST match the full URL path the ASGI server sees (scope["path"] is still /ws/socket.io/...
+# under FastAPI mount("/ws", ...)). Use "ws/socket.io" (no leading slash); Engine.IO normalizes to /ws/socket.io/.
+# A mismatch (e.g. "socket.io" only, or stripping /ws in a proxy) breaks Engine.IO sessions (400 on POST, reconnects).
 app = socketio.ASGIApp(
     sio,
-    socketio_path="/ws/socket.io",
+    socketio_path="ws/socket.io",
 )
 
 

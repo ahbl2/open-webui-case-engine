@@ -44,7 +44,15 @@ IF "%WEBUI_SECRET_KEY% %WEBUI_JWT_SECRET_KEY%" == " " (
 )
 
 :: Execute uvicorn
+:: IMPORTANT: Socket.IO (Engine.IO) requires sticky sessions. Multiple workers without
+:: WEBSOCKET_MANAGER=redis causes 400 on polling POST and reconnect loops. Single worker for dev.
 SET "WEBUI_SECRET_KEY=%WEBUI_SECRET_KEY%"
 IF "%UVICORN_WORKERS%"=="" SET UVICORN_WORKERS=1
+IF /I NOT "%WEBSOCKET_MANAGER%"=="redis" (
+  IF %UVICORN_WORKERS% GTR 1 (
+    echo WARNING: UVICORN_WORKERS^>1 breaks in-memory Socket.IO; forcing UVICORN_WORKERS=1
+    SET UVICORN_WORKERS=1
+  )
+)
 uvicorn open_webui.main:app --host "%HOST%" --port "%PORT%" --forwarded-allow-ips '*' --workers %UVICORN_WORKERS% --ws auto
 :: For ssl user uvicorn open_webui.main:app --host "%HOST%" --port "%PORT%" --forwarded-allow-ips '*' --ssl-keyfile "key.pem" --ssl-certfile "cert.pem" --ws auto

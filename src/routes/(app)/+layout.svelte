@@ -67,7 +67,7 @@
 
 	function gateLabelForClassification(c: BrowserResolveFailureClassification): string {
 		if (c === 'network_unreachable') return 'redirect_access_unavailable';
-		return 'stay_in_app_transient_ce';
+		return 'redirect_access_unavailable'; // P20-PRE-01: transient_ce → /access-unavailable (no partial shell)
 	}
 
 	function toastForBrowserResolveFailure(err: BrowserResolveFailure): void {

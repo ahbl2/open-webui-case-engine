@@ -66,6 +66,15 @@ These rules prevent architectural drift in the OWUI fork. The companion Case Eng
 
 Reference docs (Case Engine repo): `docs/architecture/CURRENT_SYSTEM_STATE.md` (P19 Proposal System / Intake Architecture), `docs/workflows/CANONICAL_INTAKE_WORKFLOW.md` (OWUI vs backend history).
 
+## Local stack bootstrap (Detective fork)
+
+Authoritative steps (ports, order, readiness, **dev login**, seeded API users, troubleshooting) live in the **DetectiveCaseEngine** repo (sibling checkout: `../DetectiveCaseEngine/...`):
+
+- [LOCAL_STACK_RUNBOOK.md](../DetectiveCaseEngine/docs/operations/LOCAL_STACK_RUNBOOK.md)
+- [ENVIRONMENT_SETUP.md](../DetectiveCaseEngine/docs/operations/ENVIRONMENT_SETUP.md)
+
+This repo: copy `.env.example` → `.env`, install with `npm install --legacy-peer-deps`, Python env per upstream docs; start **Case Engine → OWUI backend → OWUI frontend**; see [docs/STACK_STARTUP.md](docs/STACK_STARTUP.md). First Open WebUI signup + fresh Case Engine DB ⇒ first `case_engine_users` row is created automatically as active admin (no manual DB edits).
+
 ## Review priorities
 When reviewing changes, look specifically for:
 - stale response overwrites
@@ -75,6 +84,16 @@ When reviewing changes, look specifically for:
 - missing error handling
 - missing loading/empty/error states
 - regression in case sidebar or case context handling
+
+## Pre-20 regression (companion to Detective Case Engine)
+
+- `npm run test:p20-pre` — deterministic Vitest subset locking P20-PRE-02…06 client behavior (envelope unwrap, retry policy, UI failure classification, request-id correlation). Matrix and Case Engine commands: `DetectiveCaseEngine/docs/api/P20_PRE_07_REGRESSION_COVERAGE.md` (in the Case Engine repo).
+
+## Socket.IO (dev)
+
+- **Origin** is resolved only via `src/lib/socketOrigin.ts` (`resolveSocketIoOrigin`) and `getSocketIoOrigin()` in `src/lib/constants.ts`. Do not add alternate `io()` call sites or implicit backend ports (no `|| '8080'` in browser code).
+- **Default:** leave **`PUBLIC_WS_URL` unset** — the client uses the **same origin as the page** (Vite `3001`); Vite proxies `/ws` to the Python backend. Set **`PUBLIC_WEBUI_BACKEND_PORT`** (or `WEBUI_BACKEND_PORT`) for the **Vite proxy target** (usually `8080`), not as the browser socket URL. Optional **`PUBLIC_WS_URL`** only for explicit non-default origins (see `docs/STACK_STARTUP.md`).
+- **Tests:** `src/lib/socketOrigin.test.ts` (also run as part of `test:p20-pre`).
 
 ## Expected output from Codex
 When implementing or reviewing, return:

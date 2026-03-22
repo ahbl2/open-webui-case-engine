@@ -24,7 +24,7 @@ describe('resolveAuthStateDecision', () => {
 		expect(resolveAuthStateDecision('unavailable')).toBe('unavailable');
 	});
 
-	it('returns transient_ce for P19.75-02 HTTP-classified states (no access-unavailable redirect)', () => {
+	it('returns transient_ce for HTTP-classified browser-resolve failures (redirect handled separately)', () => {
 		expect(resolveAuthStateDecision('rate_limited')).toBe('transient_ce');
 		expect(resolveAuthStateDecision('auth_http_error')).toBe('transient_ce');
 		expect(resolveAuthStateDecision('ce_server_error')).toBe('transient_ce');
@@ -70,8 +70,8 @@ describe('blockedRedirectPath', () => {
 		expect(blockedRedirectPath('unavailable')).toBe('/access-unavailable');
 	});
 
-	it('does not route transient_ce to any /access-* page', () => {
-		expect(blockedRedirectPath('transient_ce')).toBeNull();
+	it('routes transient_ce to /access-unavailable (P20-PRE-01 — no shell without CE linkage)', () => {
+		expect(blockedRedirectPath('transient_ce')).toBe('/access-unavailable');
 	});
 });
 
@@ -97,8 +97,8 @@ describe('gating completeness — no state is allowed to reach the workspace unb
 		}
 	});
 
-	it('active and transient_ce are the only decisions with null redirect (shell may render)', () => {
+	it('only proceed (active) has null redirect — shell may render', () => {
 		expect(blockedRedirectPath(resolveAuthStateDecision('active'))).toBeNull();
-		expect(blockedRedirectPath('transient_ce')).toBeNull();
+		expect(blockedRedirectPath('transient_ce')).toBe('/access-unavailable');
 	});
 });

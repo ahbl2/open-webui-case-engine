@@ -5,6 +5,8 @@ import { viteStaticCopy } from 'vite-plugin-static-copy';
 
 export default defineConfig(({ mode }) => {
 	const env = loadEnv(mode, process.cwd(), '');
+	// HTTP/WS proxy target for dev: where Vite forwards /api, /ollama, /ws, etc. (Python uvicorn, typically 8080).
+	// Browser Socket.IO uses the Vite origin (3001) by default; Vite proxies /ws here. Not the browser resolver.
 	const owuiBackendPort = env.PUBLIC_WEBUI_BACKEND_PORT || env.WEBUI_BACKEND_PORT || '8080';
 	const owuiBackendTarget = `http://127.0.0.1:${owuiBackendPort}`;
 	const caseEngineTarget = 'http://127.0.0.1:3010';
@@ -52,7 +54,39 @@ export default defineConfig(({ mode }) => {
 				'/api': { target: owuiBackendTarget, changeOrigin: true },
 				'/ollama': { target: owuiBackendTarget, changeOrigin: true },
 				'/openai': { target: owuiBackendTarget, changeOrigin: true },
-				'/ws': { target: owuiBackendTarget, changeOrigin: true, ws: true },
+				// IMPORTANT:
+				// Socket.IO (Engine.IO) requires:
+				// - sticky session behavior via cookies
+				// - exact path preservation (/ws/socket.io)
+				// - ws: true for upgrade support
+				// Any rewrite or header loss will cause 400 polling errors
+				'/ws': {
+					target:
+						'http://127.0.0.1:' +
+						(process.env.WEBUI_BACKEND_PORT ||
+							env.WEBUI_BACKEND_PORT ||
+							env.PUBLIC_WEBUI_BACKEND_PORT ||
+							'8080'),
+					ws: true,
+					changeOrigin: true,
+					secure: false,
+
+					// CRITICAL: do NOT rewrite path
+					// Socket.IO requires exact path preservation
+
+					configure: (proxy, _options) => {
+						proxy.on('proxyReq', (proxyReq, req, _res) => {
+							// Preserve original headers for Engine.IO session continuity
+							if (req.headers.cookie) {
+								proxyReq.setHeader('cookie', req.headers.cookie);
+							}
+						});
+
+						proxy.on('error', (err, _req, _res) => {
+							console.error('[VITE PROXY ERROR]', err.message);
+						});
+					}
+				},
 				'/static': { target: owuiBackendTarget, changeOrigin: true }
 			},
 			watch: {

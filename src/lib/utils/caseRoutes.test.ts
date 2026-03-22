@@ -276,9 +276,9 @@ describe('P19-14 — access gating applies to files/notes/activity', () => {
 	);
 
 	it.each(['rate_limited', 'auth_http_error', 'ce_server_error', 'ce_client_error'] as const)(
-		'%s (P19.75-02) does not use /access-unavailable redirect',
+		'%s (transient_ce) redirects to /access-unavailable — P20-PRE-01',
 		(state) => {
-			expect(blockedRedirectPath(resolveAuthStateDecision(state))).toBeNull();
+			expect(blockedRedirectPath(resolveAuthStateDecision(state))).toBe('/access-unavailable');
 		}
 	);
 

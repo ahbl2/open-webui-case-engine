@@ -1524,6 +1524,10 @@ app.add_middleware(
 )
 
 
+# IMPORTANT:
+# Socket.IO ASGIApp uses socketio_path="ws/socket.io" (full path from site root: /ws/socket.io/...).
+# This mount("/ws", ...) delegates URLs under /ws to that ASGI app; do not strip /ws in proxies.
+# Do not mount a second /ws or rewrite the path — session stickiness requires exact path preservation.
 app.mount("/ws", socket_app)
 
 

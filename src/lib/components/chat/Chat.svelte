@@ -57,12 +57,18 @@
 		draftChatIntakeProposal,
 		type CrossCaseCitation
 	} from '$lib/apis/caseEngine';
+	import {
+		classifyCaseEngineFailure,
+		formatCaseEngineUiMessage,
+		P20_CASE_ENGINE_ASK_UI
+	} from '$lib/utils/caseEngineUiState';
 	import { detectCaseChatIntakeIntent } from '$lib/utils/chatIntakeIntent';
 	import { finalizeAssistantStopState } from '$lib/utils/chatSiblingCompletion';
 	import {
 		getCreateNewChatIdOption,
 		shouldRewriteBrowserUrlToStandaloneChatPath
 	} from '$lib/utils/chatThreadCreateOptions';
+	import { generateThreadTitle } from '$lib/utils/threadTitle';
 	import {
 		resolveConversationalQuery,
 		isContextDependent,
@@ -230,8 +236,8 @@
 				`chat-input${chatIdProp ? `-${chatIdProp}` : ''}`
 			);
 
-			const loaded = chatIdProp ? await loadChat().catch(() => null) : false;
-			if (chatIdProp && loaded) {
+		const loaded = chatIdProp ? await loadChat().catch(() => null) : false;
+		if (chatIdProp && loaded) {
 				await tick();
 				loading = false;
 				window.setTimeout(() => scrollToBottom(), 0);
@@ -1217,10 +1223,37 @@
 			temporaryChatEnabled.set(false);
 		}
 
+		if (chatIdProp && sessionStorage.getItem(`rt:${chatIdProp}`) === '1') {
+			// Reserved thread: no OWUI record exists yet (createNewChat hasn't run).
+			// The rt: flag is cleared in initChatHandler after createNewChat succeeds,
+			// so when this flag is present the thread genuinely has no OWUI record.
+			// Render a blank canvas and do not redirect.
+			chat = null;
+			history = { messages: {}, currentId: null };
+			chatTitle.set('');
+			if ($page.url.pathname.includes('/case/')) {
+				scope.set('THIS_CASE');
+				activeCaseId.set($page.params.id ?? null);
+			} else {
+				scope.set('ALL');
+				activeCaseId.set(null);
+			}
+			return true;
+		}
+
 		chat = await getChatById(localStorage.token, $chatId).catch(async (error) => {
+			console.error(error);
 			await goto('/');
 			return null;
 		});
+
+		if (!chat) {
+			// Thread not found (deleted or access error already handled above).
+			// Render blank instead of bouncing — goto('/') already fired in the catch if needed.
+			history = { messages: {}, currentId: null };
+			chatTitle.set('');
+			return true;
+		}
 
 		if (chat) {
 			tags = await getTagsById(localStorage.token, $chatId).catch(async (error) => {
@@ -1726,6 +1759,44 @@
 	// Chat functions
 	//////////////////////////
 
+	/** P20-PRE-04: persist explicit assistant error; optional `replaceMessageId` resolves loading placeholder in-place. */
+	const appendCaseEngineAskFailureToHistory = async (
+		e: unknown,
+		userMessageId: string,
+		_chatId: string,
+		replaceMessageId?: string
+	) => {
+		const { state, userMessage } = classifyCaseEngineFailure(e);
+		const line = formatCaseEngineUiMessage(state, userMessage);
+		toast.error(line);
+		const msgId = replaceMessageId ?? uuidv4();
+		const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+		const model = $models.find((m) => m.id === modelId);
+		const prev = replaceMessageId ? history.messages[msgId] : undefined;
+		history.messages[msgId] = {
+			parentId: userMessageId,
+			id: msgId,
+			childrenIds: prev?.childrenIds ?? [],
+			role: 'assistant',
+			content: line,
+			model: modelId,
+			modelName: model?.name ?? 'Case Engine',
+			modelIdx: 0,
+			timestamp: prev?.timestamp ?? Math.floor(Date.now() / 1000),
+			done: true,
+			error: true,
+			caseEngineUiState: state,
+			caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
+		};
+		if (!replaceMessageId) {
+			history.messages[userMessageId].childrenIds.push(msgId);
+		}
+		history.currentId = msgId;
+		await saveChatHandler(_chatId, history);
+		currentChatPage.set(1);
+		chats.set(await getChatList(localStorage.token, $currentChatPage));
+	};
+
 	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
 
@@ -2089,6 +2160,7 @@
 				return;
 			}
 
+			let pendingAssistantId: string | undefined;
 			try {
 				if (intakeIntent) {
 					const proposal = await draftChatIntakeProposal($activeCaseId, $caseEngineToken, {
@@ -2130,15 +2202,33 @@
 					return;
 				}
 
+				const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+				const model = $models.find((m) => m.id === modelId);
+				pendingAssistantId = uuidv4();
+				history.messages[pendingAssistantId] = {
+					parentId: userMessageId,
+					id: pendingAssistantId,
+					childrenIds: [],
+					role: 'assistant',
+					...P20_CASE_ENGINE_ASK_UI.loading,
+					model: modelId,
+					modelName: model?.name ?? 'Case Engine',
+					modelIdx: 0,
+					timestamp: Math.floor(Date.now() / 1000),
+					caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
+				};
+				history.currentId = pendingAssistantId;
+				history.messages[userMessageId].childrenIds.push(pendingAssistantId);
+				await saveChatHandler(_chatId, history);
+				await tick();
+
 				const { answer, citations } = await askCase(
 					$activeCaseId,
 					resolvedPrompt,
 					'case',
 					$caseEngineToken
 				);
-				const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
-				const model = $models.find((m) => m.id === modelId);
-				let responseMessageId = uuidv4();
+				let responseMessageId = pendingAssistantId;
 				// Extract question type once — used by both the suggestion call and the trace.
 				const _qType = classifyQuestionType(resolvedPrompt);
 				const answerFollowUps = buildAnswerFollowUpSuggestions(
@@ -2184,16 +2274,17 @@
 				if (import.meta.env.DEV) console.debug('[BehaviorTrace]', _btSuccess);
 
 				let responseMessage = {
+					...history.messages[responseMessageId],
 					parentId: userMessageId,
 					id: responseMessageId,
-					childrenIds: [],
+					childrenIds: history.messages[responseMessageId].childrenIds ?? [],
 					role: 'assistant',
 					content: answer,
 					model: modelId,
 					modelName: model?.name ?? 'Case Engine',
 					modelIdx: 0,
 					timestamp: Math.floor(Date.now() / 1000),
-					done: true,
+					...P20_CASE_ENGINE_ASK_UI.success,
 					caseEngineCitations: citations ?? [],
 					followUps: answerFollowUps,
 					topSuggestionLabel: answerFollowUps[0]
@@ -2203,12 +2294,11 @@
 				};
 				history.messages[responseMessageId] = responseMessage;
 				history.currentId = responseMessageId;
-				history.messages[userMessageId].childrenIds.push(responseMessageId);
 				await saveChatHandler(_chatId, history);
 				currentChatPage.set(1);
 				chats.set(await getChatList(localStorage.token, $currentChatPage));
 			} catch (e) {
-				toast.error(e?.message ?? $i18n.t('Case Engine request failed'));
+				await appendCaseEngineAskFailureToHistory(e, userMessageId, _chatId, pendingAssistantId);
 			}
 			return;
 		}
@@ -2254,6 +2344,7 @@
 			}
 			await tick();
 			await saveChatHandler(_chatId, history);
+			let crossPendingAssistantId: string | undefined;
 			try {
 				const crossPriorTurns = messages.map((m) => ({
 					role: m.role as 'user' | 'assistant',
@@ -2267,6 +2358,26 @@
 						state: crossCtx.state
 					});
 				}
+				const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+				const model = $models.find((m) => m.id === modelId);
+				crossPendingAssistantId = uuidv4();
+				history.messages[crossPendingAssistantId] = {
+					parentId: userMessageId,
+					id: crossPendingAssistantId,
+					childrenIds: [],
+					role: 'assistant',
+					...P20_CASE_ENGINE_ASK_UI.loading,
+					model: modelId,
+					modelName: model?.name ?? 'Case Engine',
+					modelIdx: 0,
+					timestamp: Math.floor(Date.now() / 1000),
+					caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
+				};
+				history.currentId = crossPendingAssistantId;
+				history.messages[userMessageId].childrenIds.push(crossPendingAssistantId);
+				await saveChatHandler(_chatId, history);
+				await tick();
+
 				const res = await askCrossCase(crossCtx.resolved, $caseEngineToken, {
 					topK: 8,
 					unitScope: workspaceUnitScope
@@ -2279,30 +2390,27 @@
 								? `${c.case_number} · ${c.id}`
 								: c.id
 					})) ?? [];
-				const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
-				const model = $models.find((m) => m.id === modelId);
-				let responseMessageId = uuidv4();
-				let responseMessage = {
+				let responseMessageId = crossPendingAssistantId;
+				history.messages[responseMessageId] = {
+					...history.messages[responseMessageId],
 					parentId: userMessageId,
 					id: responseMessageId,
-					childrenIds: [],
+					childrenIds: history.messages[responseMessageId].childrenIds ?? [],
 					role: 'assistant',
 					content: res.answer,
 					model: modelId,
 					modelName: model?.name ?? 'Case Engine',
 					modelIdx: 0,
 					timestamp: Math.floor(Date.now() / 1000),
-					done: true,
+					...P20_CASE_ENGINE_ASK_UI.success,
 					caseEngineCitations: citations
 				};
-				history.messages[responseMessageId] = responseMessage;
 				history.currentId = responseMessageId;
-				history.messages[userMessageId].childrenIds.push(responseMessageId);
 				await saveChatHandler(_chatId, history);
 				currentChatPage.set(1);
 				chats.set(await getChatList(localStorage.token, $currentChatPage));
 			} catch (e) {
-				toast.error(e?.message ?? $i18n.t('Case Engine request failed'));
+				await appendCaseEngineAskFailureToHistory(e, userMessageId, _chatId, crossPendingAssistantId);
 			}
 			return;
 		}
@@ -3085,25 +3193,41 @@
 		});
 
 		if (!$temporaryChatEnabled) {
-			chat = await createNewChat(
-				localStorage.token,
-				{
-					id: _chatId,
-					title: $i18n.t('New Chat'),
-					models: selectedModels,
-					system: $settings.system ?? undefined,
-					params: params,
-					history: history,
-					messages: createMessagesList(history, history.currentId),
-					tags: [],
-					timestamp: Date.now()
-				},
-				$selectedFolder?.id,
-				createIdOption
-			);
+			// Derive title deterministically from the first user-authored message.
+			// Searches by role rather than following currentId to be pointer-independent.
+			const _firstUserMsg = Object.values(history.messages).find((m) => m.role === 'user');
+			const _rawContent =
+				typeof _firstUserMsg?.content === 'string'
+					? _firstUserMsg.content
+					: Array.isArray(_firstUserMsg?.content)
+						? _firstUserMsg.content
+								.map((c: { text?: string }) => c?.text || '')
+								.join(' ')
+								.trim()
+						: '';
+			const _title = generateThreadTitle(_rawContent) || $i18n.t('New Chat');
 
-			_chatId = chat.id;
-			await chatId.set(_chatId);
+		chat = await createNewChat(
+			localStorage.token,
+			{
+				id: _chatId,
+				title: _title,
+				models: selectedModels,
+				system: $settings.system ?? undefined,
+				params: params,
+				history: history,
+				messages: createMessagesList(history, history.currentId),
+				tags: [],
+				timestamp: Date.now()
+			},
+			$selectedFolder?.id,
+			createIdOption
+		);
+
+		sessionStorage.removeItem(`rt:${_chatId}`);
+
+		_chatId = chat.id;
+		await chatId.set(_chatId);
 
 			// Embedded case workspace (`chatIdProp`): keep `/case/.../chat` — do not rewrite to `/c/...`.
 			if (shouldRewriteBrowserUrlToStandaloneChatPath(chatIdProp)) {

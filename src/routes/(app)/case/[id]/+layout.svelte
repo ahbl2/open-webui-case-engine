@@ -20,7 +20,13 @@
 		activeCaseNumber,
 		caseEngineAuthState
 	} from '$lib/stores';
-	import { listCases } from '$lib/apis/caseEngine';
+	import { getCaseById } from '$lib/apis/caseEngine';
+	import {
+		classifyCaseEngineFailure,
+		formatCaseEngineUiMessage,
+		caseShellHeaderDataUiState,
+		type CaseEngineUiState
+	} from '$lib/utils/caseEngineUiState';
 	import { resolveAuthStateDecision, blockedRedirectPath } from '$lib/utils/authStateDecision';
 	import { resolveActiveCaseSection } from '$lib/utils/caseNavSection';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
@@ -32,6 +38,8 @@
 
 	let loading = true;
 	let loadError = '';
+	/** P20-PRE-04: classified failure for case shell load (never silent / never fake success). */
+	let loadUiState: CaseEngineUiState | null = null;
 
 	// Prevent double-loading on the reactive block below by seeding prevCaseId
 	// with the current route param before the reactive statement first evaluates.
@@ -40,14 +48,10 @@
 	async function loadCaseMeta(caseId: string): Promise<void> {
 		loading = true;
 		loadError = '';
+		loadUiState = 'loading';
 		activeCaseMeta.set(null);
 		try {
-			const cases = await listCases('ALL', $caseEngineToken!);
-			const c = cases.find((x: Record<string, unknown>) => x.id === caseId);
-			if (!c) {
-				loadError = 'Case not found or access denied.';
-				return;
-			}
+			const c = await getCaseById(caseId, $caseEngineToken!);
 			activeCaseMeta.set({
 				id: c.id as string,
 				case_number: (c.case_number ?? c.id) as string,
@@ -57,8 +61,11 @@
 			});
 			activeCaseId.set(c.id as string);
 			activeCaseNumber.set((c.case_number ?? null) as string | null);
+			loadUiState = 'success';
 		} catch (e: unknown) {
-			loadError = e instanceof Error ? e.message : 'Failed to load case.';
+			const { state, userMessage } = classifyCaseEngineFailure(e);
+			loadUiState = state;
+			loadError = formatCaseEngineUiMessage(state, userMessage);
 		} finally {
 			loading = false;
 		}
@@ -120,6 +127,13 @@
 
 	$: activeSection = resolveActiveCaseSection($page.url.pathname);
 
+	$: shellHeaderDataUiState = caseShellHeaderDataUiState({
+		loading,
+		hasActiveCaseMeta: !!$activeCaseMeta,
+		loadError,
+		loadUiState
+	});
+
 	function statusBadgeClass(status: string): string {
 		switch (status?.toUpperCase()) {
 			case 'OPEN':
@@ -161,11 +175,25 @@
 		<div class="w-px h-4 bg-gray-200 dark:bg-gray-700 shrink-0"></div>
 
 		{#if loading && !$activeCaseMeta}
-			<span class="text-sm text-gray-400 animate-pulse">Loading…</span>
+			<span
+				class="text-sm text-gray-400 animate-pulse"
+				data-testid="case-shell-loading"
+				data-case-engine-ui-state={shellHeaderDataUiState}
+			>Loading…</span>
 		{:else if loadError}
-			<span class="text-sm text-red-500">{loadError}</span>
+			<span
+				class="text-sm text-red-500"
+				data-testid="case-shell-load-error"
+				data-case-engine-ui-state={shellHeaderDataUiState}
+			>
+				{loadError}
+			</span>
 		{:else if $activeCaseMeta}
-			<div class="flex items-center gap-2 min-w-0 overflow-hidden">
+			<div
+				class="flex items-center gap-2 min-w-0 overflow-hidden"
+				data-testid="case-shell-loaded"
+				data-case-engine-ui-state={shellHeaderDataUiState}
+			>
 				<span
 					class="font-mono text-xs text-gray-400 dark:text-gray-500 shrink-0 select-all"
 				>

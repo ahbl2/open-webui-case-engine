@@ -476,7 +476,10 @@ else:
 # UVICORN WORKERS
 ####################################
 
-# Number of uvicorn worker processes for handling requests
+# Number of uvicorn worker processes for handling requests (default: 1).
+# IMPORTANT: Socket.IO (Engine.IO) requires sticky sessions. Multiple workers without
+# WEBSOCKET_MANAGER=redis (shared client manager) cause 400 on polling POST and reconnect loops.
+# See clamp below after WEBSOCKET_MANAGER is read.
 UVICORN_WORKERS = os.environ.get("UVICORN_WORKERS", "1")
 try:
     UVICORN_WORKERS = int(UVICORN_WORKERS)
@@ -733,6 +736,15 @@ ENABLE_WEBSOCKET_SUPPORT = (
 
 
 WEBSOCKET_MANAGER = os.environ.get("WEBSOCKET_MANAGER", "")
+
+# In-memory Socket.IO cannot span multiple uvicorn workers; Redis manager coordinates cross-worker.
+if WEBSOCKET_MANAGER != "redis" and UVICORN_WORKERS > 1:
+    log.warning(
+        "UVICORN_WORKERS=%s is incompatible with in-memory Socket.IO (WEBSOCKET_MANAGER is not 'redis'). "
+        "Forcing UVICORN_WORKERS=1. Set WEBSOCKET_MANAGER=redis and WEBSOCKET_REDIS_URL for multi-worker.",
+        UVICORN_WORKERS,
+    )
+    UVICORN_WORKERS = 1
 
 WEBSOCKET_REDIS_OPTIONS = os.environ.get("WEBSOCKET_REDIS_OPTIONS", "")
 

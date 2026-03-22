@@ -633,7 +633,7 @@ export const getChatListByTagName = async (token: string = '', tagName: string) 
 	}));
 };
 
-export const getChatById = async (token: string, id: string) => {
+export const getChatById = async (token: string, id: string, { silent = false } = {}) => {
 	let error = null;
 
 	const res = await fetch(`${WEBUI_API_BASE_URL}/chats/${id}`, {
@@ -653,8 +653,7 @@ export const getChatById = async (token: string, id: string) => {
 		})
 		.catch((err) => {
 			error = err.detail;
-
-			console.error(err);
+			if (!silent) console.error(err);
 			return null;
 		});
 

@@ -53,7 +53,8 @@
 	import { chatCompletion } from '$lib/apis/openai';
 
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL, WEBUI_HOSTNAME, getSocketIoOrigin } from '$lib/constants';
-	import { getSocket } from '$lib/socket';
+	import { attachLayoutSocketListenersOnce, getSocket, resetSocket } from '$lib/socket';
+	import { SOCKET_IO_SERVER_PATH } from '$lib/socketOrigin';
 	import { bestMatchingLanguage, displayFileHandler } from '$lib/utils';
 	import { setTextScale } from '$lib/utils/text-scale';
 
@@ -101,6 +102,10 @@
 
 	let heartbeatInterval = null;
 
+	// Stale-session recovery: tracks whether a reset is already in-flight.
+	// Prevents a rapid reset loop if the backend is still coming back up.
+	let socketResetScheduled = false;
+
 	const BREAKPOINT = 768;
 
 	/** Detective workspace: use one shell; do not show OWUI AppSidebar. */
@@ -112,79 +117,108 @@
 	/** Unified shell: detective + admin; hide OWUI AppSidebar for both. */
 	$: isUnifiedShell = isDetectiveWorkspace || ($page?.url?.pathname || '').startsWith('/admin');
 
-	/** Ensures a single Socket.IO client; see `$lib/socket` (no duplicate `io()`). */
-	let socketLayoutInitialized = false;
-
+	/** Root layout: one `io()` via `getSocket()`; listener block runs once per socket instance (see `attachLayoutSocketListenersOnce`). */
 	const setupSocket = async (enableWebsocket) => {
-		if (socketLayoutInitialized) {
-			await socket.set(getSocket());
-			return;
-		}
-		socketLayoutInitialized = true;
-
-		const ioUrl = getSocketIoOrigin();
-		// [WS-DIAG] Log once at init
-		console.log('[WS-DIAG] socket.io init:', {
-			url: ioUrl ?? 'undefined (same-origin)',
-			path: '/ws/socket.io',
-			transports: ['websocket', 'polling']
-		});
 		const _socket = getSocket();
 		await socket.set(_socket);
 
-		_socket.on('connect_error', (err) => {
-			console.log('[WS-DIAG] connect_error:', err?.message ?? err, 'transport:', _socket.io?.engine?.transport?.name);
-		});
+		const ioUrl = getSocketIoOrigin();
+		attachLayoutSocketListenersOnce(_socket, (s) => {
+			// [WS-DIAG] First bind only (see attachLayoutSocketListenersOnce)
+			console.log('[WS-DIAG] socket.io init:', {
+				url: ioUrl ?? 'undefined (same-origin)',
+				path: SOCKET_IO_SERVER_PATH,
+				transports: ['polling', 'websocket']
+			});
 
-		_socket.on('connect', async () => {
-			console.log('[WS-DIAG] connected:', _socket.id, 'transport:', _socket.io?.engine?.transport?.name);
-			// Detective: upstream version-check-and-reload disabled — controlled deployment only.
+			s.on('connect_error', (err) => {
+				console.log('[WS-DIAG] connect_error:', err?.message ?? err, 'transport:', s.io?.engine?.transport?.name);
 
-			// Send heartbeat every 30 seconds
-			heartbeatInterval = setInterval(() => {
-				if (_socket.connected) {
-					console.log('Sending heartbeat');
-					_socket.emit('heartbeat', {});
+				// Stale Engine.IO session recovery — triggered when the backend restarts and
+				// invalidates all in-memory session IDs. The polling POST returns 400 with a
+				// message containing "Invalid session", which surfaces here as a connect_error.
+				// We dispose the stale socket and recreate a fresh one so the app self-heals
+				// without requiring a hard reload. A one-shot cooldown prevents a reset storm
+				// if the backend is still coming back up.
+				const msg = String(err?.message ?? err ?? '').toLowerCase();
+				const errDesc = err?.description;
+				const isStaleSession =
+					msg.includes('bad request') ||
+					msg.includes('invalid session') ||
+					errDesc?.status === 400 ||
+					errDesc?.statusCode === 400;
+
+				if (isStaleSession && !socketResetScheduled) {
+					socketResetScheduled = true;
+					console.log('[WS-DIAG] Stale session detected — will reset socket in 2 s');
+					setTimeout(async () => {
+						if (heartbeatInterval) {
+							clearInterval(heartbeatInterval);
+							heartbeatInterval = null;
+						}
+						resetSocket();
+						socketResetScheduled = false;
+						console.log('[WS-DIAG] Socket reset complete — reconnecting');
+						await setupSocket($config?.features?.enable_websocket ?? true);
+					}, 2000);
 				}
-			}, 30000);
+			});
 
-			const emitUserJoin = () => {
-				const t = localStorage.getItem('token');
-				if (t) {
-					_socket.emit('user-join', { auth: { token: t } });
-					return true;
+			s.on('connect', async () => {
+				console.log('[WS-DIAG] connected:', s.id, 'transport:', s.io?.engine?.transport?.name);
+				// Detective: upstream version-check-and-reload disabled — controlled deployment only.
+
+				if (heartbeatInterval) {
+					clearInterval(heartbeatInterval);
+					heartbeatInterval = null;
 				}
-				return false;
-			};
-			if (!emitUserJoin()) {
-				// P19.75-01: Token is sometimes written after connect; retry without noisy false warnings.
-				queueMicrotask(() => {
-					if (!emitUserJoin() && import.meta.env.DEV) {
-						console.warn('No token found in localStorage, user-join event not emitted');
+
+				// Send heartbeat every 30 seconds
+				heartbeatInterval = setInterval(() => {
+					if (s.connected) {
+						console.log('Sending heartbeat');
+						s.emit('heartbeat', {});
 					}
-				});
-			}
-		});
+				}, 30000);
 
-		_socket.on('reconnect_attempt', (attempt) => {
-			console.log('[WS-DIAG] reconnect_attempt:', attempt);
-		});
+				const emitUserJoin = () => {
+					const t = localStorage.getItem('token');
+					if (t) {
+						s.emit('user-join', { auth: { token: t } });
+						return true;
+					}
+					return false;
+				};
+				if (!emitUserJoin()) {
+					// P19.75-01: Token is sometimes written after connect; retry without noisy false warnings.
+					queueMicrotask(() => {
+						if (!emitUserJoin() && import.meta.env.DEV) {
+							console.warn('No token found in localStorage, user-join event not emitted');
+						}
+					});
+				}
+			});
 
-		_socket.on('reconnect_failed', () => {
-			console.log('[WS-DIAG] reconnect_failed');
-		});
+			s.on('reconnect_attempt', (attempt) => {
+				console.log('[WS-DIAG] reconnect_attempt:', attempt);
+			});
 
-		_socket.on('disconnect', (reason, details) => {
-			console.log('[WS-DIAG] disconnect:', { reason, details, transport: _socket.io?.engine?.transport?.name });
+			s.on('reconnect_failed', () => {
+				console.log('[WS-DIAG] reconnect_failed');
+			});
 
-			if (heartbeatInterval) {
-				clearInterval(heartbeatInterval);
-				heartbeatInterval = null;
-			}
+			s.on('disconnect', (reason, details) => {
+				console.log('[WS-DIAG] disconnect:', { reason, details, transport: s.io?.engine?.transport?.name });
 
-			if (details) {
-				console.log('Additional details:', details);
-			}
+				if (heartbeatInterval) {
+					clearInterval(heartbeatInterval);
+					heartbeatInterval = null;
+				}
+
+				if (details) {
+					console.log('Additional details:', details);
+				}
+			});
 		});
 	};
 

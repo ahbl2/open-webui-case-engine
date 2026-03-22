@@ -72,6 +72,18 @@ fi
 PYTHON_CMD=$(command -v python3 || command -v python)
 UVICORN_WORKERS="${UVICORN_WORKERS:-1}"
 
+# IMPORTANT:
+# Socket.IO (Engine.IO) requires sticky sessions.
+# Multiple workers without a shared session store will cause:
+# - 400 "Bad Request" on polling POST
+# - reconnect loops
+# Use a single worker for dev, or set WEBSOCKET_MANAGER=redis (and Redis URL) for multi-worker.
+# Shell-side clamp when WEBSOCKET_MANAGER is unset or not redis (Python env.py also clamps on import).
+if [ "${WEBSOCKET_MANAGER:-}" != "redis" ] && [ "${UVICORN_WORKERS:-1}" -gt 1 ] 2>/dev/null; then
+  echo "WARNING: UVICORN_WORKERS>1 breaks in-memory Socket.IO; forcing UVICORN_WORKERS=1" >&2
+  UVICORN_WORKERS=1
+fi
+
 # If script is called with arguments, use them; otherwise use default workers
 if [ "$#" -gt 0 ]; then
     ARGS=("$@")

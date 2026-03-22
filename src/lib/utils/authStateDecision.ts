@@ -7,15 +7,16 @@
  *
  * DOCTRINE:
  * - 'active'  → proceed; user is authorized to enter the workspace
- * - 'transient_ce' → P19.75-02: CE responded with a non-network HTTP error (429, 401, 5xx, …);
- *   stay in the OWUI shell with no redirect to /access-unavailable (Case Engine features gated elsewhere)
+ * - 'transient_ce' → CE responded with a non-network HTTP error (429, 401, 5xx, …) on browser-resolve.
+ *   P20-PRE-01: must NOT load the app shell as if Case Engine linkage succeeded — redirect to /access-unavailable
+ *   (explicit failure; no silent partial OWUI session without a resolved CE auth path).
  * - anything else → blocked; the frontend must NOT load the detective workspace as “fully authorized”
  * - 'unavailable' is treated as blocked (fail-closed, not fail-open) — only for true reachability failure
  */
 
 export type AuthStateDecision =
 	| 'proceed'       // active user — workspace may load
-	| 'transient_ce' // P19.75-02: rate_limited / HTTP auth or server errors from browser-resolve — no access-* redirect
+	| 'transient_ce' // rate_limited / HTTP auth or server errors from browser-resolve — blocked (P20-PRE-01)
 	| 'pending'       // pending/denied_no_profile — route to /access-pending
 	| 'disabled'      // disabled — route to /access-disabled
 	| 'unavailable';  // backend unreachable — route to /access-unavailable
@@ -47,7 +48,7 @@ export function resolveAuthStateDecision(state: string | null | undefined): Auth
 export function blockedRedirectPath(decision: AuthStateDecision): string | null {
 	switch (decision) {
 		case 'proceed':       return null;
-		case 'transient_ce':  return null; // P19.75-02: not “service unavailable”; shell may render
+		case 'transient_ce':  return '/access-unavailable';
 		case 'disabled':      return '/access-disabled';
 		case 'unavailable':   return '/access-unavailable';
 		case 'pending':

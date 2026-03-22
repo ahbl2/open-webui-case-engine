@@ -73,8 +73,9 @@ def serve(
             os.environ["LD_LIBRARY_PATH"] = ":".join(LD_LIBRARY_PATH)
 
     import open_webui.main  # we need set environment variables before importing main
-    from open_webui.env import UVICORN_WORKERS  # Import the workers setting
+    from open_webui.env import UVICORN_WORKERS  # Import the workers setting (clamped if Socket.IO in-memory)
 
+    # IMPORTANT: UVICORN_WORKERS>1 requires WEBSOCKET_MANAGER=redis for Socket.IO; see open_webui/env.py
     uvicorn.run(
         "open_webui.main:app",
         host=host,

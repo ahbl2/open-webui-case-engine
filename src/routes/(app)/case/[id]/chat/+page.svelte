@@ -42,7 +42,6 @@
 		createProposal,
 		type ProposalType
 	} from '$lib/apis/caseEngine';
-	import { ensureChatForThread } from '$lib/apis/chats';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
 
 	// Legacy case tool components — preserved for P19-14 migration.
@@ -153,13 +152,8 @@
 		try {
 			await upsertCaseThreadAssociation(caseId, threadId, token, { getFreshToken });
 
-			// Ensure OWUI has a chat for this thread_id (get-or-create) before render.
-			const owuiToken = typeof window !== 'undefined' ? localStorage?.token : null;
-			if (owuiToken) {
-				await ensureChatForThread(owuiToken, threadId);
-			}
-
 			// Binding confirmed by backend — safe to render chat.
+			// OWUI chat record is NOT created here; it is created on first message send.
 			activeThreadScope.set({
 				threadId,
 				scope: 'case',
@@ -192,6 +186,7 @@
 	/** Create a new OWUI thread UUID, bind to case, then open chat. */
 	async function newThread(): Promise<void> {
 		const threadId = uuidv4();
+		sessionStorage.setItem(`rt:${threadId}`, '1');
 		await openThread(threadId);
 	}
 

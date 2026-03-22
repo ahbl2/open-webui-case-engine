@@ -2,18 +2,97 @@
  * Case Engine API (Ticket 5) – separate from WebUI backend.
  * Proxied at /case-api by Caddy.
  */
+import { v4 as uuidv4 } from 'uuid';
 import { CASE_ENGINE_BASE_URL } from '$lib/constants';
+import { isTransportFailure, safeReadFetch } from './retryPolicy';
 
-/** Extract error message from API response; avoids [object Object] when backend returns { error: { message: '...' } }. */
+/** P20-PRE-06: one `request_id` per logical client operation; `safeReadFetch` retries reuse the same `X-Request-Id` (no attempt-level id in Pre-20). Echoed by Case Engine. */
+function newCaseEngineRequestId(): string {
+	if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+		return globalThis.crypto.randomUUID();
+	}
+	return uuidv4();
+}
+
+function responseRequestId(res: Response): string | undefined {
+	return res.headers.get('x-request-id') ?? res.headers.get('X-Request-Id') ?? undefined;
+}
+
+/** Extract error message from API response; canonical `{ success: false, error: { message } }` first, then legacy string `error`. */
 function extractApiErrorMessage(data: unknown, fallback: string): string {
 	if (data != null && typeof data === 'object') {
 		const d = data as Record<string, unknown>;
-		if (typeof d.error === 'string') return d.error;
-		if (d.error != null && typeof d.error === 'object' && typeof (d.error as Record<string, unknown>).message === 'string')
+		if (d.error != null && typeof d.error === 'object' && typeof (d.error as Record<string, unknown>).message === 'string') {
 			return (d.error as Record<string, unknown>).message as string;
+		}
+		if (typeof d.error === 'string') return d.error;
 		if (typeof d.message === 'string') return d.message;
 	}
 	return fallback;
+}
+
+function extractApiErrorCode(data: unknown): string | undefined {
+	if (data != null && typeof data === 'object') {
+		const d = data as Record<string, unknown>;
+		if (d.error != null && typeof d.error === 'object') {
+			const c = (d.error as Record<string, unknown>).code;
+			if (typeof c === 'string') return c;
+		}
+	}
+	return undefined;
+}
+
+/**
+ * P20-PRE-04: Typed Case Engine HTTP / contract failures for UI classification (status + optional API code).
+ * `details` may hold `{ citations }` for 422 ask responses (see CaseAiAskTab / CaseCrossCaseSearch).
+ */
+export class CaseEngineRequestError extends Error {
+	override readonly name = 'CaseEngineRequestError';
+	constructor(
+		message: string,
+		public readonly httpStatus?: number,
+		public readonly errorCode?: string,
+		public readonly details?: unknown,
+		/** P20-PRE-06: same id as the logical operation’s `X-Request-Id` (retries reuse it). */
+		public readonly requestId?: string
+	) {
+		super(message);
+		Object.setPrototypeOf(this, new.target.prototype);
+	}
+
+	/** Optional parse-error citations from API (422 ask paths). */
+	get citations(): unknown {
+		if (this.details != null && typeof this.details === 'object' && 'citations' in this.details) {
+			return (this.details as { citations?: unknown }).citations;
+		}
+		return undefined;
+	}
+}
+
+/**
+ * P20-PRE-02: After HTTP OK, parse body — canonical envelope is primary; legacy only when `success` is absent.
+ * - `success === true` → require `data` (else throw)
+ * - `success === false` → throw with `error.message`
+ * - no `success` key → treat whole body as legacy payload `T`
+ */
+function unwrapEnvelopeCanonicalFirst<T>(data: unknown, context: string): T {
+	if (data == null || typeof data !== 'object') {
+		throw new Error(`${context}: invalid response body`);
+	}
+	const d = data as Record<string, unknown>;
+	if (!('success' in d)) {
+		return data as T;
+	}
+	if (d.success === true) {
+		if (!('data' in d)) {
+			throw new Error(`${context}: invalid envelope (success true but missing data)`);
+		}
+		return d.data as T;
+	}
+	if (d.success === false) {
+		throw new Error(extractApiErrorMessage(data, `${context} failed`));
+	}
+	throw new Error(`${context}: invalid envelope (success must be boolean)`);
 }
 
 export type CaseEngineScope = 'case' | 'CID' | 'SIU' | 'ALL';
@@ -87,49 +166,30 @@ export async function browserResolveOwuiAuth(params: {
 }> {
 	const url = `${CASE_ENGINE_BASE_URL}/auth/owui/browser-resolve`;
 	const body = JSON.stringify(params);
-	const maxAttempts = 3;
-	let lastErr: unknown;
-
-	for (let attempt = 0; attempt < maxAttempts; attempt++) {
-		try {
-			const res = await fetch(url, {
-				method: 'POST',
-				headers: { 'Content-Type': 'application/json' },
-				body
-			});
-			const data = await res.json().catch(() => ({}));
-			if (!res.ok) {
-				const msg = extractApiErrorMessage(
-					data,
-					`Failed to resolve Case Engine auth state (${res.status})`
-				);
-				throw new BrowserResolveFailure(classifyBrowserResolveHttpStatus(res.status), msg, res.status, data);
-			}
-			return data;
-		} catch (e) {
-			if (e instanceof BrowserResolveFailure) {
-				throw e;
-			}
-			lastErr = e;
-			const msg = e instanceof Error ? e.message : String(e);
-			const isNetworkFailure =
-				e instanceof TypeError ||
-				/failed to fetch|networkerror|load failed|network request failed/i.test(msg);
-			if (!isNetworkFailure || attempt === maxAttempts - 1) {
-				if (isNetworkFailure) {
-					throw new BrowserResolveFailure(
-						'network_unreachable',
-						msg,
-						undefined,
-						undefined
-					);
-				}
-				throw e;
-			}
-			await new Promise((r) => setTimeout(r, 250 * (attempt + 1)));
+	/** P20-PRE-05 corrective: POST mutating bootstrap — single-shot (no auto-retry; dropped response ≠ safe replay). */
+	let res: Response;
+	try {
+		res = await fetch(url, {
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json' },
+			body
+		});
+	} catch (e) {
+		const msg = e instanceof Error ? e.message : String(e);
+		if (isTransportFailure(e)) {
+			throw new BrowserResolveFailure('network_unreachable', msg, undefined, undefined);
 		}
+		throw e;
 	}
-	throw lastErr;
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		const msg = extractApiErrorMessage(
+			data,
+			`Failed to resolve Case Engine auth state (${res.status})`
+		);
+		throw new BrowserResolveFailure(classifyBrowserResolveHttpStatus(res.status), msg, res.status, data);
+	}
+	return data;
 }
 
 export async function login(name: string, password: string): Promise<{ token: string; user: { id: string; name: string; role: string } }> {
@@ -140,9 +200,12 @@ export async function login(name: string, password: string): Promise<{ token: st
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) {
-		throw new Error(data?.error ?? `Login failed (${res.status})`);
+		throw new Error(extractApiErrorMessage(data, `Login failed (${res.status})`));
 	}
-	return data;
+	return unwrapEnvelopeCanonicalFirst<{ token: string; user: { id: string; name: string; role: string } }>(
+		data,
+		'login'
+	);
 }
 
 /** Case Engine OWUI user list (admin only). status filter optional: pending | active | disabled */
@@ -269,17 +332,90 @@ export async function listCasesSidebar(token: string): Promise<CaseEngineCase[]>
 }
 
 export async function listCases(unit: 'CID' | 'SIU' | 'ALL', token: string): Promise<CaseEngineCase[]> {
-	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases?unit=${unit}`, {
+	/** P20-PRE-05: GET list — safe-read retry (transient HTTP + transport). */
+	const res = await safeReadFetch(
+		() =>
+			fetch(`${CASE_ENGINE_BASE_URL}/cases?unit=${unit}`, {
+				headers: {
+					'Content-Type': 'application/json',
+					Authorization: `Bearer ${token}`
+				}
+			}),
+		'listCases'
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(extractApiErrorMessage(data, `Failed to list cases (${res.status})`));
+	}
+	const list = unwrapEnvelopeCanonicalFirst<CaseEngineCase[]>(data, 'listCases');
+	return Array.isArray(list) ? list : [];
+}
+
+/** P20-PRE-02: GET /health — canonical envelope primary. */
+export async function fetchCaseEngineHealth(): Promise<Record<string, unknown>> {
+	/** P20-PRE-05: GET health — safe-read retry. */
+	const res = await safeReadFetch(() => fetch(`${CASE_ENGINE_BASE_URL}/health`), 'fetchCaseEngineHealth');
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(extractApiErrorMessage(data, `Case Engine health failed (${res.status})`));
+	}
+	return unwrapEnvelopeCanonicalFirst<Record<string, unknown>>(data, 'fetchCaseEngineHealth');
+}
+
+/** P20-PRE-02: GET /cases/:id — canonical envelope primary. */
+export async function getCaseById(caseId: string, token: string): Promise<CaseEngineCase> {
+	const outboundRequestId = newCaseEngineRequestId();
+	const headers: Record<string, string> = {
+		'Content-Type': 'application/json',
+		Authorization: `Bearer ${token}`,
+		'X-Request-Id': outboundRequestId
+	};
+	/** P20-PRE-05: GET case — safe-read retry. */
+	const res = await safeReadFetch(
+		() =>
+			fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}`, {
+				headers
+			}),
+		'getCaseById'
+	);
+	const correlator = responseRequestId(res) ?? outboundRequestId;
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new CaseEngineRequestError(
+			extractApiErrorMessage(data, `Failed to load case (${res.status})`),
+			res.status,
+			extractApiErrorCode(data),
+			undefined,
+			correlator
+		);
+	}
+	try {
+		return unwrapEnvelopeCanonicalFirst<CaseEngineCase>(data, 'getCaseById');
+	} catch (e) {
+		const m = e instanceof Error ? e.message : String(e);
+		throw new CaseEngineRequestError(m, res.status, 'INVALID_ENVELOPE', undefined, correlator);
+	}
+}
+
+/** P20-PRE-02: POST /cases — canonical envelope primary. */
+export async function createCase(
+	token: string,
+	payload: { case_number: string; title: string; unit: 'CID' | 'SIU'; status: 'OPEN' | 'CLOSED' }
+): Promise<CaseEngineCase> {
+	/** P20-PRE-05: POST create — mutating; no auto-retry. */
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases`, {
+		method: 'POST',
 		headers: {
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`
-		}
+		},
+		body: JSON.stringify(payload)
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) {
-		throw new Error(data?.error ?? `Failed to list cases (${res.status})`);
+		throw new Error(extractApiErrorMessage(data, `Create case failed (${res.status})`));
 	}
-	return Array.isArray(data) ? data : [];
+	return unwrapEnvelopeCanonicalFirst<CaseEngineCase>(data, 'createCase');
 }
 
 /** Ticket 8: AI context bundle - case + timeline + files + citations (for prompt injection) */
@@ -361,8 +497,8 @@ export async function askCase(
 	const res = await askCaseQuestion(caseId, question, token, 8);
 	return {
 		answer: res.answer,
-		citations: res.used_citations.map((c) => ({
-			type: (c.source_type === 'timeline_entry' ? 'entry' : 'file') as 'entry' | 'file',
+		citations: res.citations.map((c) => ({
+			type: c.type,
 			id: c.id
 		}))
 	};
@@ -386,11 +522,14 @@ export type AskCitation =
 			snippet: string;
 	  };
 
+/** P20-PRE-03: canonical fields + evidence payloads (matches Case Engine `data`). */
 export interface AskCaseQuestionResponse {
-	question: string;
 	answer: string;
+	citations: Array<{ type: 'entry' | 'file'; id: string }>;
+	meta: { source: 'case' | 'cross-case'; model?: string };
+	question: string;
 	confidence: 'LOW' | 'MEDIUM' | 'HIGH';
-	citations: AskCitation[];
+	evidence_citations: AskCitation[];
 	used_citations: AskCitation[];
 }
 
@@ -404,43 +543,53 @@ export async function askCaseQuestion(
 	const body: Record<string, unknown> = { question: question.trim(), topK: topK ?? 8 };
 	if (model) body.model = model;
 
+	const outboundRequestId = newCaseEngineRequestId();
+	const authHeaders: Record<string, string> = {
+		'Content-Type': 'application/json',
+		Authorization: `Bearer ${token}`,
+		'X-Request-Id': outboundRequestId
+	};
+
 	const doFetch = () =>
 		fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/ask`, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			headers: authHeaders,
 			body: JSON.stringify(body)
 		});
 
-	let res = await doFetch();
-	let retryAttempted = false;
+	/** P20-PRE-05: POST ask — classified safe-read retry (transient HTTP + transport); 422 never retried. */
+	const res = await safeReadFetch(doFetch, 'askCaseQuestion');
 
-	// Transparent single retry on 422 — this is an intermittent LLM JSON parse failure
-	// (Ollama occasionally returns prose instead of the required JSON envelope).
-	// Retrying with the identical payload usually succeeds on the next generation.
-	if (res.status === 422) {
-		retryAttempted = true;
-		console.debug('[case-engine] /ask returned 422 (LLM parse failure), retrying once', {
-			question: question.trim()
-		});
-		res = await doFetch();
-	}
-
+	const correlator = responseRequestId(res) ?? outboundRequestId;
 	const data = await res.json().catch(() => ({}));
 
 	if (res.status === 422) {
-		if (retryAttempted) {
-			console.debug('[case-engine] /ask retry also returned 422, giving up');
-		}
-		const err = new Error(data?.error ?? 'AI returned invalid response') as Error & {
-			citations?: AskCitation[];
-		};
-		err.citations = data?.citations;
-		throw err;
+		const msg = extractApiErrorMessage(data, 'AI returned invalid response');
+		const det = data as { error?: { details?: { citations?: AskCitation[] } } };
+		const citations = det?.error?.details?.citations;
+		throw new CaseEngineRequestError(
+			msg,
+			422,
+			extractApiErrorCode(data) ?? 'ASK_VALIDATION_FAILED',
+			citations !== undefined ? { citations } : undefined,
+			correlator
+		);
 	}
 	if (!res.ok) {
-		throw new Error(data?.error ?? `Ask failed (${res.status})`);
+		throw new CaseEngineRequestError(
+			extractApiErrorMessage(data, `Ask failed (${res.status})`),
+			res.status,
+			extractApiErrorCode(data),
+			undefined,
+			correlator
+		);
 	}
-	return data;
+	try {
+		return unwrapEnvelopeCanonicalFirst<AskCaseQuestionResponse>(data, 'askCaseQuestion');
+	} catch (e) {
+		const m = e instanceof Error ? e.message : String(e);
+		throw new CaseEngineRequestError(m, res.status, 'INVALID_ENVELOPE', undefined, correlator);
+	}
 }
 
 // ─── Files (Ticket 5 Part 5) ───────────────────────────────────────────────
@@ -754,10 +903,12 @@ export type CrossCaseCitation =
 	  };
 
 export interface AskCrossCaseResponse {
-	question: string;
 	answer: string;
+	citations: Array<{ type: 'entry' | 'file'; id: string }>;
+	meta: { source: 'case' | 'cross-case'; model?: string };
+	question: string;
 	confidence: 'LOW' | 'MEDIUM' | 'HIGH';
-	citations: CrossCaseCitation[];
+	evidence_citations: CrossCaseCitation[];
 	used_citations: CrossCaseCitation[];
 }
 
@@ -769,26 +920,51 @@ export async function askCrossCase(
 	const body: Record<string, unknown> = { question: question.trim() };
 	if (opts?.topK != null) body.topK = opts.topK;
 	if (opts?.unitScope != null) body.unitScope = opts.unitScope;
-	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/ask-cross`, {
-		method: 'POST',
-		headers: {
-			'Content-Type': 'application/json',
-			Authorization: `Bearer ${token}`
-		},
-		body: JSON.stringify(body)
-	});
+	const outboundRequestId = newCaseEngineRequestId();
+	const headers: Record<string, string> = {
+		'Content-Type': 'application/json',
+		Authorization: `Bearer ${token}`,
+		'X-Request-Id': outboundRequestId
+	};
+	/** P20-PRE-05: POST ask-cross — same safe-read policy as case ask (no 422 retry). */
+	const res = await safeReadFetch(
+		() =>
+			fetch(`${CASE_ENGINE_BASE_URL}/cases/ask-cross`, {
+				method: 'POST',
+				headers,
+				body: JSON.stringify(body)
+			}),
+		'askCrossCase'
+	);
+	const correlator = responseRequestId(res) ?? outboundRequestId;
 	const data = await res.json().catch(() => ({}));
 	if (res.status === 422) {
-		const err = new Error((data as { error?: string })?.error ?? 'AI returned invalid response') as Error & {
-			citations?: CrossCaseCitation[];
-		};
-		err.citations = (data as { citations?: CrossCaseCitation[] })?.citations;
-		throw err;
+		const msg = extractApiErrorMessage(data, 'AI returned invalid response');
+		const det = data as { error?: { details?: { citations?: CrossCaseCitation[] } } };
+		const citations = det?.error?.details?.citations;
+		throw new CaseEngineRequestError(
+			msg,
+			422,
+			extractApiErrorCode(data) ?? 'ASK_VALIDATION_FAILED',
+			citations !== undefined ? { citations } : undefined,
+			correlator
+		);
 	}
 	if (!res.ok) {
-		throw new Error((data as { error?: string })?.error ?? `Cross-case ask failed (${res.status})`);
+		throw new CaseEngineRequestError(
+			extractApiErrorMessage(data, `Cross-case ask failed (${res.status})`),
+			res.status,
+			extractApiErrorCode(data),
+			undefined,
+			correlator
+		);
 	}
-	return data;
+	try {
+		return unwrapEnvelopeCanonicalFirst<AskCrossCaseResponse>(data, 'askCrossCase');
+	} catch (e) {
+		const m = e instanceof Error ? e.message : String(e);
+		throw new CaseEngineRequestError(m, res.status, 'INVALID_ENVELOPE', undefined, correlator);
+	}
 }
 
 /** Ticket 11: Download Running Notes as PDF – returns false if not implemented (501) */
