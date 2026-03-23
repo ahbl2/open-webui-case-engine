@@ -15,7 +15,7 @@
 	data-testid="case-proposals-page"
 >
 	<div class="shrink-0 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-		<h1 class="text-base font-semibold text-gray-900 dark:text-gray-100">Proposals</h1>
+		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Proposals</h2>
 		<p class="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-3xl leading-relaxed">
 			Governed intake from chat and other sources: pending items are <strong>not</strong> on the Timeline
 			or in official notes until you approve and commit. Timeline shows <strong>committed</strong> entries

@@ -278,28 +278,27 @@
 				{/if}
 			</div>
 
-		<!-- BOTTOM COMPOSER REGION
-		     P19-08: When the chat section is active, Chat.svelte owns the composer
-		     input at the bottom of its own layout. The structural placeholder here
-		     collapses to zero height to avoid double-composing the input zone.
-		     For non-chat sections (Timeline, Files, etc.) this region may be used
-		     by P19-14+ for a section-appropriate action bar. -->
-		<div
-			class="shrink-0 {activeSection === 'chat' ? 'min-h-0' : 'border-t border-gray-200 dark:border-gray-800 min-h-[2.5rem]'}"
-			aria-label="Composer region"
-			data-testid="case-composer-region"
-			data-section={activeSection}
-		></div>
+	<!-- BOTTOM COMPOSER REGION
+	     P19-08: Chat.svelte owns the composer input inside its own layout.
+	     This structural placeholder collapses to zero height on all tabs. -->
+	<div
+		class="shrink-0 min-h-0"
+		aria-label="Composer region"
+		data-testid="case-composer-region"
+		data-section={activeSection}
+	></div>
 		</div>
 
 		<!-- ── RIGHT CONTEXT RAIL
-		     Structural shell region reserved for P19-08+ context integration.
-		     Hidden below xl breakpoint.  Do not populate until P19-08+. ── -->
-		<div
-			class="hidden xl:flex w-56 shrink-0 flex-col border-l border-gray-200 dark:border-gray-800
-			       bg-gray-50 dark:bg-gray-900"
-			aria-label="Context rail"
-			data-testid="case-context-rail"
-		></div>
+		     Reserved for future context integration. Only rendered on chat tab
+		     where right-side space is part of the intended workspace structure. ── -->
+		{#if activeSection === 'chat'}
+			<div
+				class="hidden xl:flex w-56 shrink-0 flex-col border-l border-gray-200 dark:border-gray-800
+				       bg-gray-50 dark:bg-gray-900"
+				aria-label="Context rail"
+				data-testid="case-context-rail"
+			></div>
+		{/if}
 	</div>
 </div>

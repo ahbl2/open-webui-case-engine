@@ -38,6 +38,7 @@
 		statusBadgeClasses,
 		tabClasses
 	} from '$lib/utils/proposalUiState';
+	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 
 	// ── Props ──────────────────────────────────────────────────────────────────
 
@@ -380,17 +381,6 @@
 		}
 	}
 
-	function formatDate(iso: string): string {
-		try {
-			return new Date(iso).toLocaleString(undefined, {
-				dateStyle: 'short',
-				timeStyle: 'short'
-			});
-		} catch {
-			return iso;
-		}
-	}
-
 	function shortId(id: string): string {
 		return id.slice(0, 8) + '…';
 	}
@@ -655,7 +645,7 @@
 		</div>
 
 		<!-- ── PROPOSAL LIST ─────────────────────────────────────────────────── -->
-		<div data-testid="proposal-list">
+		<div data-testid="proposal-list" class="flex flex-col gap-2 px-2 pb-2 pt-1">
 			{#each activeProposals as proposal (proposal.id)}
 				{@const payload = parsePayload(proposal.proposed_payload)}
 				{@const isInProgress = actionInProgress.has(proposal.id)}
@@ -664,13 +654,13 @@
 				{@const isRejectingThis = rejectingId === proposal.id}
 
 				<div
-					class="border-b border-gray-100 dark:border-gray-800 last:border-b-0"
+					class="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50"
 					data-testid="proposal-card"
 					data-proposal-id={proposal.id}
 					data-proposal-status={proposal.status}
 				>
 					<!-- ── MAIN CARD ROW ──────────────────────────────────────────── -->
-					<div class="flex items-start gap-2.5 px-3 py-2.5">
+					<div class="flex items-start gap-2.5 px-3 pt-3 pb-1">
 
 						<!-- Checkbox -->
 						<input
@@ -724,14 +714,14 @@
 
 								<!-- Date -->
 								<span class="ml-auto text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
-									{formatDate(proposal.created_at)}
+									{formatCaseDateTime(proposal.created_at)}
 								</span>
 							</div>
 
 							<!-- Content preview -->
 							<div
-								class="text-[11px] text-gray-600 dark:text-gray-400 font-mono leading-relaxed
-								       bg-gray-50 dark:bg-gray-900 rounded px-2 py-1 mb-1.5 line-clamp-2"
+							class="text-[11px] text-gray-600 dark:text-gray-400 font-mono leading-relaxed
+							       bg-gray-50 dark:bg-gray-900/70 rounded px-2 py-1.5 mb-2 line-clamp-2"
 								data-testid="proposal-preview"
 							>
 								{payloadPreview(proposal.proposed_payload, proposal.proposal_type)}
@@ -768,8 +758,8 @@
 								</div>
 							{/if}
 
-							<!-- ── ACTION ROW ──────────────────────────────────────────── -->
-							<div class="flex items-center gap-1.5 flex-wrap">
+						<!-- ── ACTION FOOTER ─────────────────────────────────────────── -->
+						<div class="flex items-center flex-wrap gap-1.5 mt-1.5 pt-2 border-t border-gray-100 dark:border-gray-800 pb-1">
 
 								<!-- Expand/collapse toggle — always visible -->
 								<button
@@ -878,8 +868,8 @@
 					<!-- ── EXPANDED PAYLOAD DETAIL ───────────────────────────────── -->
 					{#if isExpanded}
 						<div
-							class="mx-3 mb-2.5 rounded-md border border-gray-200 dark:border-gray-700
-							       bg-gray-50 dark:bg-gray-900 px-3 py-2"
+						class="mx-3 mt-1.5 mb-2.5 rounded-md border border-gray-200 dark:border-gray-700
+						       bg-gray-50 dark:bg-gray-900 px-3 py-2"
 							data-testid="proposal-expanded"
 						>
 							<p class="text-[9px] font-semibold uppercase tracking-wider text-gray-400

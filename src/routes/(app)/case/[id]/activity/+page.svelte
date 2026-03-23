@@ -21,6 +21,10 @@
 	import { page } from '$app/stores';
 	import { caseEngineToken } from '$lib/stores';
 	import { getCaseAudit, type AuditLogItem } from '$lib/apis/caseEngine';
+	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
+	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
+	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
+	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 
 	const caseId = $page.params.id;
 
@@ -118,17 +122,6 @@
 		return map[entityType] ?? entityType;
 	}
 
-	function formatDate(iso: string): string {
-		try {
-			return new Date(iso).toLocaleString(undefined, {
-				month: 'short', day: 'numeric', year: 'numeric',
-				hour: '2-digit', minute: '2-digit'
-			});
-		} catch {
-			return iso;
-		}
-	}
-
 	/** Actor display: role + short user id from backend. No fabrication. */
 	function actorLabel(item: AuditLogItem): string {
 		const role = item.user_role ? `${item.user_role} ` : '';
@@ -185,7 +178,7 @@
 >
 	<!-- Section header -->
 	<div
-		class="shrink-0 flex flex-wrap items-center gap-2 px-4 pt-4 pb-2 border-b border-gray-100 dark:border-gray-800"
+		class="shrink-0 flex flex-wrap items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800"
 	>
 		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Case Activity</h2>
 		<span class="text-xs text-gray-400 dark:text-gray-500">
@@ -218,30 +211,20 @@
 	<!-- Activity feed -->
 	<div class="flex-1 px-4 pt-3 pb-4 min-h-0">
 		{#if loading}
-			<div class="flex items-center justify-center h-32">
-				<p class="text-sm text-gray-400 dark:text-gray-500" data-testid="case-activity-loading">
-					Loading activity…
-				</p>
-			</div>
+			<CaseLoadingState label="Loading activity…" testId="case-activity-loading" />
 		{:else if loadError}
-			<div class="flex items-center justify-center h-24">
-				<p class="text-sm text-red-500 dark:text-red-400">{loadError}</p>
-			</div>
+			<CaseErrorState message={loadError} />
 		{:else if items.length === 0}
-			<div
-				class="flex flex-col items-center justify-center h-32 gap-1"
-				data-testid="case-activity-empty"
-			>
-				<p class="text-sm text-gray-400 dark:text-gray-500">No activity recorded yet.</p>
-				<p class="text-xs text-gray-300 dark:text-gray-600">
-					Activity appears here as case actions are performed.
-				</p>
-			</div>
+			<CaseEmptyState
+				title="No activity recorded yet."
+				description="Activity appears here as case actions are performed."
+				testId="case-activity-empty"
+			/>
 		{:else if displayedItems.length === 0}
-			<div class="flex flex-col items-center justify-center h-24 gap-1">
-				<p class="text-sm text-gray-400 dark:text-gray-500">No activity matches the selected filter.</p>
-				<p class="text-xs text-gray-500 dark:text-gray-500">Choose “All” or another action.</p>
-			</div>
+			<CaseEmptyState
+				title="No activity matches the selected filter."
+				description='Choose "All" or another action.'
+			/>
 		{:else}
 			<ol
 				class="flex flex-col gap-px"
@@ -256,7 +239,7 @@
 						<!-- Row 1: Timestamp · Actor -->
 						<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
 							<time datetime={item.created_at} class="font-medium text-gray-600 dark:text-gray-300">
-								{formatDate(item.created_at)}
+								{formatCaseDateTime(item.created_at)}
 							</time>
 							<span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
 							<span title="Actor (from backend)"> {actorLabel(item)}</span>

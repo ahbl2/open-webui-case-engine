@@ -10,6 +10,8 @@
 		removeFileTag,
 		type CaseFile
 	} from '$lib/apis/caseEngine';
+	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
+	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 
 	export let caseId: string;
 	export let token: string;
@@ -200,9 +202,9 @@
 	</div>
 
 	{#if loading}
-		<div class="text-sm text-gray-500">Loading files...</div>
+		<CaseLoadingState label="Loading files…" />
 	{:else if files.length === 0}
-		<div class="text-sm text-gray-500">No files yet. Upload a file above.</div>
+		<CaseEmptyState title="No files yet." description="Upload a file above." />
 	{:else}
 		<div class="flex flex-col gap-2">
 			{#each files as f (f.id)}

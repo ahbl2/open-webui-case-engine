@@ -40,14 +40,28 @@
 		listPersonalThreadAssociations,
 		upsertPersonalThreadAssociation,
 		browserResolveOwuiAuth,
-		type PersonalThreadAssociation
+		listCases,
+		type PersonalThreadAssociation,
+		type CaseEngineCase
 	} from '$lib/apis/caseEngine';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
+	import CaseThreadList, { type ThreadListItem } from '$lib/components/case/CaseThreadList.svelte';
+	import { activeUiThread } from '$lib/stores/activeUiThread';
 
 	// ── Personal thread list ─────────────────────────────────────────────────
 	let threads: PersonalThreadAssociation[] = [];
 	let threadsLoading = false;
 	let threadsLoadError = '';
+
+	/** Derive active thread ID from the canonical store — desktop scope only. */
+	$: activePersonalThreadId =
+		$activeUiThread?.scope === 'desktop' ? $activeUiThread.threadId : null;
+
+	$: normalizedThreads = threads.map<ThreadListItem>((t) => ({
+		id: t.id,
+		threadId: t.thread_id,
+		createdAt: t.created_at
+	}));
 
 	async function loadThreads(): Promise<void> {
 		if (!$caseEngineToken) {
@@ -66,7 +80,7 @@
 		}
 	}
 
-	onMount(loadThreads);
+	onMount(() => { loadThreads(); loadCases(); });
 
 	// ── Thread binding ───────────────────────────────────────────────────────
 	let bindingInProgress = false;
@@ -115,17 +129,18 @@
 		try {
 			await upsertPersonalThreadAssociation(threadId, token, { getFreshToken });
 
-			// Backend confirmed the binding — safe to navigate.
-			// OWUI chat record is NOT created here; it is created on first message send.
-			activeThreadScope.set({ threadId, scope: 'personal' });
-			// Clear single-case chat routing: Chat.svelte uses persisted `scope`===THIS_CASE + activeCaseId
-			// for Case Engine ask; desktop threads must use normal LLM path (user-wide / ALL).
-			scope.set('ALL');
-			activeCaseId.set(null);
-			activeCaseNumber.set(null);
-			caseContext.set(null);
-			aiCaseContext.set(null);
-			await goto(`/c/${threadId}`);
+		// Backend confirmed the binding — safe to navigate.
+		// OWUI chat record is NOT created here; it is created on first message send.
+		activeThreadScope.set({ threadId, scope: 'personal' });
+		// Clear single-case chat routing: Chat.svelte uses persisted `scope`===THIS_CASE + activeCaseId
+		// for Case Engine ask; desktop threads must use normal LLM path (user-wide / ALL).
+		scope.set('ALL');
+		activeCaseId.set(null);
+		activeCaseNumber.set(null);
+		caseContext.set(null);
+		aiCaseContext.set(null);
+		activeUiThread.set({ scope: 'desktop', threadId });
+		await goto(`/c/${threadId}`);
 		} catch (err) {
 			const kind = classifyBindError(err);
 			const originalMsg = err instanceof Error ? err.message : typeof err === 'string' ? err : null;
@@ -144,20 +159,42 @@
 		await openPersonalThread(threadId);
 	}
 
-	function goToCases() {
-		goto('/cases');
+	// ── Your Cases widget ────────────────────────────────────────────────────
+	const MAX_CASES = 5;
+	let recentCases: CaseEngineCase[] = [];
+	let casesLoading = false;
+	let casesError = '';
+
+	/** Normalize scope store value to a unit accepted by listCases. */
+	$: resolvedUnit = ($scope === 'CID' || $scope === 'SIU') ? $scope : 'ALL';
+
+	const STATUS_COLORS: Record<string, string> = {
+		active: 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400',
+		open:   'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400',
+		closed: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
+	};
+
+	function statusColor(status: string): string {
+		return STATUS_COLORS[status?.toLowerCase()] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400';
 	}
 
-	function formatDate(iso: string): string {
+	async function loadCases(): Promise<void> {
+		if (!$caseEngineToken) return;
+		casesLoading = true;
+		casesError = '';
 		try {
-			return new Date(iso).toLocaleDateString(undefined, {
-				month: 'short',
-				day: 'numeric',
-				year: 'numeric'
-			});
-		} catch {
-			return iso;
+			const all = await listCases(resolvedUnit, $caseEngineToken);
+			recentCases = all.slice(0, MAX_CASES);
+		} catch (err) {
+			casesError = err instanceof Error ? err.message : 'Failed to load cases.';
+			recentCases = [];
+		} finally {
+			casesLoading = false;
 		}
+	}
+
+	function goToCases() {
+		goto('/cases');
 	}
 </script>
 
@@ -280,143 +317,116 @@
 						No personal threads yet. Click "New Chat" to start one.
 					</p>
 				</div>
+		{:else}
+			<div data-testid="personal-thread-list">
+				<CaseThreadList
+					threads={normalizedThreads}
+					activeThreadId={activePersonalThreadId}
+					{bindingInProgress}
+					scrollKey="personal"
+					containerClass="flex flex-col"
+					on:open={(e) => openPersonalThread(e.detail)}
+				/>
+			</div>
+		{/if}
+		</div>
+
+		<!-- ── Your Cases ────────────────────────────────────────────────── -->
+		<div class="mb-6">
+			<div class="flex items-center justify-between mb-3">
+				<div class="flex items-center gap-2">
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						fill="none"
+						viewBox="0 0 24 24"
+						stroke-width="1.5"
+						stroke="currentColor"
+						class="size-4 text-gray-500 dark:text-gray-400"
+					>
+						<path
+							stroke-linecap="round"
+							stroke-linejoin="round"
+							d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+						/>
+					</svg>
+					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Your Cases</h2>
+				</div>
+				<button
+					type="button"
+					class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+					on:click={goToCases}
+				>
+					View all →
+				</button>
+			</div>
+
+			{#if !$caseEngineToken}
+				<p class="text-sm text-gray-400 dark:text-gray-500 italic py-2">
+					Case Engine session not active.
+				</p>
+			{:else if casesLoading}
+				<p class="text-sm text-gray-400 dark:text-gray-500 italic py-2">Loading cases…</p>
+			{:else if casesError}
+				<div class="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3">
+					<p class="text-xs text-red-700 dark:text-red-400">{casesError}</p>
+					<button class="mt-1 text-xs text-red-600 dark:text-red-400 underline" on:click={loadCases}>
+						Try again
+					</button>
+				</div>
+			{:else if recentCases.length === 0}
+				<div
+					class="rounded-xl border border-dashed border-gray-200 dark:border-gray-700
+					       bg-gray-50 dark:bg-gray-900 p-5 text-center"
+				>
+					<p class="text-sm text-gray-400 dark:text-gray-500">
+						No cases available under your current scope.
+					</p>
+					<button
+						type="button"
+						class="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
+						on:click={goToCases}
+					>
+						Go to Cases →
+					</button>
+				</div>
 			{:else}
-				<div class="flex flex-col gap-1.5" data-testid="personal-thread-list">
-					{#each threads as t (t.id)}
+				<div class="flex flex-col gap-1.5" data-testid="recent-cases-list">
+					{#each recentCases as c (c.id)}
 						<button
 							type="button"
-							class="w-full text-left rounded-xl border border-gray-200 dark:border-gray-700
-							       bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-750
-							       px-4 py-3 transition group disabled:opacity-50 disabled:cursor-not-allowed"
-							on:click={() => openPersonalThread(t.thread_id)}
-							disabled={bindingInProgress}
-							data-testid="personal-thread-item"
+							class="w-full text-left flex items-center gap-3 rounded-lg border border-gray-200
+							       dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50
+							       dark:hover:bg-gray-750 px-3 py-2.5 transition"
+							on:click={() => goto(`/case/${c.id}`)}
+							data-testid="recent-case-item"
+							data-case-id={c.id}
 						>
-							<div class="flex items-center justify-between gap-3">
-								<div class="flex flex-col min-w-0">
-									<span
-										class="text-xs font-mono text-gray-400 dark:text-gray-500 truncate mb-0.5"
-									>
-										{t.thread_id}
+							<div class="flex-1 min-w-0">
+								<div class="flex items-center gap-2 mb-0.5">
+									<span class="text-xs font-mono text-gray-500 dark:text-gray-400 shrink-0">
+										#{c.case_number}
 									</span>
-									<span class="text-xs text-gray-500 dark:text-gray-400">
-										{formatDate(t.created_at)}
+									<span class="text-[10px] px-1 py-0.5 rounded font-medium shrink-0 {statusColor(c.status)}">
+										{c.status}
 									</span>
+									<span class="text-[10px] text-gray-400 dark:text-gray-600 shrink-0">{c.unit}</span>
 								</div>
-								<div class="flex items-center gap-2 shrink-0">
-									<span
-										class="text-xs px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-700
-										       text-gray-500 dark:text-gray-400"
-									>
-										Personal
-									</span>
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										fill="none"
-										viewBox="0 0 24 24"
-										stroke-width="1.5"
-										stroke="currentColor"
-										class="size-4 text-gray-300 dark:text-gray-600
-										       group-hover:text-gray-500 dark:group-hover:text-gray-400 transition"
-									>
-										<path
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											d="m8.25 4.5 7.5 7.5-7.5 7.5"
-										/>
-									</svg>
-								</div>
+								<p class="text-sm text-gray-800 dark:text-gray-100 truncate">{c.title}</p>
 							</div>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke-width="1.5"
+								stroke="currentColor"
+								class="size-4 text-gray-400 shrink-0"
+							>
+								<path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
+							</svg>
 						</button>
 					{/each}
 				</div>
 			{/if}
-		</div>
-
-		<!-- ── Personal Notes (placeholder — UI forthcoming) ─────────────── -->
-		<div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-8">
-			<div
-				class="rounded-xl border border-dashed border-gray-200 dark:border-gray-700
-				       bg-gray-50 dark:bg-gray-900 p-5"
-			>
-				<div class="flex items-center gap-2 mb-2">
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						fill="none"
-						viewBox="0 0 24 24"
-						stroke-width="1.5"
-						stroke="currentColor"
-						class="size-5 text-gray-400"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="m16.862 4.487 1.687-1.688a1.875 1.875 0 1 1 2.652 2.652L10.582 16.07a4.5 4.5 0 0 1-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 0 1 1.13-1.897l8.932-8.931Zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0 1 15.75 21H5.25A2.25 2.25 0 0 1 3 18.75V8.25A2.25 2.25 0 0 1 5.25 6H10"
-						/>
-					</svg>
-					<span class="text-sm font-medium text-gray-600 dark:text-gray-400">Personal Notes</span>
-				</div>
-				<p class="text-xs text-gray-400 dark:text-gray-500">
-					Private notes visible only to you. Full interface coming in a later release.
-				</p>
-			</div>
-
-			<div
-				class="rounded-xl border border-dashed border-gray-200 dark:border-gray-700
-				       bg-gray-50 dark:bg-gray-900 p-5"
-			>
-				<div class="flex items-center gap-2 mb-2">
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						fill="none"
-						viewBox="0 0 24 24"
-						stroke-width="1.5"
-						stroke="currentColor"
-						class="size-5 text-gray-400"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5A1.125 1.125 0 0 1 13.5 7.125v-1.5a3.375 3.375 0 0 0-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 0 0-9-9Z"
-						/>
-					</svg>
-					<span class="text-sm font-medium text-gray-600 dark:text-gray-400">Personal Files</span>
-				</div>
-				<p class="text-xs text-gray-400 dark:text-gray-500">
-					Private files visible only to you. Full interface coming in a later release.
-				</p>
-			</div>
-		</div>
-
-		<!-- ── Quick Access ───────────────────────────────────────────────── -->
-		<div class="flex items-center gap-3 mb-3">
-			<h2 class="text-sm font-semibold text-gray-600 dark:text-gray-400 uppercase tracking-wide">
-				Quick Access
-			</h2>
-		</div>
-		<div class="flex flex-col gap-2">
-			<button
-				class="w-full text-left flex items-center gap-3 rounded-xl border border-gray-200
-				       dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-750
-				       px-4 py-3 transition"
-				on:click={goToCases}
-			>
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					fill="none"
-					viewBox="0 0 24 24"
-					stroke-width="1.5"
-					stroke="currentColor"
-					class="size-5 text-gray-400"
-				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
-					/>
-				</svg>
-				<span class="text-sm text-gray-700 dark:text-gray-300">Go to Cases</span>
-			</button>
 		</div>
 	</div>
 </div>

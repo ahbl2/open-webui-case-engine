@@ -33,7 +33,7 @@
 >
 	<!-- Section header -->
 	<div
-		class="shrink-0 flex items-center gap-2 px-4 pt-4 pb-2 border-b border-gray-100 dark:border-gray-800"
+		class="shrink-0 flex items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800"
 	>
 		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Case Files</h2>
 		<span class="text-xs text-gray-400 dark:text-gray-500">— case-scoped evidence and supporting documents</span>

@@ -31,6 +31,10 @@
 		deleteCaseNotebookNote,
 		type NotebookNote
 	} from '$lib/apis/caseEngine';
+	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
+	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
+	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
+	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 
 	const caseId = $page.params.id;
 
@@ -143,16 +147,6 @@
 		}
 	}
 
-	function formatDate(iso: string): string {
-		try {
-			return new Date(iso).toLocaleString(undefined, {
-				month: 'short', day: 'numeric', year: 'numeric',
-				hour: '2-digit', minute: '2-digit'
-			});
-		} catch {
-			return iso;
-		}
-	}
 </script>
 
 <!--
@@ -166,7 +160,7 @@
 >
 	<!-- Section header -->
 	<div
-		class="shrink-0 flex items-center justify-between gap-2 px-4 pt-4 pb-2 border-b border-gray-100 dark:border-gray-800"
+		class="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800"
 	>
 		<div class="flex items-center gap-2 min-w-0">
 			<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Case Notes</h2>
@@ -247,25 +241,15 @@
 	<!-- Notes list -->
 	<div class="flex-1 px-4 pt-3 pb-4 min-h-0">
 		{#if loading}
-			<div class="flex items-center justify-center h-24">
-				<p class="text-sm text-gray-400 dark:text-gray-500" data-testid="case-notes-loading">
-					Loading notes…
-				</p>
-			</div>
+			<CaseLoadingState label="Loading notes…" testId="case-notes-loading" />
 		{:else if loadError}
-			<div class="flex items-center justify-center h-24">
-				<p class="text-sm text-red-500 dark:text-red-400">{loadError}</p>
-			</div>
+			<CaseErrorState message={loadError} />
 		{:else if notes.length === 0}
-			<div
-				class="flex flex-col items-center justify-center h-32 gap-1"
-				data-testid="case-notes-empty"
-			>
-				<p class="text-sm text-gray-400 dark:text-gray-500">No working notes yet.</p>
-				<p class="text-xs text-gray-300 dark:text-gray-600">
-					Use "+ New note" to start a private working draft.
-				</p>
-			</div>
+			<CaseEmptyState
+				title="No working notes yet."
+				description='Use "+ New note" to start a private working draft.'
+				testId="case-notes-empty"
+			/>
 		{:else}
 			<div class="flex flex-col gap-3" data-testid="case-notes-list">
 				{#each notes as note (note.id)}
@@ -323,7 +307,7 @@
 							<div class="flex items-center justify-between gap-2 mt-1">
 								<span class="text-xs text-gray-400 dark:text-gray-500">
 									{note.updated_at !== note.created_at ? 'Updated' : 'Created'}
-									{formatDate(note.updated_at)}
+									{formatCaseDateTime(note.updated_at)}
 								</span>
 								<div class="flex items-center gap-2">
 									<button
