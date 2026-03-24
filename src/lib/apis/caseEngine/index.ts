@@ -42,6 +42,32 @@ function extractApiErrorCode(data: unknown): string | undefined {
 	return undefined;
 }
 
+function normalizeCaseNumber(input: string): string {
+	return String(input ?? '').trim().toUpperCase();
+}
+
+function normalizeIncidentDate(input: unknown): string | undefined {
+	if (input == null) return undefined;
+	const value = String(input).trim();
+	return value.length > 0 ? value : undefined;
+}
+
+function isValidIncidentDate(input: string): boolean {
+	if (!/^\d{4}-\d{2}-\d{2}$/.test(input)) return false;
+	const [yearRaw, monthRaw, dayRaw] = input.split('-');
+	const year = Number(yearRaw);
+	const month = Number(monthRaw);
+	const day = Number(dayRaw);
+	if (!Number.isInteger(year) || !Number.isInteger(month) || !Number.isInteger(day)) return false;
+	if (month < 1 || month > 12 || day < 1 || day > 31) return false;
+	const dt = new Date(Date.UTC(year, month - 1, day));
+	return (
+		dt.getUTCFullYear() === year &&
+		dt.getUTCMonth() === month - 1 &&
+		dt.getUTCDate() === day
+	);
+}
+
 /**
  * P20-PRE-04: Typed Case Engine HTTP / contract failures for UI classification (status + optional API code).
  * `details` may hold `{ citations }` for 422 ask responses (see CaseAiAskTab / CaseCrossCaseSearch).
@@ -104,6 +130,7 @@ export interface CaseEngineCase {
 	title: string;
 	unit: string;
 	status: string;
+	incident_date?: string | null;
 	created_at?: string;
 	[key: string]: unknown;
 }
@@ -166,12 +193,13 @@ export async function browserResolveOwuiAuth(params: {
 }> {
 	const url = `${CASE_ENGINE_BASE_URL}/auth/owui/browser-resolve`;
 	const body = JSON.stringify(params);
+	const outboundRequestId = newCaseEngineRequestId();
 	/** P20-PRE-05 corrective: POST mutating bootstrap — single-shot (no auto-retry; dropped response ≠ safe replay). */
 	let res: Response;
 	try {
 		res = await fetch(url, {
 			method: 'POST',
-			headers: { 'Content-Type': 'application/json' },
+			headers: { 'Content-Type': 'application/json', 'X-Request-Id': outboundRequestId },
 			body
 		});
 	} catch (e) {
@@ -190,6 +218,90 @@ export async function browserResolveOwuiAuth(params: {
 		throw new BrowserResolveFailure(classifyBrowserResolveHttpStatus(res.status), msg, res.status, data);
 	}
 	return data;
+}
+
+const AUTH_RESOLVE_RETRY_DELAYS_MS = [500, 1500, 3000] as const;
+const AUTH_RESOLVE_RATE_LIMIT_COOLDOWN_MS = 4000;
+const AUTH_RATE_LIMIT_USER_MESSAGE = 'System is temporarily busy. Please wait a moment and try again.';
+
+let inFlightAuthPromise: Promise<{
+	state: string;
+	user: null | { id: string; role: string; units: string[]; capabilities: string[] };
+	reason?: string;
+	token?: string;
+}> | null = null;
+let authResolveCooldownUntil = 0;
+
+function sleep(ms: number): Promise<void> {
+	return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+export async function resolveBrowserAuthOnce(
+	params: {
+		owui_user_id: string;
+		username_or_email: string;
+		display_name?: string;
+	},
+	options?: { force?: boolean }
+): Promise<{
+	state: string;
+	user: null | { id: string; role: string; units: string[]; capabilities: string[] };
+	reason?: string;
+	token?: string;
+}> {
+	if (inFlightAuthPromise) return inFlightAuthPromise;
+
+	const force = options?.force === true;
+	if (!force && Date.now() < authResolveCooldownUntil) {
+		console.warn('[AUTH] rate limited');
+		throw new BrowserResolveFailure('rate_limited', AUTH_RATE_LIMIT_USER_MESSAGE, 429);
+	}
+
+	inFlightAuthPromise = (async () => {
+		let retryIndex = 0;
+		while (true) {
+			try {
+				return await browserResolveOwuiAuth(params);
+			} catch (err) {
+				const isBrowserResolveFailure = err instanceof BrowserResolveFailure;
+				if (!isBrowserResolveFailure) throw err;
+
+				const retryable =
+					err.classification === 'rate_limited' ||
+					err.classification === 'network_unreachable' ||
+					err.classification === 'server_error';
+				if (!retryable || retryIndex >= AUTH_RESOLVE_RETRY_DELAYS_MS.length) {
+					if (err.classification === 'rate_limited') {
+						authResolveCooldownUntil = Date.now() + AUTH_RESOLVE_RATE_LIMIT_COOLDOWN_MS;
+						throw new BrowserResolveFailure(
+							'rate_limited',
+							AUTH_RATE_LIMIT_USER_MESSAGE,
+							err.httpStatus,
+							err.body
+						);
+					}
+					throw err;
+				}
+
+				const delay = AUTH_RESOLVE_RETRY_DELAYS_MS[retryIndex];
+				const waitMs =
+					err.classification === 'rate_limited'
+						? Math.max(delay, AUTH_RESOLVE_RATE_LIMIT_COOLDOWN_MS)
+						: delay;
+				if (err.classification === 'rate_limited') {
+					authResolveCooldownUntil = Date.now() + waitMs;
+					console.warn('[AUTH] rate limited');
+				}
+				console.warn('[AUTH] retrying with backoff', retryIndex + 1, waitMs);
+				await sleep(waitMs);
+				retryIndex += 1;
+			}
+		}
+	})().finally(() => {
+		inFlightAuthPromise = null;
+	});
+
+	return inFlightAuthPromise;
 }
 
 export async function login(name: string, password: string): Promise<{ token: string; user: { id: string; name: string; role: string } }> {
@@ -400,8 +512,34 @@ export async function getCaseById(caseId: string, token: string): Promise<CaseEn
 /** P20-PRE-02: POST /cases — canonical envelope primary. */
 export async function createCase(
 	token: string,
-	payload: { case_number: string; title: string; unit: 'CID' | 'SIU'; status: 'OPEN' | 'CLOSED' }
+	payload: {
+		case_number: string;
+		title: string;
+		unit: 'CID' | 'SIU' | string;
+		status?: 'OPEN' | 'CLOSED' | string;
+		incident_date?: string | null;
+	}
 ): Promise<CaseEngineCase> {
+	const case_number = normalizeCaseNumber(String(payload.case_number ?? ''));
+	const title = String(payload.title ?? '').trim();
+	const unitRaw = String(payload.unit ?? '').trim().toUpperCase();
+	const statusRaw = String(payload.status ?? 'OPEN').trim().toUpperCase();
+	const incidentDateRaw = normalizeIncidentDate(payload.incident_date);
+	if (!case_number) throw new Error('Case number is required.');
+	if (!title) throw new Error('Title is required.');
+	if (unitRaw !== 'CID' && unitRaw !== 'SIU') throw new Error('Unit must be CID or SIU.');
+	if (statusRaw !== 'OPEN' && statusRaw !== 'CLOSED') throw new Error('Status must be OPEN or CLOSED.');
+	if (!incidentDateRaw) throw new Error('Incident date is required.');
+	if (incidentDateRaw && !isValidIncidentDate(incidentDateRaw)) {
+		throw new Error('Incident date must use YYYY-MM-DD.');
+	}
+	const normalizedPayload = {
+		case_number,
+		title,
+		unit: unitRaw as 'CID' | 'SIU',
+		status: statusRaw as 'OPEN' | 'CLOSED',
+		incident_date: incidentDateRaw
+	};
 	/** P20-PRE-05: POST create — mutating; no auto-retry. */
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases`, {
 		method: 'POST',
@@ -409,7 +547,7 @@ export async function createCase(
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`
 		},
-		body: JSON.stringify(payload)
+		body: JSON.stringify(normalizedPayload)
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) {
@@ -418,9 +556,69 @@ export async function createCase(
 	return unwrapEnvelopeCanonicalFirst<CaseEngineCase>(data, 'createCase');
 }
 
+/** PATCH /cases/:id — case metadata edit (case_number/title/incident_date). */
+export async function updateCase(
+	token: string,
+	caseId: string,
+	payload: {
+		case_number?: string;
+		title?: string;
+		incident_date?: string;
+	}
+): Promise<CaseEngineCase> {
+	const case_number =
+		Object.prototype.hasOwnProperty.call(payload ?? {}, 'case_number')
+			? normalizeCaseNumber(String(payload.case_number ?? ''))
+			: undefined;
+	const title =
+		Object.prototype.hasOwnProperty.call(payload ?? {}, 'title')
+			? String(payload.title ?? '').trim()
+			: undefined;
+	const incidentDateRaw =
+		Object.prototype.hasOwnProperty.call(payload ?? {}, 'incident_date')
+			? normalizeIncidentDate(payload.incident_date)
+			: undefined;
+
+	if (case_number !== undefined && !case_number) throw new Error('Case number is required.');
+	if (title !== undefined && !title) throw new Error('Title is required.');
+	if (incidentDateRaw !== undefined && !incidentDateRaw) throw new Error('Incident date is required.');
+	if (incidentDateRaw !== undefined && !isValidIncidentDate(incidentDateRaw)) {
+		throw new Error('Incident date must use YYYY-MM-DD.');
+	}
+
+	const patchPayload: Record<string, string> = {};
+	if (case_number !== undefined) patchPayload.case_number = case_number;
+	if (title !== undefined) patchPayload.title = title;
+	if (incidentDateRaw !== undefined) patchPayload.incident_date = incidentDateRaw;
+	if (Object.keys(patchPayload).length === 0) {
+		throw new Error('At least one field is required.');
+	}
+
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}`, {
+		method: 'PATCH',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(patchPayload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(extractApiErrorMessage(data, `Update case failed (${res.status})`));
+	}
+	return unwrapEnvelopeCanonicalFirst<CaseEngineCase>(data, 'updateCase');
+}
+
 /** Ticket 8: AI context bundle - case + timeline + files + citations (for prompt injection) */
 export interface AiContextBundle {
-	case: { id: string; case_number: string; title: string; unit: string; status: string };
+	case: {
+		id: string;
+		case_number: string;
+		title: string;
+		unit: string;
+		status: string;
+		incident_date?: string | null;
+	};
 	timeline: Array<{
 		id: string;
 		occurred_at: string;
@@ -469,7 +667,14 @@ export interface CaseContextEntry {
 }
 
 export interface CaseContextResponse {
-	case: { id: string; case_number: string; title: string; unit: string; status: string };
+	case: {
+		id: string;
+		case_number: string;
+		title: string;
+		unit: string;
+		status: string;
+		incident_date?: string | null;
+	};
 	recent_entries: CaseContextEntry[];
 }
 
@@ -492,9 +697,10 @@ export async function askCase(
 	caseId: string,
 	question: string,
 	_scope: CaseEngineScope,
-	token: string
+	token: string,
+	threadId: string
 ): Promise<{ answer: string; citations: CaseEngineCitation[] }> {
-	const res = await askCaseQuestion(caseId, question, token, 8);
+	const res = await askCaseQuestion(caseId, question, token, 8, undefined, threadId);
 	return {
 		answer: res.answer,
 		citations: res.citations.map((c) => ({
@@ -517,8 +723,11 @@ export type AskCitation =
 	| {
 			source_type: 'case_file';
 			id: string;
+			chunk_id: string | null;
 			original_filename: string;
 			uploaded_at: string;
+			page_start: number | null;
+			page_end: number | null;
 			snippet: string;
 	  };
 
@@ -538,10 +747,25 @@ export async function askCaseQuestion(
 	question: string,
 	token: string,
 	topK?: number,
-	model?: string
+	model?: string,
+	threadId?: string,
+	options?: {
+		mode?: 'strict' | 'analyst';
+		retrievalScope?: 'case_all' | 'thread_selected_files';
+	}
 ): Promise<AskCaseQuestionResponse> {
-	const body: Record<string, unknown> = { question: question.trim(), topK: topK ?? 8 };
+	const normalizedThreadId = String(threadId ?? '').trim();
+	if (!normalizedThreadId) {
+		throw new Error('A thread must be active before asking a case question.');
+	}
+	const body: Record<string, unknown> = {
+		question: question.trim(),
+		topK: topK ?? 8,
+		thread_id: normalizedThreadId
+	};
 	if (model) body.model = model;
+	if (options?.mode) body.mode = options.mode;
+	if (options?.retrievalScope) body.retrieval_scope = options.retrievalScope;
 
 	const outboundRequestId = newCaseEngineRequestId();
 	const authHeaders: Record<string, string> = {
@@ -1054,6 +1278,146 @@ export interface CaseGraphResponse {
   };
 }
 
+export interface EntityScopeParams {
+	scope?: 'UNIT' | 'ALL';
+	unit?: 'CID' | 'SIU';
+}
+
+export interface EntityProfileEvidenceRow {
+	case: { id: string; case_number: string; title: string; unit: string };
+	source: { kind: string; id: string; occurred_at?: string };
+	match: { excerpt: string };
+	citation: { label: string; case_id: string; source_kind: string; source_id: string };
+}
+
+export interface EntityProfileResponse {
+	entity: { type: string; normalized_id: string; display_label: string };
+	scope_applied: string;
+	unit_applied: string | null;
+	summary: {
+		case_count: number;
+		occurrence_count: number;
+		timeline_occurrence_count: number;
+		file_occurrence_count: number;
+		first_seen_at: string | null;
+		last_seen_at: string | null;
+	};
+	evidence: EntityProfileEvidenceRow[];
+}
+
+export interface EntityTimelineItem {
+	source: 'timeline_entry' | 'file_excerpt';
+	source_id: string;
+	case_id: string;
+	case_number: string;
+	case_title?: string;
+	unit: string;
+	timestamp: string | null;
+	occurred_at: string | null;
+	created_at: string | null;
+	extracted_at: string | null;
+	entry_id: string | null;
+	file_id: string | null;
+	file_name?: string;
+	excerpt: string;
+	evidence_ref: string;
+	citation: { source_kind: string; source_id: string; case_id: string; case_number: string };
+}
+
+export interface EntityTimelineResponse {
+	items: EntityTimelineItem[];
+	case_count: number;
+	total_count: number;
+	entity?: { type: string; normalized_id: string; display_label?: string };
+	scope_applied: string;
+	unit_applied: string | null;
+}
+
+export interface EntityCasesResponse {
+	entity: { type: string; normalized_id: string };
+	scope_applied: string;
+	unit_applied: string | null;
+	result_count: number;
+	cases: Array<{
+		case: { id: string; case_number: string; title: string; unit: string };
+		summary: { occurrence_count: number; first_seen_at: string; last_seen_at: string };
+		top_citations: Array<{ label: string; case_id: string; source_kind: string; source_id: string }>;
+	}>;
+}
+
+function toEntityScopeParams(params?: EntityScopeParams): string {
+	const sp = new URLSearchParams();
+	if (params?.scope) sp.set('scope', params.scope);
+	if (params?.unit) sp.set('unit', params.unit);
+	const qs = sp.toString();
+	return qs ? `?${qs}` : '';
+}
+
+export async function getEntityProfile(
+	type: 'phone' | 'person' | 'location',
+	normalizedId: string,
+	token: string,
+	params?: EntityScopeParams
+): Promise<EntityProfileResponse> {
+	const qs = toEntityScopeParams(params);
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/entities/${encodeURIComponent(type)}/${encodeURIComponent(normalizedId)}/profile${qs}`,
+		{
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to load entity profile (${res.status})`);
+	}
+	return data as EntityProfileResponse;
+}
+
+export async function getEntityTimeline(
+	type: 'phone' | 'person' | 'location',
+	normalizedId: string,
+	token: string,
+	params?: EntityScopeParams & { limit?: number; offset?: number }
+): Promise<EntityTimelineResponse> {
+	const sp = new URLSearchParams();
+	if (params?.scope) sp.set('scope', params.scope);
+	if (params?.unit) sp.set('unit', params.unit);
+	if (params?.limit != null) sp.set('limit', String(params.limit));
+	if (params?.offset != null) sp.set('offset', String(params.offset));
+	const qs = sp.toString();
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/entities/${encodeURIComponent(type)}/${encodeURIComponent(normalizedId)}/timeline${qs ? `?${qs}` : ''}`,
+		{
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to load entity timeline (${res.status})`);
+	}
+	return data as EntityTimelineResponse;
+}
+
+export async function getEntityCases(
+	type: 'phone' | 'person' | 'location',
+	normalizedId: string,
+	token: string,
+	params?: EntityScopeParams
+): Promise<EntityCasesResponse> {
+	const qs = toEntityScopeParams(params);
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/entities/${encodeURIComponent(type)}/${encodeURIComponent(normalizedId)}/cases${qs}`,
+		{
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to load entity cases (${res.status})`);
+	}
+	return data as EntityCasesResponse;
+}
+
 export async function getCaseGraph(
   caseId: string,
   token: string,
@@ -1474,6 +1838,79 @@ export interface CaseSummaryResult {
 	}>;
 }
 
+export interface CaseSummaryStatusResult {
+	summary: CaseSummaryResult | null;
+	lastSummaryGeneratedAt: string | null;
+	latestActivityAt: string;
+	isStale: boolean;
+}
+
+export interface CaseBriefEntry {
+	entry_id: string;
+	occurred_at: string;
+	created_at: string;
+	created_by: string;
+	created_by_name: string;
+	type: string;
+	text: string;
+	has_cleaned: boolean;
+}
+
+export interface CaseBriefSection {
+	date: string;
+	entries: CaseBriefEntry[];
+}
+
+export interface CaseBriefResponse {
+	case: {
+		case_id: string;
+		case_number: string;
+		title: string;
+		unit: 'CID' | 'SIU';
+	};
+	sections: CaseBriefSection[];
+}
+
+export interface CaseBriefRequest {
+	date_from?: string;
+	date_to?: string;
+	types?: string[];
+}
+
+export interface CaseBriefExportRequest extends CaseBriefRequest {
+	format?: 'pdf' | 'docx';
+}
+
+export interface CaseBriefExportResult {
+	blob: Blob;
+	filename: string;
+	/** P26-05: request_id echoed by Case Engine for export verification tracing. */
+	requestId?: string;
+}
+
+export interface TimelineIntelligenceSummaryRequest {
+	date_from?: string;
+	date_to?: string;
+	types?: string[];
+}
+
+export interface TimelineIntelligenceSummaryResult {
+	summary: string;
+	key_events: Array<{
+		entry_id: string;
+		reason: string;
+	}>;
+	gaps: Array<{
+		description: string;
+	}>;
+	meta?: {
+		entry_count: number;
+		date_from: string | null;
+		date_to: string | null;
+		types: string[] | null;
+	};
+}
+
 export async function requestCaseSummary(
 	caseId: string,
 	token: string,
@@ -1495,6 +1932,144 @@ export async function requestCaseSummary(
 		throw new Error((data as { error?: string })?.error ?? `Case summary failed (${res.status})`);
 	}
 	return data as CaseSummaryResult;
+}
+
+export async function getCaseSummaryStatus(
+	caseId: string,
+	token: string
+): Promise<CaseSummaryStatusResult> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/ai/case-summary/status`, {
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Case summary status failed (${res.status})`);
+	}
+	return data as CaseSummaryStatusResult;
+}
+
+export async function requestCaseBrief(
+	caseId: string,
+	token: string,
+	filters?: CaseBriefRequest
+): Promise<CaseBriefResponse> {
+	const body: Record<string, unknown> = {};
+	if (typeof filters?.date_from === 'string' && filters.date_from.trim()) {
+		body.date_from = filters.date_from.trim();
+	}
+	if (typeof filters?.date_to === 'string' && filters.date_to.trim()) {
+		body.date_to = filters.date_to.trim();
+	}
+	if (Array.isArray(filters?.types)) {
+		const types = filters.types
+			.filter((v): v is string => typeof v === 'string')
+			.map((v) => v.trim())
+			.filter((v) => v.length > 0);
+		if (types.length > 0) body.types = types;
+	}
+
+	const outboundRequestId = newCaseEngineRequestId();
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/brief`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`,
+			'X-Request-Id': outboundRequestId
+		},
+		body: JSON.stringify(body)
+	});
+	const raw = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((raw as { error?: string })?.error ?? `Case brief failed (${res.status})`);
+	}
+	return unwrapEnvelopeCanonicalFirst<CaseBriefResponse>(raw, 'requestCaseBrief');
+}
+
+export async function exportCaseBriefPdf(
+	caseId: string,
+	token: string,
+	filters?: CaseBriefExportRequest
+): Promise<CaseBriefExportResult> {
+	const body: Record<string, unknown> = {
+		format: filters?.format ?? 'pdf'
+	};
+	if (typeof filters?.date_from === 'string' && filters.date_from.trim()) {
+		body.date_from = filters.date_from.trim();
+	}
+	if (typeof filters?.date_to === 'string' && filters.date_to.trim()) {
+		body.date_to = filters.date_to.trim();
+	}
+	if (Array.isArray(filters?.types)) {
+		const types = filters.types
+			.filter((v): v is string => typeof v === 'string')
+			.map((v) => v.trim())
+			.filter((v) => v.length > 0);
+		if (types.length > 0) body.types = types;
+	}
+
+	const outboundRequestId = newCaseEngineRequestId();
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/brief/export`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`,
+			'X-Request-Id': outboundRequestId
+		},
+		body: JSON.stringify(body)
+	});
+	if (!res.ok) {
+		const raw = await res.json().catch(() => ({}));
+		throw new Error((raw as { error?: string })?.error ?? `Case brief export failed (${res.status})`);
+	}
+	const blob = await res.blob();
+	/** P26-05: read back correlator for export verification — ties download to backend audit log entry. */
+	const requestId = responseRequestId(res) ?? outboundRequestId;
+	let filename = `case-brief-${caseId.slice(0, 8)}.pdf`;
+	const contentDisposition = res.headers.get('Content-Disposition');
+	if (contentDisposition) {
+		const match = contentDisposition.match(/filename="?([^";\n]+)"?/);
+		if (match) filename = match[1].trim();
+	}
+	return { blob, filename, requestId };
+}
+
+export async function requestTimelineIntelligenceSummary(
+	caseId: string,
+	token: string,
+	filters?: TimelineIntelligenceSummaryRequest
+): Promise<TimelineIntelligenceSummaryResult> {
+	const body: Record<string, unknown> = {};
+	if (typeof filters?.date_from === 'string' && filters.date_from.trim()) {
+		body.date_from = filters.date_from.trim();
+	}
+	if (typeof filters?.date_to === 'string' && filters.date_to.trim()) {
+		body.date_to = filters.date_to.trim();
+	}
+	if (Array.isArray(filters?.types)) {
+		const types = filters.types
+			.filter((v): v is string => typeof v === 'string')
+			.map((v) => v.trim())
+			.filter((v) => v.length > 0);
+		if (types.length > 0) body.types = types;
+	}
+	const outboundRequestId = newCaseEngineRequestId();
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/timeline-summary`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`,
+			'X-Request-Id': outboundRequestId
+		},
+		body: JSON.stringify(body)
+	});
+	const raw = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((raw as { error?: string })?.error ?? `Timeline summary failed (${res.status})`);
+	}
+	return raw as TimelineIntelligenceSummaryResult;
 }
 
 export async function requestAiWarrantDraft(
@@ -2023,9 +2598,10 @@ export async function createWorkflowItem(
 	token: string,
 	payload: WorkflowItemCreateInput
 ): Promise<WorkflowItem> {
+	const outboundRequestId = newCaseEngineRequestId();
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items`, {
 		method: 'POST',
-		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}`, 'X-Request-Id': outboundRequestId },
 		body: JSON.stringify(payload)
 	});
 	const data = await res.json().catch(() => ({}));
@@ -2178,6 +2754,99 @@ export async function searchCases(
 	return data;
 }
 
+export interface CaseSearchResponse {
+	q: string;
+	results: SearchResultItem[];
+}
+
+export async function searchCaseIntelligence(
+	caseId: string,
+	params: { q: string; tag?: string },
+	token: string
+): Promise<CaseSearchResponse> {
+	const sp = new URLSearchParams();
+	sp.set('q', params.q);
+	if (params.tag?.trim()) sp.set('tag', params.tag.trim());
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/search?${sp}`, {
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Case intelligence search failed (${res.status})`);
+	}
+	const obj = data as { q?: string; results?: SearchResultItem[] };
+	return {
+		q: typeof obj.q === 'string' ? obj.q : params.q,
+		results: Array.isArray(obj.results) ? obj.results : []
+	};
+}
+
+export interface IntelSearchResult {
+	result_type: 'timeline_entry' | 'file_excerpt' | 'graph_entity';
+	case: {
+		id: string;
+		case_number: string;
+		title: string;
+		unit: string;
+	};
+	source: {
+		kind: 'timeline_entry' | 'file_excerpt' | 'graph_entity';
+		id: string;
+		occurred_at?: string;
+		created_at?: string;
+		uploaded_at?: string;
+		created_by?: string;
+		entry_type?: string;
+		file_name?: string;
+		entity_type?: string;
+		value?: string;
+		normalized_value?: string;
+	};
+	match: {
+		field: string;
+		excerpt: string;
+	};
+	citation: {
+		label: string;
+		case_id: string;
+		source_kind: string;
+		source_id: string;
+	};
+}
+
+export interface IntelSearchResponse {
+	query: string;
+	scope_requested: string;
+	scope_applied: string;
+	unit_applied: string | null;
+	result_count: number;
+	results: IntelSearchResult[];
+}
+
+export async function searchCrossCaseIntelligence(
+	params: { q: string; scope?: 'UNIT' | 'ALL'; unit?: 'CID' | 'SIU' },
+	token: string
+): Promise<IntelSearchResponse> {
+	const sp = new URLSearchParams();
+	sp.set('q', params.q);
+	sp.set('scope', params.scope ?? 'UNIT');
+	if (params.unit) sp.set('unit', params.unit);
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/search/intel?${sp}`, {
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Cross-case intelligence search failed (${res.status})`);
+	}
+	return data as IntelSearchResponse;
+}
+
 // ─── P19-08: Thread Scope Associations ────────────────────────────────────
 
 /**
@@ -2206,6 +2875,12 @@ export interface PersonalThreadAssociation {
 	created_at: string;
 	created_by: string;
 	updated_at: string;
+}
+
+export interface ThreadScopeFile {
+	id: string;
+	original_filename: string;
+	uploaded_at: string;
 }
 
 /** List all active case-scoped thread associations for a case. Requires case read access. */
@@ -2277,6 +2952,79 @@ export async function deleteCaseThreadAssociation(
 			extractApiErrorMessage(data, `Failed to remove case thread association (${res.status})`)
 		);
 	}
+}
+
+/** P22-09: list active selected files for a case thread scope. */
+export async function getThreadScopeFiles(
+	caseId: string,
+	threadId: string,
+	token: string
+): Promise<{ thread_id: string; case_id: string; files: ThreadScopeFile[] }> {
+	const sp = new URLSearchParams();
+	sp.set('thread_id', threadId);
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/thread-scope/files?${sp.toString()}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(
+			extractApiErrorMessage(data, `Failed to load thread scope files (${res.status})`)
+		);
+	}
+	const files = Array.isArray((data as { files?: unknown }).files)
+		? ((data as { files: ThreadScopeFile[] }).files ?? [])
+		: [];
+	return {
+		thread_id: String((data as { thread_id?: string }).thread_id ?? threadId),
+		case_id: String((data as { case_id?: string }).case_id ?? caseId),
+		files
+	};
+}
+
+/** P22-09: add a file to active case thread scope. */
+export async function addThreadScopeFile(
+	caseId: string,
+	threadId: string,
+	fileId: string,
+	token: string
+): Promise<{ thread_id: string; case_id: string; file_id: string; status: 'selected' | 'already_selected' }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/thread-scope/files`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({ thread_id: threadId, file_id: fileId })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(
+			extractApiErrorMessage(data, `Failed to add thread scope file (${res.status})`)
+		);
+	}
+	return data as { thread_id: string; case_id: string; file_id: string; status: 'selected' | 'already_selected' };
+}
+
+/** P22-09: remove a file from active case thread scope. */
+export async function removeThreadScopeFile(
+	caseId: string,
+	threadId: string,
+	fileId: string,
+	token: string
+): Promise<{ thread_id: string; case_id: string; file_id: string; status: 'removed' | 'not_selected' }> {
+	const sp = new URLSearchParams();
+	sp.set('thread_id', threadId);
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/thread-scope/files/${encodeURIComponent(fileId)}?${sp.toString()}`,
+		{
+			method: 'DELETE',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(
+			extractApiErrorMessage(data, `Failed to remove thread scope file (${res.status})`)
+		);
+	}
+	return data as { thread_id: string; case_id: string; file_id: string; status: 'removed' | 'not_selected' };
 }
 
 /** List all active personal thread associations for the authenticated user. */

@@ -515,6 +515,7 @@ class ModelsConfigForm(BaseModel):
     MODEL_ORDER_LIST: Optional[list[str]]
     DEFAULT_MODEL_METADATA: Optional[dict] = None
     DEFAULT_MODEL_PARAMS: Optional[dict] = None
+    LOCK_DEFAULT_MODELS: Optional[bool] = False
 
 
 @router.get("/models", response_model=ModelsConfigForm)
@@ -525,6 +526,7 @@ async def get_models_config(request: Request, user=Depends(get_admin_user)):
         "MODEL_ORDER_LIST": request.app.state.config.MODEL_ORDER_LIST,
         "DEFAULT_MODEL_METADATA": request.app.state.config.DEFAULT_MODEL_METADATA,
         "DEFAULT_MODEL_PARAMS": request.app.state.config.DEFAULT_MODEL_PARAMS,
+        "LOCK_DEFAULT_MODELS": request.app.state.config.LOCK_DEFAULT_MODELS,
     }
 
 
@@ -537,12 +539,14 @@ async def set_models_config(
     request.app.state.config.MODEL_ORDER_LIST = form_data.MODEL_ORDER_LIST
     request.app.state.config.DEFAULT_MODEL_METADATA = form_data.DEFAULT_MODEL_METADATA
     request.app.state.config.DEFAULT_MODEL_PARAMS = form_data.DEFAULT_MODEL_PARAMS
+    request.app.state.config.LOCK_DEFAULT_MODELS = form_data.LOCK_DEFAULT_MODELS
     return {
         "DEFAULT_MODELS": request.app.state.config.DEFAULT_MODELS,
         "DEFAULT_PINNED_MODELS": request.app.state.config.DEFAULT_PINNED_MODELS,
         "MODEL_ORDER_LIST": request.app.state.config.MODEL_ORDER_LIST,
         "DEFAULT_MODEL_METADATA": request.app.state.config.DEFAULT_MODEL_METADATA,
         "DEFAULT_MODEL_PARAMS": request.app.state.config.DEFAULT_MODEL_PARAMS,
+        "LOCK_DEFAULT_MODELS": request.app.state.config.LOCK_DEFAULT_MODELS,
     }
 
 

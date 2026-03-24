@@ -65,7 +65,7 @@ describe('P20-PRE-06 request correlation', () => {
 
 		const { askCaseQuestion, CaseEngineRequestError } = await import('../index');
 		try {
-			await askCaseQuestion('case-1', 'Who carried the bags?', 'token');
+			await askCaseQuestion('case-1', 'Who carried the bags?', 'token', 8, undefined, 'thread-1');
 			expect.fail('expected throw');
 		} catch (e) {
 			expect(e).toBeInstanceOf(CaseEngineRequestError);

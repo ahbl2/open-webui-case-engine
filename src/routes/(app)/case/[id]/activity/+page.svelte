@@ -1,26 +1,17 @@
 <script lang="ts">
-	/**
-	 * P19-14 — Case Activity Route
-	 *
-	 * Route-native activity/audit page for the case workspace.
-	 * Renders inside the P19-06 case shell layout.
-	 *
-	 * Shows the case audit log from Case Engine — who did what and when.
-	 * This is the authoritative backend audit trail, not a frontend-synthesized
-	 * shadow log. All activity items reflect real backend events.
-	 *
-	 * Backend endpoint used:
-	 *   GET /cases/:id/audit   — paginated audit log, newest first
-	 *
-	 * Limitations honestly stated:
-	 *   - The audit log reflects actions that were recorded with ENTRY_CREATE,
-	 *     ENTRY_UPDATE, FILE_UPLOAD, etc. — it does not show OWUI chat activity.
-	 *   - Pagination is supported; this page loads 50 items per page.
-	 */
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { caseEngineToken } from '$lib/stores';
-	import { getCaseAudit, type AuditLogItem } from '$lib/apis/caseEngine';
+	import {
+		listCaseTimelineEntries,
+		listCaseFiles,
+		listWorkflowItems,
+		listWorkflowProposals,
+		listCaseNotebookNotes,
+		listProposals,
+		type ProposalRecord,
+		type WorkflowProposal
+	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
@@ -28,179 +19,267 @@
 
 	const caseId = $page.params.id;
 
-	let items: AuditLogItem[] = [];
+	type ActivityType = 'Timeline' | 'Files' | 'Workflow' | 'Proposals' | 'Notes';
+	type ActivityItem = {
+		id: string;
+		type: ActivityType;
+		action: string;
+		timestamp: string;
+		actor: string;
+		description: string;
+		sourcePath: string;
+		occurredAt?: string;
+	};
+
+	let items: ActivityItem[] = [];
 	let loading = true;
 	let loadError = '';
-	let nextCursor: string | null = null;
-	let loadingMore = false;
-	/** Client-side filter: show only items with this action ('' = all). Uses already-loaded data only. */
-	let filterAction = '';
+	let filterType: 'All' | ActivityType = 'All';
 
-	const PAGE_SIZE = 50;
+	$: displayedItems = filterType === 'All' ? items : items.filter((i) => i.type === filterType);
 
-	$: uniqueActions = [...new Set(items.map((i) => i.action))].sort();
-	$: displayedItems = !filterAction ? items : items.filter((i) => i.action === filterAction);
+	function asActor(v: unknown): string {
+		const s = typeof v === 'string' ? v.trim() : '';
+		return s || 'Unknown user';
+	}
 
-	async function loadActivity(cursor?: string): Promise<void> {
-		if (!$caseEngineToken) return;
-		if (cursor) {
-			loadingMore = true;
-		} else {
-			loading = true;
-			loadError = '';
-			items = [];
-		}
-		try {
-			const result = await getCaseAudit(caseId, $caseEngineToken, {
-				limit: PAGE_SIZE,
-				cursor
+	function truncate(v: string, max = 90): string {
+		const s = v.trim();
+		return s.length <= max ? s : `${s.slice(0, max)}...`;
+	}
+
+	function sortNewestFirst(activity: ActivityItem[]): ActivityItem[] {
+		return [...activity].sort((a, b) => {
+			const tA = Date.parse(a.timestamp);
+			const tB = Date.parse(b.timestamp);
+			const nA = Number.isNaN(tA) ? 0 : tA;
+			const nB = Number.isNaN(tB) ? 0 : tB;
+			return nB - nA;
+		});
+	}
+
+	function mapProposalLifecycleEvents(proposal: ProposalRecord): ActivityItem[] {
+		const out: ActivityItem[] = [];
+		out.push({
+			id: `proposal-create-${proposal.id}`,
+			type: 'Proposals',
+			action: 'Proposal created',
+			timestamp: proposal.created_at,
+			actor: asActor(proposal.created_by),
+			description: `${proposal.proposal_type} proposal`,
+			sourcePath: `/case/${caseId}/proposals`
+		});
+		if (proposal.status === 'approved' && proposal.reviewed_at && proposal.reviewed_by) {
+			out.push({
+				id: `proposal-approved-${proposal.id}`,
+				type: 'Proposals',
+				action: 'Proposal approved',
+				timestamp: proposal.reviewed_at,
+				actor: asActor(proposal.reviewed_by),
+				description: `${proposal.proposal_type} proposal approved`,
+				sourcePath: `/case/${caseId}/proposals`
 			});
-			items = cursor ? [...items, ...result.items] : result.items;
-			nextCursor = result.next_cursor ?? null;
+		}
+		if (proposal.status === 'rejected' && proposal.reviewed_at && proposal.reviewed_by) {
+			out.push({
+				id: `proposal-rejected-${proposal.id}`,
+				type: 'Proposals',
+				action: 'Proposal rejected',
+				timestamp: proposal.reviewed_at,
+				actor: asActor(proposal.reviewed_by),
+				description: `${proposal.proposal_type} proposal rejected`,
+				sourcePath: `/case/${caseId}/proposals`
+			});
+		}
+		if (proposal.committed_at) {
+			out.push({
+				id: `proposal-committed-${proposal.id}`,
+				type: 'Proposals',
+				action: 'Proposal committed',
+				timestamp: proposal.committed_at,
+				actor: asActor(proposal.reviewed_by),
+				description: `${proposal.proposal_type} proposal committed`,
+				sourcePath: `/case/${caseId}/proposals`
+			});
+		}
+		return out;
+	}
+
+	function mapWorkflowProposalEvents(proposal: WorkflowProposal): ActivityItem[] {
+		const out: ActivityItem[] = [];
+		out.push({
+			id: `wf-proposal-create-${proposal.id}`,
+			type: 'Workflow',
+			action: 'Workflow proposal created',
+			timestamp: proposal.created_at,
+			actor: asActor(proposal.created_by),
+			description: proposal.suggested_payload?.title
+				? truncate(String(proposal.suggested_payload.title))
+				: 'Workflow proposal',
+			sourcePath: `/case/${caseId}/workflow`
+		});
+		if (proposal.resolved_at && proposal.resolved_by) {
+			out.push({
+				id: `wf-proposal-resolved-${proposal.id}`,
+				type: 'Workflow',
+				action:
+					proposal.status === 'ACCEPTED'
+						? 'Workflow proposal accepted'
+						: proposal.status === 'REJECTED'
+							? 'Workflow proposal rejected'
+							: 'Workflow proposal resolved',
+				timestamp: proposal.resolved_at,
+				actor: asActor(proposal.resolved_by),
+				description: proposal.suggested_payload?.title
+					? truncate(String(proposal.suggested_payload.title))
+					: 'Workflow proposal',
+				sourcePath: `/case/${caseId}/workflow`
+			});
+		}
+		return out;
+	}
+
+	async function loadActivity(): Promise<void> {
+		if (!$caseEngineToken) return;
+		loading = true;
+		loadError = '';
+		items = [];
+		try {
+			const [timeline, files, workflowItems, workflowProposals, notes, proposals] = await Promise.all([
+				listCaseTimelineEntries(caseId, $caseEngineToken),
+				listCaseFiles(caseId, $caseEngineToken),
+				listWorkflowItems(caseId, $caseEngineToken),
+				listWorkflowProposals(caseId, $caseEngineToken),
+				listCaseNotebookNotes(caseId, $caseEngineToken),
+				listProposals(caseId, $caseEngineToken)
+			]);
+
+			const activity: ActivityItem[] = [];
+
+			for (const entry of timeline) {
+				activity.push({
+					id: `timeline-${entry.id}`,
+					type: 'Timeline',
+					action: 'Timeline entry added',
+					// Activity feed semantics: when user/system action happened.
+					timestamp: entry.created_at,
+					actor: asActor(entry.created_by),
+					description: truncate(entry.text_original || entry.type || 'Timeline entry'),
+					sourcePath: `/case/${caseId}/timeline`,
+					occurredAt: entry.occurred_at
+				});
+			}
+
+			for (const file of files) {
+				activity.push({
+					id: `file-${file.id}`,
+					type: 'Files',
+					action: 'File uploaded',
+					timestamp: file.uploaded_at,
+					actor: asActor(file.uploaded_by),
+					description: truncate(file.original_filename || 'Case file'),
+					sourcePath: `/case/${caseId}/files`
+				});
+			}
+
+			for (const wf of workflowItems) {
+				activity.push({
+					id: `workflow-created-${wf.id}`,
+					type: 'Workflow',
+					action: 'Workflow item created',
+					timestamp: wf.created_at,
+					actor: asActor(wf.created_by),
+					description: truncate(wf.title || 'Workflow item'),
+					sourcePath: `/case/${caseId}/workflow`
+				});
+				if (wf.updated_at && wf.updated_at !== wf.created_at) {
+					activity.push({
+						id: `workflow-updated-${wf.id}`,
+						type: 'Workflow',
+						action: 'Workflow item updated',
+						timestamp: wf.updated_at,
+						actor: asActor(wf.updated_by ?? wf.created_by),
+						description: truncate(wf.title || 'Workflow item'),
+						sourcePath: `/case/${caseId}/workflow`
+					});
+				}
+			}
+
+			for (const proposal of workflowProposals) {
+				activity.push(...mapWorkflowProposalEvents(proposal));
+			}
+
+			for (const note of notes) {
+				activity.push({
+					id: `note-created-${note.id}`,
+					type: 'Notes',
+					action: 'Note added',
+					timestamp: note.created_at,
+					actor: asActor(note.created_by),
+					description: truncate(note.title || 'Untitled note'),
+					sourcePath: `/case/${caseId}/notes`
+				});
+				if (note.updated_at && note.updated_at !== note.created_at) {
+					activity.push({
+						id: `note-updated-${note.id}`,
+						type: 'Notes',
+						action: 'Note updated',
+						timestamp: note.updated_at,
+						actor: asActor(note.updated_by),
+						description: truncate(note.title || 'Untitled note'),
+						sourcePath: `/case/${caseId}/notes`
+					});
+				}
+			}
+
+			for (const proposal of proposals) {
+				activity.push(...mapProposalLifecycleEvents(proposal));
+			}
+
+			items = sortNewestFirst(activity);
 		} catch (e: unknown) {
 			loadError = e instanceof Error ? e.message : 'Failed to load activity';
 		} finally {
 			loading = false;
-			loadingMore = false;
 		}
 	}
 
 	onMount(() => { loadActivity(); });
-
-	/**
-	 * Map an audit action string to a human-readable label.
-	 * Returns the raw action if no mapping exists, so nothing is hidden.
-	 */
-	function actionLabel(action: string): string {
-		const map: Record<string, string> = {
-			CASE_CREATE:          'Case created',
-			CASE_UPDATE:          'Case updated',
-			CASE_DELETE_SOFT:     'Case deleted',
-			CASE_RESTORE:         'Case restored',
-			ENTRY_CREATE:         'Timeline entry added',
-			ENTRY_UPDATE:         'Timeline entry edited',
-			ENTRY_DELETE_SOFT:    'Timeline entry deleted',
-			ENTRY_RESTORE:        'Timeline entry restored',
-			FILE_UPLOAD:          'File uploaded',
-			FILE_DELETE_SOFT:     'File deleted',
-			FILE_RESTORE:         'File restored',
-			FILE_EXTRACT_TEXT:    'File text extracted',
-			INTAKE_SUBMITTED:     'Intake submitted',
-			INTAKE_PROPOSED:      'Intake proposed (AI)',
-			INTAKE_APPROVED_AND_COMMITTED: 'Intake approved and committed',
-			INTAKE_REJECTED:      'Intake rejected',
-			NOTEBOOK_NOTE_CREATED:  'Working note created',
-			NOTEBOOK_NOTE_VERSION_CREATED: 'Working note updated',
-			NOTEBOOK_NOTE_DELETED:  'Working note deleted',
-			NOTEBOOK_NOTE_RESTORED: 'Working note restored',
-			PROPOSAL_CREATED:     'Proposal created',
-			PROPOSAL_UPDATED:     'Proposal updated',
-			PROPOSAL_APPROVED:    'Proposal approved',
-			PROPOSAL_REJECTED:    'Proposal rejected',
-			PROPOSAL_COMMITTED:   'Proposal committed to record',
-			EVIDENCE_TAG_ADDED:   'Evidence tag added',
-			EVIDENCE_TAG_REMOVED: 'Evidence tag removed',
-			AUTH_LOGIN_SUCCESS:   'Login',
-			CASE_EXPORT_AUDIT_LOG: 'Audit log exported',
-			CASE_EXPORT_RUNNING_NOTES: 'Running notes exported'
-		};
-		return map[action] ?? action;
-	}
-
-	/**
-	 * Entity type → readable label.
-	 */
-	function entityLabel(entityType: string): string {
-		const map: Record<string, string> = {
-			case:           'Case',
-			timeline_entry: 'Entry',
-			case_file:      'File',
-			intake:         'Intake',
-			notebook_note:  'Note',
-			proposal_record: 'Proposal'
-		};
-		return map[entityType] ?? entityType;
-	}
-
-	/** Actor display: role + short user id from backend. No fabrication. */
-	function actorLabel(item: AuditLogItem): string {
-		const role = item.user_role ? `${item.user_role} ` : '';
-		const id = item.user_id ? item.user_id.slice(0, 8) : '—';
-		return `${role}${id}`.trim() || '—';
-	}
-
-	/** Case relevance: entity type + short id. */
-	function caseRelevanceLabel(item: AuditLogItem): string {
-		return `${entityLabel(item.entity_type)} ${item.entity_id.slice(0, 8)}`;
-	}
-
-	/** Metadata keys we skip when rendering details (internal/noise). */
-	const DETAIL_SKIP_KEYS = new Set(['_metadata_parse_error', '_raw_metadata']);
-
-	/** Useful metadata entries from backend details, for display only. */
-	function detailEntries(item: AuditLogItem): Array<{ k: string; v: string }> {
-		const d = item.details;
-		if (!d || typeof d !== 'object') return [];
-		return Object.entries(d)
-			.filter(([k, v]) => !DETAIL_SKIP_KEYS.has(k) && v !== undefined && v !== null)
-			.map(([k, v]) => ({ k, v: String(v) }))
-			.slice(0, 8);
-	}
-
-	/**
-	 * Color-code audit actions for quick scanning.
-	 */
-	function actionBadgeClass(action: string): string {
-		if (action.includes('_CREATE') || action.includes('_SUBMITTED') || action.includes('_UPLOAD')) {
-			return 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400';
-		}
-		if (action.includes('_DELETE')) {
-			return 'bg-red-100 dark:bg-red-900/30 text-red-500 dark:text-red-400';
-		}
-		if (action.includes('_RESTORE') || action.includes('_COMMITTED')) {
-			return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
-		}
-		if (action.includes('_UPDATE') || action.includes('_APPROVED') || action.includes('_REJECTED')) {
-			return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
-		}
-		return 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400';
+	function typeBadgeClass(type: ActivityType): string {
+		if (type === 'Timeline') return 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400';
+		if (type === 'Files') return 'bg-emerald-100 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-400';
+		if (type === 'Workflow') return 'bg-purple-100 dark:bg-purple-900/30 text-purple-700 dark:text-purple-400';
+		if (type === 'Proposals') return 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400';
+		return 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300';
 	}
 </script>
 
-<!--
-	Case Activity — Backend Audit Log
-	Shows real backend-recorded events for this case, not a frontend-synthesized log.
-	This page renders inside the P19-06 case shell (+layout.svelte).
--->
-<div
-	class="flex flex-col h-full overflow-y-auto"
-	data-testid="case-activity-page"
->
-	<!-- Section header -->
-	<div
-		class="shrink-0 flex flex-wrap items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800"
-	>
-		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Case Activity</h2>
+<div class="flex flex-col h-full overflow-y-auto" data-testid="case-activity-page">
+	<div class="shrink-0 flex flex-wrap items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
+		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Activity</h2>
+		<span class="text-xs text-gray-400 dark:text-gray-500">Read-only case history, newest first</span>
 		<span class="text-xs text-gray-400 dark:text-gray-500">
-			— backend audit trail, newest first
+			Recorded events only; review chronology here, make changes in source tabs.
 		</span>
 		{#if items.length > 0}
-			<label class="flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
-				<span>Filter:</span>
+			<label class="ml-auto flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400">
+				<span>Type</span>
 				<select
 					class="rounded border border-gray-200 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-700 dark:text-gray-200 text-xs py-1 px-2"
-					bind:value={filterAction}
+					bind:value={filterType}
 				>
-					<option value="">All</option>
-					{#each uniqueActions as action}
-						<option value={action}>{actionLabel(action)}</option>
-					{/each}
+					<option value="All">All</option>
+					<option value="Timeline">Timeline</option>
+					<option value="Files">Files</option>
+					<option value="Workflow">Workflow</option>
+					<option value="Notes">Notes</option>
+					<option value="Proposals">Proposals</option>
 				</select>
 			</label>
 		{/if}
 		<button
 			type="button"
-			class="ml-auto text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition"
+			class="text-xs text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 transition"
 			on:click={() => loadActivity()}
 			title="Refresh activity"
 		>
@@ -208,82 +287,55 @@
 		</button>
 	</div>
 
-	<!-- Activity feed -->
 	<div class="flex-1 px-4 pt-3 pb-4 min-h-0">
 		{#if loading}
-			<CaseLoadingState label="Loading activity…" testId="case-activity-loading" />
+			<CaseLoadingState label="Loading activity..." testId="case-activity-loading" />
 		{:else if loadError}
 			<CaseErrorState message={loadError} />
 		{:else if items.length === 0}
 			<CaseEmptyState
-				title="No activity recorded yet."
-				description="Activity appears here as case actions are performed."
+				title="No activity recorded for this case."
+				description=""
 				testId="case-activity-empty"
 			/>
 		{:else if displayedItems.length === 0}
 			<CaseEmptyState
-				title="No activity matches the selected filter."
-				description='Choose "All" or another action.'
+				title="No activity matches this filter."
+				description='Select "All" to view all activity.'
 			/>
 		{:else}
-			<ol
-				class="flex flex-col gap-px"
-				data-testid="case-activity-list"
-				aria-label="Case activity feed"
-			>
+			<ol class="flex flex-col gap-px" data-testid="case-activity-list" aria-label="Case activity feed">
 				{#each displayedItems as item (item.id)}
 					<li
 						class="py-3 px-3 border-b border-gray-100 dark:border-gray-800/80 last:border-0 rounded-sm hover:bg-gray-50/50 dark:hover:bg-gray-800/30 transition-colors"
 						data-testid="case-activity-item"
 					>
-						<!-- Row 1: Timestamp · Actor -->
-						<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400 mb-1">
-							<time datetime={item.created_at} class="font-medium text-gray-600 dark:text-gray-300">
-								{formatCaseDateTime(item.created_at)}
+						<div class="flex flex-wrap items-center gap-2 min-w-0">
+							<time datetime={item.timestamp} class="text-xs font-medium text-gray-600 dark:text-gray-300">
+								{formatCaseDateTime(item.timestamp)}
 							</time>
 							<span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
-							<span title="Actor (from backend)"> {actorLabel(item)}</span>
-						</div>
-
-						<!-- Row 2: Action + case relevance -->
-						<div class="flex flex-wrap items-center gap-2 min-w-0">
-							<span
-								class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded whitespace-nowrap
-								       {actionBadgeClass(item.action)}"
-							>
-								{actionLabel(item.action)}
+							<span class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded whitespace-nowrap {typeBadgeClass(item.type)}">
+								{item.type}
 							</span>
-							<span class="text-xs text-gray-500 dark:text-gray-400 truncate" title={item.entity_type + ' ' + item.entity_id}>
-								{caseRelevanceLabel(item)}
-							</span>
+							<span class="text-xs text-gray-700 dark:text-gray-200">{item.action}</span>
 						</div>
-
-						<!-- Row 3: Metadata when available (backend details only) -->
-						{#if detailEntries(item).length > 0}
-							<dl class="mt-1.5 flex flex-wrap gap-x-3 gap-y-0.5 text-xs text-gray-400 dark:text-gray-500">
-								{#each detailEntries(item) as { k, v }}
-									<span class="inline"><span class="text-gray-400 dark:text-gray-500">{k}:</span> <span class="font-mono text-gray-500 dark:text-gray-400">{v.length > 32 ? v.slice(0, 32) + '…' : v}</span></span>
-								{/each}
-							</dl>
+						<div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+							{item.description}
+						</div>
+						{#if item.type === 'Timeline' && item.occurredAt}
+							<div class="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
+								Occurred: {formatCaseDateTime(item.occurredAt)}
+							</div>
 						{/if}
+						<div class="mt-1 text-xs text-gray-400 dark:text-gray-500 flex items-center gap-2">
+							<span>by {item.actor}</span>
+							<span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+							<a href={item.sourcePath} class="hover:underline">Open source</a>
+						</div>
 					</li>
 				{/each}
 			</ol>
-
-			<!-- Load more -->
-			{#if nextCursor}
-				<div class="flex justify-center pt-4">
-					<button
-						type="button"
-						disabled={loadingMore}
-						class="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50"
-						on:click={() => loadActivity(nextCursor ?? undefined)}
-						data-testid="case-activity-load-more"
-					>
-						{loadingMore ? 'Loading…' : 'Load more'}
-					</button>
-				</div>
-			{/if}
 		{/if}
 	</div>
 </div>

@@ -39,6 +39,13 @@
 		casesError = '';
 		try {
 			cases = await listCasesSidebar(token);
+			// Reconcile stale persisted selection with visible/authorized sidebar rows.
+			if ($activeCaseId && !cases.some((c) => c.id === $activeCaseId)) {
+				activeCaseId.set(null);
+				activeCaseNumber.set(null);
+				caseContext.set(null);
+				aiCaseContext.set(null);
+			}
 		} catch (e: any) {
 			casesError = e?.message ?? 'Failed to load cases';
 			cases = [];
@@ -71,7 +78,7 @@
 				caseContext.set(ctx);
 				aiCaseContext.set(aiCtx ?? null);
 			}
-		} catch {
+		} catch (e: unknown) {
 			if ($activeCaseId === requestedId) {
 				caseContext.set(null);
 				aiCaseContext.set(null);
@@ -80,7 +87,12 @@
 	}
 
 	// Ticket 7.1/8: Single reactive – fetch when activeCaseId set and context missing or stale
-	$: if ($caseEngineToken && $activeCaseId && $caseContext?.case?.id !== $activeCaseId) {
+	$: if (
+		$caseEngineToken &&
+		$activeCaseId &&
+		$caseContext?.case?.id !== $activeCaseId &&
+		($page.url.pathname.startsWith('/case/') || cases.some((c) => c.id === $activeCaseId))
+	) {
 		fetchContextForActiveCase();
 	}
 

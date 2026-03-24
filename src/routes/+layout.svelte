@@ -193,7 +193,10 @@
 					// P19.75-01: Token is sometimes written after connect; retry without noisy false warnings.
 					queueMicrotask(() => {
 						if (!emitUserJoin() && import.meta.env.DEV) {
-							console.warn('No token found in localStorage, user-join event not emitted');
+							const authPath = (window?.location?.pathname ?? '') === '/auth';
+							if (!authPath) {
+								console.warn('No token found in localStorage, user-join event not emitted');
+							}
 						}
 					});
 				}

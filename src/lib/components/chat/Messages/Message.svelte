@@ -33,6 +33,7 @@
 	export let rateMessage;
 	export let actionMessage;
 	export let submitMessage;
+	export let submitPromptDirect;
 
 	export let regenerateResponse;
 	export let continueResponse;
@@ -91,6 +92,7 @@
 				{rateMessage}
 				{actionMessage}
 				{submitMessage}
+				{submitPromptDirect}
 				{deleteMessage}
 				{continueResponse}
 				{regenerateResponse}

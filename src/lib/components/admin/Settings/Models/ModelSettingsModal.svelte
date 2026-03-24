@@ -42,6 +42,7 @@
 
 	let selectedModelId = '';
 	let defaultModelIds = [];
+	let lockDefaultModels = false;
 
 	let selectedPinnedModelId = '';
 	let defaultPinnedModelIds = [];
@@ -74,6 +75,8 @@
 		} else {
 			defaultModelIds = [];
 		}
+
+		lockDefaultModels = config?.LOCK_DEFAULT_MODELS ?? false;
 
 		if (config?.DEFAULT_PINNED_MODELS) {
 			defaultPinnedModelIds = (config?.DEFAULT_PINNED_MODELS).split(',').filter((id) => id);
@@ -122,6 +125,7 @@
 
 		const res = await setModelsConfig(localStorage.token, {
 			DEFAULT_MODELS: defaultModelIds.join(','),
+			LOCK_DEFAULT_MODELS: lockDefaultModels,
 			DEFAULT_PINNED_MODELS: defaultPinnedModelIds.join(','),
 			MODEL_ORDER_LIST: modelIds,
 			DEFAULT_MODEL_METADATA: metadata,
@@ -229,19 +233,38 @@
 							<div class="flex-1 mt-1 lg:mt-1 lg:h-[30rem] lg:max-h-[30rem] flex flex-col min-w-0">
 								<div class="w-full h-full overflow-y-auto overflow-x-hidden scrollbar-hidden">
 									{#if selectedTab === 'defaults'}
-										<ModelSelector
-											title={$i18n.t('Selected Models')}
-											tooltip={$i18n.t(
-												'Set the default models that are automatically selected for all users when a new chat is created.'
-											)}
-											models={$models}
-											bind:modelIds={defaultModelIds}
+									<ModelSelector
+										title={$i18n.t('Selected Models')}
+										tooltip={$i18n.t(
+											'Set the default models that are automatically selected for all users when a new chat is created.'
+										)}
+										models={$models}
+										bind:modelIds={defaultModelIds}
+									/>
+
+									<div class="mt-2 flex items-center justify-between">
+										<div>
+											<div class="text-xs font-medium text-gray-700 dark:text-gray-300">
+												{$i18n.t('Lock model for non-admins')}
+											</div>
+											<div class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+												{$i18n.t(
+													'When enabled, non-admin users cannot change the selected model. The selector will be disabled in their chat view.'
+												)}
+											</div>
+										</div>
+										<input
+											type="checkbox"
+											bind:checked={lockDefaultModels}
+											class="ml-4 shrink-0 cursor-pointer accent-blue-600"
+											aria-label={$i18n.t('Lock model for non-admins')}
 										/>
+									</div>
 
-										<hr class=" border-gray-50 dark:border-gray-800/10 my-2.5 w-full" />
+									<hr class=" border-gray-50 dark:border-gray-800/10 my-2.5 w-full" />
 
-										<ModelSelector
-											title={$i18n.t('Pinned Models')}
+									<ModelSelector
+										title={$i18n.t('Pinned Models')}
 											tooltip={$i18n.t(
 												'Set the models that are automatically pinned to the sidebar for all users.'
 											)}

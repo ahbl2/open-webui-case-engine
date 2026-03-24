@@ -48,14 +48,21 @@
 		showFileNavDir,
 		scope,
 		activeCaseId,
+		activeCaseNumber,
 		caseEngineToken,
 		aiCaseContext
 	} from '$lib/stores';
 	import {
 		askCase,
-		askCrossCase,
+		requestCaseSummary,
 		draftChatIntakeProposal,
-		type CrossCaseCitation
+		listTemplates,
+		requestAiWarrantDraft,
+		getNarrativeTimeline,
+		getExhibits,
+		getProsecutorSummary,
+		listWorkflowItems,
+		listWorkflowProposals
 	} from '$lib/apis/caseEngine';
 	import {
 		classifyCaseEngineFailure,
@@ -63,12 +70,36 @@
 		P20_CASE_ENGINE_ASK_UI
 	} from '$lib/utils/caseEngineUiState';
 	import { detectCaseChatIntakeIntent } from '$lib/utils/chatIntakeIntent';
+	import {
+		CASE_CHAT_CREATE_REFUSAL_MESSAGE,
+		detectCreateCaseIntent,
+		type DesktopCreateCaseWizardState,
+		startDesktopCreateCaseWizard,
+		advanceDesktopCreateCaseWizard,
+		createCaseFromDraft
+	} from '$lib/utils/caseCreateDraft';
+	import { detectCaseSummaryIntent } from '$lib/utils/caseSummary';
+	import {
+		detectWorkflowCreateIntent,
+		detectWorkflowListIntent,
+		formatWorkflowOverviewForChat
+	} from '$lib/utils/workflow';
+	import {
+		detectWarrantChatIntent,
+		formatAiWarrantDraftForChat,
+		formatExhibitsForChat,
+		formatNarrativeTimelineForChat,
+		formatProsecutorSummaryForChat,
+		formatTemplateListForChat
+	} from '$lib/utils/warrants';
+	import { resolveIntelligenceHandoff } from '$lib/utils/intelligence';
 	import { finalizeAssistantStopState } from '$lib/utils/chatSiblingCompletion';
 	import {
 		getCreateNewChatIdOption,
 		shouldRewriteBrowserUrlToStandaloneChatPath
 	} from '$lib/utils/chatThreadCreateOptions';
 	import { generateThreadTitle } from '$lib/utils/threadTitle';
+	import { activeUiThread } from '$lib/stores/activeUiThread';
 	import {
 		resolveConversationalQuery,
 		isContextDependent,
@@ -114,7 +145,8 @@
 	} from '$lib/apis/chats';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
 	import { processWeb, processWebSearch, processYoutubeVideo } from '$lib/apis/retrieval';
-	import { getAndUpdateUserLocation, getUserSettings } from '$lib/apis/users';
+	import { getAndUpdateUserLocation, getUserSettings, updateUserSettings } from '$lib/apis/users';
+	import { resolveInitialModels } from '$lib/utils/modelResolution';
 	import {
 		chatCompleted,
 		generateQueries,
@@ -209,6 +241,19 @@
 
 	// Message queue for storing messages while generating
 	let messageQueue: { id: string; prompt: string; files: any[] }[] = [];
+	let desktopCreateCaseWizard: DesktopCreateCaseWizardState | null = null;
+	let desktopCreateCaseSubmitting = false;
+	let desktopCreateCaseSubmitNotified = false;
+let caseSummaryRequestInFlight = false;
+let workflowListRequestInFlight = false;
+let warrantToolsRequestInFlight = false;
+	$: activeCaseThreadId =
+		$activeUiThread?.scope === 'case' &&
+		$activeCaseId &&
+		$activeUiThread.caseId === $activeCaseId &&
+		typeof $activeUiThread.threadId === 'string'
+			? $activeUiThread.threadId.trim()
+			: '';
 
 	$: if (chatIdProp) {
 		navigateHandler();
@@ -301,13 +346,16 @@
 		const { type, data } = e;
 
 		if (type === 'prompt') {
-			// Handle prompt selection
+			// Handle prompt selection (in-message follow-ups — may auto-submit per setting).
 			messageInput?.setText(data, async () => {
 				if (!($settings?.insertSuggestionPrompt ?? false)) {
 					await tick();
 					submitPrompt(prompt);
 				}
 			});
+		} else if (type === 'prefill') {
+			// Prefill-only — used by detective static suggestions. Never auto-submits.
+			messageInput?.setText(data);
 		}
 	};
 
@@ -325,8 +373,26 @@
 			return;
 		}
 		sessionStorage.selectedModels = selectedModelsString;
-		console.log('saveSessionSelectedModels', selectedModels, sessionStorage.selectedModels);
 	};
+
+	// P21-06 — auto-persist user model selection to server settings.
+	// Only fires in new-chat context (chatIdProp === '') when the user has
+	// manually changed the model away from the resolved initialization value,
+	// and no forced model is active. Debounced to avoid excessive API calls.
+	let _initModels: string[] = [];
+	let _persistTimer: ReturnType<typeof setTimeout> | null = null;
+	$: if (!chatIdProp && selectedModels.length > 0 && selectedModels[0] !== '') {
+		const forced = ($config?.lock_default_models ?? false) && $user?.role !== 'admin';
+		const changed = JSON.stringify(selectedModels) !== JSON.stringify(_initModels);
+		const alreadySaved = JSON.stringify(selectedModels) === JSON.stringify($settings?.models ?? []);
+		if (!forced && changed && !alreadySaved && _initModels.length > 0) {
+			if (_persistTimer) clearTimeout(_persistTimer);
+			_persistTimer = setTimeout(async () => {
+				settings.set({ ...$settings, models: selectedModels });
+				await updateUserSettings(localStorage.token, { ui: $settings });
+			}, 800);
+		}
+	}
 
 	let oldSelectedModelIds = [''];
 	$: if (JSON.stringify(selectedModelIds) !== JSON.stringify(oldSelectedModelIds)) {
@@ -1092,43 +1158,32 @@
 			if ($selectedFolder?.data?.model_ids) {
 				// Set from folder model IDs
 				selectedModels = $selectedFolder?.data?.model_ids;
+				// Unavailable & hidden models filtering
+				selectedModels = selectedModels.filter((modelId) => availableModels.includes(modelId));
+			} else if (sessionStorage.selectedModels) {
+				// Set from session storage (temporary within-session selection)
+				selectedModels = JSON.parse(sessionStorage.selectedModels);
+				sessionStorage.removeItem('selectedModels');
+				selectedModels = selectedModels.filter((modelId) => availableModels.includes(modelId));
 			} else {
-				if (sessionStorage.selectedModels) {
-					// Set from session storage (temporary selection)
-					selectedModels = JSON.parse(sessionStorage.selectedModels);
-					sessionStorage.removeItem('selectedModels');
-				} else {
-					if ($settings?.models) {
-						// Set from user settings
-						selectedModels = $settings?.models;
-					} else if (defaultModels && defaultModels.length > 0) {
-						// Set from default models
-						selectedModels = defaultModels;
-					}
-				}
+				// P21-06: formal resolution chain — forced → persisted → default → fallback.
+				selectedModels = resolveInitialModels({
+					availableModelIds: availableModels,
+					lockDefaultModels: $config?.lock_default_models ?? false,
+					defaultModelIds: defaultModels,
+					userModelIds: $settings?.models ?? []
+				});
 			}
-
-			// Unavailable & hidden models filtering
-			selectedModels = selectedModels.filter((modelId) => availableModels.includes(modelId));
 		}
 
-		// Ensure at least one model is selected
+		// Ensure at least one model is selected (covers folder / sessionStorage paths above)
 		if (selectedModels.length === 0 || (selectedModels.length === 1 && selectedModels[0] === '')) {
-			if (availableModels.length > 0) {
-				if (defaultModels && defaultModels.length > 0) {
-					selectedModels = defaultModels.filter((modelId) => availableModels.includes(modelId));
-				}
-
-				if (
-					selectedModels.length === 0 ||
-					(selectedModels.length === 1 && selectedModels[0] === '')
-				) {
-					// Only fall back to first available model if default models didn't resolve
-					selectedModels = [availableModels?.at(0) ?? ''];
-				}
-			} else {
-				selectedModels = [''];
-			}
+			selectedModels = resolveInitialModels({
+				availableModelIds: availableModels,
+				lockDefaultModels: $config?.lock_default_models ?? false,
+				defaultModelIds: defaultModels,
+				userModelIds: []
+			});
 		}
 
 		if ($mobile) {
@@ -1212,6 +1267,10 @@
 			$models.map((m) => m.id).includes(modelId) ? modelId : ''
 		);
 
+		// P21-06: capture the initialization baseline so the auto-persist reactive
+		// can distinguish system-set values from user-changed ones.
+		_initModels = structuredClone(selectedModels);
+
 		const chatInput = document.getElementById('chat-input');
 		setTimeout(() => chatInput?.focus(), 0);
 	};
@@ -1243,16 +1302,13 @@
 
 		chat = await getChatById(localStorage.token, $chatId).catch(async (error) => {
 			console.error(error);
-			await goto('/');
 			return null;
 		});
 
 		if (!chat) {
-			// Thread not found (deleted or access error already handled above).
-			// Render blank instead of bouncing — goto('/') already fired in the catch if needed.
-			history = { messages: {}, currentId: null };
-			chatTitle.set('');
-			return true;
+			// Non-reserved only: expected blank canvas is handled by the rt: fast path above.
+			await goto('/');
+			return;
 		}
 
 		if (chat) {
@@ -1797,6 +1853,50 @@
 		chats.set(await getChatList(localStorage.token, $currentChatPage));
 	};
 
+	const appendCaseEngineAssistantMessageToHistory = async (
+		userMessageId: string,
+		_chatId: string,
+		content: string,
+		options?: { caseCreateConfirmActions?: boolean; caseCreateConfirmActionsState?: string }
+	) => {
+		const msgId = uuidv4();
+		const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+		const model = $models.find((m) => m.id === modelId);
+		history.messages[msgId] = {
+			parentId: userMessageId,
+			id: msgId,
+			childrenIds: [],
+			role: 'assistant',
+			content,
+			model: modelId,
+			modelName: model?.name ?? 'Case Engine',
+			modelIdx: 0,
+			timestamp: Math.floor(Date.now() / 1000),
+			done: true,
+			caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>,
+			caseCreateConfirmActions: options?.caseCreateConfirmActions === true,
+			caseCreateConfirmActionsState:
+				options?.caseCreateConfirmActions === true
+					? (options?.caseCreateConfirmActionsState ?? 'pending')
+					: undefined
+		};
+		history.messages[userMessageId].childrenIds.push(msgId);
+		history.currentId = msgId;
+		await saveChatHandler(_chatId, history);
+		currentChatPage.set(1);
+		chats.set(await getChatList(localStorage.token, $currentChatPage));
+	};
+
+	const setCaseCreateConfirmActionsState = (nextState: 'submitted' | 'cancelled' | 'resolved' | 'failed') => {
+		for (const msg of Object.values(history.messages ?? {}) as Array<Record<string, unknown>>) {
+			if (msg?.role !== 'assistant' || msg.caseCreateConfirmActions !== true) continue;
+			const state = String(msg.caseCreateConfirmActionsState ?? 'pending');
+			if (state === 'pending' || state === 'submitted') {
+				msg.caseCreateConfirmActionsState = nextState;
+			}
+		}
+	};
+
 	const submitPrompt = async (userPrompt, { _raw = false } = {}) => {
 		console.log('submitPrompt', userPrompt, $chatId);
 
@@ -1870,8 +1970,440 @@
 				toast.error($i18n.t('Select a case to ask This Case.'));
 				return;
 			}
+			if (!activeCaseThreadId) {
+				toast.error('A thread must be active before asking a case question.');
+				return;
+			}
 			if (!$caseEngineToken) {
 				toast.error($i18n.t('Connect to Case Engine first.'));
+				return;
+			}
+			const caseScopedHandoff = resolveIntelligenceHandoff({
+				prompt: userPrompt,
+				caseId: $activeCaseId
+			});
+			if (caseScopedHandoff) {
+				const messages = createMessagesList(history, history.currentId);
+				messageInput?.setText('');
+				prompt = '';
+				const _files = structuredClone(files);
+				files = [];
+				let userMessageId = uuidv4();
+				let userMessage = {
+					id: userMessageId,
+					parentId: messages.length !== 0 ? messages.at(-1).id : null,
+					childrenIds: [],
+					role: 'user',
+					content: userPrompt,
+					files: _files.length > 0 ? _files : undefined,
+					timestamp: Math.floor(Date.now() / 1000),
+					models: selectedModels
+				};
+				history.messages[userMessageId] = userMessage;
+				history.currentId = userMessageId;
+				if (messages.length !== 0) {
+					history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+				}
+				saveSessionSelectedModels();
+				let _chatId = JSON.parse(JSON.stringify($chatId));
+				if (userMessage.parentId === null) {
+					_chatId = await initChatHandler(history);
+				}
+				await tick();
+				await saveChatHandler(_chatId, history);
+				await appendCaseEngineAssistantMessageToHistory(
+					userMessageId,
+					_chatId,
+					caseScopedHandoff
+				);
+				return;
+			}
+			if (detectCreateCaseIntent(userPrompt)) {
+				const messages = createMessagesList(history, history.currentId);
+				messageInput?.setText('');
+				prompt = '';
+				const _files = structuredClone(files);
+				files = [];
+				let userMessageId = uuidv4();
+				let userMessage = {
+					id: userMessageId,
+					parentId: messages.length !== 0 ? messages.at(-1).id : null,
+					childrenIds: [],
+					role: 'user',
+					content: userPrompt,
+					files: _files.length > 0 ? _files : undefined,
+					timestamp: Math.floor(Date.now() / 1000),
+					models: selectedModels
+				};
+				history.messages[userMessageId] = userMessage;
+				history.currentId = userMessageId;
+				if (messages.length !== 0) {
+					history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+				}
+				saveSessionSelectedModels();
+				let _chatId = JSON.parse(JSON.stringify($chatId));
+				if (userMessage.parentId === null) {
+					_chatId = await initChatHandler(history);
+				}
+				await tick();
+				await saveChatHandler(_chatId, history);
+				await appendCaseEngineAssistantMessageToHistory(
+					userMessageId,
+					_chatId,
+					CASE_CHAT_CREATE_REFUSAL_MESSAGE
+				);
+				return;
+			}
+			if (detectCaseSummaryIntent(userPrompt)) {
+				if (caseSummaryRequestInFlight) {
+					toast.info('Case summary is already generating. Please wait for completion.');
+					return;
+				}
+				const messages = createMessagesList(history, history.currentId);
+				messageInput?.setText('');
+				prompt = '';
+				const _files = structuredClone(files);
+				files = [];
+				let userMessageId = uuidv4();
+				let userMessage = {
+					id: userMessageId,
+					parentId: messages.length !== 0 ? messages.at(-1).id : null,
+					childrenIds: [],
+					role: 'user',
+					content: userPrompt,
+					files: _files.length > 0 ? _files : undefined,
+					timestamp: Math.floor(Date.now() / 1000),
+					models: selectedModels
+				};
+				history.messages[userMessageId] = userMessage;
+				history.currentId = userMessageId;
+				if (messages.length !== 0) {
+					history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+				}
+				saveSessionSelectedModels();
+				let _chatId = JSON.parse(JSON.stringify($chatId));
+				if (userMessage.parentId === null) {
+					_chatId = await initChatHandler(history);
+				}
+				await tick();
+				await saveChatHandler(_chatId, history);
+
+				let pendingAssistantId: string | undefined;
+				try {
+					caseSummaryRequestInFlight = true;
+					const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+					const model = $models.find((m) => m.id === modelId);
+					pendingAssistantId = uuidv4();
+					history.messages[pendingAssistantId] = {
+						parentId: userMessageId,
+						id: pendingAssistantId,
+						childrenIds: [],
+						role: 'assistant',
+						...P20_CASE_ENGINE_ASK_UI.loading,
+						model: modelId,
+						modelName: model?.name ?? 'Case Engine',
+						modelIdx: 0,
+						timestamp: Math.floor(Date.now() / 1000),
+						caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
+					};
+					history.currentId = pendingAssistantId;
+					history.messages[userMessageId].childrenIds.push(pendingAssistantId);
+					await saveChatHandler(_chatId, history);
+					await tick();
+
+					await requestCaseSummary($activeCaseId, $caseEngineToken);
+					const responseMessage = {
+						...history.messages[pendingAssistantId],
+						parentId: userMessageId,
+						id: pendingAssistantId,
+						childrenIds: history.messages[pendingAssistantId].childrenIds ?? [],
+						role: 'assistant',
+						content: 'Case summary updated. View it in the Summary tab.',
+						model: modelId,
+						modelName: model?.name ?? 'Case Engine',
+						modelIdx: 0,
+						timestamp: Math.floor(Date.now() / 1000),
+						...P20_CASE_ENGINE_ASK_UI.success,
+						caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
+					};
+					history.messages[pendingAssistantId] = responseMessage;
+					history.currentId = pendingAssistantId;
+					await saveChatHandler(_chatId, history);
+					currentChatPage.set(1);
+					chats.set(await getChatList(localStorage.token, $currentChatPage));
+				} catch (e) {
+					await appendCaseEngineAskFailureToHistory(e, userMessageId, _chatId, pendingAssistantId);
+				} finally {
+					caseSummaryRequestInFlight = false;
+				}
+				return;
+			}
+			if (detectWorkflowCreateIntent(userPrompt)) {
+				const messages = createMessagesList(history, history.currentId);
+				messageInput?.setText('');
+				prompt = '';
+				const _files = structuredClone(files);
+				files = [];
+				let userMessageId = uuidv4();
+				let userMessage = {
+					id: userMessageId,
+					parentId: messages.length !== 0 ? messages.at(-1).id : null,
+					childrenIds: [],
+					role: 'user',
+					content: userPrompt,
+					files: _files.length > 0 ? _files : undefined,
+					timestamp: Math.floor(Date.now() / 1000),
+					models: selectedModels
+				};
+				history.messages[userMessageId] = userMessage;
+				history.currentId = userMessageId;
+				if (messages.length !== 0) {
+					history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+				}
+				saveSessionSelectedModels();
+				let _chatId = JSON.parse(JSON.stringify($chatId));
+				if (userMessage.parentId === null) {
+					_chatId = await initChatHandler(history);
+				}
+				await tick();
+				await saveChatHandler(_chatId, history);
+				await appendCaseEngineAssistantMessageToHistory(
+					userMessageId,
+					_chatId,
+					'Use the Workflow tab to create workflow items. I can list current items and proposals here, but I do not create workflow items from chat directly.'
+				);
+				return;
+			}
+			if (detectWorkflowListIntent(userPrompt)) {
+				if (workflowListRequestInFlight) {
+					toast.info('Workflow list request is already running. Please wait.');
+					return;
+				}
+				const messages = createMessagesList(history, history.currentId);
+				messageInput?.setText('');
+				prompt = '';
+				const _files = structuredClone(files);
+				files = [];
+				let userMessageId = uuidv4();
+				let userMessage = {
+					id: userMessageId,
+					parentId: messages.length !== 0 ? messages.at(-1).id : null,
+					childrenIds: [],
+					role: 'user',
+					content: userPrompt,
+					files: _files.length > 0 ? _files : undefined,
+					timestamp: Math.floor(Date.now() / 1000),
+					models: selectedModels
+				};
+				history.messages[userMessageId] = userMessage;
+				history.currentId = userMessageId;
+				if (messages.length !== 0) {
+					history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+				}
+				saveSessionSelectedModels();
+				let _chatId = JSON.parse(JSON.stringify($chatId));
+				if (userMessage.parentId === null) {
+					_chatId = await initChatHandler(history);
+				}
+				await tick();
+				await saveChatHandler(_chatId, history);
+
+				let pendingAssistantId: string | undefined;
+				try {
+					workflowListRequestInFlight = true;
+					const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+					const model = $models.find((m) => m.id === modelId);
+					pendingAssistantId = uuidv4();
+					history.messages[pendingAssistantId] = {
+						parentId: userMessageId,
+						id: pendingAssistantId,
+						childrenIds: [],
+						role: 'assistant',
+						...P20_CASE_ENGINE_ASK_UI.loading,
+						model: modelId,
+						modelName: model?.name ?? 'Case Engine',
+						modelIdx: 0,
+						timestamp: Math.floor(Date.now() / 1000),
+						caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
+					};
+					history.currentId = pendingAssistantId;
+					history.messages[userMessageId].childrenIds.push(pendingAssistantId);
+					await saveChatHandler(_chatId, history);
+					await tick();
+
+					const [workflowItems, workflowProposals] = await Promise.all([
+						listWorkflowItems($activeCaseId, $caseEngineToken),
+						listWorkflowProposals($activeCaseId, $caseEngineToken)
+					]);
+					const content = formatWorkflowOverviewForChat(
+						workflowItems,
+						workflowProposals,
+						$activeCaseId
+					);
+					history.messages[pendingAssistantId] = {
+						...history.messages[pendingAssistantId],
+						parentId: userMessageId,
+						id: pendingAssistantId,
+						childrenIds: history.messages[pendingAssistantId].childrenIds ?? [],
+						role: 'assistant',
+						content,
+						model: modelId,
+						modelName: model?.name ?? 'Case Engine',
+						modelIdx: 0,
+						timestamp: Math.floor(Date.now() / 1000),
+						...P20_CASE_ENGINE_ASK_UI.success,
+						caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
+					};
+					history.currentId = pendingAssistantId;
+					await saveChatHandler(_chatId, history);
+					currentChatPage.set(1);
+					chats.set(await getChatList(localStorage.token, $currentChatPage));
+				} catch (e) {
+					await appendCaseEngineAskFailureToHistory(e, userMessageId, _chatId, pendingAssistantId);
+				} finally {
+					workflowListRequestInFlight = false;
+				}
+				return;
+			}
+			const warrantIntent = detectWarrantChatIntent(userPrompt);
+			if (warrantIntent) {
+				if (warrantIntent === 'handoff_render_export') {
+					const messages = createMessagesList(history, history.currentId);
+					messageInput?.setText('');
+					prompt = '';
+					const _files = structuredClone(files);
+					files = [];
+					let userMessageId = uuidv4();
+					let userMessage = {
+						id: userMessageId,
+						parentId: messages.length !== 0 ? messages.at(-1).id : null,
+						childrenIds: [],
+						role: 'user',
+						content: userPrompt,
+						files: _files.length > 0 ? _files : undefined,
+						timestamp: Math.floor(Date.now() / 1000),
+						models: selectedModels
+					};
+					history.messages[userMessageId] = userMessage;
+					history.currentId = userMessageId;
+					if (messages.length !== 0) {
+						history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+					}
+					saveSessionSelectedModels();
+					let _chatId = JSON.parse(JSON.stringify($chatId));
+					if (userMessage.parentId === null) {
+						_chatId = await initChatHandler(history);
+					}
+					await tick();
+					await saveChatHandler(_chatId, history);
+					await appendCaseEngineAssistantMessageToHistory(
+						userMessageId,
+						_chatId,
+						`Use the Warrants tab for render/export actions: /case/${$activeCaseId}/warrants`
+					);
+					return;
+				}
+
+				if (warrantToolsRequestInFlight) {
+					toast.info('A warrant tool request is already running. Please wait.');
+					return;
+				}
+
+				const messages = createMessagesList(history, history.currentId);
+				messageInput?.setText('');
+				prompt = '';
+				const _files = structuredClone(files);
+				files = [];
+				let userMessageId = uuidv4();
+				let userMessage = {
+					id: userMessageId,
+					parentId: messages.length !== 0 ? messages.at(-1).id : null,
+					childrenIds: [],
+					role: 'user',
+					content: userPrompt,
+					files: _files.length > 0 ? _files : undefined,
+					timestamp: Math.floor(Date.now() / 1000),
+					models: selectedModels
+				};
+				history.messages[userMessageId] = userMessage;
+				history.currentId = userMessageId;
+				if (messages.length !== 0) {
+					history.messages[messages.at(-1).id].childrenIds.push(userMessageId);
+				}
+				saveSessionSelectedModels();
+				let _chatId = JSON.parse(JSON.stringify($chatId));
+				if (userMessage.parentId === null) {
+					_chatId = await initChatHandler(history);
+				}
+				await tick();
+				await saveChatHandler(_chatId, history);
+
+				let pendingAssistantId: string | undefined;
+				try {
+					warrantToolsRequestInFlight = true;
+					const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
+					const model = $models.find((m) => m.id === modelId);
+					pendingAssistantId = uuidv4();
+					history.messages[pendingAssistantId] = {
+						parentId: userMessageId,
+						id: pendingAssistantId,
+						childrenIds: [],
+						role: 'assistant',
+						...P20_CASE_ENGINE_ASK_UI.loading,
+						model: modelId,
+						modelName: model?.name ?? 'Case Engine',
+						modelIdx: 0,
+						timestamp: Math.floor(Date.now() / 1000),
+						caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
+					};
+					history.currentId = pendingAssistantId;
+					history.messages[userMessageId].childrenIds.push(pendingAssistantId);
+					await saveChatHandler(_chatId, history);
+					await tick();
+
+					let content = '';
+					if (warrantIntent === 'list_templates') {
+						const templates = (await listTemplates($caseEngineToken)).templates;
+						content = formatTemplateListForChat(templates, $activeCaseId);
+					} else if (warrantIntent === 'ai_warrant_draft') {
+						const draft = await requestAiWarrantDraft($activeCaseId, $caseEngineToken);
+						content = formatAiWarrantDraftForChat(draft, $activeCaseId);
+					} else if (warrantIntent === 'narrative_timeline') {
+						const narrative = await getNarrativeTimeline($activeCaseId, $caseEngineToken);
+						content = formatNarrativeTimelineForChat(narrative.events ?? [], $activeCaseId);
+					} else if (warrantIntent === 'exhibits') {
+						const exhibits = await getExhibits($activeCaseId, $caseEngineToken);
+						content = formatExhibitsForChat(exhibits.exhibits ?? [], $activeCaseId);
+					} else if (warrantIntent === 'prosecutor_summary') {
+						const summary = await getProsecutorSummary($activeCaseId, $caseEngineToken);
+						content = formatProsecutorSummaryForChat(summary.summary?.sections ?? [], $activeCaseId);
+					} else {
+						content = `Use the Warrants tab: /case/${$activeCaseId}/warrants`;
+					}
+
+					history.messages[pendingAssistantId] = {
+						...history.messages[pendingAssistantId],
+						parentId: userMessageId,
+						id: pendingAssistantId,
+						childrenIds: history.messages[pendingAssistantId].childrenIds ?? [],
+						role: 'assistant',
+						content,
+						model: modelId,
+						modelName: model?.name ?? 'Case Engine',
+						modelIdx: 0,
+						timestamp: Math.floor(Date.now() / 1000),
+						...P20_CASE_ENGINE_ASK_UI.success,
+						caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
+					};
+					history.currentId = pendingAssistantId;
+					await saveChatHandler(_chatId, history);
+					currentChatPage.set(1);
+					chats.set(await getChatList(localStorage.token, $currentChatPage));
+				} catch (e) {
+					await appendCaseEngineAskFailureToHistory(e, userMessageId, _chatId, pendingAssistantId);
+				} finally {
+					warrantToolsRequestInFlight = false;
+				}
 				return;
 			}
 
@@ -2222,11 +2754,17 @@
 				await saveChatHandler(_chatId, history);
 				await tick();
 
+				console.log('ASK REQUEST', {
+					caseId: $activeCaseId,
+					threadId: activeCaseThreadId,
+					question: resolvedPrompt
+				});
 				const { answer, citations } = await askCase(
 					$activeCaseId,
 					resolvedPrompt,
 					'case',
-					$caseEngineToken
+					$caseEngineToken,
+					activeCaseThreadId
 				);
 				let responseMessageId = pendingAssistantId;
 				// Extract question type once — used by both the suggestion call and the trace.
@@ -2303,17 +2841,22 @@
 			return;
 		}
 
-		// P19 desktop / standalone `/c/:id` chat: authorized cross-case retrieval (not generic OWUI completion).
-		// Case workspace uses `/case/:id/chat` + THIS_CASE above; this branch must not run there.
+		// P19 desktop / standalone `/c/:id` chat: this branch handles only desktop create-case
+		// flow and explicit Intelligence handoff. It does not execute cross-case reasoning inline.
 		const pathname = $page.url?.pathname ?? '';
 		const isStandaloneOwuiChatPath = /^\/c\/[^/]+$/.test(pathname);
-		const workspaceUnitScope =
-			$scope === 'CID' ? 'CID' : $scope === 'SIU' ? 'SIU' : 'ALL';
+		const standaloneCreateIntent =
+			desktopCreateCaseWizard !== null || detectCreateCaseIntent(userPrompt);
+		const standaloneHandoff = resolveIntelligenceHandoff({
+			prompt: userPrompt,
+			caseId: $activeCaseId
+		});
 		if (
 			isStandaloneOwuiChatPath &&
 			$scope !== 'THIS_CASE' &&
 			$caseEngineToken &&
-			userPrompt.trim().length >= 3
+			userPrompt.trim().length >= 3 &&
+			(standaloneCreateIntent || Boolean(standaloneHandoff))
 		) {
 			messageInput?.setText('');
 			prompt = '';
@@ -2344,75 +2887,112 @@
 			}
 			await tick();
 			await saveChatHandler(_chatId, history);
-			let crossPendingAssistantId: string | undefined;
-			try {
-				const crossPriorTurns = messages.map((m) => ({
-					role: m.role as 'user' | 'assistant',
-					content: typeof m.content === 'string' ? m.content : ''
-				}));
-				const crossCtx = resolveConversationalQuery(userPrompt, crossPriorTurns);
-				if (crossCtx.contextDependent) {
-					console.debug('[cross-ask] context resolution', {
-						original: crossCtx.original,
-						resolved: crossCtx.resolved,
-						state: crossCtx.state
-					});
+			if (standaloneCreateIntent) {
+				if (!$caseEngineToken) {
+					await appendCaseEngineAssistantMessageToHistory(
+						userMessageId,
+						_chatId,
+						'Case Engine is not connected. Please reconnect and try again.'
+					);
+					return;
 				}
-				const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
-				const model = $models.find((m) => m.id === modelId);
-				crossPendingAssistantId = uuidv4();
-				history.messages[crossPendingAssistantId] = {
-					parentId: userMessageId,
-					id: crossPendingAssistantId,
-					childrenIds: [],
-					role: 'assistant',
-					...P20_CASE_ENGINE_ASK_UI.loading,
-					model: modelId,
-					modelName: model?.name ?? 'Case Engine',
-					modelIdx: 0,
-					timestamp: Math.floor(Date.now() / 1000),
-					caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
-				};
-				history.currentId = crossPendingAssistantId;
-				history.messages[userMessageId].childrenIds.push(crossPendingAssistantId);
-				await saveChatHandler(_chatId, history);
-				await tick();
 
-				const res = await askCrossCase(crossCtx.resolved, $caseEngineToken, {
-					topK: 8,
-					unitScope: workspaceUnitScope
-				});
-				const citations =
-					res.used_citations?.map((c: CrossCaseCitation) => ({
-						type: (c.source_type === 'timeline_entry' ? 'entry' : 'file') as 'entry' | 'file',
-						id:
-							c.case_number && c.case_number.length > 0
-								? `${c.case_number} · ${c.id}`
-								: c.id
-					})) ?? [];
-				let responseMessageId = crossPendingAssistantId;
-				history.messages[responseMessageId] = {
-					...history.messages[responseMessageId],
-					parentId: userMessageId,
-					id: responseMessageId,
-					childrenIds: history.messages[responseMessageId].childrenIds ?? [],
-					role: 'assistant',
-					content: res.answer,
-					model: modelId,
-					modelName: model?.name ?? 'Case Engine',
-					modelIdx: 0,
-					timestamp: Math.floor(Date.now() / 1000),
-					...P20_CASE_ENGINE_ASK_UI.success,
-					caseEngineCitations: citations
-				};
-				history.currentId = responseMessageId;
-				await saveChatHandler(_chatId, history);
-				currentChatPage.set(1);
-				chats.set(await getChatList(localStorage.token, $currentChatPage));
-			} catch (e) {
-				await appendCaseEngineAskFailureToHistory(e, userMessageId, _chatId, crossPendingAssistantId);
+				if (!desktopCreateCaseWizard) {
+					const started = startDesktopCreateCaseWizard(userPrompt);
+					desktopCreateCaseWizard = started.state;
+					await appendCaseEngineAssistantMessageToHistory(
+						userMessageId,
+						_chatId,
+						started.assistantMessage,
+						{ caseCreateConfirmActions: started.state.awaiting === 'confirm' }
+					);
+					return;
+				}
+
+				const next = advanceDesktopCreateCaseWizard(desktopCreateCaseWizard, userPrompt);
+				if (next.action === 'cancel') {
+					setCaseCreateConfirmActionsState('cancelled');
+					desktopCreateCaseWizard = null;
+					await appendCaseEngineAssistantMessageToHistory(
+						userMessageId,
+						_chatId,
+						next.assistantMessage
+					);
+					return;
+				}
+				if (next.action === 'ask' || next.action === 'confirm') {
+					if (next.action === 'confirm') {
+						setCaseCreateConfirmActionsState('resolved');
+					}
+					desktopCreateCaseWizard = next.state;
+					await appendCaseEngineAssistantMessageToHistory(
+						userMessageId,
+						_chatId,
+						next.assistantMessage,
+						{ caseCreateConfirmActions: next.action === 'confirm' }
+					);
+					return;
+				}
+				if (next.action === 'submit') {
+					if (desktopCreateCaseSubmitting) {
+						if (!desktopCreateCaseSubmitNotified) {
+							desktopCreateCaseSubmitNotified = true;
+							await appendCaseEngineAssistantMessageToHistory(
+								userMessageId,
+								_chatId,
+								'Case creation is already in progress. Please wait for completion.'
+							);
+						}
+						return;
+					}
+					setCaseCreateConfirmActionsState('submitted');
+					desktopCreateCaseSubmitting = true;
+					desktopCreateCaseSubmitNotified = false;
+					try {
+						const created = await createCaseFromDraft($caseEngineToken, next.payload);
+						setCaseCreateConfirmActionsState('resolved');
+						desktopCreateCaseWizard = null;
+						await appendCaseEngineAssistantMessageToHistory(
+							userMessageId,
+							_chatId,
+							[
+								'Case created successfully.',
+								`- ID: ${created.id}`,
+								`- Case number: ${created.case_number}`,
+								`- Title: ${created.title}`,
+								`- Unit: ${created.unit}`,
+								...(typeof created.incident_date === 'string' && created.incident_date.trim()
+									? [`- Incident date: ${created.incident_date}`]
+									: [])
+							].join('\n')
+						);
+						activeCaseId.set(created.id);
+						activeCaseNumber.set(created.case_number);
+						await goto(`/case/${created.id}`);
+						return;
+					} catch (e) {
+						const msg = e instanceof Error ? e.message : 'Failed to create case.';
+						await appendCaseEngineAssistantMessageToHistory(
+							userMessageId,
+							_chatId,
+							`Case creation failed: ${msg}`
+						);
+						setCaseCreateConfirmActionsState('failed');
+						return;
+					} finally {
+						desktopCreateCaseSubmitting = false;
+						desktopCreateCaseSubmitNotified = false;
+					}
+				}
 			}
-			return;
+			if (standaloneHandoff) {
+				await appendCaseEngineAssistantMessageToHistory(
+					userMessageId,
+					_chatId,
+					standaloneHandoff
+				);
+				return;
+			}
 		}
 
 		if (history?.currentId) {
@@ -3462,6 +4042,7 @@
 										{sendMessage}
 										{showMessage}
 										{submitMessage}
+									submitPromptDirect={(text) => submitPrompt(text)}
 										{continueResponse}
 										{regenerateResponse}
 										{mergeResponses}
@@ -3497,6 +4078,7 @@
 									{createMessagePair}
 									{onUpload}
 									{messageQueue}
+									submitDisabled={$scope === 'THIS_CASE' && !!$activeCaseId && !activeCaseThreadId}
 									onQueueSendNow={async (id) => {
 										const item = messageQueue.find((m) => m.id === id);
 										if (item) {

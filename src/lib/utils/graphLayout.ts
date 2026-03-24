@@ -64,7 +64,11 @@ export function computeGraphLayout(
 		byType.set(n.type, list);
 	}
 
-	const types = ['person', 'phone', 'location', 'event'].filter((t) => byType.has(t));
+	const knownTypes = ['person', 'phone', 'location', 'event'].filter((t) => byType.has(t));
+	const unknownTypes = Array.from(byType.keys())
+		.filter((t) => !knownTypes.includes(t))
+		.sort((a, b) => a.localeCompare(b));
+	const types = [...knownTypes, ...unknownTypes];
 	const contentW = width - 2 * PADDING;
 	const contentH = height - 2 * PADDING;
 

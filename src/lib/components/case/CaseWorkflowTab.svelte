@@ -31,6 +31,7 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 
 	let items: WorkflowItem[] = [];
 	let loading = true;
+	let loadError = '';
 	let filter: FilterType = 'all';
 	let includeDeleted = false;
 	let createOpen = false;
@@ -57,6 +58,8 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 	let createStatus = 'OPEN';
 	let createPriority: number | null = null;
 	let createSubmitting = false;
+	let createResultMessage: string | null = null;
+	let createResultTone: 'ok' | 'warn' | 'error' | null = null;
 
 	// Edit form (immutable: type, case_id, origin, created_*)
 	let editTitle = '';
@@ -80,6 +83,7 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 
 	async function loadItems() {
 		loading = true;
+		loadError = '';
 		try {
 			const typeParam =
 				filter === 'all' ? undefined : (filter as WorkflowItemType);
@@ -88,7 +92,9 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 				includeDeleted: isAdmin && includeDeleted
 			});
 		} catch (e) {
-			toast.error((e as Error)?.message ?? 'Failed to load workflow items');
+			const msg = (e as Error)?.message ?? 'Failed to load workflow items';
+			loadError = msg;
+			toast.error(msg);
 			items = [];
 		} finally {
 			loading = false;
@@ -127,6 +133,8 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 		createDescription = '';
 		createStatus = 'OPEN';
 		createPriority = null;
+		createResultMessage = null;
+		createResultTone = null;
 		createOpen = true;
 	}
 
@@ -149,11 +157,30 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 				status: createStatus,
 				priority: createPriority ?? undefined
 			};
-			await createWorkflowItem(caseId, token, payload);
-			toast.success('Workflow item created');
+			const created = await createWorkflowItem(caseId, token, payload);
 			closeCreate();
-			loadItems();
+			await loadItems();
+			const visibleInCurrentList = items.some((item) => item.id === created.id);
+			if (visibleInCurrentList) {
+				createResultTone = 'ok';
+				createResultMessage = 'Workflow item created and visible in this list.';
+				toast.success('Workflow item created and visible in this list.');
+			} else if (filter !== 'all' && created.type !== filter) {
+				filter = 'all';
+				await loadItems();
+				createResultTone = 'warn';
+				createResultMessage =
+					'Workflow item created. The view switched to "All" so you can confirm it in the list.';
+				toast.info('Workflow item created. Switched to "All" to show it.');
+			} else {
+				createResultTone = 'warn';
+				createResultMessage =
+					'Workflow item creation returned success, but visibility could not be confirmed in the current list.';
+				toast.warning('Workflow item created, but visibility could not be confirmed.');
+			}
 		} catch (e) {
+			createResultTone = 'error';
+			createResultMessage = 'Workflow item was not created.';
 			toast.error((e as Error)?.message ?? 'Create failed');
 		} finally {
 			createSubmitting = false;
@@ -418,9 +445,28 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 		</button>
 	</div>
 
+	{#if createResultMessage}
+		<div
+			class="text-xs rounded border px-2 py-1 {createResultTone === 'ok'
+				? 'border-green-200 dark:border-green-900/60 text-green-700 dark:text-green-300 bg-green-50 dark:bg-green-900/20'
+				: createResultTone === 'error'
+					? 'border-red-200 dark:border-red-900/60 text-red-700 dark:text-red-300 bg-red-50 dark:bg-red-900/20'
+					: 'border-amber-200 dark:border-amber-900/60 text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-900/20'}"
+			role="status"
+			aria-live="polite"
+			data-testid="workflow-create-result"
+		>
+			{createResultMessage}
+		</div>
+	{/if}
+
 	<!-- List -->
 	{#if loading && items.length === 0}
 		<div class="text-sm text-gray-500">Loading...</div>
+	{:else if loadError && items.length === 0}
+		<div class="rounded border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-700 dark:text-red-300" role="alert">
+			{loadError}
+		</div>
 	{:else if items.length === 0}
 		<div class="flex flex-col items-center justify-center text-center gap-2 py-10 text-sm text-gray-500 dark:text-gray-400">
 			<div class="font-medium">

@@ -18,6 +18,30 @@ describe('resolveActiveCaseSection', () => {
 		expect(resolveActiveCaseSection('/case/abc123/timeline')).toBe('timeline');
 	});
 
+	it('resolves /case/[id]/summary to summary', () => {
+		expect(resolveActiveCaseSection('/case/abc123/summary')).toBe('summary');
+	});
+
+	it('resolves /case/[id]/workflow to workflow', () => {
+		expect(resolveActiveCaseSection('/case/abc123/workflow')).toBe('workflow');
+	});
+
+	it('resolves /case/[id]/warrants to warrants', () => {
+		expect(resolveActiveCaseSection('/case/abc123/warrants')).toBe('warrants');
+	});
+
+	it('resolves /case/[id]/intelligence to intelligence', () => {
+		expect(resolveActiveCaseSection('/case/abc123/intelligence')).toBe('intelligence');
+	});
+
+	it('keeps intelligence active for nested intelligence routes', () => {
+		expect(resolveActiveCaseSection('/case/abc123/intelligence/entity/phone/5551234567')).toBe('intelligence');
+	});
+
+	it('resolves /case/[id]/graph to graph', () => {
+		expect(resolveActiveCaseSection('/case/abc123/graph')).toBe('graph');
+	});
+
 	it('resolves /case/[id]/files to files', () => {
 		expect(resolveActiveCaseSection('/case/abc123/files')).toBe('files');
 	});
@@ -44,8 +68,8 @@ describe('resolveActiveCaseSection', () => {
 	});
 
 	// ── Section completeness ────────────────────────────────────────────────
-	it('covers all five blueprint sections', () => {
-		const expected: CaseNavSection[] = ['chat', 'timeline', 'files', 'notes', 'activity'];
+	it('covers all blueprint sections', () => {
+		const expected: CaseNavSection[] = ['chat', 'summary', 'workflow', 'warrants', 'intelligence', 'graph', 'timeline', 'files', 'notes', 'activity'];
 		for (const section of expected) {
 			expect(resolveActiveCaseSection(`/case/x/${section}`)).toBe(section);
 		}

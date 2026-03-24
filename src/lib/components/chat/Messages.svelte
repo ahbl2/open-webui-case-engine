@@ -46,6 +46,7 @@
 	export let chatActionHandler: Function;
 	export let showMessage: Function = () => {};
 	export let submitMessage: Function = () => {};
+	export let submitPromptDirect: Function = () => {};
 	export let addMessages: Function = () => {};
 
 	export let readOnly = false;
@@ -484,6 +485,7 @@
 								{actionMessage}
 								{saveMessage}
 								{submitMessage}
+								{submitPromptDirect}
 								{regenerateResponse}
 								{continueResponse}
 								{mergeResponses}

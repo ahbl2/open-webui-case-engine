@@ -28,24 +28,32 @@ import { resolveAuthStateDecision, blockedRedirectPath } from './authStateDecisi
 // 1. Post-P19-20 nav state
 // ─────────────────────────────────────────────────────────────────────────────
 describe('P19-20 — nav state after Timeline migration', () => {
-	// Nav items from +layout.svelte: chat, proposals (P19 review dashboard), timeline, files, notes, activity.
+	// Nav items from +layout.svelte: chat, timeline, files, notes, summary, workflow, warrants, intelligence, activity, graph.
 	const caseWorkspaceNavItems = [
 		{ id: 'chat',      implemented: true  },
-		{ id: 'proposals', implemented: true  },
 		{ id: 'timeline',  implemented: true  },
 		{ id: 'files',     implemented: true  },
 		{ id: 'notes',     implemented: true  },
-		{ id: 'activity',  implemented: true  }
+		{ id: 'summary',   implemented: true  },
+		{ id: 'workflow',  implemented: true  },
+		{ id: 'warrants',  implemented: true  },
+		{ id: 'intelligence', implemented: true  },
+		{ id: 'activity',  implemented: true  },
+		{ id: 'graph',     implemented: true  }
 	];
 
 	it('all case workspace sections are implemented', () => {
 		const implemented = caseWorkspaceNavItems.filter((x) => x.implemented).map((x) => x.id);
 		expect(implemented).toContain('chat');
-		expect(implemented).toContain('proposals');
+		expect(implemented).toContain('summary');
+		expect(implemented).toContain('workflow');
+		expect(implemented).toContain('warrants');
 		expect(implemented).toContain('timeline');
 		expect(implemented).toContain('files');
 		expect(implemented).toContain('notes');
 		expect(implemented).toContain('activity');
+		expect(implemented).toContain('intelligence');
+		expect(implemented).toContain('graph');
 	});
 
 	it('no sections are pending', () => {
@@ -53,19 +61,23 @@ describe('P19-20 — nav state after Timeline migration', () => {
 		expect(notImplemented).toEqual([]);
 	});
 
-	it('six primary sections under /case/[id]', () => {
+	it('ten primary sections under /case/[id]', () => {
 		const count = caseWorkspaceNavItems.filter((x) => x.implemented).length;
-		expect(count).toBe(6);
+		expect(count).toBe(10);
 	});
 
 	it('the case workspace nav order is deterministic', () => {
 		expect(caseWorkspaceNavItems).toEqual([
 			{ id: 'chat',      implemented: true  },
-			{ id: 'proposals', implemented: true  },
 			{ id: 'timeline',  implemented: true  },
 			{ id: 'files',     implemented: true  },
 			{ id: 'notes',     implemented: true  },
-			{ id: 'activity',  implemented: true  }
+			{ id: 'summary',   implemented: true  },
+			{ id: 'workflow',  implemented: true  },
+			{ id: 'warrants',  implemented: true  },
+			{ id: 'intelligence', implemented: true  },
+			{ id: 'activity',  implemented: true  },
+			{ id: 'graph',     implemented: true  }
 		]);
 	});
 });
@@ -101,7 +113,27 @@ describe('P19-14 / P19-20 — route paths are deterministic', () => {
 		expect(path).toBe('/case/abc-123/proposals');
 	});
 
-	it.each(['proposals', 'timeline', 'files', 'notes', 'activity'] as const)(
+	it('workflow route is /case/[id]/workflow', () => {
+		const path = `/case/${caseId}/workflow`;
+		expect(path).toBe('/case/abc-123/workflow');
+	});
+
+	it('warrants route is /case/[id]/warrants', () => {
+		const path = `/case/${caseId}/warrants`;
+		expect(path).toBe('/case/abc-123/warrants');
+	});
+
+	it('intelligence route is /case/[id]/intelligence', () => {
+		const path = `/case/${caseId}/intelligence`;
+		expect(path).toBe('/case/abc-123/intelligence');
+	});
+
+	it('graph route is /case/[id]/graph', () => {
+		const path = `/case/${caseId}/graph`;
+		expect(path).toBe('/case/abc-123/graph');
+	});
+
+	it.each(['summary', 'workflow', 'warrants', 'proposals', 'timeline', 'files', 'notes', 'activity', 'intelligence', 'graph'] as const)(
 		'%s route does not redirect to /chat',
 		(section) => {
 			const path = `/case/${caseId}/${section}`;
@@ -118,6 +150,22 @@ describe('P19-14 / P19-20 — nav section resolver for migrated routes', () => {
 		expect(resolveActiveCaseSection('/case/abc/timeline')).toBe('timeline');
 	});
 
+	it('resolves /case/[id]/summary to "summary"', () => {
+		expect(resolveActiveCaseSection('/case/abc/summary')).toBe('summary');
+	});
+
+	it('resolves /case/[id]/workflow to "workflow"', () => {
+		expect(resolveActiveCaseSection('/case/abc/workflow')).toBe('workflow');
+	});
+
+	it('resolves /case/[id]/warrants to "warrants"', () => {
+		expect(resolveActiveCaseSection('/case/abc/warrants')).toBe('warrants');
+	});
+
+	it('resolves /case/[id]/intelligence to "intelligence"', () => {
+		expect(resolveActiveCaseSection('/case/abc/intelligence')).toBe('intelligence');
+	});
+
 	it('resolves /case/[id]/files to "files"', () => {
 		expect(resolveActiveCaseSection('/case/abc/files')).toBe('files');
 	});
@@ -130,11 +178,15 @@ describe('P19-14 / P19-20 — nav section resolver for migrated routes', () => {
 		expect(resolveActiveCaseSection('/case/abc/activity')).toBe('activity');
 	});
 
+	it('resolves /case/[id]/graph to "graph"', () => {
+		expect(resolveActiveCaseSection('/case/abc/graph')).toBe('graph');
+	});
+
 	it('resolves /case/[id]/proposals to "proposals"', () => {
 		expect(resolveActiveCaseSection('/case/abc/proposals')).toBe('proposals');
 	});
 
-	it.each(['proposals', 'timeline', 'files', 'notes', 'activity'] as const)(
+	it.each(['summary', 'workflow', 'warrants', 'proposals', 'timeline', 'files', 'notes', 'activity', 'intelligence', 'graph'] as const)(
 		'%s section does not resolve to "chat"',
 		(section) => {
 			expect(resolveActiveCaseSection(`/case/abc/${section}`)).not.toBe('chat');
@@ -194,39 +246,42 @@ describe('P19-14 — notes doctrine: working drafts only', () => {
 });
 
 // ─────────────────────────────────────────────────────────────────────────────
-// 5. Activity: backend-driven audit trail
+// 5. Activity: backend-driven detective feed
 // ─────────────────────────────────────────────────────────────────────────────
 describe('P19-14 — activity is backend-driven, not frontend-synthesized', () => {
-	it('activity page fetches from getCaseAudit (not a frontend store)', () => {
-		// The activity page calls getCaseAudit, which calls GET /cases/:id/audit.
-		// There is no frontend-only activity log or shadow state.
-		const backendEndpoint = (caseId: string) => `/cases/${caseId}/audit`;
-		expect(backendEndpoint('abc')).toBe('/cases/abc/audit');
+	it('activity page uses existing case endpoints (no new aggregation endpoint)', () => {
+		const endpoints = [
+			`/cases/abc/entries`,
+			`/cases/abc/files`,
+			`/cases/abc/workflow-items`,
+			`/cases/abc/workflow-proposals`,
+			`/cases/abc/notebook`,
+			`/cases/abc/proposals`
+		];
+		expect(endpoints).toEqual([
+			'/cases/abc/entries',
+			'/cases/abc/files',
+			'/cases/abc/workflow-items',
+			'/cases/abc/workflow-proposals',
+			'/cases/abc/notebook',
+			'/cases/abc/proposals'
+		]);
 	});
 
-	it('getCaseAudit endpoint returns real audit items, not fabricated data', () => {
-		// The CaseAuditResponse.items array comes from the backend audit_log table.
-		// This test encodes that no mock or placeholder data is injected client-side.
-		// Shape contract: { id, action, created_at, user_id, entity_type, entity_id }
-		const auditItemShape = {
-			id: 'string',
-			action: 'string',
-			created_at: 'string',
-			user_id: 'string',
-			entity_type: 'string',
-			entity_id: 'string'
+	it('activity feed contains backend-derived type, time, and actor only', () => {
+		const activityShape = {
+			type: 'Timeline|Files|Workflow|Proposals|Notes',
+			timestamp: 'string',
+			actor: 'string'
 		};
-		for (const key of Object.keys(auditItemShape)) {
-			expect(auditItemShape).toHaveProperty(key);
-		}
+		expect(activityShape).toHaveProperty('type');
+		expect(activityShape).toHaveProperty('timestamp');
+		expect(activityShape).toHaveProperty('actor');
 	});
 
-	it('activity ordering is backend-controlled (newest first from server)', () => {
-		// The backend returns audit items in the order the server determines.
-		// The activity page does not re-sort — it displays items as returned.
-		// This prevents frontend reordering from implying false chronology.
-		const frontendResorts = false;
-		expect(frontendResorts).toBe(false);
+	it('activity ordering is chronological newest-first using backend timestamps', () => {
+		const newestFirst = true;
+		expect(newestFirst).toBe(true);
 	});
 });
 

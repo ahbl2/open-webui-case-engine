@@ -44,6 +44,7 @@
 	export let placeholder = $i18n.t('Select a model');
 	export let searchEnabled = true;
 	export let searchPlaceholder = $i18n.t('Search a model');
+	export let disabled = false;
 
 	export let items: {
 		label: string;
@@ -401,11 +402,13 @@
 	<DropdownMenu.Trigger
 		class="relative w-full {($settings?.highContrastMode ?? false)
 			? ''
-			: 'outline-hidden focus:outline-hidden'}"
+			: 'outline-hidden focus:outline-hidden'} {disabled ? 'cursor-not-allowed opacity-60' : ''}"
 		aria-label={selectedModel
 			? $i18n.t('Selected model: {{modelName}}', { modelName: selectedModel.label })
 			: placeholder}
+		aria-disabled={disabled || undefined}
 		id="model-selector-{id}-button"
+		{disabled}
 	>
 		<div
 			class="flex w-full text-left px-0.5 bg-transparent truncate {triggerClassName} justify-between {($settings?.highContrastMode ??

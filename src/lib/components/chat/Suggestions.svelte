@@ -59,7 +59,7 @@
 	};
 
 	$: if (suggestionPrompts) {
-		sortedPrompts = [...(suggestionPrompts ?? [])].sort(() => Math.random() - 0.5);
+		sortedPrompts = [...(suggestionPrompts ?? [])];
 		getFilteredPrompts(inputValue);
 	}
 </script>

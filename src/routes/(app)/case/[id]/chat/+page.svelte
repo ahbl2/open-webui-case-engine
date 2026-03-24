@@ -37,12 +37,14 @@
 	import {
 		listCaseThreadAssociations,
 		upsertCaseThreadAssociation,
-		browserResolveOwuiAuth,
+		resolveBrowserAuthOnce,
 		type CaseThreadAssociation,
 		createProposal,
 		type ProposalType
 	} from '$lib/apis/caseEngine';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
+	import CaseThreadList, { type ThreadListItem } from '$lib/components/case/CaseThreadList.svelte';
+	import { activeUiThread } from '$lib/stores/activeUiThread';
 
 	// Legacy case tool components — preserved for P19-14 migration.
 	import CaseFilesTab from '$lib/components/case/CaseFilesTab.svelte';
@@ -70,6 +72,18 @@
 	let threadsLoading = false;
 	let threadsError = '';
 
+	$: normalizedThreads = threads.map<ThreadListItem>((t) => ({
+		id: t.id,
+		threadId: t.external_thread_id,
+		createdAt: t.created_at
+	}));
+
+	/** Derive active thread ID from the canonical store — this case scope only. */
+	$: activeCaseThreadId =
+		$activeUiThread?.scope === 'case' && $activeUiThread.caseId === caseId
+			? $activeUiThread.threadId
+			: null;
+
 	async function loadThreads(id: string): Promise<void> {
 		if (!$caseEngineToken) return;
 		threadsLoading = true;
@@ -89,6 +103,7 @@
 	$: if (caseId && caseId !== prevCaseId) {
 		prevCaseId = caseId;
 		activeChat = null;
+		activeUiThread.set(null);
 		activeThreadScope.set(null);
 		threadScopeError.set(null);
 		loadThreads(caseId);
@@ -129,7 +144,7 @@
 			const u = $user;
 			if (!u?.id) return null;
 			try {
-				const authResult = await browserResolveOwuiAuth({
+				const authResult = await resolveBrowserAuthOnce({
 					owui_user_id: u.id,
 					username_or_email: (u as { email?: string }).email ?? u.name ?? u.id,
 					display_name: u.name
@@ -152,9 +167,10 @@
 		try {
 			await upsertCaseThreadAssociation(caseId, threadId, token, { getFreshToken });
 
-			// Binding confirmed by backend — safe to render chat.
-			// OWUI chat record is NOT created here; it is created on first message send.
-			activeThreadScope.set({
+		// Binding confirmed by backend — safe to render chat.
+		// OWUI chat record is NOT created here; it is created on first message send.
+		activeUiThread.set({ scope: 'case', caseId, threadId });
+		activeThreadScope.set({
 				threadId,
 				scope: 'case',
 				caseId,
@@ -212,18 +228,6 @@
 	// ── Scope error display ──────────────────────────────────────────────────
 	$: bindError = $threadScopeError;
 
-	// Format thread creation date for display.
-	function formatDate(iso: string): string {
-		try {
-			return new Date(iso).toLocaleDateString(undefined, {
-				month: 'short',
-				day: 'numeric',
-				year: 'numeric'
-			});
-		} catch {
-			return iso;
-		}
-	}
 
 	// ── P19-09/P19-10: Proposal creation form ─────────────────────────────────
 	// The review panel (list/approve/reject/commit) lives in ProposalReviewPanel.
@@ -273,6 +277,7 @@
 		proposalSubmitting = false;
 	}
 }
+
 </script>
 
 <div class="flex flex-col h-full overflow-hidden" data-testid="case-chat-page">
@@ -307,35 +312,24 @@
 			</div>
 
 			<!-- Thread list -->
-			<div class="flex-1 overflow-y-auto px-2 pb-2">
+			<div class="flex-1 overflow-hidden flex flex-col">
 				{#if threadsLoading}
-					<p class="text-xs text-gray-400 px-1 py-2">Loading…</p>
+					<p class="text-xs text-gray-400 px-3 py-2">Loading…</p>
 				{:else if threadsError}
-					<p class="text-xs text-red-500 px-1 py-2">{threadsError}</p>
+					<p class="text-xs text-red-500 px-3 py-2">{threadsError}</p>
 				{:else if threads.length === 0}
-					<p class="text-xs text-gray-400 dark:text-gray-500 px-1 py-2 italic">
+					<p class="text-xs text-gray-400 dark:text-gray-500 px-3 py-2 italic">
 						No threads yet. Start a new one above.
 					</p>
 				{:else}
-					{#each threads as t (t.id)}
-						<button
-							type="button"
-							class="w-full text-left px-2 py-2 rounded-md text-xs mb-0.5 transition
-							       {activeChat === t.external_thread_id
-								? 'bg-white dark:bg-gray-800 shadow-sm text-gray-900 dark:text-gray-100 font-medium'
-								: 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-800 dark:hover:text-gray-200'}"
-							on:click={() => openThread(t.external_thread_id)}
-							disabled={bindingInProgress}
-							aria-label="Open thread from {formatDate(t.created_at)}"
-						>
-							<span class="block truncate font-mono text-[10px] text-gray-400 dark:text-gray-500 mb-0.5">
-								{t.external_thread_id.slice(0, 8)}…
-							</span>
-							<span class="block text-gray-500 dark:text-gray-500">
-								{formatDate(t.created_at)}
-							</span>
-						</button>
-					{/each}
+					<CaseThreadList
+						threads={normalizedThreads}
+						activeThreadId={activeCaseThreadId}
+						{bindingInProgress}
+						scrollKey="case:{caseId}"
+						containerClass="flex-1 overflow-y-auto px-2 pb-2"
+						on:open={(e) => openThread(e.detail)}
+					/>
 				{/if}
 			</div>
 		</div>
@@ -490,8 +484,8 @@
 				</div>
 			{/if}
 
-			<!-- Chat component — rendered only when a thread is bound -->
-			<div class="flex-1 min-h-0 overflow-hidden" data-testid="case-chat-area">
+		<!-- Chat component — rendered only when a thread is bound -->
+		<div class="flex-1 min-h-0 overflow-hidden case-embedded-chat" data-testid="case-chat-area">
 				{#if !bindError && activeChat}
 					<!-- Backend binding confirmed — render OWUI chat. -->
 					<Chat chatIdProp={activeChat} />
@@ -674,11 +668,32 @@
 						currentUserId={$caseEngineUser?.id ?? ''}
 					/>
 				{:else if activeTool === 'narrative'}
-					<NarrativeWorkspacePanel {caseId} token={$caseEngineToken!} />
-				{:else}
-					<CaseAiIntakeTab {caseId} token={$caseEngineToken!} />
-				{/if}
-			</div>
-		{/if}
-	</div>
+				<NarrativeWorkspacePanel {caseId} token={$caseEngineToken!} />
+			{:else}
+				<CaseAiIntakeTab {caseId} token={$caseEngineToken!} />
+			{/if}
+		</div>
+	{/if}
 </div>
+</div>
+
+<style>
+	/*
+	 * P21-05 — Cancel the OWUI Navbar's floating-header negative margin when
+	 * Chat.svelte is embedded in the case workspace.
+	 *
+	 * Navbar.svelte uses `sticky top-0 -mb-12` to create a gradient-fade
+	 * "floating" effect in standalone /c/:threadId mode — the nav visually
+	 * hovers over the top of the messages list. In the case workspace this
+	 * causes #chat-pane (containing CaseContextPanel + messages + input) to
+	 * be pulled up 48px underneath the Navbar, obscuring content and
+	 * breaking layout at smaller viewports.
+	 *
+	 * Zeroing the margin here restores a clean stacked column without
+	 * modifying Navbar.svelte, which must retain the floating behavior
+	 * for standalone chat mode.
+	 */
+	.case-embedded-chat :global(nav.sticky) {
+		margin-bottom: 0;
+	}
+</style>

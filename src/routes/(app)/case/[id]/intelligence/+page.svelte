@@ -1,0 +1,666 @@
+<script lang="ts">
+	import { page } from '$app/stores';
+	import { activeCaseMeta, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
+	import {
+		askCrossCase,
+		getTimelineIntelligence,
+		listCaseTimelineEntries,
+		searchCaseIntelligence,
+		searchCrossCaseIntelligence,
+		type CrossCaseCitation,
+		type IntelSearchResult,
+		type SearchResultItem
+	} from '$lib/apis/caseEngine';
+	import {
+		buildEvidenceCaseGroups,
+		groupEntityEvidenceByType,
+		mapCaseSearchResultToEvidenceItem,
+		mapIntelResultToEvidenceItem
+	} from '$lib/utils/intelligenceView';
+	import { buildEntityFocusHref } from '$lib/utils/entityFocus';
+	import {
+		STRUCTURED_QUERY_ACTIONS,
+		actionById,
+		buildStructuredQueryPlan,
+		mapCaseSearchToStructuredResults,
+		mapTimelineEntriesToStructuredResults,
+		mapTimelineIntelToStructuredResults,
+		type StructuredQueryActionId,
+		type StructuredQueryResultItem
+	} from '$lib/utils/structuredQueries';
+
+	type IntelligenceScope = 'THIS_CASE' | 'CID' | 'SIU' | 'ALL';
+
+	$: caseId = $page.params.id;
+	$: authRole = String($caseEngineAuthState?.user?.role ?? '').toLowerCase();
+	$: isAdmin = authRole === 'admin' || $caseEngineUser?.role === 'ADMIN';
+	$: authUnits = Array.isArray($caseEngineAuthState?.user?.units)
+		? $caseEngineAuthState.user.units.filter(
+				(unit): unit is 'CID' | 'SIU' => unit === 'CID' || unit === 'SIU'
+			)
+		: [];
+	$: legacyRoleUnit =
+		$caseEngineUser?.role === 'CID' || $caseEngineUser?.role === 'SIU' ? $caseEngineUser.role : null;
+	$: authorizedUnits = Array.from(
+		new Set([...(legacyRoleUnit ? [legacyRoleUnit] : []), ...authUnits])
+	) as Array<'CID' | 'SIU'>;
+	$: allowedScopes = isAdmin
+		? ([
+				{ id: 'THIS_CASE', label: 'This Case' },
+				{ id: 'CID', label: 'CID' },
+				{ id: 'SIU', label: 'SIU' },
+				{ id: 'ALL', label: 'All' }
+			] as Array<{ id: IntelligenceScope; label: string }>)
+		: ([
+				{ id: 'THIS_CASE', label: 'This Case' },
+				...authorizedUnits.map((unit) => ({ id: unit, label: unit }))
+			] as Array<{ id: IntelligenceScope; label: string }>);
+
+	const scopeDescriptions: Record<IntelligenceScope, string> = {
+		THIS_CASE: 'This Case: search limited to the current case.',
+		CID: 'CID: search across CID cases you can access.',
+		SIU: 'SIU: search across SIU cases you can access.',
+		ALL: 'All: search across all accessible cases.'
+	};
+
+	let selectedScope: IntelligenceScope = 'THIS_CASE';
+	let query = '';
+	let loading = false;
+	let error = '';
+	let ranSearch = false;
+	let lastExecutedScope: IntelligenceScope | null = null;
+	let lastExecutedQuery = '';
+
+	let groundedAnswer = '';
+	let askCitations: CrossCaseCitation[] = [];
+	let caseResults: SearchResultItem[] = [];
+	let intelResults: IntelSearchResult[] = [];
+	let intelScopeApplied = '';
+	let structuredActionId: StructuredQueryActionId = 'recent_timeline_activity';
+	let structuredInput = '';
+	let structuredLoading = false;
+	let structuredError = '';
+	let structuredRan = false;
+	let structuredQueryLabel = '';
+	let structuredResults: StructuredQueryResultItem[] = [];
+
+	$: if (!allowedScopes.some((s) => s.id === selectedScope)) {
+		selectedScope = allowedScopes[0]?.id ?? 'THIS_CASE';
+	}
+	$: currentScopeDescription = scopeDescriptions[selectedScope] ?? scopeDescriptions.THIS_CASE;
+	$: selectedScopeLabel = allowedScopes.find((s) => s.id === selectedScope)?.label ?? selectedScope;
+
+	$: currentCaseContext = {
+		id: caseId,
+		caseNumber: $activeCaseMeta?.case_number ?? 'Current case',
+		caseTitle: $activeCaseMeta?.title ?? '',
+		unit: $activeCaseMeta?.unit ?? ''
+	};
+
+	$: evidenceItems =
+		selectedScope === 'THIS_CASE'
+			? caseResults.map((row) => mapCaseSearchResultToEvidenceItem(row, currentCaseContext))
+			: intelResults.map((row) => mapIntelResultToEvidenceItem(row));
+
+	$: evidenceCaseGroups = buildEvidenceCaseGroups(evidenceItems);
+	$: matchedCaseSummaries =
+		selectedScope === 'THIS_CASE'
+			? []
+			: evidenceCaseGroups.map((g) => ({
+					caseId: g.caseId,
+					caseNumber: g.caseNumber,
+					caseTitle: g.caseTitle,
+					unit: g.unit,
+					matchCount: g.matchCount
+				}));
+	$: entityTypeGroups = groupEntityEvidenceByType(evidenceItems);
+	$: structuredAction = actionById(structuredActionId);
+	$: structuredEntityFocusHref =
+		structuredRan &&
+		(structuredActionId === 'phone_mentions' ||
+			structuredActionId === 'location_mentions' ||
+			structuredActionId === 'person_mentions') &&
+		structuredInput.trim()
+			? buildEntityFocusHref({
+					caseId,
+					type:
+						structuredActionId === 'phone_mentions'
+							? 'phone'
+							: structuredActionId === 'location_mentions'
+								? 'location'
+								: 'person',
+					normalizedValue: structuredInput.trim(),
+					scope: 'THIS_CASE'
+				})
+			: null;
+
+	function citationKey(c: CrossCaseCitation): string {
+		return `${c.source_type}:${c.case_id}:${c.id}`;
+	}
+
+	function sourceBadgeClass(type: string): string {
+		if (type === 'timeline') {
+			return 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
+		}
+		if (type === 'file') {
+			return 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300';
+		}
+		if (type === 'entity') {
+			return 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300';
+		}
+		return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+	}
+
+	function entityFocusHref(item: {
+		entityType?: string;
+		entityNormalized?: string;
+		entityValue?: string;
+	}): string | null {
+		const normalized = item.entityNormalized?.trim() || item.entityValue?.trim() || '';
+		return buildEntityFocusHref({
+			caseId,
+			type: item.entityType ?? '',
+			normalizedValue: normalized,
+			scope: selectedScope
+		});
+	}
+
+	$: uniqueAskCitations = Array.from(
+		new Map(askCitations.map((c) => [citationKey(c), c])).values()
+	);
+
+	$: uniqueIntelCitations = Array.from(
+		new Map(
+			intelResults.map((r) => [
+				`${r.citation.case_id}:${r.citation.source_kind}:${r.citation.source_id}`,
+				r.citation
+			])
+		).values()
+	);
+	$: hasAnalysis = groundedAnswer.trim().length > 0;
+	$: hasEvidence = evidenceCaseGroups.length > 0;
+	$: hasCaseMatches = matchedCaseSummaries.length > 0;
+	$: hasEntityRows = entityTypeGroups.length > 0;
+	$: hasCitations = uniqueAskCitations.length > 0 || uniqueIntelCitations.length > 0;
+	$: allSectionsEmpty =
+		ranSearch &&
+		!loading &&
+		!error &&
+		!hasAnalysis &&
+		!hasEvidence &&
+		!hasCitations &&
+		(selectedScope === 'THIS_CASE' ? true : !hasCaseMatches && !hasEntityRows);
+
+	async function runIntelligenceQuery(): Promise<void> {
+		if (!$caseEngineToken || !caseId) return;
+		const q = query.trim();
+		if (q.length < 2) {
+			error = 'Enter at least 2 characters to run intelligence search.';
+			return;
+		}
+
+		loading = true;
+		error = '';
+		ranSearch = true;
+		lastExecutedScope = selectedScope;
+		lastExecutedQuery = q;
+		groundedAnswer = '';
+		askCitations = [];
+		caseResults = [];
+		intelResults = [];
+		intelScopeApplied = '';
+
+		try {
+			if (selectedScope === 'THIS_CASE') {
+				const caseSearch = await searchCaseIntelligence(caseId, { q }, $caseEngineToken);
+				caseResults = caseSearch.results;
+				return;
+			}
+
+			const crossScope = selectedScope === 'ALL' ? 'ALL' : 'UNIT';
+			const crossUnit = selectedScope === 'CID' || selectedScope === 'SIU' ? selectedScope : undefined;
+			const unitScope = selectedScope === 'CID' || selectedScope === 'SIU' ? selectedScope : 'ALL';
+			const [askRes, intelRes] = await Promise.all([
+				askCrossCase(q, $caseEngineToken, {
+					topK: 8,
+					unitScope
+				}),
+				searchCrossCaseIntelligence(
+					{
+						q,
+						scope: crossScope,
+						unit: crossUnit
+					},
+					$caseEngineToken
+				)
+			]);
+			groundedAnswer = askRes.answer ?? '';
+			askCitations = askRes.used_citations ?? [];
+			intelResults = Array.isArray(intelRes.results) ? intelRes.results : [];
+			intelScopeApplied = intelRes.scope_applied ?? '';
+		} catch (err) {
+			error = err instanceof Error ? err.message : 'Failed to load intelligence results.';
+		} finally {
+			loading = false;
+		}
+	}
+
+	async function runStructuredQuery(): Promise<void> {
+		if (!$caseEngineToken || !caseId || structuredLoading) return;
+		const plan = buildStructuredQueryPlan(structuredActionId, structuredInput);
+		if (!plan.ok) {
+			structuredError = plan.error;
+			return;
+		}
+		structuredLoading = true;
+		structuredError = '';
+		structuredRan = true;
+		structuredResults = [];
+		structuredQueryLabel = plan.plan.label;
+		try {
+			if (plan.plan.kind === 'timeline_entries') {
+				const entries = await listCaseTimelineEntries(caseId, $caseEngineToken);
+				structuredResults = mapTimelineEntriesToStructuredResults(entries, caseId, plan.plan.limit);
+				return;
+			}
+			if (plan.plan.kind === 'timeline_intelligence') {
+				const intel = await getTimelineIntelligence(caseId, $caseEngineToken, plan.plan.params);
+				structuredResults = mapTimelineIntelToStructuredResults(intel.entries, caseId, plan.plan.limit);
+				return;
+			}
+			const search = await searchCaseIntelligence(caseId, { q: plan.plan.q }, $caseEngineToken);
+			structuredResults = mapCaseSearchToStructuredResults(
+				search.results,
+				caseId,
+				plan.plan.limit,
+				plan.plan.resultFilter
+			);
+		} catch (err) {
+			structuredError = err instanceof Error ? err.message : 'Unable to run query. Please try again.';
+		} finally {
+			structuredLoading = false;
+		}
+	}
+</script>
+
+<div class="h-full min-h-0 overflow-auto p-4 md:p-6">
+	<div class="mx-auto max-w-5xl space-y-4">
+		<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+			<h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Intelligence</h1>
+			<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+				Read-only cross-case intelligence workspace using backend evidence only. Results are grounded and citation-backed.
+			</p>
+		</div>
+
+		{#if !$caseEngineToken}
+			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
+				<p class="text-sm text-gray-600 dark:text-gray-300">
+					Case Engine authentication is required to load intelligence data.
+				</p>
+			</div>
+		{:else}
+			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
+				<div class="flex flex-wrap items-end gap-2">
+					<div>
+						<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Scope</label>
+						<select
+							class="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+							bind:value={selectedScope}
+						>
+							{#each allowedScopes as item}
+								<option value={item.id}>{item.label}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="flex-1 min-w-[240px]">
+						<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Ask / Search</label>
+						<input
+							type="text"
+							class="w-full px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+							bind:value={query}
+							placeholder="Ask an intelligence question or search term"
+							on:keydown={(e) => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									runIntelligenceQuery();
+								}
+							}}
+						/>
+					</div>
+					<button
+						type="button"
+						class="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+						on:click={runIntelligenceQuery}
+						disabled={loading}
+					>
+						{loading ? 'Running…' : 'Run Intelligence'}
+					</button>
+				</div>
+				<p class="text-[11px] text-gray-500 dark:text-gray-400">{currentScopeDescription}</p>
+				{#if selectedScope === 'THIS_CASE'}
+					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+						This Case scope is case-limited. Cross-case analysis is shown only in CID, SIU, or All scope.
+					</p>
+				{/if}
+				{#if loading}
+					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+						Running query "{lastExecutedQuery || query.trim()}" in {selectedScopeLabel} scope...
+					</p>
+				{/if}
+				{#if intelScopeApplied && !loading && selectedScope !== 'THIS_CASE' && lastExecutedScope === selectedScope}
+					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+						Applied scope: {intelScopeApplied}
+					</p>
+				{/if}
+				{#if ranSearch && !loading && lastExecutedScope !== null && lastExecutedScope !== selectedScope}
+					<p class="text-[11px] text-amber-700 dark:text-amber-300">
+						Scope changed. Run Intelligence to refresh results for {selectedScopeLabel}.
+					</p>
+				{/if}
+				{#if error}
+					<p class="text-xs text-red-600 dark:text-red-400">{error}</p>
+				{/if}
+			</div>
+
+			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
+				<div>
+					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Structured Queries</h2>
+					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+						Current case only. Explicit investigator queries using existing backend endpoints.
+					</p>
+				</div>
+				<div class="flex flex-wrap items-end gap-2">
+					<div>
+						<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Query</label>
+						<select
+							class="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+							bind:value={structuredActionId}
+						>
+							{#each STRUCTURED_QUERY_ACTIONS as action}
+								<option value={action.id}>{action.label}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="flex-1 min-w-[240px]">
+						<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+							{structuredAction.inputLabel ?? 'Input'}
+						</label>
+						<input
+							type="text"
+							class="w-full px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm disabled:opacity-60"
+							bind:value={structuredInput}
+							placeholder={structuredAction.inputPlaceholder ?? 'No input required'}
+							disabled={!structuredAction.requiresInput}
+							on:keydown={(e) => {
+								if (e.key === 'Enter') {
+									e.preventDefault();
+									runStructuredQuery();
+								}
+							}}
+						/>
+					</div>
+					<button
+						type="button"
+						class="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+						on:click={runStructuredQuery}
+						disabled={structuredLoading}
+					>
+						{structuredLoading ? 'Running…' : 'Run Query'}
+					</button>
+				</div>
+				<p class="text-[11px] text-gray-500 dark:text-gray-400">
+					Use the value you expect to find in timeline or file text. Runs an explicit structured query and does not infer missing details.
+				</p>
+				{#if structuredError}
+					<p class="text-xs text-red-600 dark:text-red-400">{structuredError}</p>
+				{/if}
+				{#if structuredRan && !structuredLoading}
+					<p class="text-[11px] text-gray-500 dark:text-gray-400">Ran: {structuredQueryLabel}</p>
+					{#if structuredEntityFocusHref}
+						<p class="text-[11px] text-gray-500 dark:text-gray-400">
+							<a class="text-blue-700 dark:text-blue-400 hover:underline" href={structuredEntityFocusHref}>
+								Open Entity Focus for this query value
+							</a>
+						</p>
+					{/if}
+					{#if structuredResults.length === 0}
+						<p class="text-sm text-gray-500 dark:text-gray-400">No results found for this query.</p>
+					{:else}
+						<ul class="space-y-2">
+							{#each structuredResults as row (row.type + ':' + row.id)}
+								<li class="rounded border border-gray-200 dark:border-gray-800 p-2 text-xs">
+									<div class="flex items-center gap-2">
+										<span class={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${sourceBadgeClass(row.type)}`}>
+											{row.type === 'file' ? 'File' : 'Timeline'}
+										</span>
+										<span class="text-[11px] text-gray-500 dark:text-gray-400">{row.id}</span>
+										{#if row.timestamp}
+											<span class="ml-auto text-[11px] text-gray-500 dark:text-gray-400">{row.timestamp}</span>
+										{/if}
+									</div>
+									<p class="mt-1 text-gray-600 dark:text-gray-400">{row.excerpt}</p>
+									<p class="mt-1">
+										<a class="text-blue-700 dark:text-blue-400 hover:underline" href={row.sourcePath}>Open source</a>
+									</p>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				{/if}
+			</div>
+
+			{#if allSectionsEmpty}
+				<div class="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
+					<p class="text-sm text-gray-600 dark:text-gray-300">No intelligence results found for this query.</p>
+					<p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
+						Try a broader term or change scope.
+					</p>
+				</div>
+			{/if}
+
+			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
+				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Cross-case analysis</h2>
+				{#if loading}
+					<p class="text-sm text-gray-500 dark:text-gray-400">Loading intelligence results...</p>
+				{:else if !ranSearch}
+					<p class="text-sm text-gray-500 dark:text-gray-400">Run a query to load intelligence results.</p>
+				{:else if selectedScope === 'THIS_CASE'}
+					<p class="text-sm text-gray-500 dark:text-gray-400">
+						Cross-case analysis is available for CID, SIU, or All scope.
+					</p>
+				{:else}
+					{#if groundedAnswer}
+						<div class="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap">{groundedAnswer}</div>
+						{#if evidenceItems.length === 0}
+							<p class="text-[11px] text-gray-500 dark:text-gray-400">
+								No supporting evidence rows were returned for this analysis text.
+							</p>
+						{/if}
+					{:else if !allSectionsEmpty}
+						<p class="text-sm text-gray-500 dark:text-gray-400">
+							No analysis text was returned.
+							{#if evidenceItems.length > 0}
+								Review supporting evidence below.
+							{/if}
+						</p>
+					{/if}
+				{/if}
+			</div>
+
+			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
+				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Supporting evidence</h2>
+				<p class="text-[11px] text-gray-500 dark:text-gray-400">
+					These backend evidence matches support the analysis; they are not the analysis itself.
+				</p>
+				{#if loading}
+					<p class="text-sm text-gray-500 dark:text-gray-400">Loading supporting evidence...</p>
+				{:else if !ranSearch}
+					<p class="text-sm text-gray-500 dark:text-gray-400">Run a query to load supporting evidence.</p>
+				{:else if evidenceCaseGroups.length === 0 && !allSectionsEmpty}
+					<p class="text-sm text-gray-500 dark:text-gray-400">
+						No supporting evidence found for this query.
+						{#if groundedAnswer}
+							The analysis text above was returned without evidence rows.
+						{/if}
+					</p>
+				{:else}
+					<div class="space-y-3">
+						{#each evidenceCaseGroups as caseGroup}
+							<div class="rounded border border-gray-200 dark:border-gray-800 p-3 space-y-2">
+								<div class="flex flex-wrap items-center gap-2">
+									<span class="font-medium text-sm text-gray-900 dark:text-gray-100">
+										{caseGroup.caseNumber}
+									</span>
+									{#if caseGroup.caseTitle}
+										<span class="text-xs text-gray-500 dark:text-gray-400">{caseGroup.caseTitle}</span>
+									{/if}
+									{#if caseGroup.unit}
+										<span class="text-[11px] text-gray-500 dark:text-gray-400">({caseGroup.unit})</span>
+									{/if}
+									<span class="ml-auto text-[11px] text-gray-500 dark:text-gray-400">
+										{caseGroup.matchCount} match(es)
+									</span>
+								</div>
+
+								{#each caseGroup.typeGroups as typeGroup}
+									<div class="space-y-1">
+										<div class="flex items-center gap-2">
+											<span class="text-[11px] font-medium text-gray-600 dark:text-gray-300">{typeGroup.label}</span>
+											<span class="text-[11px] text-gray-500 dark:text-gray-400">{typeGroup.items.length}</span>
+										</div>
+										<ul class="space-y-1">
+											{#each typeGroup.items.slice(0, 8) as item}
+												<li class="rounded border border-gray-100 dark:border-gray-800 p-2 text-xs">
+													<div class="flex items-center gap-2">
+														<span class={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${sourceBadgeClass(item.sourceType)}`}>
+															{item.label}
+														</span>
+														<span class="text-[11px] text-gray-500 dark:text-gray-400">{item.id}</span>
+														{#if item.timestamp}
+															<span class="ml-auto text-[11px] text-gray-500 dark:text-gray-400">{item.timestamp}</span>
+														{/if}
+													</div>
+													<p class="mt-1 text-gray-600 dark:text-gray-400">{item.excerpt}</p>
+													{#if item.sourceType === 'entity'}
+														{@const href = entityFocusHref(item)}
+														{#if href}
+															<p class="mt-1">
+																<a class="text-blue-700 dark:text-blue-400 hover:underline" href={href}>
+																	Open Entity Focus
+																</a>
+															</p>
+														{/if}
+													{/if}
+												</li>
+											{/each}
+										</ul>
+									</div>
+								{/each}
+							</div>
+						{/each}
+					</div>
+				{/if}
+			</div>
+
+			{#if selectedScope !== 'THIS_CASE'}
+				<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
+					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Cases matching this query</h2>
+					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+						Listed from backend evidence matches. This is not a confirmed relationship model.
+					</p>
+					{#if ranSearch && !loading && matchedCaseSummaries.length === 0 && !allSectionsEmpty}
+						<p class="text-sm text-gray-500 dark:text-gray-400">No cases matched this query.</p>
+					{:else}
+						<ul class="space-y-2">
+							{#each matchedCaseSummaries.slice(0, 8) as rc}
+								<li class="rounded border border-gray-200 dark:border-gray-800 p-2 text-xs">
+									<div class="flex flex-wrap items-center gap-2">
+										<a
+											class="font-medium text-blue-700 dark:text-blue-400 hover:underline"
+											href={`/case/${rc.caseId}/chat`}
+										>
+											{rc.caseNumber}
+										</a>
+										<span class="text-gray-500 dark:text-gray-400">{rc.title}</span>
+										<span class="text-gray-400 dark:text-gray-500">({rc.unit})</span>
+										<span class="ml-auto text-gray-500 dark:text-gray-400">{rc.matchCount} match(es)</span>
+									</div>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+				<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
+					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Entity Intelligence</h2>
+					{#if ranSearch && !loading && entityTypeGroups.length === 0 && !allSectionsEmpty}
+						<p class="text-sm text-gray-500 dark:text-gray-400">No entity intelligence available for this query.</p>
+						<p class="text-[11px] text-gray-500 dark:text-gray-400">
+							Entity intelligence appears when identifiable entities are returned by backend intelligence results.
+						</p>
+						{#if matchedCaseSummaries.length > 0}
+							<p class="text-[11px] text-gray-500 dark:text-gray-400">
+								Cases matching this query can exist even when no entity-type rows are returned.
+							</p>
+						{/if}
+					{:else}
+						<div class="space-y-3">
+							{#each entityTypeGroups as entityGroup}
+								<div class="rounded border border-gray-200 dark:border-gray-800 p-2">
+									<p class="text-xs font-medium text-gray-700 dark:text-gray-300">
+										{entityGroup.type} ({entityGroup.items.length})
+									</p>
+									<ul class="mt-1 space-y-1">
+										{#each entityGroup.items.slice(0, 8) as item}
+											<li class="text-xs text-gray-600 dark:text-gray-400">
+												• {item.caseNumber} {#if item.unit}({item.unit}){/if}:
+												{#if entityFocusHref(item)}
+													<a
+														class="text-blue-700 dark:text-blue-400 hover:underline"
+														href={entityFocusHref(item) ?? '#'}
+													>
+														{item.entityValue || item.entityNormalized || 'Entity'}
+													</a>
+													- {item.excerpt}
+												{:else}
+													{item.excerpt}
+												{/if}
+											</li>
+										{/each}
+									</ul>
+								</div>
+							{/each}
+						</div>
+					{/if}
+				</div>
+			{/if}
+
+			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
+				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Citations / Evidence</h2>
+				{#if ranSearch && !loading && uniqueAskCitations.length === 0 && uniqueIntelCitations.length === 0 && !allSectionsEmpty}
+					<p class="text-sm text-gray-500 dark:text-gray-400">No citations returned for this query.</p>
+				{:else}
+					{#if uniqueAskCitations.length > 0}
+						<p class="text-xs font-medium text-gray-700 dark:text-gray-300">Cross-case ask citations</p>
+						<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
+							{#each uniqueAskCitations as c}
+								<li>
+									• {c.case_number} — {c.source_type} — {c.id}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+					{#if uniqueIntelCitations.length > 0}
+						<p class="text-xs font-medium text-gray-700 dark:text-gray-300">Intelligence search citations</p>
+						<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
+							{#each uniqueIntelCitations as c}
+								<li>
+									• {c.label} — {c.source_kind} — {c.source_id}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				{/if}
+			</div>
+		{/if}
+	</div>
+</div>

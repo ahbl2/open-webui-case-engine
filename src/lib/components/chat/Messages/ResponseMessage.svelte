@@ -159,6 +159,7 @@
 	export let deleteMessage: Function;
 
 	export let submitMessage: Function;
+export let submitPromptDirect: Function = () => {};
 	export let continueResponse: Function;
 	export let regenerateResponse: Function;
 
@@ -192,6 +193,39 @@
 	let showRateComment = false;
 	// DEV-only — per-message trace panel toggle; no global state, no persistence.
 	let showTrace = false;
+
+const caseCreateConfirmActionsState = () =>
+	((message as Record<string, unknown>)?.caseCreateConfirmActionsState as string) ?? 'pending';
+
+const caseCreateConfirmActionsDisabled = () => caseCreateConfirmActionsState() !== 'pending';
+
+const caseCreateConfirmActionsLabel = () => {
+	const state = caseCreateConfirmActionsState();
+	if (state === 'cancelled') return 'Case creation action handled: cancelled.';
+	if (state === 'failed') return 'Case creation action handled: failed.';
+	if (state === 'submitted') return 'Case creation action handled: submitting.';
+	if (state === 'resolved') return 'Case creation action handled.';
+	return '';
+};
+
+const resolveCaseCreateConfirmActions = async (state: 'submitted' | 'cancelled') => {
+	if (!(message as Record<string, unknown>)?.caseCreateConfirmActions) return;
+	(history.messages[messageId] as Record<string, unknown>).caseCreateConfirmActionsState = state;
+	(message as Record<string, unknown>).caseCreateConfirmActionsState = state;
+	await updateChat();
+};
+
+const onConfirmCreateCase = async () => {
+	if (caseCreateConfirmActionsDisabled()) return;
+	await resolveCaseCreateConfirmActions('submitted');
+	await submitPromptDirect('confirm');
+};
+
+const onCancelCreateCase = async () => {
+	if (caseCreateConfirmActionsDisabled()) return;
+	await resolveCaseCreateConfirmActions('cancelled');
+	await submitPromptDirect('cancel');
+};
 
 	const copyToClipboard = async (text) => {
 		text = removeAllDetails(text);
@@ -875,6 +909,32 @@
 										updateChat();
 									}}
 								/>
+							{/if}
+							{#if message.caseCreateConfirmActions}
+								{#if !caseCreateConfirmActionsDisabled()}
+									<div class="mt-2 flex items-center gap-2">
+										<button
+											type="button"
+											class="px-3 py-1.5 rounded-md text-xs font-medium bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60 disabled:cursor-not-allowed"
+											disabled={caseCreateConfirmActionsDisabled()}
+											on:click={onConfirmCreateCase}
+										>
+											Confirm
+										</button>
+										<button
+											type="button"
+											class="px-3 py-1.5 rounded-md text-xs font-medium border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 hover:bg-gray-50 dark:hover:bg-gray-700 disabled:opacity-60 disabled:cursor-not-allowed"
+											disabled={caseCreateConfirmActionsDisabled()}
+											on:click={onCancelCreateCase}
+										>
+											Cancel
+										</button>
+									</div>
+								{:else}
+									<div class="mt-2 text-xs text-gray-500 dark:text-gray-400">
+										{caseCreateConfirmActionsLabel()}
+									</div>
+								{/if}
 							{/if}
 
 							{#if message.code_executions}

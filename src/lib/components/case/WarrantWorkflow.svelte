@@ -76,11 +76,30 @@
 	let caseSummaryError: string | null = null;
 	let caseSummaryResult: CaseSummaryResult | null = null;
 	let caseSummaryOpen = false;
+	const AI_WARRANT_DRAFT_TIMEOUT_MS = 60_000;
 
 	onMount(() => {
 		loadTemplates();
 		loadDrafts();
 	});
+
+	function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+		return new Promise<T>((resolve, reject) => {
+			const timeoutId = window.setTimeout(() => {
+				reject(new Error(`${label} timed out. Please try again.`));
+			}, timeoutMs);
+			promise.then(
+				(value) => {
+					window.clearTimeout(timeoutId);
+					resolve(value);
+				},
+				(err) => {
+					window.clearTimeout(timeoutId);
+					reject(err);
+				}
+			);
+		});
+	}
 
 	function buildDraftData(): Record<string, unknown> {
 		const usedAi = !!aiResult && !!aiNarrativePreview;
@@ -241,21 +260,30 @@
 		aiResult = null;
 		aiNarrativePreview = '';
 		try {
-			const res = await requestAiWarrantDraft(caseId, token, {
-				factsFocus: factsFocus.trim() || undefined,
-				options: {
-					maxEvidenceItems: 25,
-					includeFiles: true,
-					includeTimeline: true,
-					includeDeleted: isAdmin && includeDeleted
-				}
-			});
+			const res = await withTimeout(
+				requestAiWarrantDraft(caseId, token, {
+					factsFocus: factsFocus.trim() || undefined,
+					options: {
+						maxEvidenceItems: 25,
+						includeFiles: true,
+						includeTimeline: true,
+						includeDeleted: isAdmin && includeDeleted
+					}
+				}),
+				AI_WARRANT_DRAFT_TIMEOUT_MS,
+				'AI warrant draft generation'
+			);
 			aiResult = res;
 			aiNarrativePreview = res.draft?.probableCauseNarrative ?? '';
 			aiStatus = 'done';
 		} catch (e) {
 			aiError = (e as Error)?.message ?? 'AI draft failed';
 			aiStatus = 'error';
+		} finally {
+			if (aiStatus === 'running') {
+				aiStatus = 'error';
+				aiError = aiError ?? 'AI draft failed';
+			}
 		}
 	}
 

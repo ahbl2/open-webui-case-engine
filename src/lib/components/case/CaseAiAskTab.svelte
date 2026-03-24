@@ -1,10 +1,17 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
+	import { activeUiThread } from '$lib/stores/activeUiThread';
 	import {
+		addThreadScopeFile,
 		askCaseQuestion,
 		downloadCaseFile,
+		getThreadScopeFiles,
+		listCaseFiles,
+		removeThreadScopeFile,
 		type AskCaseQuestionResponse,
-		type AskCitation
+		type AskCitation,
+		type CaseFile,
+		type ThreadScopeFile
 	} from '$lib/apis/caseEngine';
 	import { models } from '$lib/stores';
 
@@ -25,6 +32,31 @@
 	let parseErrorCitations: AskCitation[] = [];
 	let showAllContext = false;
 	let citationModal: AskCitation | null = null;
+	let selectedFiles: ThreadScopeFile[] = [];
+	let allCaseFiles: CaseFile[] = [];
+	let selectedFilesLoading = false;
+	let allCaseFilesLoading = false;
+	let scopeOpsPending = false;
+	let selectedFilesError = '';
+
+	$: activeCaseThreadId =
+		$activeUiThread?.scope === 'case' && $activeUiThread.caseId === caseId
+			? $activeUiThread.threadId
+			: '';
+
+	$: selectedFileIds = new Set(selectedFiles.map((f) => f.id));
+	$: scopeIndicatorLabel = !activeCaseThreadId
+		? 'No active case thread (thread scope unavailable)'
+		: selectedFiles.length > 0
+			? `Scoped to ${selectedFiles.length} selected file${selectedFiles.length === 1 ? '' : 's'}`
+			: 'Using all case files';
+
+	let lastScopeLoadKey = '';
+	$: scopeLoadKey = `${caseId}|${token}|${activeCaseThreadId}`;
+	$: if (scopeLoadKey !== lastScopeLoadKey) {
+		lastScopeLoadKey = scopeLoadKey;
+		void loadThreadScopeData();
+	}
 
 	function humanizeAskError(raw: string): string {
 		const lower = raw.toLowerCase();
@@ -42,6 +74,11 @@
 
 	async function handleAsk() {
 		if (!modelAvailable) return;
+		const threadId = String(activeCaseThreadId ?? '').trim();
+		if (!threadId) {
+			toast.error('A thread must be active before asking a case question.');
+			return;
+		}
 		const q = question.trim();
 		if (q.length < 3) {
 			toast.error('Question must be at least 3 characters');
@@ -56,7 +93,14 @@
 		parseErrorCitations = [];
 		result = null;
 		try {
-			result = await askCaseQuestion(caseId, q, token, topK, ollamaModel);
+			result = await askCaseQuestion(
+				caseId,
+				q,
+				token,
+				topK,
+				ollamaModel,
+				threadId
+			);
 		} catch (e: unknown) {
 			const err = e as Error & { citations?: AskCitation[] };
 			errorMessage = humanizeAskError(err?.message ?? 'Ask failed');
@@ -66,6 +110,74 @@
 			toast.error(errorMessage);
 		} finally {
 			asking = false;
+		}
+	}
+
+	async function loadThreadScopeData(): Promise<void> {
+		if (!caseId || !token) {
+			selectedFiles = [];
+			allCaseFiles = [];
+			return;
+		}
+		selectedFilesError = '';
+		allCaseFilesLoading = true;
+		try {
+			allCaseFiles = await listCaseFiles(caseId, token);
+		} catch (e) {
+			console.error('[CaseAiAskTab] failed to load case files', e);
+			allCaseFiles = [];
+			selectedFilesError = 'Failed to load case files.';
+		} finally {
+			allCaseFilesLoading = false;
+		}
+		if (!activeCaseThreadId) {
+			selectedFiles = [];
+			return;
+		}
+		selectedFilesLoading = true;
+		try {
+			const res = await getThreadScopeFiles(caseId, activeCaseThreadId, token);
+			selectedFiles = Array.isArray(res.files) ? res.files : [];
+		} catch (e) {
+			console.error('[CaseAiAskTab] failed to load thread scope files', e);
+			selectedFiles = [];
+			selectedFilesError = 'Failed to load selected files for this thread.';
+		} finally {
+			selectedFilesLoading = false;
+		}
+	}
+
+	async function handleAddFileToScope(fileId: string): Promise<void> {
+		if (!activeCaseThreadId || !caseId || !token) return;
+		scopeOpsPending = true;
+		selectedFilesError = '';
+		try {
+			await addThreadScopeFile(caseId, activeCaseThreadId, fileId, token);
+			const refreshed = await getThreadScopeFiles(caseId, activeCaseThreadId, token);
+			selectedFiles = Array.isArray(refreshed.files) ? refreshed.files : [];
+		} catch (e) {
+			const msg = (e as Error)?.message ?? 'Failed to add file to thread scope';
+			selectedFilesError = msg;
+			toast.error(msg);
+		} finally {
+			scopeOpsPending = false;
+		}
+	}
+
+	async function handleRemoveFileFromScope(fileId: string): Promise<void> {
+		if (!activeCaseThreadId || !caseId || !token) return;
+		scopeOpsPending = true;
+		selectedFilesError = '';
+		try {
+			await removeThreadScopeFile(caseId, activeCaseThreadId, fileId, token);
+			const refreshed = await getThreadScopeFiles(caseId, activeCaseThreadId, token);
+			selectedFiles = Array.isArray(refreshed.files) ? refreshed.files : [];
+		} catch (e) {
+			const msg = (e as Error)?.message ?? 'Failed to remove file from thread scope';
+			selectedFilesError = msg;
+			toast.error(msg);
+		} finally {
+			scopeOpsPending = false;
 		}
 	}
 
@@ -79,9 +191,22 @@
 		citationModal = c;
 	}
 
-	/** Stable display key for citation: TE:id or CF:id */
+	/** Stable display key for citation: TE:id or CF:id[:chunk_id] */
 	function citationKey(c: AskCitation): string {
-		return c.source_type === 'timeline_entry' ? `TE:${c.id}` : `CF:${c.id}`;
+		if (c.source_type === 'timeline_entry') return `TE:${c.id}`;
+		return c.chunk_id ? `CF:${c.id}:${c.chunk_id}` : `CF:${c.id}`;
+	}
+
+	function filePageLabel(c: AskCitation): string | null {
+		if (c.source_type !== 'case_file') return null;
+		const start = c.page_start;
+		const end = c.page_end;
+		if (start == null && end == null) return null;
+		if (start != null && end != null) {
+			return start === end ? `p. ${start}` : `pp. ${start}-${end}`;
+		}
+		const single = start ?? end;
+		return single != null ? `p. ${single}` : null;
 	}
 
 	async function handleOpenFile(c: AskCitation) {
@@ -96,6 +221,86 @@
 
 <div class="flex flex-col gap-4 p-4">
 	<h2 class="text-sm font-medium">Case AI Q&A</h2>
+
+	<div class="rounded border border-gray-200 dark:border-gray-700 bg-gray-50 dark:bg-gray-800/30 p-2.5">
+		<div class="text-xs font-medium text-gray-700 dark:text-gray-300">{scopeIndicatorLabel}</div>
+		<div class="text-[11px] text-gray-500 dark:text-gray-400 mt-0.5">
+			Selected Files (Thread Scope)
+		</div>
+	</div>
+
+	<div class="rounded border border-gray-200 dark:border-gray-700 p-3 space-y-2">
+		<div class="text-xs font-medium text-gray-700 dark:text-gray-300">Selected Files (Thread Scope)</div>
+		{#if !activeCaseThreadId}
+			<div class="text-xs text-amber-700 dark:text-amber-300">
+				Select or open a case thread to manage thread-scoped files.
+			</div>
+		{:else}
+			{#if selectedFilesLoading}
+				<div class="text-xs text-gray-500 dark:text-gray-400">Loading selected files…</div>
+			{:else if selectedFiles.length === 0}
+				<div class="text-xs text-gray-500 dark:text-gray-400">No files selected for this thread.</div>
+			{:else}
+				<div class="space-y-1.5">
+					{#each selectedFiles as f (f.id)}
+						<div class="flex items-center justify-between gap-2 text-xs rounded border border-gray-200 dark:border-gray-700 px-2 py-1.5">
+							<div class="min-w-0">
+								<div class="truncate text-gray-800 dark:text-gray-100">{f.original_filename}</div>
+							</div>
+							<button
+								type="button"
+								class="shrink-0 rounded border border-red-300 dark:border-red-700 px-2 py-0.5 text-[11px] text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+								disabled={scopeOpsPending}
+								on:click={() => handleRemoveFileFromScope(f.id)}
+							>
+								Remove
+							</button>
+						</div>
+					{/each}
+				</div>
+			{/if}
+		{/if}
+
+		<div class="pt-2 border-t border-gray-200 dark:border-gray-700">
+			<div class="text-xs font-medium text-gray-700 dark:text-gray-300 mb-1.5">Case Files</div>
+			{#if allCaseFilesLoading}
+				<div class="text-xs text-gray-500 dark:text-gray-400">Loading case files…</div>
+			{:else if allCaseFiles.length === 0}
+				<div class="text-xs text-gray-500 dark:text-gray-400">No case files available.</div>
+			{:else}
+				<div class="space-y-1.5 max-h-48 overflow-y-auto">
+					{#each allCaseFiles as f (f.id)}
+						<div class="flex items-center justify-between gap-2 text-xs rounded border border-gray-200 dark:border-gray-700 px-2 py-1.5">
+							<div class="truncate text-gray-800 dark:text-gray-100">{f.original_filename}</div>
+							{#if selectedFileIds.has(f.id)}
+								<button
+									type="button"
+									class="shrink-0 rounded border border-red-300 dark:border-red-700 px-2 py-0.5 text-[11px] text-red-700 dark:text-red-300 hover:bg-red-50 dark:hover:bg-red-900/20 disabled:opacity-50"
+									disabled={!activeCaseThreadId || scopeOpsPending}
+									on:click={() => handleRemoveFileFromScope(f.id)}
+								>
+									Remove
+								</button>
+							{:else}
+								<button
+									type="button"
+									class="shrink-0 rounded border border-blue-300 dark:border-blue-700 px-2 py-0.5 text-[11px] text-blue-700 dark:text-blue-300 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50"
+									disabled={!activeCaseThreadId || scopeOpsPending}
+									on:click={() => handleAddFileToScope(f.id)}
+								>
+									Add
+								</button>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+
+		{#if selectedFilesError}
+			<div class="text-xs text-red-700 dark:text-red-300">{selectedFilesError}</div>
+		{/if}
+	</div>
 
 	{#if !modelAvailable}
 		<div class="rounded border border-amber-200 dark:border-amber-700 bg-amber-50 dark:bg-amber-900/20 p-3">
@@ -135,11 +340,16 @@
 			type="button"
 			class="rounded bg-blue-600 text-white px-3 py-1.5 text-sm hover:bg-blue-700 disabled:opacity-50"
 			on:click={handleAsk}
-			disabled={asking || !question.trim() || !modelAvailable}
+			disabled={asking || !question.trim() || !modelAvailable || !activeCaseThreadId}
 		>
 			{asking ? 'Asking…' : 'Ask'}
 		</button>
 	</div>
+	{#if !activeCaseThreadId}
+		<div class="text-xs text-amber-700 dark:text-amber-300">
+			Open a case thread to ask with thread-scoped context.
+		</div>
+	{/if}
 
 	{#if errorMessage}
 		<div class="rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-2 text-sm text-red-700 dark:text-red-300">
@@ -159,7 +369,7 @@
 						{#if c.source_type === 'timeline_entry'}
 							<span class="text-gray-500">TE:</span> {c.occurred_at} | {c.type} — {c.snippet.slice(0, 80)}…
 						{:else}
-							<span class="text-gray-500">CF:</span> {c.original_filename} — {c.snippet.slice(0, 80)}…
+							<span class="text-gray-500">CF:</span> {c.original_filename}{#if filePageLabel(c)} ({filePageLabel(c)}){/if} — {c.snippet.slice(0, 80)}…
 						{/if}
 					</button>
 				{/each}
@@ -202,6 +412,9 @@
 								{:else}
 									<div class="text-gray-600 dark:text-gray-400">
 										<span class="text-gray-500">CF:</span> {c.original_filename}
+										{#if filePageLabel(c)}
+											<span class="ml-1 text-gray-500">{filePageLabel(c)}</span>
+										{/if}
 										<button
 											type="button"
 											class="ml-2 text-blue-600 dark:text-blue-400 underline hover:no-underline"
@@ -238,7 +451,7 @@
 								{#if c.source_type === 'timeline_entry'}
 									<span class="text-gray-500">TE:</span> {c.occurred_at} | {c.type} — {c.snippet.slice(0, 60)}…
 								{:else}
-									<span class="text-gray-500">CF:</span> {c.original_filename} — {c.snippet.slice(0, 60)}…
+									<span class="text-gray-500">CF:</span> {c.original_filename}{#if filePageLabel(c)} ({filePageLabel(c)}){/if} — {c.snippet.slice(0, 60)}…
 								{/if}
 							</button>
 						{/each}
@@ -267,6 +480,9 @@
 					<span class="text-gray-500">TE:</span> Timeline entry — {citationModal.occurred_at} | {citationModal.type}
 				{:else}
 					<span class="text-gray-500">CF:</span> {citationModal.original_filename}
+					{#if filePageLabel(citationModal)}
+						<span class="text-gray-500 ml-1">({filePageLabel(citationModal)})</span>
+					{/if}
 				{/if}
 			</h3>
 			<div class="text-xs text-gray-500 mb-2 font-mono">{citationKey(citationModal)}</div>

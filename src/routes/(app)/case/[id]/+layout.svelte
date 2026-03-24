@@ -4,7 +4,7 @@
 	 *
 	 * This layout establishes the case-native workspace for all /case/[id]/* routes.
 	 *   - Loading and exposing case metadata to child routes
-	 *   - Top case header, content-level tab nav (Chat, Proposals, Timeline, Files, Notes, Activity),
+	 *   - Top case header, content-level tab nav (Chat, Timeline, Files, Notes, Summary, Workflow, Warrants, Intelligence, Activity, Graph),
 	 *     main workspace slot, right context rail, bottom composer region
 	 *   - Enforcing P19-05 access gating before any case content renders
 	 */
@@ -21,6 +21,7 @@
 		caseEngineAuthState
 	} from '$lib/stores';
 	import { getCaseById } from '$lib/apis/caseEngine';
+	import type { CaseEngineCase } from '$lib/apis/caseEngine';
 	import {
 		classifyCaseEngineFailure,
 		formatCaseEngineUiMessage,
@@ -29,6 +30,7 @@
 	} from '$lib/utils/caseEngineUiState';
 	import { resolveAuthStateDecision, blockedRedirectPath } from '$lib/utils/authStateDecision';
 	import { resolveActiveCaseSection } from '$lib/utils/caseNavSection';
+	import EditCaseModal from '$lib/components/case/EditCaseModal.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
@@ -38,6 +40,8 @@
 
 	let loading = true;
 	let loadError = '';
+	let showEditCaseModal = false;
+	let editCaseSeed: CaseEngineCase | null = null;
 	/** P20-PRE-04: classified failure for case shell load (never silent / never fake success). */
 	let loadUiState: CaseEngineUiState | null = null;
 
@@ -57,7 +61,11 @@
 				case_number: (c.case_number ?? c.id) as string,
 				title: (c.title ?? '') as string,
 				unit: (c.unit ?? '') as string,
-				status: (c.status ?? '') as string
+				status: (c.status ?? '') as string,
+				incident_date:
+					typeof c.incident_date === 'string' && c.incident_date.trim()
+						? c.incident_date
+						: null
 			});
 			activeCaseId.set(c.id as string);
 			activeCaseNumber.set((c.case_number ?? null) as string | null);
@@ -115,14 +123,18 @@
 	// P19-08: Chat migrated.
 	// P19-14: Files, Notes, Activity migrated to dedicated routes.
 	// P19-20: Timeline migrated — backed by official timeline_entries.
-	// Proposals: P19 proposal_records review (same lifecycle as chat intake drafts).
+	// Proposals remain available by direct route when needed; not shown in primary tab strip.
 	const caseNavItems: Array<{ id: string; label: string; implemented: boolean }> = [
 		{ id: 'chat',      label: 'Chat',      implemented: true  },
-		{ id: 'proposals', label: 'Proposals', implemented: true  },
 		{ id: 'timeline',  label: 'Timeline',  implemented: true  },
 		{ id: 'files',     label: 'Files',     implemented: true  },
 		{ id: 'notes',     label: 'Notes',     implemented: true  },
-		{ id: 'activity',  label: 'Activity',  implemented: true  }
+		{ id: 'summary',   label: 'Summary',   implemented: true  },
+		{ id: 'workflow',  label: 'Workflow',  implemented: true  },
+		{ id: 'warrants',  label: 'Warrants',  implemented: true  },
+		{ id: 'intelligence', label: 'Intelligence', implemented: true },
+		{ id: 'activity',  label: 'Activity',  implemented: true  },
+		{ id: 'graph',     label: 'Graph',     implemented: true  }
 	];
 
 	$: activeSection = resolveActiveCaseSection($page.url.pathname);
@@ -223,11 +235,44 @@
 						{$activeCaseMeta.status}
 					</span>
 				{/if}
+				{#if $activeCaseMeta.incident_date}
+					<span
+						class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
+						       bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
+					>
+						Incident: {$activeCaseMeta.incident_date}
+					</span>
+				{:else}
+					<span
+						class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
+						       bg-amber-50/70 dark:bg-amber-900/20 text-amber-700/80 dark:text-amber-300/80"
+					>
+						Incident date missing
+					</span>
+				{/if}
+				<button
+					type="button"
+					class="shrink-0 text-xs font-medium px-2 py-1 rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+					on:click={() => {
+						if (!$activeCaseMeta) return;
+						editCaseSeed = {
+							id: $activeCaseMeta.id,
+							case_number: $activeCaseMeta.case_number,
+							title: $activeCaseMeta.title,
+							unit: $activeCaseMeta.unit,
+							status: $activeCaseMeta.status,
+							incident_date: $activeCaseMeta.incident_date ?? null
+						};
+						showEditCaseModal = true;
+					}}
+				>
+					Edit Case
+				</button>
 			</div>
 		{/if}
 	</header>
 
-	<!-- ── CONTENT-LEVEL TABS (Chat, Proposals, Timeline, Files, Notes, Activity) ── -->
+	<!-- ── CONTENT-LEVEL TABS (Chat, Timeline, Files, Notes, Summary, Workflow, Warrants, Intelligence, Activity, Graph) ── -->
 	<nav
 		class="shrink-0 flex items-center gap-0 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 px-2"
 		aria-label="Case sections"
@@ -302,3 +347,29 @@
 		{/if}
 	</div>
 </div>
+
+<EditCaseModal
+	show={showEditCaseModal}
+	token={$caseEngineToken}
+	caseData={editCaseSeed}
+	on:close={() => {
+		showEditCaseModal = false;
+	}}
+	on:saved={(event) => {
+		const saved = event.detail.case as CaseEngineCase;
+		activeCaseMeta.set({
+			id: saved.id,
+			case_number: String(saved.case_number ?? saved.id),
+			title: String(saved.title ?? ''),
+			unit: String(saved.unit ?? ''),
+			status: String(saved.status ?? ''),
+			incident_date:
+				typeof saved.incident_date === 'string' && saved.incident_date.trim()
+					? saved.incident_date
+					: null
+		});
+		activeCaseNumber.set(String(saved.case_number ?? ''));
+		editCaseSeed = saved;
+		showEditCaseModal = false;
+	}}
+/>

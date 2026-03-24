@@ -1233,6 +1233,12 @@ DEFAULT_MODELS = PersistentConfig(
     "DEFAULT_MODELS", "ui.default_models", os.environ.get("DEFAULT_MODELS", None)
 )
 
+LOCK_DEFAULT_MODELS = PersistentConfig(
+    "LOCK_DEFAULT_MODELS",
+    "ui.lock_default_models",
+    os.environ.get("LOCK_DEFAULT_MODELS", "").lower() in ("true", "1", "yes"),
+)
+
 DEFAULT_PINNED_MODELS = PersistentConfig(
     "DEFAULT_PINNED_MODELS",
     "ui.default_pinned_models",

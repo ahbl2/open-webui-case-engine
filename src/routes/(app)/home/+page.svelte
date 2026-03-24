@@ -39,7 +39,7 @@
 	import {
 		listPersonalThreadAssociations,
 		upsertPersonalThreadAssociation,
-		browserResolveOwuiAuth,
+		resolveBrowserAuthOnce,
 		listCases,
 		type PersonalThreadAssociation,
 		type CaseEngineCase
@@ -111,7 +111,7 @@
 			const u = $user;
 			if (!u?.id) return null;
 			try {
-				const authResult = await browserResolveOwuiAuth({
+				const authResult = await resolveBrowserAuthOnce({
 					owui_user_id: u.id,
 					username_or_email: (u as { email?: string }).email ?? u.name ?? u.id,
 					display_name: u.name

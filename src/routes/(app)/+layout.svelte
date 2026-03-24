@@ -42,7 +42,7 @@
 	caseModeActive
 } from '$lib/stores';
 	import {
-		browserResolveOwuiAuth,
+		resolveBrowserAuthOnce,
 		BrowserResolveFailure,
 		type BrowserResolveFailureClassification
 	} from '$lib/apis/caseEngine';
@@ -74,7 +74,7 @@
 		if (err.classification === 'network_unreachable') return;
 		const msg =
 			err.classification === 'rate_limited'
-				? 'Case Engine is rate-limiting authorization checks. Wait a moment and try again.'
+				? 'System is temporarily busy. Please wait a moment and try again.'
 				: err.classification === 'unauthorized'
 					? 'Case Engine rejected the authorization check. Try refreshing or signing in again.'
 					: err.classification === 'server_error'
@@ -106,6 +106,7 @@
 	// P19-05: Guards app shell from rendering before Case Engine auth state is resolved.
 	// Remains false until an 'active' state is confirmed; prevents pre-redirect flash.
 	let ceAuthChecked = false;
+	let authRedirectInProgress = false;
 	let DB = null;
 	let localDBChats = [];
 
@@ -260,7 +261,7 @@
 		if (!$caseEngineAuthState && $user?.id) {
 			let resolvedState: string;
 			try {
-				const authResult = await browserResolveOwuiAuth({
+				const authResult = await resolveBrowserAuthOnce({
 					owui_user_id: $user.id,
 					username_or_email: ($user as { email?: string }).email ?? $user.name ?? $user.id,
 					display_name: $user.name
@@ -347,7 +348,7 @@
 			if ($caseEngineAuthState.state === 'active' && $user?.id) {
 				const tokenBeforeRefresh = get(caseEngineToken);
 				try {
-					const authResult = await browserResolveOwuiAuth({
+					const authResult = await resolveBrowserAuthOnce({
 						owui_user_id: $user.id,
 						username_or_email: ($user as { email?: string }).email ?? $user.name ?? $user.id,
 						display_name: $user.name
@@ -387,23 +388,34 @@
 									keptPriorToken: !!(tokenBeforeRefresh && String(tokenBeforeRefresh).trim())
 								});
 							}
-						} else {
-							const mappedRefresh = mapBrowserResolveFailureToAuthState(err);
-							caseEngineAuthState.set(mappedRefresh);
-							if (err.classification === 'unauthorized') {
-								caseEngineToken.set(null);
-								caseEngineUser.set(null);
-							}
-							toastForBrowserResolveFailure(err);
-							if (import.meta.env.DEV) {
-								console.debug('[P19.75-02] browser-resolve (refresh)', {
-									httpStatus: err.httpStatus,
-									classification: err.classification,
-									gateDecision: 'set_transient_ce_state',
-									caseEngineState: mappedRefresh.state
-								});
-							}
+					} else if (err.classification === 'unauthorized') {
+						const mappedRefresh = mapBrowserResolveFailureToAuthState(err);
+						caseEngineAuthState.set(mappedRefresh);
+						caseEngineToken.set(null);
+						caseEngineUser.set(null);
+						toastForBrowserResolveFailure(err);
+						if (import.meta.env.DEV) {
+							console.debug('[P19.75-02] browser-resolve (refresh)', {
+								httpStatus: err.httpStatus,
+								classification: err.classification,
+								gateDecision: 'set_auth_http_error_state',
+								caseEngineState: mappedRefresh.state
+							});
 						}
+					} else {
+						// Keep previously active session during transient refresh failures
+						// (rate_limited, ce_server_error, ce_client_error). This avoids
+						// false ejection from workspace while auth service is recovering.
+						toastForBrowserResolveFailure(err);
+						if (import.meta.env.DEV) {
+							console.debug('[P19.75-02] browser-resolve (refresh)', {
+								httpStatus: err.httpStatus,
+								classification: err.classification,
+								gateDecision: 'keep_prior_state_and_token',
+								keptPriorToken: !!(tokenBeforeRefresh && String(tokenBeforeRefresh).trim())
+							});
+						}
+					}
 					} else {
 						// P19.75-01: Unknown error — do not wipe token.
 						console.error('[P19-05] Case Engine token re-resolve failed:', err);
@@ -580,6 +592,23 @@
 
 		loaded = true;
 	});
+
+	/**
+	 * Keep app-shell gating deterministic across in-app navigation:
+	 * if auth state becomes blocked (including rate_limited cooldown), immediately
+	 * hide shell and route to the correct gate page without transient flashes.
+	 */
+	$: if ($user && $caseEngineAuthState && !authRedirectInProgress) {
+		const decision = resolveAuthStateDecision($caseEngineAuthState.state);
+		const redirectTo = blockedRedirectPath(decision);
+		if (redirectTo) {
+			ceAuthChecked = false;
+			authRedirectInProgress = true;
+			void goto(redirectTo).finally(() => {
+				authRedirectInProgress = false;
+			});
+		}
+	}
 
 </script>
 

@@ -1,7 +1,12 @@
 <script lang="ts">
-	import { goto, invalidateAll } from '$app/navigation';
+	import { goto } from '$app/navigation';
 	import { user, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
+	import { resolveBrowserAuthOnce, BrowserResolveFailure } from '$lib/apis/caseEngine';
 	import { userSignOut } from '$lib/apis/auths';
+	import { get } from 'svelte/store';
+
+	let retrying = false;
+	let retryMessage = '';
 
 	async function signOut() {
 		await userSignOut().catch(() => {});
@@ -14,10 +19,56 @@
 	}
 
 	async function retry() {
-		// P19.75-01: Re-run bootstrap — clear gate state, reload server data, land in workspace shell.
-		caseEngineAuthState.set(null);
-		await invalidateAll();
-		await goto('/home');
+		if (retrying) return;
+		const currentUser = get(user);
+		if (!currentUser?.id) {
+			await goto('/auth');
+			return;
+		}
+		const owuiToken = localStorage.getItem('token');
+		if (!owuiToken || String(owuiToken).trim() === '') {
+			retryMessage = 'Your Open WebUI session has expired. Please sign in again.';
+			await goto('/auth');
+			return;
+		}
+
+		retrying = true;
+		retryMessage = '';
+		try {
+			const authResult = await resolveBrowserAuthOnce({
+				owui_user_id: currentUser.id,
+				username_or_email:
+					(currentUser as { email?: string }).email ?? currentUser.name ?? currentUser.id,
+				display_name: currentUser.name
+			}, { force: true });
+			caseEngineAuthState.set(authResult as import('$lib/stores').CaseEngineAuthState);
+			if (authResult.state === 'active' && typeof authResult.token === 'string' && authResult.token.trim() !== '') {
+				caseEngineToken.set(authResult.token);
+				caseEngineUser.set(
+					authResult.user
+						? {
+								id: authResult.user.id,
+								name: currentUser.name ?? authResult.user.role,
+								role: authResult.user.role === 'admin' ? 'ADMIN' : 'detective'
+							}
+						: null
+				);
+				await goto('/home');
+				return;
+			}
+			retryMessage =
+				authResult.state === 'rate_limited'
+					? 'System is temporarily busy. Please wait a moment and try again.'
+					: 'Case Engine authorization is still unavailable.';
+		} catch (err) {
+			if (err instanceof BrowserResolveFailure && err.classification === 'rate_limited') {
+				retryMessage = 'System is temporarily busy. Please wait a moment and try again.';
+			} else {
+				retryMessage = 'Case Engine authorization is still unavailable.';
+			}
+		} finally {
+			retrying = false;
+		}
 	}
 </script>
 
@@ -51,10 +102,14 @@
 		<div class="flex flex-col gap-2 items-center">
 			<button
 				class="px-4 py-2 rounded-lg bg-gray-800 dark:bg-gray-100 text-white dark:text-gray-900 text-sm font-medium hover:bg-gray-700 dark:hover:bg-white transition"
+				disabled={retrying}
 				on:click={retry}
 			>
-				Retry
+				{retrying ? 'Retrying...' : 'Retry'}
 			</button>
+			{#if retryMessage}
+				<p class="text-xs text-orange-600 dark:text-orange-400">{retryMessage}</p>
+			{/if}
 			<button
 				class="text-sm text-gray-400 dark:text-gray-500 hover:text-gray-600 dark:hover:text-gray-300 underline transition"
 				on:click={signOut}

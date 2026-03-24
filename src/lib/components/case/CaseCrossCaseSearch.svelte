@@ -7,7 +7,8 @@
 		type AskCrossCaseResponse,
 		type CrossCaseCitation
 	} from '$lib/apis/caseEngine';
-	import { caseEngineUser } from '$lib/stores';
+	import { caseEngineAuthState, caseEngineUser } from '$lib/stores';
+	import { formatNonAdminScopeLabel, resolveAuthorizedUnits } from '$lib/utils/crossCaseScope';
 
 	export let token: string;
 
@@ -21,8 +22,10 @@
 	let parseErrorCitations: CrossCaseCitation[] = [];
 	let citationModal: CrossCaseCitation | null = null;
 
-	$: isAdmin = $caseEngineUser?.role === 'ADMIN';
-	$: effectiveUnitScope = isAdmin ? unitScope : ($caseEngineUser?.role === 'CID' ? 'CID' : 'SIU');
+	$: authRole = String($caseEngineAuthState?.user?.role ?? '').toLowerCase();
+	$: isAdmin = $caseEngineUser?.role === 'ADMIN' || authRole === 'admin';
+	$: authorizedUnits = resolveAuthorizedUnits($caseEngineAuthState?.user?.units);
+	$: nonAdminScopeLabel = formatNonAdminScopeLabel(authorizedUnits);
 
 	function confidenceClass(c: 'LOW' | 'MEDIUM' | 'HIGH') {
 		if (c === 'LOW') return 'bg-amber-100 dark:bg-amber-900/30 text-amber-800 dark:text-amber-200';
@@ -126,7 +129,7 @@
 				</select>
 			</label>
 		{:else}
-			<span class="text-xs text-gray-500">Scope: {effectiveUnitScope}</span>
+			<span class="text-xs text-gray-500">Scope: {nonAdminScopeLabel}</span>
 		{/if}
 		<button
 			type="button"

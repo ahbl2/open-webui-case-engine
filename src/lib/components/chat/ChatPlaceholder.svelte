@@ -2,13 +2,19 @@
 	import { WEBUI_API_BASE_URL, WEBUI_BASE_URL } from '$lib/constants';
 	import { marked } from 'marked';
 
-	import { config, user, models as _models, temporaryChatEnabled } from '$lib/stores';
+	import { config, user, models as _models, temporaryChatEnabled, activeCaseId } from '$lib/stores';
 	import { onMount, getContext } from 'svelte';
 
 	import { blur, fade } from 'svelte/transition';
 
 	import Suggestions from './Suggestions.svelte';
 	import { sanitizeResponseContent } from '$lib/utils';
+	import { CASE_SUGGESTIONS, DESKTOP_SUGGESTIONS } from '$lib/utils/detectiveSuggestions';
+
+	// Derive scope-aware detective suggestions.
+	// ChatPlaceholder is shown when a thread is active but has no messages yet.
+	// If a case is active, show case suggestions; otherwise show desktop suggestions.
+	$: detectiveSuggestions = $activeCaseId ? CASE_SUGGESTIONS : DESKTOP_SUGGESTIONS;
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import EyeSlash from '$lib/components/icons/EyeSlash.svelte';
 
@@ -127,11 +133,8 @@
 		<div class=" w-full font-primary" in:fade={{ duration: 200, delay: 300 }}>
 			<Suggestions
 				className="grid grid-cols-2"
-				suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
-					models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
-					$config?.default_prompt_suggestions ??
-					[]}
-				{onSelect}
+				suggestionPrompts={detectiveSuggestions}
+				onSelect={(e) => onSelect({ type: 'prefill', data: e.data })}
 			/>
 		</div>
 	</div>

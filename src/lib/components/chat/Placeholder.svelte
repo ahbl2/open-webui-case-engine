@@ -28,6 +28,7 @@
 	import MessageInput from './MessageInput.svelte';
 	import FolderPlaceholder from './Placeholder/FolderPlaceholder.svelte';
 	import FolderTitle from './Placeholder/FolderTitle.svelte';
+	import { DESKTOP_SUGGESTIONS } from '$lib/utils/detectiveSuggestions';
 
 	const i18n = getContext('i18n');
 
@@ -239,14 +240,16 @@
 	{:else}
 		<div class="mx-auto max-w-2xl font-primary mt-2" in:fade={{ duration: 200, delay: 200 }}>
 			<div class="mx-5">
-				<Suggestions
-					suggestionPrompts={atSelectedModel?.info?.meta?.suggestion_prompts ??
-						models[selectedModelIdx]?.info?.meta?.suggestion_prompts ??
-						$config?.default_prompt_suggestions ??
-						[]}
-					inputValue={prompt}
-					{onSelect}
-				/>
+			<Suggestions
+				suggestionPrompts={DESKTOP_SUGGESTIONS}
+				inputValue={prompt}
+				onSelect={(e) => {
+					if (e.type === 'prompt') {
+						// Prefill only — detective suggestions never auto-submit.
+						messageInput?.setText(e.data);
+					}
+				}}
+			/>
 			</div>
 		</div>
 	{/if}

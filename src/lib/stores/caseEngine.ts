@@ -104,6 +104,7 @@ export type CaseMeta = {
 	title: string;
 	unit: string;
 	status: string;
+	incident_date?: string | null;
 };
 export const activeCaseMeta = writable<CaseMeta | null>(null);
 

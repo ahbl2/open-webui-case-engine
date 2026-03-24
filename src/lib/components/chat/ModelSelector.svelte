@@ -13,6 +13,11 @@
 
 	export let showSetDefault = true;
 
+	// P21-06: forced model — true when lock_default_models is active and user is not admin.
+	// When forced, the selector is semantically disabled and "Set as default" is hidden.
+	$: isAdmin = $user?.role === 'admin';
+	$: isForced = ($config?.lock_default_models ?? false) && !isAdmin;
+
 	const saveDefaultModel = async () => {
 		const hasEmptyModel = selectedModels.filter((it) => it === '');
 		if (hasEmptyModel.length) {
@@ -63,13 +68,14 @@
 							model: model
 						}))}
 						{pinModelHandler}
+						disabled={isForced}
 						bind:value={selectedModel}
 					/>
 				</div>
 			</div>
 
-			{#if $user?.role === 'admin' || ($user?.permissions?.chat?.multiple_models ?? true)}
-				{#if selectedModelIdx === 0}
+		{#if !isForced && ($user?.role === 'admin' || ($user?.permissions?.chat?.multiple_models ?? true))}
+			{#if selectedModelIdx === 0}
 					<div
 						class="  self-center mx-1 disabled:text-gray-600 disabled:hover:text-gray-600 -translate-y-[0.5px]"
 					>
@@ -127,7 +133,7 @@
 	{/each}
 </div>
 
-{#if showSetDefault}
+{#if showSetDefault && !isForced}
 	<div
 		class="relative text-left mt-[1px] ml-1 text-[0.7rem] text-gray-600 dark:text-gray-400 font-primary"
 	>

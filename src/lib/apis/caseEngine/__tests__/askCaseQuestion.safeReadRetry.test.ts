@@ -40,7 +40,7 @@ describe('askCaseQuestion — P20-PRE-05 (no fake timers — 422 path)', () => {
 		fetchSpy.mockResolvedValueOnce(makeOk());
 
 		const { askCaseQuestion } = await import('../index');
-		const result = await askCaseQuestion('case-1', 'Who carried the bags?', 'token');
+		const result = await askCaseQuestion('case-1', 'Who carried the bags?', 'token', 8, undefined, 'thread-1');
 
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
 		expect(result.answer).toBe('Mangis carried the bags.');
@@ -50,7 +50,9 @@ describe('askCaseQuestion — P20-PRE-05 (no fake timers — 422 path)', () => {
 		fetchSpy.mockResolvedValueOnce(make422());
 
 		const { askCaseQuestion, CaseEngineRequestError } = await import('../index');
-		await expect(askCaseQuestion('case-1', 'Who carried the bags?', 'token')).rejects.toThrow(
+		await expect(
+			askCaseQuestion('case-1', 'Who carried the bags?', 'token', 8, undefined, 'thread-1')
+		).rejects.toThrow(
 			CaseEngineRequestError
 		);
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
@@ -62,7 +64,9 @@ describe('askCaseQuestion — P20-PRE-05 (no fake timers — 422 path)', () => {
 			.mockResolvedValueOnce(makeOk());
 
 		const { askCaseQuestion } = await import('../index');
-		await expect(askCaseQuestion('case-1', 'Who carried the bags?', 'token')).rejects.toThrow();
+		await expect(
+			askCaseQuestion('case-1', 'Who carried the bags?', 'token', 8, undefined, 'thread-1')
+		).rejects.toThrow();
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
 	});
 });
@@ -86,7 +90,7 @@ describe('askCaseQuestion — P20-PRE-05 (fake timers — 502 backoff)', () => {
 			.mockResolvedValueOnce(makeOk());
 
 		const { askCaseQuestion } = await import('../index');
-		const p = askCaseQuestion('case-1', 'Who carried the bags?', 'token');
+		const p = askCaseQuestion('case-1', 'Who carried the bags?', 'token', 8, undefined, 'thread-1');
 		await vi.runAllTimersAsync();
 		const result = await p;
 
