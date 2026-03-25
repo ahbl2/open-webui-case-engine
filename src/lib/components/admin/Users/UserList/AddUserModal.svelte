@@ -176,17 +176,17 @@
 
 					<div class="px-1">
 						{#if tab === ''}
-							<div class="flex flex-col w-full mb-3">
-								<div class=" mb-1 text-xs text-gray-500">{$i18n.t('Role')}</div>
+						<div class="flex flex-col w-full mb-3">
+							<div class=" mb-1 text-xs text-gray-500">Workspace Role</div>
 
-								<div class="flex-1">
-									<select
-										class="w-full capitalize rounded-lg text-sm bg-transparent dark:disabled:text-gray-500 outline-hidden"
-										bind:value={_user.role}
-										aria-label={$i18n.t('Role')}
-										placeholder={$i18n.t('Enter Your Role')}
-										required
-									>
+							<div class="flex-1">
+								<select
+									class="w-full capitalize rounded-lg text-sm bg-transparent dark:disabled:text-gray-500 outline-hidden"
+									bind:value={_user.role}
+									aria-label="Workspace Role"
+									placeholder={$i18n.t('Enter Your Role')}
+									required
+								>
 										<option value="pending"> {$i18n.t('pending')} </option>
 										<option value="user"> {$i18n.t('user')} </option>
 										<option value="admin"> {$i18n.t('admin')} </option>
@@ -283,7 +283,13 @@
 						{/if}
 					</div>
 
-					<div class="flex justify-end pt-3 text-sm font-medium">
+					{#if tab === ''}
+					<div class="text-xs text-gray-400 dark:text-gray-600 pt-2">
+						ⓘ After saving, open the user in the Users list to assign Case Engine units and complete setup.
+					</div>
+				{/if}
+
+				<div class="flex justify-end pt-3 text-sm font-medium">
 						<button
 							class="px-3.5 py-1.5 text-sm font-medium bg-black hover:bg-gray-900 text-white dark:bg-white dark:text-black dark:hover:bg-gray-100 transition rounded-full flex flex-row space-x-1 items-center {loading
 								? ' cursor-not-allowed'

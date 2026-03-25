@@ -122,6 +122,7 @@ function unwrapEnvelopeCanonicalFirst<T>(data: unknown, context: string): T {
 }
 
 export type CaseEngineScope = 'case' | 'CID' | 'SIU' | 'ALL';
+export type CaseEngineUnit = 'CID' | 'SIU';
 export type CaseEngineCitation = { type: 'entry' | 'file'; id: string };
 
 export interface CaseEngineCase {
@@ -328,6 +329,10 @@ export interface CaseEngineOwuiUserRow {
 	status: string;
 	role: string;
 	created_at: string;
+	/** Matches backend UnitAssignment[]: 'CID' | 'SIU'. No adapter — direct deserialization. */
+	units: CaseEngineUnit[];
+	/** P27-11: True only for the single protected System Admin. Backend truth — never inferred. */
+	is_system_admin: boolean;
 }
 
 export async function listCaseEngineOwuiUsers(
@@ -366,6 +371,97 @@ export async function updateCaseEngineOwuiUserStatus(
 		throw new Error(data?.error ?? `Failed to update status (${res.status})`);
 	}
 	return data;
+}
+
+/**
+ * P27-16: Admin-triggered CE profile provision for an OWUI user with no CE profile.
+ * Returns the newly created CE user row on success.
+ * Throws if the user already has a profile (409) or required fields are missing.
+ */
+export async function provisionCeUser(
+	token: string,
+	owuiUserId: string,
+	usernameOrEmail: string,
+	displayName?: string | null,
+	/** P27-22: CE role for the provisioned profile. Defaults to 'detective'. Pass 'admin' for OWUI admins. */
+	ceRole?: 'admin' | 'detective'
+): Promise<CaseEngineOwuiUserRow> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/auth/owui/users/${encodeURIComponent(owuiUserId)}/provision`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({
+				username_or_email: usernameOrEmail,
+				display_name: displayName ?? null,
+				...(ceRole ? { role: ceRole } : {})
+			})
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error(extractApiErrorMessage(data, `Failed to provision CE profile (${res.status})`));
+	return data as CaseEngineOwuiUserRow;
+}
+
+/**
+ * P27-23b: Read-only backend detection of admin-role mismatches.
+ *
+ * Pass `owuiAdminIds` (OWUI admin user IDs from the OWUI user list) for confirmed mode:
+ * the backend filters CE users to those IDs and returns those with CE role != 'admin'.
+ *
+ * Omit `owuiAdminIds` for candidates mode: the backend returns all CE detective users.
+ * CE cannot independently verify OWUI roles in this mode (owui_role = 'unknown').
+ */
+export async function detectCeAdminRoleMismatches(
+	token: string,
+	owuiAdminIds?: string[]
+): Promise<{
+	count: number;
+	users: Array<{ owui_user_id: string; username_or_email: string; ce_role: string; owui_role: string }>;
+	detection_mode: 'confirmed' | 'candidates';
+}> {
+	const qs =
+		owuiAdminIds && owuiAdminIds.length > 0
+			? `?owui_admin_ids=${owuiAdminIds.map(encodeURIComponent).join(',')}`
+			: '';
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/auth/owui/repair/admin-role-alignment/mismatches${qs}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(extractApiErrorMessage(data, `Failed to detect mismatches (${res.status})`));
+	return data as {
+		count: number;
+		users: Array<{ owui_user_id: string; username_or_email: string; ce_role: string; owui_role: string }>;
+		detection_mode: 'confirmed' | 'candidates';
+	};
+}
+
+/** P27-23: Repair OWUI-admin / CE-detective role mismatches for the supplied OWUI user IDs. */
+export async function repairCeAdminRoleAlignment(
+	token: string,
+	owuiUserIds: string[]
+): Promise<{ repaired: string[]; skipped: string[]; not_found: string[] }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/repair/admin-role-alignment`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({ owui_user_ids: owuiUserIds })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error(extractApiErrorMessage(data, `Failed to repair admin role alignment (${res.status})`));
+	return data as { repaired: string[]; skipped: string[]; not_found: string[] };
+}
+
+/** P27-11: Transfer System Admin role to another active CE admin. */
+export async function transferCeSystemAdmin(token: string, targetOwuiUserId: string): Promise<void> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/auth/owui/transfer-system-admin`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({ target_owui_user_id: targetOwuiUserId })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error(data?.error ?? `Failed to transfer System Admin (${res.status})`);
 }
 
 export async function updateCaseEngineOwuiUserRole(
@@ -426,6 +522,183 @@ export async function updateCaseEngineOwuiUserCapabilities(
 		throw new Error(data?.error ?? `Failed to update capabilities (${res.status})`);
 	}
 	return data;
+}
+
+/** P27-02: Legacy API user row (users table). */
+export interface CaseEngineLegacyUserRow {
+	id: string;
+	name: string;
+	role: string;
+	status: 'active' | 'disabled';
+	created_at: string;
+}
+
+/** P27-02: List all legacy API users (admin only). */
+export async function listCaseEngineLegacyUsers(token: string): Promise<CaseEngineLegacyUserRow[]> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/admin/users`, {
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Failed to list API users (${res.status})`);
+	}
+	return Array.isArray(data?.data) ? data.data : [];
+}
+
+/** P27-02: Disable a legacy API user (admin only). */
+export async function disableCaseEngineLegacyUser(
+	token: string,
+	userId: string
+): Promise<CaseEngineLegacyUserRow> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/admin/users/${encodeURIComponent(userId)}/disable`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Failed to disable user (${res.status})`);
+	}
+	return data?.data ?? data;
+}
+
+/** P27-02: Enable a legacy API user (admin only). */
+export async function enableCaseEngineLegacyUser(
+	token: string,
+	userId: string
+): Promise<CaseEngineLegacyUserRow> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/admin/users/${encodeURIComponent(userId)}/enable`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Failed to enable user (${res.status})`);
+	}
+	return data?.data ?? data;
+}
+
+/** P27-03: Admin case row (minimal, for case selector). */
+export interface AdminCaseRow {
+	id: string;
+	case_number: string;
+	title: string;
+	unit: string;
+	status: string;
+	created_at: string;
+}
+
+/** P27-03: Assignment enriched with user name and disabled status. */
+export interface AdminCaseAssignment {
+	id: string;
+	case_id: string;
+	user_id: string;
+	principal_type: string;
+	is_lead: boolean;
+	assigned_by: string;
+	created_at: string;
+	revoked_at: string | null;
+	revoked_by: string | null;
+	revoke_reason: string | null;
+	user_name: string | null;
+	user_status: string | null;
+}
+
+/** P27-03: List all non-deleted cases for admin selection (admin only). */
+export async function listAdminCases(token: string): Promise<AdminCaseRow[]> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/admin/cases`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error(data?.error ?? `Failed to list cases (${res.status})`);
+	return Array.isArray(data?.data) ? data.data : [];
+}
+
+/** P27-03: Get assignments for a case enriched with user name + status (admin only). */
+export async function getAdminCaseAssignments(
+	token: string,
+	caseId: string
+): Promise<AdminCaseAssignment[]> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/admin/cases/${encodeURIComponent(caseId)}/assignments`,
+		{ headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error(data?.error ?? `Failed to load assignments (${res.status})`);
+	return Array.isArray(data?.data) ? data.data : [];
+}
+
+/** P27-03: Add a member to a case (reuses existing /cases/:id/assignments endpoint). */
+export async function addCaseAssignment(
+	token: string,
+	caseId: string,
+	userId: string,
+	isLead: boolean = false
+): Promise<unknown> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/assignments`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({ user_id: userId, is_lead: isLead })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error(data?.error ?? `Failed to add assignment (${res.status})`);
+	return data;
+}
+
+/** P27-03: Remove a member from a case (reuses existing /cases/:id/assignments/:id endpoint). */
+export async function revokeCaseAssignment(
+	token: string,
+	caseId: string,
+	assignmentId: string,
+	opts: { clearLead?: boolean; replacementLeadAssignmentId?: string; allowZeroAssignments?: boolean; revoke_reason?: string } = {}
+): Promise<unknown> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/assignments/${encodeURIComponent(assignmentId)}`,
+		{
+			method: 'DELETE',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify(opts)
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error(data?.error ?? `Failed to revoke assignment (${res.status})`);
+	return data;
+}
+
+/** P27-03: Set the lead on a case by assignment id (reuses /cases/:id/lead). */
+export async function setCaseLead(
+	token: string,
+	caseId: string,
+	assignmentId: string
+): Promise<unknown> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/lead`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({ assignment_id: assignmentId })
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error(data?.error ?? `Failed to set lead (${res.status})`);
+	return data;
+}
+
+/** P27-03: Clear the lead on a case (reuses /cases/:id/lead DELETE). */
+export async function clearCaseLead(token: string, caseId: string): Promise<void> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/lead`, {
+		method: 'DELETE',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error(data?.error ?? `Failed to clear lead (${res.status})`);
+	}
 }
 
 /** Ticket 7: Sidebar case list - minimal metadata, RBAC enforced server-side */

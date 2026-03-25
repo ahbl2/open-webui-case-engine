@@ -7,6 +7,11 @@
 # The ${:-} form below is safe: it only sets the default when CORS_ALLOW_ORIGIN is unset in the shell.
 export CORS_ALLOW_ORIGIN="${CORS_ALLOW_ORIGIN:-http://localhost:5173;http://localhost:8080;http://localhost:3001;http://192.168.1.194:3001}"
 
+# P27-21: CE_DB_PATH exposes the Case Engine SQLite database for password-reset hierarchy checks.
+# Must match DB_PATH used by the Detective Case Engine Node.js service.
+# If unset, password-reset hierarchy enforcement is skipped (fail-open) — set this in production.
+export CE_DB_PATH="${CE_DB_PATH:-/tmp/case-engine/data/case.db}"
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 VENV_PYTHON="${ROOT_DIR}/.venv/bin/python"

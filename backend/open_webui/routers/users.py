@@ -1,4 +1,6 @@
 import logging
+import os
+import sqlite3
 from typing import Optional
 from sqlalchemy.orm import Session
 import base64
@@ -44,6 +46,73 @@ from open_webui.utils.access_control import get_permissions, has_permission
 log = logging.getLogger(__name__)
 
 router = APIRouter()
+
+
+# ── P27-21: CE password-reset hierarchy helpers ───────────────────────────────
+
+def _ce_rank_for_owui_user(owui_user_id: str, ce_db_path: str) -> int:
+    """
+    Returns the CE authority rank for the given OWUI user ID.
+      3 = System Admin,  2 = Admin,  1 = Detective,  0 = not found in CE.
+    Opens the CE SQLite DB read-only. Returns 0 on any error (fail-open handled by caller).
+    """
+    try:
+        con = sqlite3.connect(f"file:{ce_db_path}?mode=ro", uri=True, timeout=2)
+        row = con.execute(
+            "SELECT role, is_system_admin FROM case_engine_users WHERE owui_user_id = ? LIMIT 1",
+            (owui_user_id,),
+        ).fetchone()
+        con.close()
+        if not row:
+            return 0
+        role, is_sa = row
+        if is_sa:
+            return 3
+        if role == "admin":
+            return 2
+        return 1
+    except Exception:
+        return 0  # DB unavailable — caller decides whether to fail-open
+
+
+def _check_ce_password_reset_hierarchy(actor_owui_id: str, target_owui_id: str) -> None:
+    """
+    P27-21 (corrected): Enforces CE hierarchy for cross-user password reset.
+    Self-reset is always allowed.
+    Cross-user reset fails CLOSED: if CE authority (CE_DB_PATH) is missing or unreadable,
+    the reset is denied with 503 rather than allowed through.
+    Raises HTTP 403 when actor does not outrank target; 503 when CE authority is unavailable.
+    """
+    if actor_owui_id == target_owui_id:
+        return  # self-reset always permitted
+
+    ce_db_path = os.environ.get("CE_DB_PATH", "").strip()
+    if not ce_db_path:
+        # Fail closed: CE authority is required for cross-user password reset.
+        # CE_DB_PATH must be configured to match the Case Engine DB_PATH.
+        log.error(
+            "P27-21: CE_DB_PATH not set — cross-user password reset denied (fail-closed). "
+            "Set CE_DB_PATH to match the Case Engine DB_PATH."
+        )
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="Case Engine authority not configured — cross-user password reset unavailable",
+        )
+
+    actor_rank = _ce_rank_for_owui_user(actor_owui_id, ce_db_path)
+    target_rank = _ce_rank_for_owui_user(target_owui_id, ce_db_path)
+
+    # Users not in CE are treated as detective (rank 1).
+    if actor_rank == 0:
+        actor_rank = 1
+    if target_rank == 0:
+        target_rank = 1
+
+    if actor_rank <= target_rank:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Insufficient authority: cannot reset password for a user with equal or higher rank",
+        )
 
 
 ############################
@@ -626,6 +695,9 @@ async def update_user_by_id(
                 )
 
         if form_data.password:
+            # P27-21: Hierarchy check before hashing — actor must outrank target in CE.
+            _check_ce_password_reset_hierarchy(session_user.id, user_id)
+
             try:
                 validate_password(form_data.password)
             except Exception as e:

@@ -77,13 +77,7 @@
 							>
 						{/if}
 
-						<a
-							draggable="false"
-							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/evaluations')
-								? ''
-								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
-							href="/admin/evaluations">{$i18n.t('Evaluations')}</a
-						>
+						<!-- P27-26: Evaluations (Leaderboard + Feedback) removed — not part of the Case Engine investigative model. -->
 
 						<a
 							draggable="false"
@@ -93,13 +87,21 @@
 							href="/admin/functions">{$i18n.t('Functions')}</a
 						>
 
-						<a
-							draggable="false"
-							class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/case-engine-users')
-								? ''
-								: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
-							href="/admin/case-engine-users">{$i18n.t('Workspace Access')}</a
-						>
+					<a
+						draggable="false"
+						class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/case-engine-users')
+							? ''
+							: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+						href="/admin/case-engine-users">{$i18n.t('Workspace Access')}</a
+					>
+
+					<a
+						draggable="false"
+						class="min-w-fit p-1.5 {$page.url.pathname.includes('/admin/case-assignments')
+							? ''
+							: 'text-gray-300 dark:text-gray-600 hover:text-gray-700 dark:hover:text-white'} transition select-none"
+						href="/admin/case-assignments">{$i18n.t('Case Assignments')}</a
+					>
 
 						<a
 							draggable="false"
