@@ -22,6 +22,9 @@
 		mapIntelResultToEvidenceItem
 	} from '$lib/utils/intelligenceView';
 	import { buildEntityFocusHref } from '$lib/utils/entityFocus';
+	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
+	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
+	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import {
 		STRUCTURED_QUERY_ACTIONS,
@@ -41,10 +44,17 @@
 
 	let alerts: IntelligenceAlert[] = [];
 	let alertsLoading = true;
-	let alertsError = '';
+	let alertsLoadError = '';
 	let selectedAlertId: number | null = null;
 	let showAckConfirm = false;
 	let isAckSubmitting = false;
+	type AlertViewState = 'loading' | 'error' | 'empty' | 'success';
+	type AlertActionFeedbackKind = 'success' | 'error';
+	type AlertActionFeedback = { kind: AlertActionFeedbackKind; message: string } | null;
+	let alertActionFeedback: AlertActionFeedback = null;
+	let alertViewState: AlertViewState = 'loading';
+	$: alertViewState =
+		alertsLoading ? 'loading' : alertsLoadError ? 'error' : alerts.length === 0 ? 'empty' : 'success';
 
 	// ── Case-switch sentinel (P28-41 alerts, P28-42 query results) ───────────
 	// Seeded to the initial route param so the reactive guard is a no-op on
@@ -53,21 +63,37 @@
 	/** Tracks which case ID was last fully loaded; guards all case-scoped state resets. */
 	let prevLoadedCaseId: string = $page.params.id ?? '';
 
-	async function loadAlerts(id: string, tok: string): Promise<void> {
+	async function loadAlerts(id: string, tok: string): Promise<boolean> {
 		alertsLoading = true;
-		alertsError = '';
+		alertsLoadError = '';
 		try {
 			alerts = await listCaseIntelligenceAlerts(id, tok);
+			return true;
 		} catch (e: unknown) {
-			alertsError = e instanceof Error ? e.message : 'Failed to load alerts.';
+			alertsLoadError =
+				e instanceof Error && e.message
+					? e.message
+					: 'Could not load intelligence alerts. Please try again.';
+			return false;
 		} finally {
 			alertsLoading = false;
 		}
 	}
 
+	function resetAckDialogState(): void {
+		selectedAlertId = null;
+		showAckConfirm = false;
+	}
+
+	function retryLoadAlerts(): void {
+		if (!$caseEngineToken || !caseId || alertsLoading) return;
+		alertActionFeedback = null;
+		loadAlerts(caseId, $caseEngineToken);
+	}
+
 	// P29-01: Open confirm dialog — no API call until user confirms.
 	function handleAck(alertId: number): void {
-		if (isAckSubmitting) return;
+		if (isAckSubmitting || showAckConfirm) return;
 		selectedAlertId = alertId;
 		showAckConfirm = true;
 	}
@@ -76,16 +102,26 @@
 		if (!$caseEngineToken || selectedAlertId === null) return;
 		const alertId = selectedAlertId;
 		isAckSubmitting = true;
-		alertsError = '';
+		alertActionFeedback = null;
 		try {
 			await ackIntelligenceAlert(alertId, $caseEngineToken);
 			// No optimistic removal — reload from backend to reflect confirmed state.
-			await loadAlerts(caseId, $caseEngineToken);
+			const refreshed = await loadAlerts(caseId, $caseEngineToken);
+			if (!refreshed) {
+				alertsLoadError =
+					'Alert was acknowledged, but the alerts list could not be refreshed. Try reloading the case.';
+				alertActionFeedback = null;
+			} else {
+				alertActionFeedback = { kind: 'success', message: 'Alert acknowledged.' };
+			}
 		} catch (e: unknown) {
-			alertsError = e instanceof Error ? e.message : 'Acknowledge failed. Please try again.';
+			alertActionFeedback = {
+				kind: 'error',
+				message: 'Could not acknowledge the alert. Please try again.'
+			};
 		} finally {
 			isAckSubmitting = false;
-			selectedAlertId = null;
+			resetAckDialogState();
 		}
 	}
 
@@ -109,7 +145,8 @@
 
 		// Alerts — reload for the new case
 		alerts = [];
-		alertsError = '';
+		alertsLoadError = '';
+		alertActionFeedback = null;
 		selectedAlertId = null;
 		showAckConfirm = false;
 		isAckSubmitting = false;
@@ -430,7 +467,7 @@
 							Automated signal: text overlap detected across cases. Review supporting excerpts before drawing conclusions.
 						</p>
 					</div>
-					{#if !alertsLoading && alerts.length > 0}
+					{#if alertViewState === 'success'}
 						<span
 							class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full
 							       bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
@@ -441,28 +478,37 @@
 					{/if}
 				</div>
 
-				{#if alertsLoading}
-					<p class="text-xs text-gray-400 dark:text-gray-500 py-1" data-testid="intelligence-alerts-loading">
-						Loading alerts…
-					</p>
-
-				{:else if alertsError}
-					<div class="flex items-center gap-2" data-testid="intelligence-alerts-error">
-						<p class="text-xs text-red-600 dark:text-red-400">{alertsError}</p>
-						<button
-							type="button"
-							class="text-[11px] text-red-400 hover:text-red-600 underline underline-offset-2"
-							on:click={() => { if ($caseEngineToken) loadAlerts(caseId, $caseEngineToken); }}
-						>
-							Retry
-						</button>
+				{#if alertActionFeedback && alertViewState !== 'error'}
+					<div
+						class={`rounded-md border px-3 py-2 text-xs ${
+							alertActionFeedback.kind === 'success'
+								? 'border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300'
+								: 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300'
+						}`}
+						data-testid="intelligence-alerts-action-feedback"
+					>
+						{alertActionFeedback.message}
 					</div>
+				{/if}
 
-				{:else if alerts.length === 0}
-					<p class="text-xs text-gray-400 dark:text-gray-500 py-1" data-testid="intelligence-alerts-empty">
-						No cross-case entity alerts.
-					</p>
-
+				{#if alertViewState === 'loading'}
+					<CaseLoadingState
+						label="Loading intelligence alerts..."
+						testId="intelligence-alerts-loading"
+					/>
+				{:else if alertViewState === 'error'}
+					<div data-testid="intelligence-alerts-error">
+						<CaseErrorState
+							title="Unable to load intelligence alerts"
+							message={alertsLoadError}
+							onRetry={retryLoadAlerts}
+						/>
+					</div>
+				{:else if alertViewState === 'empty'}
+					<CaseEmptyState
+						title="No intelligence alerts for this case."
+						testId="intelligence-alerts-empty"
+					/>
 				{:else}
 					<ul class="flex flex-col divide-y divide-gray-100 dark:divide-gray-800" data-testid="intelligence-alerts-list">
 						{#each alerts as alert (alert.id)}
@@ -930,5 +976,6 @@
 	message="This will acknowledge the alert and remove it from the open alerts view for this case. This action is audited."
 	cancelLabel="Keep open"
 	confirmLabel="Acknowledge"
+	on:cancel={resetAckDialogState}
 	onConfirm={executeAck}
 />
