@@ -1,14 +1,18 @@
 <script lang="ts">
+	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { activeCaseMeta, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
 	import {
 		askCrossCase,
 		getTimelineIntelligence,
 		listCaseTimelineEntries,
+		listCaseIntelligenceAlerts,
+		ackIntelligenceAlert,
 		searchCaseIntelligence,
 		searchCrossCaseIntelligence,
 		type CrossCaseCitation,
 		type IntelSearchResult,
+		type IntelligenceAlert,
 		type SearchResultItem
 	} from '$lib/apis/caseEngine';
 	import {
@@ -18,6 +22,7 @@
 		mapIntelResultToEvidenceItem
 	} from '$lib/utils/intelligenceView';
 	import { buildEntityFocusHref } from '$lib/utils/entityFocus';
+	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import {
 		STRUCTURED_QUERY_ACTIONS,
 		actionById,
@@ -29,9 +34,107 @@
 		type StructuredQueryResultItem
 	} from '$lib/utils/structuredQueries';
 
+	// ── Cross-case entity alerts (P28-40 load, P28-41 case-switch reliability) ─
+	// Read-only surface for ENTITY_OVERLAP alerts produced by the backend.
+	// Only OPEN alerts are shown; ACK transitions to ACKED and removes from list.
+	// Backend summary text is displayed verbatim — never reworded.
+
+	let alerts: IntelligenceAlert[] = [];
+	let alertsLoading = true;
+	let alertsError = '';
+	let selectedAlertId: number | null = null;
+	let showAckConfirm = false;
+	let isAckSubmitting = false;
+
+	// ── Case-switch sentinel (P28-41 alerts, P28-42 query results) ───────────
+	// Seeded to the initial route param so the reactive guard is a no-op on
+	// first render (onMount handles initial loads). Fires only when caseId
+	// actually changes — covers SvelteKit route reuse across cases.
+	/** Tracks which case ID was last fully loaded; guards all case-scoped state resets. */
+	let prevLoadedCaseId: string = $page.params.id ?? '';
+
+	async function loadAlerts(id: string, tok: string): Promise<void> {
+		alertsLoading = true;
+		alertsError = '';
+		try {
+			alerts = await listCaseIntelligenceAlerts(id, tok);
+		} catch (e: unknown) {
+			alertsError = e instanceof Error ? e.message : 'Failed to load alerts.';
+		} finally {
+			alertsLoading = false;
+		}
+	}
+
+	// P29-01: Open confirm dialog — no API call until user confirms.
+	function handleAck(alertId: number): void {
+		if (isAckSubmitting) return;
+		selectedAlertId = alertId;
+		showAckConfirm = true;
+	}
+
+	async function executeAck(): Promise<void> {
+		if (!$caseEngineToken || selectedAlertId === null) return;
+		const alertId = selectedAlertId;
+		isAckSubmitting = true;
+		alertsError = '';
+		try {
+			await ackIntelligenceAlert(alertId, $caseEngineToken);
+			// No optimistic removal — reload from backend to reflect confirmed state.
+			await loadAlerts(caseId, $caseEngineToken);
+		} catch (e: unknown) {
+			alertsError = e instanceof Error ? e.message : 'Acknowledge failed. Please try again.';
+		} finally {
+			isAckSubmitting = false;
+			selectedAlertId = null;
+		}
+	}
+
+	onMount(() => {
+		if ($caseEngineToken && $page.params.id) {
+			loadAlerts($page.params.id, $caseEngineToken);
+		}
+	});
+
 	type IntelligenceScope = 'THIS_CASE' | 'CID' | 'SIU' | 'ALL';
 
 	$: caseId = $page.params.id;
+
+	// P28-41/P28-42: Reset all case-scoped state when the active case changes.
+	// prevLoadedCaseId is seeded at declaration time → no-op on first render
+	// (onMount handles initial alert load). Fires only on case switch.
+	// User preferences (query text, selectedScope, structuredActionId, structuredInput)
+	// are intentionally preserved across case switches.
+	$: if (caseId && $caseEngineToken && caseId !== prevLoadedCaseId) {
+		prevLoadedCaseId = caseId;
+
+		// Alerts — reload for the new case
+		alerts = [];
+		alertsError = '';
+		selectedAlertId = null;
+		showAckConfirm = false;
+		isAckSubmitting = false;
+		loadAlerts(caseId, $caseEngineToken);
+
+		// Intelligence query results — clear stale results; user re-runs if needed
+		ranSearch = false;
+		loading = false;
+		error = '';
+		groundedAnswer = '';
+		askCitations = [];
+		caseResults = [];
+		intelResults = [];
+		intelScopeApplied = '';
+		lastExecutedScope = null;
+		lastExecutedQuery = '';
+
+		// Structured query results — clear stale results; user re-runs if needed
+		structuredRan = false;
+		structuredLoading = false;
+		structuredError = '';
+		structuredResults = [];
+		structuredQueryLabel = '';
+	}
+
 	$: authRole = String($caseEngineAuthState?.user?.role ?? '').toLowerCase();
 	$: isAdmin = authRole === 'admin' || $caseEngineUser?.role === 'ADMIN';
 	$: authUnits = Array.isArray($caseEngineAuthState?.user?.units)
@@ -199,6 +302,9 @@
 			return;
 		}
 
+		// Capture caseId at invocation — discard response if case switches mid-flight
+		const queryCaseId = caseId;
+
 		loading = true;
 		error = '';
 		ranSearch = true;
@@ -212,7 +318,8 @@
 
 		try {
 			if (selectedScope === 'THIS_CASE') {
-				const caseSearch = await searchCaseIntelligence(caseId, { q }, $caseEngineToken);
+				const caseSearch = await searchCaseIntelligence(queryCaseId, { q }, $caseEngineToken);
+				if (caseId !== queryCaseId) return;
 				caseResults = caseSearch.results;
 				return;
 			}
@@ -234,14 +341,16 @@
 					$caseEngineToken
 				)
 			]);
+			if (caseId !== queryCaseId) return;
 			groundedAnswer = askRes.answer ?? '';
 			askCitations = askRes.used_citations ?? [];
 			intelResults = Array.isArray(intelRes.results) ? intelRes.results : [];
 			intelScopeApplied = intelRes.scope_applied ?? '';
 		} catch (err) {
+			if (caseId !== queryCaseId) return;
 			error = err instanceof Error ? err.message : 'Failed to load intelligence results.';
 		} finally {
-			loading = false;
+			if (caseId === queryCaseId) loading = false;
 		}
 	}
 
@@ -252,6 +361,10 @@
 			structuredError = plan.error;
 			return;
 		}
+
+		// Capture caseId at invocation — discard response if case switches mid-flight
+		const queryCaseId = caseId;
+
 		structuredLoading = true;
 		structuredError = '';
 		structuredRan = true;
@@ -259,26 +372,30 @@
 		structuredQueryLabel = plan.plan.label;
 		try {
 			if (plan.plan.kind === 'timeline_entries') {
-				const entries = await listCaseTimelineEntries(caseId, $caseEngineToken);
-				structuredResults = mapTimelineEntriesToStructuredResults(entries, caseId, plan.plan.limit);
+				const entries = await listCaseTimelineEntries(queryCaseId, $caseEngineToken);
+				if (caseId !== queryCaseId) return;
+				structuredResults = mapTimelineEntriesToStructuredResults(entries, queryCaseId, plan.plan.limit);
 				return;
 			}
 			if (plan.plan.kind === 'timeline_intelligence') {
-				const intel = await getTimelineIntelligence(caseId, $caseEngineToken, plan.plan.params);
-				structuredResults = mapTimelineIntelToStructuredResults(intel.entries, caseId, plan.plan.limit);
+				const intel = await getTimelineIntelligence(queryCaseId, $caseEngineToken, plan.plan.params);
+				if (caseId !== queryCaseId) return;
+				structuredResults = mapTimelineIntelToStructuredResults(intel.entries, queryCaseId, plan.plan.limit);
 				return;
 			}
-			const search = await searchCaseIntelligence(caseId, { q: plan.plan.q }, $caseEngineToken);
+			const search = await searchCaseIntelligence(queryCaseId, { q: plan.plan.q }, $caseEngineToken);
+			if (caseId !== queryCaseId) return;
 			structuredResults = mapCaseSearchToStructuredResults(
 				search.results,
-				caseId,
+				queryCaseId,
 				plan.plan.limit,
 				plan.plan.resultFilter
 			);
 		} catch (err) {
+			if (caseId !== queryCaseId) return;
 			structuredError = err instanceof Error ? err.message : 'Unable to run query. Please try again.';
 		} finally {
-			structuredLoading = false;
+			if (caseId === queryCaseId) structuredLoading = false;
 		}
 	}
 </script>
@@ -299,6 +416,147 @@
 				</p>
 			</div>
 		{:else}
+			<!-- ── Cross-case entity alerts (P28-40) ──────────────────────────── -->
+			<div
+				class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+				data-testid="intelligence-alerts-section"
+			>
+				<div class="flex items-center justify-between gap-2 flex-wrap">
+					<div>
+						<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+							Cross-case entity alerts
+						</h2>
+						<p class="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+							Automated signal: text overlap detected across cases. Review supporting excerpts before drawing conclusions.
+						</p>
+					</div>
+					{#if !alertsLoading && alerts.length > 0}
+						<span
+							class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full
+							       bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
+							data-testid="intelligence-alerts-count"
+						>
+							{alerts.length} open
+						</span>
+					{/if}
+				</div>
+
+				{#if alertsLoading}
+					<p class="text-xs text-gray-400 dark:text-gray-500 py-1" data-testid="intelligence-alerts-loading">
+						Loading alerts…
+					</p>
+
+				{:else if alertsError}
+					<div class="flex items-center gap-2" data-testid="intelligence-alerts-error">
+						<p class="text-xs text-red-600 dark:text-red-400">{alertsError}</p>
+						<button
+							type="button"
+							class="text-[11px] text-red-400 hover:text-red-600 underline underline-offset-2"
+							on:click={() => { if ($caseEngineToken) loadAlerts(caseId, $caseEngineToken); }}
+						>
+							Retry
+						</button>
+					</div>
+
+				{:else if alerts.length === 0}
+					<p class="text-xs text-gray-400 dark:text-gray-500 py-1" data-testid="intelligence-alerts-empty">
+						No cross-case entity alerts.
+					</p>
+
+				{:else}
+					<ul class="flex flex-col divide-y divide-gray-100 dark:divide-gray-800" data-testid="intelligence-alerts-list">
+						{#each alerts as alert (alert.id)}
+							<li class="py-3 flex flex-col gap-1.5" data-testid="intelligence-alert-{alert.id}">
+
+								<!-- Summary (backend text — verbatim) -->
+								<p class="text-sm text-gray-800 dark:text-gray-100" data-testid="intelligence-alert-summary">
+									{alert.summary}
+								</p>
+
+								<!-- Entity + case reference row -->
+								<div class="flex flex-wrap items-center gap-2">
+									<!-- Entity badge -->
+									<span
+										class="text-[11px] font-medium px-1.5 py-0.5 rounded
+										       bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+										title="Matched entity"
+									>
+										{alert.match.entity_kind === 'PHONE' ? 'Phone' : 'Address'}:
+										{alert.match.display}
+									</span>
+
+									<!-- Source case reference -->
+									{#if alert.source_case?.case_number}
+										<a
+											href="/case/{alert.source_case.id}/timeline"
+											class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+											title="Source case: {alert.source_case.title || alert.source_case.case_number}"
+										>
+											{alert.source_case.case_number}
+										</a>
+									{/if}
+
+									<span class="text-[11px] text-gray-400 dark:text-gray-500">↔</span>
+
+									<!-- Target case reference -->
+									{#if alert.target_case?.case_number}
+										<a
+											href="/case/{alert.target_case.id}/timeline"
+											class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+											title="Target case: {alert.target_case.title || alert.target_case.case_number}"
+										>
+											{alert.target_case.case_number}
+										</a>
+									{/if}
+
+									<span class="text-[11px] text-gray-400 dark:text-gray-500 font-mono">
+										{new Date(alert.created_at).toLocaleDateString()}
+									</span>
+								</div>
+
+								<!-- Citations: compact excerpts from explanation_json -->
+								{#if alert.explanation_json?.target?.citations?.length > 0}
+									<div class="mt-0.5 pl-2 border-l-2 border-gray-200 dark:border-gray-700 flex flex-col gap-1">
+										{#each alert.explanation_json.target.citations.slice(0, 2) as citation}
+											<p
+												class="text-[11px] text-gray-500 dark:text-gray-400 italic leading-snug"
+												data-testid="intelligence-alert-excerpt"
+											>
+												"{citation.excerpt}"
+												<span class="not-italic text-gray-400 dark:text-gray-500 ml-1">
+													— {citation.case_number}, {citation.source_kind === 'timeline_entry' ? 'timeline' : 'file'}
+												</span>
+											</p>
+										{/each}
+									</div>
+								{/if}
+
+							<!-- Acknowledge action -->
+							<div class="flex items-center gap-3 mt-0.5">
+								<button
+									type="button"
+									class="text-xs text-gray-400 dark:text-gray-500
+									       hover:text-gray-700 dark:hover:text-gray-200
+									       px-1.5 py-0.5 rounded
+									       hover:bg-gray-100 dark:hover:bg-gray-800
+									       disabled:opacity-40 transition"
+									disabled={isAckSubmitting}
+									on:click={() => handleAck(alert.id)}
+									title="Mark this alert as reviewed. This does not confirm or dismiss any investigative finding."
+									data-testid="intelligence-alert-ack-{alert.id}"
+								>
+									{isAckSubmitting && selectedAlertId === alert.id ? 'Acknowledging…' : 'Acknowledge'}
+								</button>
+									<span class="text-[10px] text-gray-400 dark:text-gray-500">
+										Marking acknowledged does not confirm a connection.
+									</span>
+								</div>
+							</li>
+						{/each}
+					</ul>
+				{/if}
+			</div>
+
 			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
 				<div class="flex flex-wrap items-end gap-2">
 					<div>
@@ -664,3 +922,13 @@
 		{/if}
 	</div>
 </div>
+
+<!-- P29-01: ACK confirm dialog — prevents accidental state mutation -->
+<ConfirmDialog
+	bind:show={showAckConfirm}
+	title="Mark this alert as reviewed?"
+	message="This will acknowledge the alert and remove it from the open alerts view for this case. This action is audited."
+	cancelLabel="Keep open"
+	confirmLabel="Acknowledge"
+	onConfirm={executeAck}
+/>
