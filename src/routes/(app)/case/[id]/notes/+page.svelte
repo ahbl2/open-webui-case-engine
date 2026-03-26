@@ -29,6 +29,7 @@
 		createCaseNotebookNote,
 		updateCaseNotebookNote,
 		deleteCaseNotebookNote,
+		CaseEngineRequestError,
 		type NotebookNote
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
@@ -52,6 +53,8 @@
 	let editingId: number | null = null;
 	let editTitle = '';
 	let editText = '';
+	let editExpectedUpdatedAt = '';
+	let editConflictMessage = '';
 	let saving = false;
 
 	// Delete confirmation
@@ -103,30 +106,43 @@
 		editingId = note.id;
 		editTitle = note.title ?? '';
 		editText = note.current_text;
+		editExpectedUpdatedAt = note.updated_at;
+		editConflictMessage = '';
 	}
 
 	function cancelEdit(): void {
 		editingId = null;
 		editTitle = '';
 		editText = '';
+		editExpectedUpdatedAt = '';
+		editConflictMessage = '';
 	}
 
 	async function handleSave(note: NotebookNote): Promise<void> {
 		if (!$caseEngineToken) return;
 		const text = editText.trim();
 		if (!text) { toast.error('Note text is required'); return; }
+		editConflictMessage = '';
 		saving = true;
 		try {
 			const updated = await updateCaseNotebookNote(
 				caseId,
 				note.id,
-				{ title: editTitle.trim() || null, text },
+				{ title: editTitle.trim() || null, text, expected_updated_at: editExpectedUpdatedAt },
 				$caseEngineToken
 			);
 			notes = notes.map((n) => (n.id === updated.id ? updated : n));
 			cancelEdit();
 			toast.success('Note saved');
 		} catch (e: unknown) {
+			if (
+				(e instanceof CaseEngineRequestError && e.httpStatus === 409) ||
+				(e instanceof Error && e.message.startsWith('Conflict:'))
+			) {
+				editConflictMessage =
+					'This note was updated by someone else before your changes were saved. Review the latest version and re-apply your changes if needed.';
+				return;
+			}
 			toast.error(e instanceof Error ? e.message : 'Failed to save note');
 		} finally {
 			saving = false;
@@ -279,6 +295,14 @@
 									       px-2 py-1 text-sm focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y"
 									required
 								></textarea>
+								{#if editConflictMessage}
+									<div
+										class="rounded border border-amber-300/70 bg-amber-50 px-2.5 py-2 text-xs text-amber-900 dark:border-amber-700/60 dark:bg-amber-900/20 dark:text-amber-200"
+										data-testid="case-note-save-conflict-message"
+									>
+										{editConflictMessage}
+									</div>
+								{/if}
 								<div class="flex items-center gap-2">
 									<button
 										type="submit"

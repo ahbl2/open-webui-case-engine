@@ -3645,7 +3645,7 @@ export async function createCaseNotebookNote(
 export async function updateCaseNotebookNote(
 	caseId: string,
 	noteId: number,
-	input: { title?: string | null; text: string },
+	input: { title?: string | null; text: string; expected_updated_at?: string },
 	token: string
 ): Promise<NotebookNote> {
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/${noteId}/versions`, {
@@ -3654,7 +3654,12 @@ export async function updateCaseNotebookNote(
 		body: JSON.stringify(input)
 	});
 	const data = await res.json().catch(() => ({}));
-	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to update note (${res.status})`);
+	if (!res.ok) {
+		throw new CaseEngineRequestError(
+			(data as { error?: string })?.error ?? `Failed to update note (${res.status})`,
+			res.status
+		);
+	}
 	return data as NotebookNote;
 }
 
