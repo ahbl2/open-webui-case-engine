@@ -12,12 +12,14 @@
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
+	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 
 	export let caseId: string;
 	export let token: string;
 
 	let files: CaseFile[] = [];
 	let loading = true;
+	let loadError = '';
 	let uploading = false;
 	let extractingId: string | null = null;
 	let viewTextFileId: string | null = null;
@@ -29,10 +31,11 @@
 
 	async function loadFiles() {
 		loading = true;
+		loadError = '';
 		try {
 			files = await listCaseFiles(caseId, token);
 		} catch (e: any) {
-			toast.error(e?.message ?? 'Failed to load files');
+			loadError = e?.message ?? 'Failed to load files.';
 			files = [];
 		} finally {
 			loading = false;
@@ -203,6 +206,8 @@
 
 	{#if loading}
 		<CaseLoadingState label="Loading files…" />
+	{:else if loadError}
+		<CaseErrorState title="Failed to load files" message={loadError} onRetry={loadFiles} />
 	{:else if files.length === 0}
 		<CaseEmptyState title="No files yet." description="Upload a file above." />
 	{:else}

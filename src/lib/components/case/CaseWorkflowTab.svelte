@@ -22,6 +22,9 @@ import {
 	type WorkflowItemType as LocalType
 } from '$lib/components/case/workflowStatus';
 import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
+import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
+import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
+import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 
 	export let caseId: string;
 	export let token: string;
@@ -32,6 +35,8 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 	let items: WorkflowItem[] = [];
 	let loading = true;
 	let loadError = '';
+	type WorkflowListViewState = 'loading' | 'error' | 'empty' | 'success';
+	let workflowListViewState: WorkflowListViewState = 'loading';
 	let filter: FilterType = 'all';
 	let includeDeleted = false;
 	let createOpen = false;
@@ -60,6 +65,8 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 	let createSubmitting = false;
 	let createResultMessage: string | null = null;
 	let createResultTone: 'ok' | 'warn' | 'error' | null = null;
+	let activeItemsLoadId = 0;
+	$: workflowListViewState = loading ? 'loading' : loadError ? 'error' : items.length === 0 ? 'empty' : 'success';
 
 	// Edit form (immutable: type, case_id, origin, created_*)
 	let editTitle = '';
@@ -82,22 +89,26 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 	}
 
 	async function loadItems() {
+		activeItemsLoadId += 1;
+		const loadId = activeItemsLoadId;
 		loading = true;
 		loadError = '';
 		try {
 			const typeParam =
 				filter === 'all' ? undefined : (filter as WorkflowItemType);
-			items = await listWorkflowItems(caseId, token, {
+			const result = await listWorkflowItems(caseId, token, {
 				type: typeParam,
 				includeDeleted: isAdmin && includeDeleted
 			});
+			if (loadId !== activeItemsLoadId) return;
+			items = result;
 		} catch (e) {
+			if (loadId !== activeItemsLoadId) return;
 			const msg = (e as Error)?.message ?? 'Failed to load workflow items';
 			loadError = msg;
-			toast.error(msg);
 			items = [];
 		} finally {
-			loading = false;
+			if (loadId === activeItemsLoadId) loading = false;
 		}
 	}
 
@@ -461,25 +472,20 @@ import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 	{/if}
 
 	<!-- List -->
-	{#if loading && items.length === 0}
-		<div class="text-sm text-gray-500">Loading...</div>
-	{:else if loadError && items.length === 0}
-		<div class="rounded border border-red-200 dark:border-red-900/60 bg-red-50 dark:bg-red-900/20 px-3 py-2 text-sm text-red-700 dark:text-red-300" role="alert">
-			{loadError}
-		</div>
-	{:else if items.length === 0}
-		<div class="flex flex-col items-center justify-center text-center gap-2 py-10 text-sm text-gray-500 dark:text-gray-400">
-			<div class="font-medium">
-				No workflow items {filter !== 'all' ? `(${filter === 'HYPOTHESIS' ? 'hypotheses' : 'gaps'})` : ''} yet.
-			</div>
-			<div class="max-w-md">
-				Start by adding:
-				<ul class="mt-1 list-disc list-inside text-left">
-					<li>a hypothesis you want to test</li>
-					<li>a gap in the investigation</li>
-				</ul>
-			</div>
-		</div>
+	<!-- ── List state (P28-50: aligned to shared state components) ──────────── -->
+	{#if workflowListViewState === 'loading'}
+		<CaseLoadingState label="Loading workflow items…" />
+	{:else if workflowListViewState === 'error'}
+		<CaseErrorState message={loadError} onRetry={loadItems} />
+	{:else if workflowListViewState === 'empty'}
+		<CaseEmptyState
+			title={filter === 'HYPOTHESIS' ? 'No hypotheses yet.' : filter === 'GAP' ? 'No gaps yet.' : 'No workflow items yet.'}
+			description={filter === 'HYPOTHESIS'
+				? 'Add a hypothesis you want to test using the Create workflow item button above.'
+				: filter === 'GAP'
+					? 'Add a gap in the investigation using the Create workflow item button above.'
+					: 'Add a hypothesis you want to test, or a gap in the investigation.'}
+		/>
 	{:else}
 		<div class="border border-gray-200 dark:border-gray-700 rounded overflow-auto max-h-[50vh]">
 			<table class="w-full text-sm">
