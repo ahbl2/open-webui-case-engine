@@ -63,21 +63,28 @@
 	// actually changes — covers SvelteKit route reuse across cases.
 	/** Tracks which case ID was last fully loaded; guards all case-scoped state resets. */
 	let prevLoadedCaseId: string = $page.params.id ?? '';
+	/** Incremented on each alert load; guards stale responses from writing newer case state. */
+	let activeAlertsLoadId = 0;
 
 	async function loadAlerts(id: string, tok: string): Promise<boolean> {
+		activeAlertsLoadId += 1;
+		const loadId = activeAlertsLoadId;
 		alertsLoading = true;
 		alertsLoadError = '';
 		try {
-			alerts = await listCaseIntelligenceAlerts(id, tok);
+			const result = await listCaseIntelligenceAlerts(id, tok);
+			if (loadId !== activeAlertsLoadId) return false;
+			alerts = result;
 			return true;
 		} catch (e: unknown) {
+			if (loadId !== activeAlertsLoadId) return false;
 			alertsLoadError =
 				e instanceof Error && e.message
 					? e.message
 					: 'Could not load intelligence alerts. Please try again.';
 			return false;
 		} finally {
-			alertsLoading = false;
+			if (loadId === activeAlertsLoadId) alertsLoading = false;
 		}
 	}
 
