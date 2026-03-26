@@ -1,5 +1,5 @@
 <script lang="ts">
-	import { onMount } from 'svelte';
+	import { onMount, tick } from 'svelte';
 	import { page } from '$app/stores';
 	import { activeCaseMeta, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
 	import {
@@ -53,6 +53,7 @@
 	type AlertActionFeedback = { kind: AlertActionFeedbackKind; message: string } | null;
 	let alertActionFeedback: AlertActionFeedback = null;
 	let alertViewState: AlertViewState = 'loading';
+	let alertsHeadingEl: HTMLHeadingElement | null = null;
 	$: alertViewState =
 		alertsLoading ? 'loading' : alertsLoadError ? 'error' : alerts.length === 0 ? 'empty' : 'success';
 
@@ -91,6 +92,27 @@
 		loadAlerts(caseId, $caseEngineToken);
 	}
 
+	function focusAlertAcknowledgeButton(alertId: number | null): void {
+		if (alertId === null) {
+			alertsHeadingEl?.focus();
+			return;
+		}
+		const selector = `[data-alert-ack-id="${alertId}"]`;
+		const button = document.querySelector<HTMLButtonElement>(selector);
+		if (button && !button.disabled) {
+			button.focus();
+			return;
+		}
+		alertsHeadingEl?.focus();
+	}
+
+	async function handleAckDialogCancel(): Promise<void> {
+		const cancelledAlertId = selectedAlertId;
+		resetAckDialogState();
+		await tick();
+		focusAlertAcknowledgeButton(cancelledAlertId);
+	}
+
 	// P29-01: Open confirm dialog — no API call until user confirms.
 	function handleAck(alertId: number): void {
 		if (isAckSubmitting || showAckConfirm) return;
@@ -101,6 +123,7 @@
 	async function executeAck(): Promise<void> {
 		if (!$caseEngineToken || selectedAlertId === null) return;
 		const alertId = selectedAlertId;
+		let restoreFocusAlertId: number | null = alertId;
 		isAckSubmitting = true;
 		alertActionFeedback = null;
 		try {
@@ -111,8 +134,10 @@
 				alertsLoadError =
 					'Alert was acknowledged, but the alerts list could not be refreshed. Try reloading the case.';
 				alertActionFeedback = null;
+				restoreFocusAlertId = null;
 			} else {
 				alertActionFeedback = { kind: 'success', message: 'Alert acknowledged.' };
+				restoreFocusAlertId = null;
 			}
 		} catch (e: unknown) {
 			alertActionFeedback = {
@@ -122,6 +147,8 @@
 		} finally {
 			isAckSubmitting = false;
 			resetAckDialogState();
+			await tick();
+			focusAlertAcknowledgeButton(restoreFocusAlertId);
 		}
 	}
 
@@ -460,7 +487,11 @@
 			>
 				<div class="flex items-center justify-between gap-2 flex-wrap">
 					<div>
-						<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+						<h2
+							bind:this={alertsHeadingEl}
+							tabindex="-1"
+							class="text-sm font-semibold text-gray-900 dark:text-gray-100 focus:outline-none"
+						>
 							Cross-case entity alerts
 						</h2>
 						<p class="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
@@ -512,7 +543,12 @@
 				{:else}
 					<ul class="flex flex-col divide-y divide-gray-100 dark:divide-gray-800" data-testid="intelligence-alerts-list">
 						{#each alerts as alert (alert.id)}
-							<li class="py-3 flex flex-col gap-1.5" data-testid="intelligence-alert-{alert.id}">
+							{@const isSubmittingThisAlert = isAckSubmitting && selectedAlertId === alert.id}
+							<li
+								class="py-3 flex flex-col gap-1.5 {isSubmittingThisAlert ? 'opacity-70' : ''}"
+								aria-busy={isSubmittingThisAlert ? 'true' : undefined}
+								data-testid="intelligence-alert-{alert.id}"
+							>
 
 								<!-- Summary (backend text — verbatim) -->
 								<p class="text-sm text-gray-800 dark:text-gray-100" data-testid="intelligence-alert-summary">
@@ -535,8 +571,10 @@
 									{#if alert.source_case?.case_number}
 										<a
 											href="/case/{alert.source_case.id}/timeline"
-											class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+											class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline {isSubmittingThisAlert ? 'pointer-events-none opacity-60' : ''}"
 											title="Source case: {alert.source_case.title || alert.source_case.case_number}"
+											tabindex={isSubmittingThisAlert ? -1 : undefined}
+											aria-disabled={isSubmittingThisAlert ? 'true' : undefined}
 										>
 											{alert.source_case.case_number}
 										</a>
@@ -548,8 +586,10 @@
 									{#if alert.target_case?.case_number}
 										<a
 											href="/case/{alert.target_case.id}/timeline"
-											class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+											class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline {isSubmittingThisAlert ? 'pointer-events-none opacity-60' : ''}"
 											title="Target case: {alert.target_case.title || alert.target_case.case_number}"
+											tabindex={isSubmittingThisAlert ? -1 : undefined}
+											aria-disabled={isSubmittingThisAlert ? 'true' : undefined}
 										>
 											{alert.target_case.case_number}
 										</a>
@@ -577,22 +617,23 @@
 									</div>
 								{/if}
 
-							<!-- Acknowledge action -->
-							<div class="flex items-center gap-3 mt-0.5">
-								<button
-									type="button"
-									class="text-xs text-gray-400 dark:text-gray-500
-									       hover:text-gray-700 dark:hover:text-gray-200
-									       px-1.5 py-0.5 rounded
-									       hover:bg-gray-100 dark:hover:bg-gray-800
-									       disabled:opacity-40 transition"
-									disabled={isAckSubmitting}
-									on:click={() => handleAck(alert.id)}
-									title="Mark this alert as reviewed. This does not confirm or dismiss any investigative finding."
-									data-testid="intelligence-alert-ack-{alert.id}"
-								>
-									{isAckSubmitting && selectedAlertId === alert.id ? 'Acknowledging…' : 'Acknowledge'}
-								</button>
+								<!-- Acknowledge action -->
+								<div class="flex items-center gap-3 mt-0.5">
+									<button
+										type="button"
+										class="text-xs text-gray-400 dark:text-gray-500
+										       hover:text-gray-700 dark:hover:text-gray-200
+										       px-1.5 py-0.5 rounded
+										       hover:bg-gray-100 dark:hover:bg-gray-800
+										       disabled:opacity-40 transition"
+										disabled={isAckSubmitting || showAckConfirm}
+										on:click|stopPropagation={() => handleAck(alert.id)}
+										title="Mark this alert as reviewed. This does not confirm or dismiss any investigative finding."
+										data-alert-ack-id={alert.id}
+										data-testid="intelligence-alert-ack-{alert.id}"
+									>
+										{isSubmittingThisAlert ? 'Acknowledging…' : 'Acknowledge'}
+									</button>
 									<span class="text-[10px] text-gray-400 dark:text-gray-500">
 										Marking acknowledged does not confirm a connection.
 									</span>
@@ -976,6 +1017,6 @@
 	message="This will acknowledge the alert and remove it from the open alerts view for this case. This action is audited."
 	cancelLabel="Keep open"
 	confirmLabel="Acknowledge"
-	on:cancel={resetAckDialogState}
+	on:cancel={handleAckDialogCancel}
 	onConfirm={executeAck}
 />
