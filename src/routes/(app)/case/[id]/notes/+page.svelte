@@ -2047,6 +2047,9 @@
 		editConflictMessage = '';
 		editEditorRenderKey += 1;
 		mode = 'edit';
+		// P30-20: Refresh attachment + proposal-source state on edit entry so the
+		// attachment ingestion panel is current (note may have been selected a while ago).
+		void loadNoteAttachments(selectedNote.id);
 	}
 
 	function openVersionHistory(): void {
@@ -3334,17 +3337,17 @@
 						</ul>
 					{/if}
 
-				<!-- P30-13: Proposal generation is not available in view mode.
-				     Attachments and processed text remain visible; enter edit mode to generate a proposal. -->
-				{#if noteAttachments.length > 0}
-					<p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 italic">
-						{#if proposalSources.length > 0}
-							Attachment sources are ready. Enter edit mode to generate a note proposal.
-						{:else}
-							Process an attachment above to extract text. Enter edit mode to generate a note proposal from it.
-						{/if}
-					</p>
-				{/if}
+			<!-- P30-13/P30-20: Proposal generation is not available in view mode.
+			     Attachments and processed text remain visible; enter edit mode for full ingestion flow. -->
+			{#if noteAttachments.length > 0}
+				<p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 italic">
+					{#if proposalSources.length > 0}
+						Attachment sources are ready. Click <span class="font-medium not-italic">Edit</span> to insert text into the note or generate a proposal.
+					{:else}
+						Process an attachment above to extract text. Click <span class="font-medium not-italic">Edit</span> to use it in a revision.
+					{/if}
+				</p>
+			{/if}
 				</div>
 
 				{:else if mode === 'edit'}
@@ -3458,10 +3461,197 @@
 								</div>
 							{/if}
 						</div>
-				{/if}
+			{/if}
 
-				<!-- P30-13: AI Note Proposal section in edit mode — gated to edit context only -->
-				{#if proposalSources.length > 0}
+			<!-- P30-20: Attachments panel in edit mode — parity with create/view flows.
+			     Attachments added here are appended to the saved note immediately (append-only,
+			     same as view mode "Add file"). Extracted/OCR text goes into editText only;
+			     the note body is not changed until the investigator explicitly clicks Save. -->
+			<div class="shrink-0 mx-5 mb-2 mt-2">
+				<div class="flex items-center justify-between mb-1.5">
+					<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+						Attachments
+					</span>
+					<label class="cursor-pointer text-xs text-blue-600 dark:text-blue-400 hover:underline {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}">
+						{attachmentUploading ? 'Uploading…' : 'Add file'}
+						<input
+							type="file"
+							multiple
+							class="hidden"
+							disabled={attachmentUploading}
+							on:change={(e) => void handleAttachFileToNote((e.target as HTMLInputElement).files)}
+						/>
+					</label>
+				</div>
+				{#if attachmentUploadError}
+					<div class="mb-1.5 text-xs text-red-600 dark:text-red-400">{attachmentUploadError}</div>
+				{/if}
+				{#if attachmentsLoading}
+					<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
+				{:else if noteAttachments.length === 0}
+					<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Add a file to extract text and use it in this revision.</div>
+				{:else}
+					<ul class="space-y-2" data-testid="note-edit-attachment-list">
+					{#each noteAttachments as att (att.id)}
+						{@const extraction = extractionsByAttachmentId.get(att.id) ?? null}
+						{@const isExtracting = extractingIds.has(att.id)}
+						{@const isExtractExpanded = expandedExtractionIds.has(att.id)}
+						{@const ocr = ocrByAttachmentId.get(att.id) ?? null}
+						{@const isOcrRunning = ocrRunningIds.has(att.id)}
+						{@const isOcrExpanded = expandedOcrIds.has(att.id)}
+						{@const ocrEligible = isOcrEligible(att)}
+					{@const attachmentStatusInfo = (() => {
+						if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
+						const extDone = extraction?.status === 'extracted';
+						const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
+						if (extDone && ocrDone) return { label: 'Processed (Extraction + OCR)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+						if (extDone) return { label: 'Processed (Extraction)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+						if (ocrDone) return { label: 'Processed (OCR)', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
+						if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
+						if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+						if (ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+						if (extraction?.status === 'no_text_found' && !ocrEligible) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+						return { label: 'Ready to process', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+					})()}
+					<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
+						<!-- Row 1: file info + status badge + remove -->
+						<div class="flex items-center gap-2 px-2.5 py-1.5">
+							<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
+							<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
+							<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
+							<span class="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
+							<!-- Remove — confirmation required (saved-note attachment, soft delete) -->
+							{#if confirmRemoveAttachmentId === att.id}
+								<span class="shrink-0 flex items-center gap-1 text-[11px] text-red-600 dark:text-red-400">
+									Remove?
+									<button
+										class="hover:underline font-medium"
+										disabled={removingAttachmentIds.has(att.id)}
+										on:click={async () => {
+											removingAttachmentIds = new Set([...removingAttachmentIds, att.id]);
+											confirmRemoveAttachmentId = null;
+											await removeAttachment(att.id, false);
+											removingAttachmentIds = new Set([...removingAttachmentIds].filter(id => id !== att.id));
+										}}
+									>{removingAttachmentIds.has(att.id) ? 'Removing…' : 'Yes'}</button>
+									<button class="hover:underline" on:click={() => { confirmRemoveAttachmentId = null; }}>Cancel</button>
+								</span>
+							{:else}
+								<button
+									class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
+									title="Remove attachment"
+									on:click={() => { confirmRemoveAttachmentId = att.id; }}
+								>×</button>
+							{/if}
+						</div>
+						<!-- Row 2: unified processing actions — Insert into draft is always active in edit mode -->
+						<div class="px-2.5 pb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+							{#if isExtracting || isOcrRunning}
+								<span class="text-[11px] text-blue-500 dark:text-blue-400 italic">Processing…</span>
+							{:else if extraction === null && ocr === null}
+								<button
+									class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+									title={isOcrEligible(att)
+										? 'Run OCR to extract text from this image'
+										: isExtractionEligible(att)
+											? 'Extract text from this file'
+											: 'This file type is not supported for text extraction'}
+									disabled={!isOcrEligible(att) && !isExtractionEligible(att)}
+									on:click={() => void processAttachment(att)}
+								>Process attachment</button>
+							{:else if extraction?.status === 'extracted'}
+								<button
+									class="text-[11px] text-green-700 dark:text-green-400 hover:underline"
+									on:click={() => toggleExtractionExpanded(att.id)}
+								>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
+								<button
+									class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white"
+									title="Insert extracted text into the edit draft"
+									on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename, att.id)}
+								>Insert into draft</button>
+								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
+							{:else if ocr?.status === 'extracted' || ocr?.status === 'low_confidence'}
+								<button
+									class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
+									on:click={() => toggleOcrExpanded(att.id)}
+								>{isOcrExpanded ? 'Hide OCR text' : 'Show OCR text'}</button>
+								{#if ocr.confidence_pct !== null}
+									<span class="text-[10px] text-gray-400 dark:text-gray-500">{ocr.confidence_pct}% confidence</span>
+								{/if}
+								<button
+									class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white"
+									title="Insert OCR text into the edit draft"
+									on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename, att.id)}
+								>Insert into draft</button>
+								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
+							{:else if extraction?.status === 'no_text_found'}
+								<span class="text-[11px] text-gray-500 dark:text-gray-400 italic">No machine-readable text found.</span>
+								{#if !ocrEligible}
+									<span class="text-[10px] text-gray-400 dark:text-gray-500">PDF OCR is not supported yet.</span>
+								{/if}
+								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Retry</button>
+							{:else if ocr?.status === 'no_text_found'}
+								<span class="text-[11px] text-gray-500 dark:text-gray-400 italic">No text found in image.</span>
+								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Retry</button>
+							{:else if extraction?.status === 'failed' || ocr?.status === 'failed'}
+								<span
+									class="text-[11px] text-red-500 italic"
+									title={extraction?.error_message ?? ocr?.error_message ?? ''}
+								>Processing failed{extraction?.error_message ?? ocr?.error_message ? ' — hover for details' : ''}.</span>
+								<button class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline" on:click={() => void processAttachment(att)}>Retry</button>
+							{:else if extraction?.status === 'unsupported' && ocrEligible && ocr === null}
+								<button
+									class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+									on:click={() => void processAttachment(att)}
+								>Process attachment</button>
+							{:else if extraction?.status === 'unsupported'}
+								<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">File type not supported for text extraction.</span>
+							{/if}
+							{#if extraction?.status === 'extracted' || ocr?.status === 'extracted' || ocr?.status === 'low_confidence'}
+								<span class="text-[10px] text-indigo-500 dark:text-indigo-400">· ready for proposal</span>
+							{/if}
+						</div>
+						<!-- Extracted text panel — green, distinct from note body -->
+						{#if extraction?.status === 'extracted' && isExtractExpanded}
+							<div class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2">
+								<div class="mb-1 flex items-center gap-1.5">
+									<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
+									<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
+								</div>
+								<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
+								<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">Derived text — not the note body. Insert into draft or generate a proposal below, then Save to commit the revision.</p>
+							</div>
+						{/if}
+						<!-- OCR text panel — amber, distinct from extracted text and note body -->
+						{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
+							<div class="mx-2.5 mb-2 rounded border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2">
+								<div class="mb-1 flex items-center gap-1.5">
+									<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">OCR-derived text</span>
+									{#if ocr?.confidence_pct !== null}
+										<span class="text-[10px] text-gray-400 dark:text-gray-500">· {ocr?.confidence_pct}% confidence</span>
+									{/if}
+									{#if ocr?.status === 'low_confidence'}
+										<span class="text-[10px] text-amber-700 dark:text-amber-500 font-medium">· Low confidence</span>
+									{/if}
+								</div>
+								<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{ocr?.derived_text}</pre>
+								<p class="mt-1.5 text-[10px] text-amber-700 dark:text-amber-500 italic">OCR text may be imperfect — especially for handwriting or low-quality images. Not the note body. Insert into draft or generate a proposal below, then Save to commit the revision.</p>
+							</div>
+						{/if}
+					</li>
+					{/each}
+					</ul>
+				{/if}
+				<!-- Guidance when attachments exist but no sources are ready yet -->
+				{#if noteAttachments.length > 0 && proposalSources.length === 0}
+					<p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 italic">
+						Process an attachment above to extract text, then generate an AI note proposal from it.
+					</p>
+				{/if}
+			</div>
+
+			<!-- P30-13: AI Note Proposal section in edit mode — gated to edit context only -->
+			{#if proposalSources.length > 0}
 					<div class="shrink-0 mx-5 mt-2 mb-1 rounded border border-dashed border-indigo-300 dark:border-indigo-700 px-3 py-2.5 bg-indigo-50/50 dark:bg-indigo-950/20">
 						<div class="mb-1.5 flex items-center gap-2">
 							<span class="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">Generate AI Note Proposal</span>
