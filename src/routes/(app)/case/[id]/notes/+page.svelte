@@ -800,6 +800,24 @@
 		removingAttachmentIds = new Set();
 	}
 
+	/**
+	 * P30-20 hardening: clears transient edit/create workflow state when exiting
+	 * edit or create mode. Does NOT clear attachment lists, extraction/OCR records,
+	 * or upload tracking — those remain truthfully visible in read-only view mode.
+	 * Called by cancelEdit() and cancelCreate() so stale proposal/expansion state
+	 * does not leak into view mode or persist into the next edit session.
+	 */
+	function resetAttachmentWorkflowState(): void {
+		expandedExtractionIds = new Set();
+		expandedOcrIds = new Set();
+		proposalSources = [];
+		selectedProposalSourceIds = new Set();
+		proposalGenerating = false;
+		currentProposal = null;
+		showProposalPanel = false;
+		confirmRemoveAttachmentId = null;
+	}
+
 	// ── AI Enhance state (P29-Notes-08) ───────────────────────────────────────
 	type EnhanceState = 'idle' | 'loading' | 'proposal' | 'error';
 	let enhanceState: EnhanceState = 'idle';
@@ -2079,6 +2097,9 @@
 			editEditorRenderKey = 0;
 			resetEnhanceState();
 			resetDictationState();
+			// P30-20: clear transient workflow state so proposal panel, source
+			// selection, and expansion state do not leak into view mode.
+			resetAttachmentWorkflowState();
 			mode = selectedNote ? 'view' : 'idle';
 		});
 	}
@@ -2091,6 +2112,8 @@
 			createEditorRenderKey = 0;
 			resetEnhanceState();
 			resetDictationState();
+			// P30-20: clear transient workflow state on cancel.
+			resetAttachmentWorkflowState();
 			mode = selectedNote ? 'view' : 'idle';
 		});
 	}
@@ -3143,30 +3166,18 @@
 						<CaseNoteEditor content={selectedNote.current_text} showHeader={false} />
 					</div>
 
-					<!-- Attachments panel (view mode, P30-02 + P30-03) -->
-					<div class="shrink-0 mx-5 mb-3 mt-2">
-						<div class="flex items-center justify-between mb-1.5">
-							<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-								Attachments
-							</span>
-							<label class="cursor-pointer text-xs text-blue-600 dark:text-blue-400 hover:underline {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}">
-								{attachmentUploading ? 'Uploading…' : 'Add file'}
-								<input
-									type="file"
-									multiple
-									class="hidden"
-									disabled={attachmentUploading}
-									on:change={(e) => void handleAttachFileToNote((e.target as HTMLInputElement).files)}
-								/>
-							</label>
-						</div>
-						{#if attachmentUploadError}
-							<div class="mb-1.5 text-xs text-red-600 dark:text-red-400">{attachmentUploadError}</div>
-						{/if}
-						{#if attachmentsLoading}
-							<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
-						{:else if noteAttachments.length === 0}
-							<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments.</div>
+				<!-- Attachments panel (view mode, P30-02 + P30-03) -->
+				<!-- P30-20 hardening: "Add file" removed from view mode — available in edit mode only. -->
+				<div class="shrink-0 mx-5 mb-3 mt-2">
+					<div class="mb-1.5 flex items-center justify-between">
+						<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+							Attachments
+						</span>
+					</div>
+					{#if attachmentsLoading}
+						<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
+					{:else if noteAttachments.length === 0}
+						<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Enter edit mode to add files.</div>
 						{:else}
 							<ul class="space-y-2" data-testid="note-attachment-list">
 							{#each noteAttachments as att (att.id)}
@@ -3337,17 +3348,12 @@
 						</ul>
 					{/if}
 
-			<!-- P30-13/P30-20: Proposal generation is not available in view mode.
-			     Attachments and processed text remain visible; enter edit mode for full ingestion flow. -->
-			{#if noteAttachments.length > 0}
-				<p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 italic">
-					{#if proposalSources.length > 0}
-						Attachment sources are ready. Click <span class="font-medium not-italic">Edit</span> to insert text into the note or generate a proposal.
-					{:else}
-						Process an attachment above to extract text. Click <span class="font-medium not-italic">Edit</span> to use it in a revision.
-					{/if}
-				</p>
-			{/if}
+		<!-- P30-13/P30-20: Add file, proposal generation, and Insert into draft are
+		     edit-mode only. Show a truthful hint so the investigator knows how to
+		     proceed. -->
+		<p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 italic">
+			Enter <span class="font-medium not-italic">Edit</span> mode to add files, insert text into the note, or generate a proposal.
+		</p>
 				</div>
 
 				{:else if mode === 'edit'}
