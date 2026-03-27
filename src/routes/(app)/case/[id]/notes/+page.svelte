@@ -2472,11 +2472,11 @@
 					{/each}
 				</ul>
 
-				{:else if !attachmentUploadError}
-					<!-- Empty hint — invite user to attach files for the ingestion workflow -->
-					<p class="text-[11px] text-gray-400 dark:text-gray-500 italic">
-						Use 📎 to attach files. Extract text or run OCR, then generate an AI proposal to populate the draft — <span class="font-medium not-italic">Save</span> commits the final note.
-					</p>
+			{:else if !attachmentUploadError}
+				<!-- Empty hint — invite user to attach files for the ingestion workflow -->
+				<p class="text-[11px] text-gray-400 dark:text-gray-500 italic">
+					Use 📎 below to attach files. Process to extract text, then insert into the draft. <span class="font-medium not-italic">Save</span> commits the final note.
+				</p>
 				{/if}
 			</div>
 				<!-- Footer actions -->
@@ -3075,33 +3075,24 @@
 						</div>
 			{/if}
 
-			<!-- P30-20: Attachments panel in edit mode — parity with create/view flows.
-			     Attachments added here are appended to the saved note immediately (append-only,
-			     same as view mode "Add file"). Extracted/OCR text goes into editText only;
-			     the note body is not changed until the investigator explicitly clicks Save. -->
-			<div class="shrink-0 mx-5 mb-2 mt-2">
-				<div class="flex items-center justify-between mb-1.5">
-					<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-						Attachments
-					</span>
-					<label class="cursor-pointer text-xs text-blue-600 dark:text-blue-400 hover:underline {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}">
-						{attachmentUploading ? 'Uploading…' : 'Add file'}
-						<input
-							type="file"
-							multiple
-							class="hidden"
-							disabled={attachmentUploading}
-							on:change={(e) => void handleAttachFileToNote((e.target as HTMLInputElement).files)}
-						/>
-					</label>
-				</div>
-				{#if attachmentUploadError}
-					<div class="mb-1.5 text-xs text-red-600 dark:text-red-400">{attachmentUploadError}</div>
-				{/if}
-				{#if attachmentsLoading}
-					<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
-				{:else if noteAttachments.length === 0}
-					<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Add a file to extract text and use it in this revision.</div>
+		<!-- P30-20: Attachments panel in edit mode — parity with create/view flows.
+		     Attachments added here are appended to the saved note immediately (append-only).
+		     Extracted/OCR text goes into editText only; the note body is not changed until
+		     the investigator explicitly clicks Save.
+		     P30-23: "Add file" text button removed from header — use the 📎 in the footer. -->
+		<div class="shrink-0 mx-5 mb-2 mt-2">
+			<div class="mb-1.5 flex items-center justify-between">
+				<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+					Attachments
+				</span>
+			</div>
+			{#if attachmentUploadError}
+				<div class="mb-1.5 text-xs text-red-600 dark:text-red-400">{attachmentUploadError}</div>
+			{/if}
+			{#if attachmentsLoading}
+				<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
+			{:else if noteAttachments.length === 0}
+				<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Use 📎 below to attach files.</div>
 				{:else}
 					<ul class="space-y-2" data-testid="note-edit-attachment-list">
 					{#each noteAttachments as att (att.id)}
@@ -3278,55 +3269,66 @@
 						>
 							Cancel
 						</button>
+					<button
+						type="button"
+						disabled={enhanceState === 'loading'}
+						class="px-3 py-1.5 rounded text-xs font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 transition"
+						on:click={handleEnhance}
+						data-testid="case-note-enhance-action"
+					>
+						{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}
+					</button>
+					<!-- P30-23: paperclip attachment control — mirrors create mode footer placement -->
+					<label class="cursor-pointer px-3 py-1.5 rounded text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}" title="Attach file to note">
+						📎
+						<input
+							type="file"
+							multiple
+							class="hidden"
+							disabled={attachmentUploading}
+							on:change={(e) => void handleAttachFileToNote((e.target as HTMLInputElement).files)}
+						/>
+					</label>
+					{#if dictationState === 'recording'}
 						<button
 							type="button"
-							disabled={enhanceState === 'loading'}
-							class="px-3 py-1.5 rounded text-xs font-medium text-purple-600 dark:text-purple-400 hover:bg-purple-50 dark:hover:bg-purple-900/20 disabled:opacity-50 transition"
-							on:click={handleEnhance}
-							data-testid="case-note-enhance-action"
+							class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+							aria-label="Cancel dictation"
+							on:click={cancelDictation}
+							data-testid="case-note-dictate-cancel"
 						>
-							{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}
+							<span class="text-sm font-semibold">X</span>
 						</button>
-						{#if dictationState === 'recording'}
-							<button
-								type="button"
-								class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-								aria-label="Cancel dictation"
-								on:click={cancelDictation}
-								data-testid="case-note-dictate-cancel"
-							>
-								<span class="text-sm font-semibold">X</span>
-							</button>
-							<button
-								type="button"
-								class="h-8 w-8 inline-flex items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-500 transition"
-								aria-label="Finish dictation"
-								on:click={stopDictation}
-								data-testid="case-note-dictate-finish"
-							>
-								<svg viewBox="0 0 20 20" class="h-4 w-4" fill="currentColor" aria-hidden="true">
-									<path d="M7.8 13.6 4.5 10.3l-1.1 1.1 4.4 4.4L16.6 7l-1.1-1.1-7.7 7.7Z" />
-								</svg>
-							</button>
-						{:else}
-							<button
-								type="button"
-								disabled={dictationState === 'processing'}
-								class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition"
-								aria-label="Start dictation"
-								on:click={startDictation}
-								data-testid="case-note-dictate-action"
-							>
-								<svg viewBox="0 0 20 20" class="h-4 w-4" fill="currentColor" aria-hidden="true">
-									<path d="M10 2.5a3 3 0 0 0-3 3v4a3 3 0 1 0 6 0v-4a3 3 0 0 0-3-3Zm-4 7a1 1 0 1 1 2 0 2 2 0 1 0 4 0 1 1 0 1 1 2 0 3.99 3.99 0 0 1-3 3.86V17h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2.64A3.99 3.99 0 0 1 6 9.5Z" />
-								</svg>
-							</button>
-						{/if}
-					</div>
-				{/if}
+						<button
+							type="button"
+							class="h-8 w-8 inline-flex items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-500 transition"
+							aria-label="Finish dictation"
+							on:click={stopDictation}
+							data-testid="case-note-dictate-finish"
+						>
+							<svg viewBox="0 0 20 20" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+								<path d="M7.8 13.6 4.5 10.3l-1.1 1.1 4.4 4.4L16.6 7l-1.1-1.1-7.7 7.7Z" />
+							</svg>
+						</button>
+					{:else}
+						<button
+							type="button"
+							disabled={dictationState === 'processing'}
+							class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition"
+							aria-label="Start dictation"
+							on:click={startDictation}
+							data-testid="case-note-dictate-action"
+						>
+							<svg viewBox="0 0 20 20" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+								<path d="M10 2.5a3 3 0 0 0-3 3v4a3 3 0 1 0 6 0v-4a3 3 0 0 0-3-3Zm-4 7a1 1 0 1 1 2 0 2 2 0 1 0 4 0 1 1 0 1 1 2 0 3.99 3.99 0 0 1-3 3.86V17h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2.64A3.99 3.99 0 0 1 6 9.5Z" />
+							</svg>
+						</button>
+					{/if}
+				</div>
+			{/if}
 
-			</div>
-		{/if}
+		</div>
+	{/if}
 
 	</div>
 </div>
