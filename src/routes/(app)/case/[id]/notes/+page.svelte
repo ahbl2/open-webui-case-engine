@@ -2167,48 +2167,50 @@
 						data-testid="case-note-item"
 						data-note-id={note.id}
 					>
-						<div class="flex items-baseline gap-1.5 min-w-0">
-							{#if note.title}
-								<p class="flex-1 text-xs font-semibold text-gray-800 dark:text-gray-100 truncate leading-snug">
-									{note.title}
-								</p>
-							{:else}
-								<p class="flex-1 text-xs italic text-gray-400 dark:text-gray-500 truncate leading-snug">
-									Untitled
-								</p>
-							{/if}
-							{#if reason}
-								<span
-									class="shrink-0 text-[9px] font-medium px-1 py-px rounded
-									       {reason === 'both'
-										       ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
-										       : reason === 'title'
-											       ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
-											       : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}"
-									data-testid="note-match-reason"
-								>{reason === 'both' ? 'Title + Content' : reason === 'title' ? 'Title' : 'Content'}</span>
-							{/if}
-						</div>
-						{#if (reason === 'content' || reason === 'both') && browserSearch.trim()}
-							{@const snippet = contentSnippet(note.current_text ?? '', browserSearch.trim().toLowerCase())}
-							{#if snippet}
-								<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 truncate leading-snug italic">
-									{snippet}
-								</p>
-							{/if}
-						{/if}
-						<p class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">
-							{formatCaseDateTime(note.updated_at)}
-						</p>
-						{#if attributionLabel(note.updated_by_name, note.updated_by)}
-							<p class="text-[10px] text-gray-400 dark:text-gray-500 truncate">
-								Updated by {attributionLabel(note.updated_by_name, note.updated_by)}
+					<div class="flex items-baseline gap-1.5 min-w-0">
+						{#if note.title}
+							<!-- P30-27: title contrast bump for better sidebar scannability -->
+							<p class="flex-1 text-xs font-semibold text-gray-900 dark:text-gray-50 truncate leading-snug">
+								{note.title}
+							</p>
+						{:else}
+							<p class="flex-1 text-xs italic text-gray-400 dark:text-gray-500 truncate leading-snug">
+								Untitled
 							</p>
 						{/if}
-					</button>
-				{/each}
-			{:else}
-				<!-- No search: grouped relative-time layout (P30-26) -->
+						{#if reason}
+							<span
+								class="shrink-0 text-[9px] font-medium px-1 py-px rounded
+								       {reason === 'both'
+									       ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+									       : reason === 'title'
+										       ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+										       : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}"
+								data-testid="note-match-reason"
+							>{reason === 'both' ? 'Title + Content' : reason === 'title' ? 'Title' : 'Content'}</span>
+						{/if}
+					</div>
+					{#if (reason === 'content' || reason === 'both') && browserSearch.trim()}
+						{@const snippet = contentSnippet(note.current_text ?? '', browserSearch.trim().toLowerCase())}
+						{#if snippet}
+							<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 truncate leading-snug italic">
+								{snippet}
+							</p>
+						{/if}
+					{/if}
+					<!-- P30-27: metadata slightly reduced in visual weight -->
+					<p class="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5 truncate">
+						{formatCaseDateTime(note.updated_at)}
+					</p>
+					{#if attributionLabel(note.updated_by_name, note.updated_by)}
+						<p class="text-[9px] text-gray-400 dark:text-gray-600 truncate">
+							{attributionLabel(note.updated_by_name, note.updated_by)}
+						</p>
+					{/if}
+				</button>
+			{/each}
+		{:else}
+			<!-- No search: grouped relative-time layout (P30-26) -->
 				{#each groupedNotes as group (group.label)}
 					<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 px-2.5 pt-3 pb-0.5 select-none">
 						{group.label}
@@ -2225,30 +2227,32 @@
 							data-testid="case-note-item"
 							data-note-id={note.id}
 						>
-							<div class="flex items-baseline gap-1.5 min-w-0">
-								{#if note.title}
-									<p class="flex-1 text-xs font-semibold text-gray-800 dark:text-gray-100 truncate leading-snug">
-										{note.title}
-									</p>
-								{:else}
-									<p class="flex-1 text-xs italic text-gray-400 dark:text-gray-500 truncate leading-snug">
-										Untitled
-									</p>
-								{/if}
-							</div>
-							<p class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">
-								{formatCaseDateTime(note.updated_at)}
-							</p>
-							{#if attributionLabel(note.updated_by_name, note.updated_by)}
-								<p class="text-[10px] text-gray-400 dark:text-gray-500 truncate">
-									Updated by {attributionLabel(note.updated_by_name, note.updated_by)}
+						<div class="flex items-baseline gap-1.5 min-w-0">
+							{#if note.title}
+								<!-- P30-27: title contrast bump for better sidebar scannability -->
+								<p class="flex-1 text-xs font-semibold text-gray-900 dark:text-gray-50 truncate leading-snug">
+									{note.title}
+								</p>
+							{:else}
+								<p class="flex-1 text-xs italic text-gray-400 dark:text-gray-500 truncate leading-snug">
+									Untitled
 								</p>
 							{/if}
-						</button>
-					{/each}
+						</div>
+						<!-- P30-27: metadata slightly reduced in visual weight -->
+						<p class="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5 truncate">
+							{formatCaseDateTime(note.updated_at)}
+						</p>
+						{#if attributionLabel(note.updated_by_name, note.updated_by)}
+							<p class="text-[9px] text-gray-400 dark:text-gray-600 truncate">
+								{attributionLabel(note.updated_by_name, note.updated_by)}
+							</p>
+						{/if}
+					</button>
 				{/each}
-			{/if}
+			{/each}
 		{/if}
+	{/if}
 		</div>
 	</div>
 
@@ -2433,9 +2437,9 @@
 						if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
 						const extDone = extraction?.status === 'extracted';
 						const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
-						if (extDone && ocrDone) return { label: 'Processed (Extraction + OCR)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-						if (extDone) return { label: 'Processed (Extraction)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-						if (ocrDone) return { label: 'Processed (OCR)', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
+						if (extDone && ocrDone) return { label: '✓ Text + OCR', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+						if (extDone) return { label: '✓ Text extracted', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+						if (ocrDone) return { label: '✓ OCR complete', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
 						if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
 						// Only show Unsupported when OCR is also not an option; image files with
 						// unsupported text extraction still have OCR available.
@@ -2682,35 +2686,46 @@
 						class="shrink-0 flex items-start justify-between gap-3 px-5 pt-4 pb-3
 						       border-b border-gray-200 dark:border-gray-800"
 					>
-						<div class="min-w-0 flex-1">
+					<!-- P30-27: improved title area with structured metadata + attachment jump -->
+					<div class="min-w-0 flex-1">
+						<!-- Title row: title + attachment count chip (jump-to-attachments) -->
+						<div class="flex items-start gap-2 min-w-0">
 							{#if selectedNote.title}
-								<h2
-									class="text-base font-semibold text-gray-800 dark:text-gray-100 truncate"
-								>
+								<h2 class="flex-1 text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
 									{selectedNote.title}
 								</h2>
 							{:else}
-								<h2
-									class="text-base font-semibold italic text-gray-400 dark:text-gray-500"
-								>
+								<h2 class="flex-1 text-base font-semibold italic text-gray-400 dark:text-gray-500">
 									Untitled
 								</h2>
 							{/if}
-							<p class="text-xs text-gray-400 dark:text-gray-500 mt-0.5">
-								{selectedNote.updated_at !== selectedNote.created_at ? 'Updated' : 'Created'}
-								{formatCaseDateTime(selectedNote.updated_at)}
-							</p>
-							{#if attributionLabel(selectedNote.created_by_name, selectedNote.created_by) || attributionLabel(selectedNote.updated_by_name, selectedNote.updated_by)}
-								<div class="mt-1 flex flex-wrap items-center gap-x-3 gap-y-0.5 text-xs text-gray-500 dark:text-gray-400">
-									{#if attributionLabel(selectedNote.created_by_name, selectedNote.created_by)}
-										<span>Created by {attributionLabel(selectedNote.created_by_name, selectedNote.created_by)}</span>
-									{/if}
-									{#if attributionLabel(selectedNote.updated_by_name, selectedNote.updated_by)}
-										<span>Last updated by {attributionLabel(selectedNote.updated_by_name, selectedNote.updated_by)}</span>
-									{/if}
-								</div>
+							<!-- Attachment count chip — clickable, scrolls to attachment panel -->
+							{#if noteAttachments.length > 0}
+								<button
+									type="button"
+									class="shrink-0 mt-0.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300 transition"
+									title="Jump to attachments"
+									on:click={() => document.getElementById('note-view-attachments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
+								>
+									<Clip className="size-3" strokeWidth="2" />
+									{noteAttachments.length}
+								</button>
 							{/if}
 						</div>
+						<!-- P30-27: structured Created / Updated metadata lines -->
+						<div class="mt-1.5 space-y-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+							<p>
+								<span class="font-medium text-gray-500 dark:text-gray-400">Created:</span>
+								{formatCaseDateTime(selectedNote.created_at)}{#if attributionLabel(selectedNote.created_by_name, selectedNote.created_by)} · {attributionLabel(selectedNote.created_by_name, selectedNote.created_by)}{/if}
+							</p>
+							{#if selectedNote.updated_at !== selectedNote.created_at}
+								<p>
+									<span class="font-medium text-gray-500 dark:text-gray-400">Updated:</span>
+									{formatCaseDateTime(selectedNote.updated_at)}{#if attributionLabel(selectedNote.updated_by_name, selectedNote.updated_by)} · {attributionLabel(selectedNote.updated_by_name, selectedNote.updated_by)}{/if}
+								</p>
+							{/if}
+						</div>
+					</div>
 					<!-- P30-19: Note action bar refactored to Edit + kebab menu.
 					     Replaces 6 inline links with a compact, scalable dropdown. -->
 					<div class="shrink-0 flex items-center gap-1.5 pt-0.5">
@@ -2886,9 +2901,10 @@
 						<CaseNoteEditor content={selectedNote.current_text} showHeader={false} />
 					</div>
 
-				<!-- Attachments panel (view mode, P30-02 + P30-03) -->
-				<!-- P30-20 hardening: "Add file" removed from view mode — available in edit mode only. -->
-				<div class="shrink-0 mx-5 mb-3 mt-2">
+			<!-- Attachments panel (view mode, P30-02 + P30-03) -->
+			<!-- P30-20 hardening: "Add file" removed from view mode — available in edit mode only. -->
+			<!-- P30-27: id="note-view-attachments" used by the jump-to-attachments chip in the header. -->
+			<div id="note-view-attachments" class="shrink-0 mx-5 mb-3 mt-2">
 					<div class="mb-1.5 flex items-center justify-between">
 						<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
 							Attachments
@@ -2912,9 +2928,9 @@
 								if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
 								const extDone = extraction?.status === 'extracted';
 								const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
-								if (extDone && ocrDone) return { label: 'Processed (Extraction + OCR)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-								if (extDone) return { label: 'Processed (Extraction)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-								if (ocrDone) return { label: 'Processed (OCR)', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
+								if (extDone && ocrDone) return { label: '✓ Text + OCR', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+								if (extDone) return { label: '✓ Text extracted', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+								if (ocrDone) return { label: '✓ OCR complete', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
 								if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
 								// Only show Unsupported when OCR is also not an option; image files with
 								// unsupported text extraction still have OCR available.
@@ -3221,9 +3237,9 @@
 						if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
 						const extDone = extraction?.status === 'extracted';
 						const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
-						if (extDone && ocrDone) return { label: 'Processed (Extraction + OCR)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-						if (extDone) return { label: 'Processed (Extraction)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-						if (ocrDone) return { label: 'Processed (OCR)', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
+						if (extDone && ocrDone) return { label: '✓ Text + OCR', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+						if (extDone) return { label: '✓ Text extracted', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+						if (ocrDone) return { label: '✓ OCR complete', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
 						if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
 						if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
 						if (ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
