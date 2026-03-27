@@ -4214,6 +4214,127 @@ export async function getNoteAttachmentOcr(
 	return data as OcrRecord;
 }
 
+// ── Note Attachment Proposals (P30-05) ───────────────────────────────────────
+
+export interface SourceLineageItem {
+	type: 'extraction' | 'ocr';
+	record_id: string;
+	attachment_id: string;
+	attachment_filename: string;
+	method: string;
+	status: string;
+	text_length: number;
+	low_confidence: boolean;
+	confidence_pct: number | null;
+}
+
+export interface EligibleSource extends SourceLineageItem {
+	full_text: string;
+	text_preview: string;
+}
+
+export interface AttachmentProposal {
+	id: string;
+	case_id: string;
+	note_id: number | null;
+	draft_session_id: string | null;
+	proposed_text: string;
+	source_lineage: SourceLineageItem[];
+	has_low_confidence_ocr: boolean;
+	model_used: string | null;
+	status: 'pending' | 'dismissed';
+	created_at: string;
+	created_by: string;
+	dismissed_at: string | null;
+}
+
+/** Get eligible attachment-derived sources (extracted text + OCR) for selected attachment IDs. */
+export async function getNoteAttachmentProposalSources(
+	caseId: string,
+	attachmentIds: string[],
+	token: string
+): Promise<EligibleSource[]> {
+	if (attachmentIds.length === 0) return [];
+	const params = new URLSearchParams({ attachment_ids: attachmentIds.join(',') });
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/proposal-sources?${params}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to get proposal sources (${res.status})`
+		);
+	return data as EligibleSource[];
+}
+
+/** Persist an AI-generated note attachment proposal with source lineage. */
+export async function createNoteAttachmentProposal(
+	caseId: string,
+	payload: {
+		proposed_text: string;
+		sources: Array<{ type: 'extraction' | 'ocr'; record_id: string }>;
+		note_id?: number | null;
+		draft_session_id?: string | null;
+		model_used?: string | null;
+	},
+	token: string
+): Promise<AttachmentProposal> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/proposals`,
+		{
+			method: 'POST',
+			headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+			body: JSON.stringify(payload)
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to create proposal (${res.status})`
+		);
+	return data as AttachmentProposal;
+}
+
+/** List proposals for a note/draft context (pending only by default). */
+export async function listNoteAttachmentProposals(
+	caseId: string,
+	params: { noteId?: number | null; draftSessionId?: string | null; includeDismissed?: boolean },
+	token: string
+): Promise<AttachmentProposal[]> {
+	const qp = new URLSearchParams();
+	if (params.noteId != null) qp.set('note_id', String(params.noteId));
+	if (params.draftSessionId) qp.set('draft_session_id', params.draftSessionId);
+	if (params.includeDismissed) qp.set('include_dismissed', 'true');
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/proposals?${qp}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list proposals (${res.status})`
+		);
+	return data as AttachmentProposal[];
+}
+
+/** Dismiss a proposal (soft, idempotent). */
+export async function dismissNoteAttachmentProposal(
+	caseId: string,
+	proposalId: string,
+	token: string
+): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/proposals/${proposalId}/dismiss`,
+		{ method: 'PATCH', headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to dismiss proposal (${res.status})`
+		);
+}
+
 /** Batch-retrieve OCR records for a set of attachment IDs. */
 export async function listNoteAttachmentOcrResults(
 	caseId: string,
