@@ -74,7 +74,7 @@
 	import Clip from '$lib/components/icons/Clip.svelte';
 	import MicSolid from '$lib/components/icons/MicSolid.svelte';
 	// P30-25: sparkles icon for Enhance AI-action styling
-	import SparklesSolid from '$lib/components/icons/SparklesSolid.svelte';
+	import Sparkles from '$lib/components/icons/Sparkles.svelte';
 	import {
 		listCaseNotebookNotes,
 		listCaseNotebookNoteVersions,
@@ -2506,19 +2506,19 @@
 				>
 					Cancel
 				</button>
-			<!-- P30-25: AI-styled Enhance button with sparkles icon and shimmer sweep -->
+			<!-- P30-25: professional AI affordance — gray base, purple accent, faint diagonal sheen -->
 			<button
 				type="button"
 				disabled={enhanceState === 'loading'}
-				class="enhance-ai-btn relative overflow-hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-950/40 text-xs font-medium text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+				class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium border-gray-300 dark:border-gray-700 text-purple-700 dark:text-purple-300 bg-white/60 dark:bg-gray-800/60 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition"
 				on:click={handleEnhance}
 				data-testid="case-note-enhance-action"
 				title="Enhance note"
 				aria-label={enhanceState === 'loading' ? 'Enhancing note…' : 'Enhance note'}
 			>
+				<Sparkles className="size-4 shrink-0" strokeWidth="2" />
+				<span>{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}</span>
 				<span class="enhance-shimmer" aria-hidden="true"></span>
-				<SparklesSolid className="size-3.5 shrink-0" />
-				{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}
 			</button>
 			<!-- P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
 			<label
@@ -3286,19 +3286,19 @@
 						>
 							Cancel
 						</button>
-				<!-- P30-25: AI-styled Enhance button with sparkles icon and shimmer sweep -->
+				<!-- P30-25: professional AI affordance — gray base, purple accent, faint diagonal sheen -->
 				<button
 					type="button"
 					disabled={enhanceState === 'loading'}
-					class="enhance-ai-btn relative overflow-hidden inline-flex items-center gap-1.5 px-3 py-1.5 rounded border border-purple-300 dark:border-purple-700 bg-purple-50 dark:bg-purple-950/40 text-xs font-medium text-purple-700 dark:text-purple-300 hover:bg-purple-100 dark:hover:bg-purple-900/50 focus-visible:outline-2 focus-visible:outline-offset-1 focus-visible:outline-purple-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+					class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium border-gray-300 dark:border-gray-700 text-purple-700 dark:text-purple-300 bg-white/60 dark:bg-gray-800/60 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition"
 					on:click={handleEnhance}
 					data-testid="case-note-enhance-action"
 					title="Enhance note"
 					aria-label={enhanceState === 'loading' ? 'Enhancing note…' : 'Enhance note'}
 				>
+					<Sparkles className="size-4 shrink-0" strokeWidth="2" />
+					<span>{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}</span>
 					<span class="enhance-shimmer" aria-hidden="true"></span>
-					<SparklesSolid className="size-3.5 shrink-0" />
-					{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}
 				</button>
 				<!-- P30-23/P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
 					<label
@@ -3401,33 +3401,34 @@
 
 <style>
 	/*
-	 * P30-25 — Notes Enhance button AI shimmer sweep.
+	 * P30-25 — Notes Enhance button: faint diagonal sheen.
 	 *
-	 * The .enhance-shimmer span is an absolute overlay that slides a narrow
-	 * translucent purple highlight across the button on a slow, intermittent
-	 * loop. The button itself uses `overflow-hidden` to clip the sweep.
+	 * A narrow ~15deg diagonal highlight slides once across the button on
+	 * a slow intermittent loop. Intensity is kept very low so it reads as
+	 * a professional AI affordance, not a flashy effect.
 	 *
-	 * Animation is paused under prefers-reduced-motion.
+	 * Animation is disabled under prefers-reduced-motion.
 	 */
 	.enhance-shimmer {
 		position: absolute;
 		inset: 0;
 		background: linear-gradient(
-			105deg,
-			transparent 30%,
-			rgba(167, 139, 250, 0.22) 50%,
-			transparent 70%
+			75deg,
+			transparent 35%,
+			rgba(167, 139, 250, 0.15) 50%,
+			transparent 65%
 		);
-		background-size: 250% 100%;
-		animation: enhance-sweep 5s ease-in-out 2s infinite;
+		background-size: 300% 100%;
+		background-position: 200% center;
+		animation: enhance-sheen 6s ease-in-out 1s infinite;
 		pointer-events: none;
 	}
 
-	@keyframes enhance-sweep {
+	@keyframes enhance-sheen {
 		0%   { background-position: 200% center; opacity: 0; }
-		10%  { opacity: 1; }
-		50%  { background-position: -100% center; opacity: 1; }
-		60%  { opacity: 0; }
+		8%   { opacity: 1; }
+		42%  { background-position: -100% center; opacity: 1; }
+		50%  { opacity: 0; }
 		100% { background-position: -100% center; opacity: 0; }
 	}
 
