@@ -248,6 +248,13 @@
 			// Auto-expand on first successful extraction
 			if (record.status === 'extracted') {
 				expandedExtractionIds = new Set([...expandedExtractionIds, attachmentId]);
+				// New eligible text — refresh proposal sources so it appears in source selection
+				if (viewingNote && noteAttachments.length > 0) {
+					await refreshProposalSources(
+						noteAttachments.map((a) => a.id),
+						viewingNote.id
+					).catch(() => {});
+				}
 			}
 		} catch (e) {
 			const msg = (e as Error)?.message ?? 'Extraction failed';
@@ -296,6 +303,13 @@
 			ocrByAttachmentId = updated;
 			if (record.status === 'extracted' || record.status === 'low_confidence') {
 				expandedOcrIds = new Set([...expandedOcrIds, attachmentId]);
+				// New eligible OCR text — refresh proposal sources so it appears in source selection
+				if (viewingNote && noteAttachments.length > 0) {
+					await refreshProposalSources(
+						noteAttachments.map((a) => a.id),
+						viewingNote.id
+					).catch(() => {});
+				}
 			}
 		} catch (e) {
 			toast.error((e as Error)?.message ?? 'OCR failed');
@@ -466,6 +480,29 @@
 		}
 		showProposalPanel = false;
 	}
+
+	/**
+	 * Return true if the current proposal's lineage no longer matches the selected sources.
+	 * Used to show a staleness warning when the investigator changes source selection after
+	 * a proposal is already visible.
+	 */
+	function computeProposalIsStale(
+		proposal: AttachmentProposal | null,
+		selectedIds: Set<string>
+	): boolean {
+		if (!proposal) return false;
+		const lineageIds = new Set(proposal.source_lineage.map((s) => s.record_id));
+		if (lineageIds.size !== selectedIds.size) return true;
+		for (const id of selectedIds) {
+			if (!lineageIds.has(id)) return true;
+		}
+		return false;
+	}
+
+	$: proposalIsStale =
+		currentProposal !== null &&
+		showProposalPanel &&
+		computeProposalIsStale(currentProposal, selectedProposalSourceIds);
 
 	/** Dismiss the current proposal (soft). */
 	async function dismissCurrentProposal(): Promise<void> {
@@ -2391,21 +2428,40 @@
 									{/each}
 								</div>
 
-								{#if proposalSources.some((s) => s.low_confidence && selectedProposalSourceIds.has(s.record_id))}
-									<p class="mb-2 text-[10px] text-amber-700 dark:text-amber-400 italic">
-										⚠ Low-confidence OCR sources are selected. The AI will note uncertainty for that content.
-									</p>
-								{/if}
+							{#if proposalSources.some((s) => s.low_confidence && selectedProposalSourceIds.has(s.record_id))}
+								<p class="mb-2 text-[10px] text-amber-700 dark:text-amber-400 italic">
+									⚠ Low-confidence OCR sources are selected. The AI will note uncertainty for that content.
+								</p>
+							{/if}
 
+							{#if selectedProposalSourceIds.size === 0}
+								<p class="mb-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">
+									Select at least one source to generate a proposal.
+								</p>
+							{/if}
+
+							<div class="flex items-center gap-2 flex-wrap">
 								<button
 									class="rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
 									disabled={proposalGenerating || selectedProposalSourceIds.size === 0}
 									on:click={() => void generateAttachmentProposal()}
 								>
-									{proposalGenerating ? 'Generating…' : 'Generate AI Note Proposal'}
+									{proposalGenerating
+										? 'Generating…'
+										: currentProposal
+										  ? 'Regenerate Proposal'
+										  : 'Generate AI Note Proposal'}
 								</button>
 
-								{#if currentProposal && showProposalPanel}
+								{#if currentProposal && !showProposalPanel}
+									<button
+										class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
+										on:click={() => { showProposalPanel = true; }}
+									>View last proposal</button>
+								{/if}
+							</div>
+
+							{#if currentProposal && showProposalPanel}
 									<!-- AI Proposal panel — purple/indigo, distinct from green extraction and amber OCR -->
 									<div class="mt-3 rounded border border-indigo-400 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2.5" data-testid="attachment-proposal-panel">
 										<div class="mb-1.5 flex items-center gap-2">
@@ -2415,9 +2471,19 @@
 											{/if}
 										</div>
 
-										<!-- Source provenance -->
-										<div class="mb-2 flex flex-wrap gap-1">
-											{#each currentProposal.source_lineage as src}
+								{#if proposalIsStale}
+									<div class="mb-2 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-[10px] text-amber-800 dark:text-amber-300">
+										⚠ Source selection has changed since this proposal was generated.
+										<button
+											class="ml-1 underline"
+											on:click={() => void generateAttachmentProposal()}
+										>Regenerate</button> to reflect current sources.
+									</div>
+								{/if}
+
+								<!-- Source provenance -->
+								<div class="mb-2 flex flex-wrap gap-1">
+									{#each currentProposal.source_lineage as src}
 												<span
 													class="text-[10px] rounded px-1.5 py-0.5 {src.low_confidence
 														? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
