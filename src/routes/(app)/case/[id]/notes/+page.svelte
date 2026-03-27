@@ -796,6 +796,9 @@
 	let enhanceState: EnhanceState = 'idle';
 	let enhanceProposalText = '';
 	let enhanceError = '';
+	// P30-16: true when the model stopped early (finish_reason: 'length') and
+	// the response was rejected as an incomplete enhancement.
+	let enhanceTruncated = false;
 
 	const ENHANCE_SYSTEM_PROMPT =
 		'You are a writing assistant for an investigator\'s case notes. ' +
@@ -816,6 +819,7 @@
 		enhanceState = 'idle';
 		enhanceProposalText = '';
 		enhanceError = '';
+		enhanceTruncated = false;
 	}
 
 	/**
@@ -881,12 +885,18 @@
 		enhanceState = 'loading';
 		enhanceProposalText = '';
 		enhanceError = '';
+		enhanceTruncated = false;
 		try {
 			const res = await generateOpenAIChatCompletion(
 				localStorage.token,
 				{
 					model: modelId,
 					stream: false,
+					// P30-16: Explicit unlimited output budget. Without this, local models
+					// (e.g. Ollama) use a low default token limit and silently truncate
+					// multi-paragraph responses with finish_reason: 'length'.
+					// -1 = unlimited for Ollama-backed completions via OWUI.
+					max_tokens: -1,
 					messages: [
 						{ role: 'system', content: ENHANCE_SYSTEM_PROMPT },
 						{ role: 'user', content: draftText }
@@ -894,11 +904,26 @@
 				},
 				`${WEBUI_BASE_URL}/api`
 			);
-			const content: string =
-				(res as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message
-					?.content ?? '';
+			// P30-16: Extract finish_reason alongside content so truncation can be detected.
+			type CompletionChoice = { message?: { content?: string }; finish_reason?: string };
+			const choice = (res as { choices?: CompletionChoice[] })?.choices?.[0];
+			const finishReason = choice?.finish_reason ?? '';
+			const content: string = choice?.message?.content ?? '';
+
 			if (!content.trim()) {
 				enhanceError = 'AI returned an empty response. Please try again.';
+				enhanceState = 'error';
+				return;
+			}
+			// P30-16: Reject responses where the model stopped due to token limit.
+			// finish_reason: 'length' means the output was cut off — do not accept it as
+			// a valid complete enhancement. Surface this clearly to the investigator.
+			if (finishReason === 'length') {
+				enhanceTruncated = true;
+				enhanceError =
+					'Enhanced suggestion is incomplete — the model stopped before finishing. ' +
+					'The note may be too long for the current model. ' +
+					'Try with a shorter note, or save manually without enhancement.';
 				enhanceState = 'error';
 				return;
 			}
@@ -911,6 +936,7 @@
 				return;
 			}
 			enhanceProposalText = sanitized;
+			enhanceTruncated = false;
 			enhanceState = 'proposal';
 		} catch (_e: unknown) {
 			enhanceError =
@@ -2246,7 +2272,9 @@
 						{:else if enhanceState === 'error'}
 							<div class="px-3 py-2 text-red-700 dark:text-red-300">{enhanceError}</div>
 							<div class="flex items-center gap-2 px-3 pb-2">
-								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
+								{#if !enhanceTruncated}
+									<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
+								{/if}
 								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
 							</div>
 						{:else if enhanceState === 'proposal'}
@@ -2254,10 +2282,11 @@
 								Enhanced version (suggestion only)
 							</div>
 							<div class="px-3 py-2">
+								<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
+								     so long multi-paragraph proposals are fully visible and scrollable. -->
 								<textarea
 									bind:value={enhanceProposalText}
-									rows="7"
-									class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600"
+									class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
 									data-testid="case-note-enhance-proposal-editor"
 								></textarea>
 							</div>
@@ -3110,7 +3139,9 @@
 							{:else if enhanceState === 'error'}
 								<div class="px-3 py-2 text-red-700 dark:text-red-300">{enhanceError}</div>
 								<div class="flex items-center gap-2 px-3 pb-2">
-									<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
+									{#if !enhanceTruncated}
+										<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
+									{/if}
 									<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
 								</div>
 							{:else if enhanceState === 'proposal'}
@@ -3118,10 +3149,11 @@
 									Enhanced version (suggestion only)
 								</div>
 								<div class="px-3 py-2">
+									<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
+									     so long multi-paragraph proposals are fully visible and scrollable. -->
 									<textarea
 										bind:value={enhanceProposalText}
-										rows="7"
-										class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600"
+										class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
 										data-testid="case-note-enhance-proposal-editor"
 									></textarea>
 								</div>
