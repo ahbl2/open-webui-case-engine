@@ -49,8 +49,9 @@
 	 *
 	 * Note browser search (P28-28):
 	 *   `browserSearch` drives a reactive `filteredNotes` derived from `notes`.
-	 *   Filter is client-side, case-insensitive, title-only.
-	 *   Untitled notes (title = null) do not match any non-empty search term.
+	 *   Filter is client-side, case-insensitive; matches title and note content.
+	 *   Results are ranked: title/both matches before content-only. Each result
+	 *   carries a reason ('title' | 'content' | 'both') shown as a badge.
 	 *   Right panel continues to display `selectedNote` even if it is filtered
 	 *   out of the browser list — no auto-reselection. Clear filter to see it.
 	 *   Search is cleared after create/delete so the resulting note is visible.
@@ -1443,12 +1444,55 @@
 	// Untitled notes (title === null) have an effective title of '' and will not
 	// match any non-empty search term.
 	let browserSearch = '';
-	$: filteredNotes =
-		browserSearch.trim() === ''
-			? notes
-			: notes.filter((n) =>
-					(n.title ?? '').toLowerCase().includes(browserSearch.trim().toLowerCase())
-				);
+
+	/** Match reason for a note row in a search result. null = no active search. */
+	type NoteMatchReason = 'title' | 'content' | 'both' | null;
+
+	/**
+	 * Ranked search results.
+	 *
+	 * Matches against both title and current_text.
+	 * Deduplication: a note that matches in both appears exactly once with reason 'both'.
+	 * Ranking: 'both' / 'title' before 'content'. Existing stable order preserved within
+	 * each tier (notes arrive already sorted by updated_at desc from the backend).
+	 *
+	 * When search is empty, all notes are returned with reason=null and no reordering.
+	 */
+	$: filteredNotes = (() => {
+		const q = browserSearch.trim().toLowerCase();
+		if (!q) return notes.map((n) => ({ note: n, reason: null as NoteMatchReason }));
+
+		const results: Array<{ note: typeof notes[number]; reason: NoteMatchReason }> = [];
+		for (const n of notes) {
+			const titleMatch = (n.title ?? '').toLowerCase().includes(q);
+			const contentMatch = (n.current_text ?? '').toLowerCase().includes(q);
+			if (!titleMatch && !contentMatch) continue;
+			const reason: NoteMatchReason = titleMatch && contentMatch ? 'both' : titleMatch ? 'title' : 'content';
+			results.push({ note: n, reason });
+		}
+		// Stable sort: title/both matches before content-only matches.
+		// Array.sort is stable in modern JS engines; original order preserved within tiers.
+		results.sort((a, b) => {
+			const rank = (r: NoteMatchReason) => (r === 'content' ? 1 : 0);
+			return rank(a.reason) - rank(b.reason);
+		});
+		return results;
+	})();
+
+	/**
+	 * Extract a short content snippet around the first occurrence of the query.
+	 * Returns empty string if query not found in text.
+	 * Used for 'content' and 'both' match rows when a search is active.
+	 */
+	function contentSnippet(text: string, query: string): string {
+		if (!text || !query) return '';
+		const lower = text.toLowerCase();
+		const idx = lower.indexOf(query);
+		if (idx === -1) return '';
+		const start = Math.max(0, idx - 18);
+		const end = Math.min(text.length, idx + query.length + 42);
+		return (start > 0 ? '…' : '') + text.slice(start, end).replace(/\n/g, ' ') + (end < text.length ? '…' : '');
+	}
 
 	function attributionValue(value: string | null | undefined): string | null {
 		if (typeof value !== 'string') return null;
@@ -2001,7 +2045,7 @@
 					No notes match this search.
 				</p>
 			{:else}
-				{#each filteredNotes as note (note.id)}
+				{#each filteredNotes as { note, reason } (note.id)}
 					<button
 						type="button"
 						class="w-full text-left px-2.5 py-1.5 mb-0.5 rounded-md transition
@@ -2013,14 +2057,38 @@
 						data-testid="case-note-item"
 						data-note-id={note.id}
 					>
-						{#if note.title}
-							<p class="text-xs font-semibold text-gray-800 dark:text-gray-100 truncate leading-snug">
-								{note.title}
-							</p>
-						{:else}
-							<p class="text-xs italic text-gray-400 dark:text-gray-500 truncate leading-snug">
-								Untitled
-							</p>
+						<!-- Title row -->
+						<div class="flex items-baseline gap-1.5 min-w-0">
+							{#if note.title}
+								<p class="flex-1 text-xs font-semibold text-gray-800 dark:text-gray-100 truncate leading-snug">
+									{note.title}
+								</p>
+							{:else}
+								<p class="flex-1 text-xs italic text-gray-400 dark:text-gray-500 truncate leading-snug">
+									Untitled
+								</p>
+							{/if}
+							<!-- Match reason badge — only visible when a search is active -->
+							{#if reason}
+								<span
+									class="shrink-0 text-[9px] font-medium px-1 py-px rounded
+									       {reason === 'both'
+										       ? 'bg-indigo-50 dark:bg-indigo-900/30 text-indigo-600 dark:text-indigo-400'
+										       : reason === 'title'
+											       ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400'
+											       : 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'}"
+									data-testid="note-match-reason"
+								>{reason === 'both' ? 'Title + Content' : reason === 'title' ? 'Title' : 'Content'}</span>
+							{/if}
+						</div>
+						<!-- Content snippet — only for content or both matches with active search -->
+						{#if (reason === 'content' || reason === 'both') && browserSearch.trim()}
+							{@const snippet = contentSnippet(note.current_text ?? '', browserSearch.trim().toLowerCase())}
+							{#if snippet}
+								<p class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5 truncate leading-snug italic">
+									{snippet}
+								</p>
+							{/if}
 						{/if}
 						<p class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">
 							{formatCaseDateTime(note.updated_at)}
