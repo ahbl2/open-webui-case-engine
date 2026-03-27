@@ -174,16 +174,22 @@
 		if (!files || files.length === 0 || !selectedNote) return;
 		attachmentUploading = true;
 		attachmentUploadError = '';
-		try {
-			for (const file of Array.from(files)) {
+		const fileArray = Array.from(files);
+		const failed: string[] = [];
+		for (const file of fileArray) {
+			try {
 				const attachment = await uploadNoteAttachment(caseId, selectedNote.id, file, $caseEngineToken ?? '');
 				noteAttachments = [...noteAttachments, attachment];
+			} catch (e) {
+				failed.push(`${file.name}: ${(e as Error)?.message ?? 'upload failed'}`);
 			}
-		} catch (e) {
-			attachmentUploadError = (e as Error)?.message ?? 'Could not upload attachment.';
-		} finally {
-			attachmentUploading = false;
 		}
+		if (failed.length > 0) {
+			const succeeded = fileArray.length - failed.length;
+			const prefix = succeeded > 0 ? `${succeeded} of ${fileArray.length} files uploaded. ` : '';
+			attachmentUploadError = prefix + 'Could not upload: ' + failed.join('; ');
+		}
+		attachmentUploading = false;
 	}
 
 	async function handleAttachFileToDraft(files: FileList | null): Promise<void> {
@@ -191,16 +197,22 @@
 		if (!draftSessionId) draftSessionId = generateDraftSessionId();
 		attachmentUploading = true;
 		attachmentUploadError = '';
-		try {
-			for (const file of Array.from(files)) {
+		const fileArray = Array.from(files);
+		const failed: string[] = [];
+		for (const file of fileArray) {
+			try {
 				const attachment = await uploadDraftNoteAttachment(caseId, draftSessionId, file, $caseEngineToken ?? '');
 				draftAttachments = [...draftAttachments, attachment];
+			} catch (e) {
+				failed.push(`${file.name}: ${(e as Error)?.message ?? 'upload failed'}`);
 			}
-		} catch (e) {
-			attachmentUploadError = (e as Error)?.message ?? 'Could not upload attachment.';
-		} finally {
-			attachmentUploading = false;
 		}
+		if (failed.length > 0) {
+			const succeeded = fileArray.length - failed.length;
+			const prefix = succeeded > 0 ? `${succeeded} of ${fileArray.length} files uploaded. ` : '';
+			attachmentUploadError = prefix + 'Could not upload: ' + failed.join('; ');
+		}
+		attachmentUploading = false;
 	}
 
 	function clearAttachmentState(): void {
