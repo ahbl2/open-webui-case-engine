@@ -2138,33 +2138,34 @@
 									<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
 									<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
 									<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
-									<!-- Extraction trigger / status -->
-									{#if isExtracting}
-										<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 italic">Extracting…</span>
-									{:else if extraction === null}
-										<button
-											class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-											title="Extract text from this file"
-											on:click={() => void triggerExtraction(att.id)}
-										>Extract text</button>
-									{:else if extraction.status === 'extracted'}
-										<button
-											class="shrink-0 text-[11px] text-green-700 dark:text-green-400 hover:underline"
-											title={isExtractExpanded ? 'Hide extracted text' : 'Show extracted text'}
-											on:click={() => toggleExtractionExpanded(att.id)}
-										>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
-									{:else}
-										<span
-											class="shrink-0 text-[11px] {extraction.status === 'failed' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'} italic"
-											title={extraction.error_message ?? ''}
-										>{extractionStatusLabel(extraction.status)}</span>
-										<button
-											class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-											title="Re-run extraction"
-											on:click={() => void triggerExtraction(att.id)}
-										>Retry</button>
-									{/if}
-								<!-- Remove draft attachment — no confirmation needed for unsaved drafts -->
+								<!-- Extraction trigger / status -->
+								{#if isExtracting}
+									<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 italic">Extracting…</span>
+								{:else if extraction === null}
+									<button
+										class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+										title="Extract machine-readable text from this file. Works for PDFs with text, .txt, and .md files. Extracted text can then be used to generate a note proposal."
+										on:click={() => void triggerExtraction(att.id)}
+									>Extract text</button>
+								{:else if extraction.status === 'extracted'}
+									<button
+										class="shrink-0 text-[11px] text-green-700 dark:text-green-400 hover:underline"
+										title={isExtractExpanded ? 'Hide extracted text' : 'Show extracted text'}
+										on:click={() => toggleExtractionExpanded(att.id)}
+									>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
+									<span class="shrink-0 text-[10px] text-indigo-500 dark:text-indigo-400">· ready for proposal</span>
+								{:else}
+									<span
+										class="shrink-0 text-[11px] {extraction.status === 'failed' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'} italic"
+										title={extraction.error_message ?? ''}
+									>{extractionStatusLabel(extraction.status)}</span>
+									<button
+										class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+										title="Re-run extraction"
+										on:click={() => void triggerExtraction(att.id)}
+									>Retry</button>
+								{/if}
+							<!-- Remove draft attachment — no confirmation needed for unsaved drafts -->
 								{#if removingAttachmentIds.has(att.id)}
 									<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 italic">Removing…</span>
 								{:else}
@@ -2179,72 +2180,83 @@
 									>×</button>
 								{/if}
 							</div>
-								<!-- Extracted text panel — green, distinct from draft editor -->
-								{#if extraction?.status === 'extracted' && isExtractExpanded}
-									<div class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2">
-										<div class="mb-1 flex items-center gap-1.5">
-											<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
-											<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
-										</div>
-										<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
-										<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">Derived text — not part of the note until you apply a proposal and save.</p>
+							<!-- Extracted text panel — green, distinct from draft editor -->
+							{#if extraction?.status === 'extracted' && isExtractExpanded}
+								<div class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2">
+									<div class="mb-1 flex items-center gap-1.5">
+										<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
+										<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
 									</div>
-								{/if}
-								<!-- OCR section — only for OCR-eligible image attachments -->
-								{#if ocrEligible}
-									<div class="border-t border-gray-100 dark:border-gray-800 px-2.5 py-1.5 flex items-center gap-2">
-										<span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">OCR</span>
-										{#if isOcrRunning}
-											<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">Running OCR…</span>
-										{:else if ocr === null}
-											<button
-												class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
-												title="Run OCR to extract text from this image"
-												on:click={() => void triggerOcr(att.id)}
-											>Run OCR</button>
-										{:else if ocr.status === 'extracted' || ocr.status === 'low_confidence'}
-											<span class="text-[11px] {ocr.status === 'low_confidence' ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}"
-											>{ocr.confidence_pct !== null ? `${ocr.confidence_pct}% confidence` : ocrStatusLabel(ocr.status)}</span>
-											<button class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline" on:click={() => toggleOcrExpanded(att.id)}>{isOcrExpanded ? 'Hide OCR' : 'Show OCR'}</button>
-											<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" title="Re-run OCR" on:click={() => void triggerOcr(att.id)}>Re-run</button>
-										{:else if ocr.status === 'no_text_found'}
-											<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">No text found in image</span>
-											<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" title="Re-run OCR" on:click={() => void triggerOcr(att.id)}>Retry</button>
-										{:else if ocr.status === 'failed'}
-											<span class="text-[11px] text-red-500 italic" title={ocr.error_message ?? ''}>OCR failed</span>
-											<button class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline" on:click={() => void triggerOcr(att.id)}>Retry</button>
-										{:else}
-											<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">{ocrStatusLabel(ocr.status)}</span>
-										{/if}
-									</div>
-									<!-- OCR text panel — amber, distinct from extracted text and draft editor -->
-									{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
-										<div class="mx-2.5 mb-2 rounded border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2">
-											<div class="mb-1 flex items-center gap-1.5">
-												<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">OCR-derived text</span>
-												{#if ocr?.confidence_pct !== null}
-													<span class="text-[10px] text-gray-400 dark:text-gray-500">· {ocr?.confidence_pct}% confidence</span>
-												{/if}
-												{#if ocr?.status === 'low_confidence'}
-													<span class="text-[10px] text-amber-700 dark:text-amber-500 font-medium">· Low confidence</span>
-												{/if}
-											</div>
-											<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{ocr?.derived_text}</pre>
-											<p class="mt-1.5 text-[10px] text-amber-700 dark:text-amber-500 italic">OCR text may be imperfect. Not part of the note until you apply a proposal and save.</p>
-										</div>
+									<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
+									<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">Derived text — not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
+								</div>
+							{/if}
+							<!-- OCR section — only for OCR-eligible image attachments -->
+							{#if ocrEligible}
+								<div class="border-t border-gray-100 dark:border-gray-800 px-2.5 py-1.5 flex items-center gap-2">
+									<span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">OCR</span>
+									{#if isOcrRunning}
+										<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">Running OCR…</span>
+									{:else if ocr === null}
+										<button
+											class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
+											title="Recognize text from this image using OCR. Works for photos, scans, and handwriting — accuracy varies. OCR text can then be used to generate a note proposal."
+											on:click={() => void triggerOcr(att.id)}
+										>Run OCR</button>
+									{:else if ocr.status === 'extracted' || ocr.status === 'low_confidence'}
+										<span class="text-[11px] {ocr.status === 'low_confidence' ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}"
+										>{ocr.confidence_pct !== null ? `${ocr.confidence_pct}% confidence` : ocrStatusLabel(ocr.status)}</span>
+										<button class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline" on:click={() => toggleOcrExpanded(att.id)}>{isOcrExpanded ? 'Hide OCR' : 'Show OCR'}</button>
+										<span class="shrink-0 text-[10px] text-indigo-500 dark:text-indigo-400">· ready for proposal</span>
+										<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" title="Re-run OCR" on:click={() => void triggerOcr(att.id)}>Re-run</button>
+									{:else if ocr.status === 'no_text_found'}
+										<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">No text found in image</span>
+										<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" title="Re-run OCR" on:click={() => void triggerOcr(att.id)}>Retry</button>
+									{:else if ocr.status === 'failed'}
+										<span class="text-[11px] text-red-500 italic" title={ocr.error_message ?? ''}>OCR failed</span>
+										<button class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline" on:click={() => void triggerOcr(att.id)}>Retry</button>
+									{:else}
+										<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">{ocrStatusLabel(ocr.status)}</span>
 									{/if}
+								</div>
+								<!-- OCR text panel — amber, distinct from extracted text and draft editor -->
+								{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
+									<div class="mx-2.5 mb-2 rounded border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2">
+										<div class="mb-1 flex items-center gap-1.5">
+											<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">OCR-derived text</span>
+											{#if ocr?.confidence_pct !== null}
+												<span class="text-[10px] text-gray-400 dark:text-gray-500">· {ocr?.confidence_pct}% confidence</span>
+											{/if}
+											{#if ocr?.status === 'low_confidence'}
+												<span class="text-[10px] text-amber-700 dark:text-amber-500 font-medium">· Low confidence</span>
+											{/if}
+										</div>
+										<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{ocr?.derived_text}</pre>
+										<p class="mt-1.5 text-[10px] text-amber-700 dark:text-amber-500 italic">OCR text may be imperfect — especially for handwriting or low-quality images. Not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
+									</div>
 								{/if}
-							</li>
-						{/each}
-					</ul>
+							{/if}
+						</li>
+					{/each}
+				</ul>
 
-					<!-- AI Note Proposal section — same as saved-note view; proposal goes to draft editor -->
-					{#if proposalSources.length > 0}
-						<div class="mt-3 rounded border border-dashed border-indigo-300 dark:border-indigo-700 px-3 py-2.5 bg-indigo-50/50 dark:bg-indigo-950/20">
-							<div class="mb-2 flex items-center gap-2">
-								<span class="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">Generate AI Note Proposal</span>
-								<span class="text-[10px] text-gray-400 dark:text-gray-500 italic">from draft attachment sources</span>
-							</div>
+				<!-- Guidance when draft attachments exist but no extraction/OCR sources ready yet -->
+				{#if draftAttachments.length > 0 && proposalSources.length === 0}
+					<p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 italic">
+						Step 1: Extract text or Run OCR on an attachment above. Once done, a note proposal generator will appear here so you can turn that derived text into a reviewable draft.
+					</p>
+				{/if}
+
+				<!-- AI Note Proposal section — same as saved-note view; proposal goes to draft editor -->
+				{#if proposalSources.length > 0}
+					<div class="mt-3 rounded border border-dashed border-indigo-300 dark:border-indigo-700 px-3 py-2.5 bg-indigo-50/50 dark:bg-indigo-950/20">
+						<div class="mb-1.5 flex items-center gap-2">
+							<span class="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">Step 2 — Generate AI Note Proposal</span>
+							<span class="text-[10px] text-gray-400 dark:text-gray-500 italic">from draft attachment sources</span>
+						</div>
+						{#if !currentProposal}
+							<p class="mb-2 text-[11px] text-indigo-700 dark:text-indigo-300">Derived text is ready. Select sources below and click Generate to create a reviewable note draft.</p>
+						{/if}
 							<!-- Source selection -->
 							<div class="mb-2 space-y-1">
 								{#each proposalSources as src (src.record_id)}
@@ -2652,7 +2664,7 @@
 										{:else if extraction === null}
 											<button
 												class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-												title="Extract text from this file"
+												title="Extract machine-readable text from this file. Works for PDFs with text, .txt, and .md files. Extracted text can then be used to generate a note proposal."
 												on:click={() => void triggerExtraction(att.id)}
 											>Extract text</button>
 										{:else if extraction.status === 'extracted'}
@@ -2661,6 +2673,7 @@
 												title={isExtractExpanded ? 'Hide extracted text' : 'Show extracted text'}
 												on:click={() => toggleExtractionExpanded(att.id)}
 											>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
+											<span class="shrink-0 text-[10px] text-indigo-500 dark:text-indigo-400">· ready for proposal</span>
 										{:else}
 											<span
 												class="shrink-0 text-[11px] {extraction.status === 'failed' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'} italic"
@@ -2697,96 +2710,107 @@
 										{/if}
 									</div>
 
-										<!-- Extracted text panel (P30-03) — green, distinct from note body -->
-										{#if extraction?.status === 'extracted' && isExtractExpanded}
+									<!-- Extracted text panel (P30-03) — green, distinct from note body -->
+									{#if extraction?.status === 'extracted' && isExtractExpanded}
+										<div
+											class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2"
+											data-testid="extracted-text-panel"
+										>
+											<div class="mb-1 flex items-center gap-1.5">
+												<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
+												<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
+											</div>
+											<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
+											<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">Derived text — not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
+										</div>
+									{/if}
+
+									<!-- OCR section (P30-04) — only shown for OCR-eligible image attachments -->
+									{#if ocrEligible}
+										<div class="border-t border-gray-100 dark:border-gray-800 px-2.5 py-1.5 flex items-center gap-2">
+											<span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">OCR</span>
+											{#if isOcrRunning}
+												<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">Running OCR…</span>
+											{:else if ocr === null}
+												<button
+													class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
+													title="Recognize text from this image using OCR. Works for photos, scans, and handwriting — accuracy varies. OCR text can then be used to generate a note proposal."
+													on:click={() => void triggerOcr(att.id)}
+												>Run OCR</button>
+											{:else if ocr.status === 'extracted' || ocr.status === 'low_confidence'}
+												<span
+													class="text-[11px] {ocr.status === 'low_confidence' ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}"
+												>{ocr.confidence_pct !== null ? `${ocr.confidence_pct}% confidence` : ocrStatusLabel(ocr.status)}</span>
+												<button
+													class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
+													on:click={() => toggleOcrExpanded(att.id)}
+												>{isOcrExpanded ? 'Hide OCR' : 'Show OCR'}</button>
+												<span class="shrink-0 text-[10px] text-indigo-500 dark:text-indigo-400">· ready for proposal</span>
+												<button
+													class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline"
+													title="Re-run OCR"
+													on:click={() => void triggerOcr(att.id)}
+												>Re-run</button>
+											{:else if ocr.status === 'no_text_found'}
+												<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">No text found in image</span>
+												<button
+													class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline"
+													title="Re-run OCR"
+													on:click={() => void triggerOcr(att.id)}
+												>Retry</button>
+											{:else if ocr.status === 'failed'}
+												<span class="text-[11px] text-red-500 italic" title={ocr.error_message ?? ''}>OCR failed</span>
+												<button
+													class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
+													on:click={() => void triggerOcr(att.id)}
+												>Retry</button>
+											{:else}
+												<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">{ocrStatusLabel(ocr.status)}</span>
+											{/if}
+										</div>
+
+										<!-- OCR text panel — amber/orange, distinct from deterministic extraction and note body -->
+										{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
 											<div
-												class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2"
-												data-testid="extracted-text-panel"
+												class="mx-2.5 mb-2 rounded border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2"
+												data-testid="ocr-text-panel"
 											>
 												<div class="mb-1 flex items-center gap-1.5">
-													<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
-													<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
+													<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">OCR-derived text</span>
+													{#if ocr?.confidence_pct !== null}
+														<span class="text-[10px] text-gray-400 dark:text-gray-500">· {ocr?.confidence_pct}% confidence</span>
+													{/if}
+													{#if ocr?.status === 'low_confidence'}
+														<span class="text-[10px] text-amber-700 dark:text-amber-500 font-medium">· Low confidence</span>
+													{/if}
 												</div>
-												<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
-												<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">This is derived extracted text — not the note body and not the original file.</p>
+												<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{ocr?.derived_text}</pre>
+												<p class="mt-1.5 text-[10px] text-amber-700 dark:text-amber-500 italic">OCR text may be imperfect — especially for handwriting or low-quality images. Not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
 											</div>
 										{/if}
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
 
-										<!-- OCR section (P30-04) — only shown for OCR-eligible image attachments -->
-										{#if ocrEligible}
-											<div class="border-t border-gray-100 dark:border-gray-800 px-2.5 py-1.5 flex items-center gap-2">
-												<span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">OCR</span>
-												{#if isOcrRunning}
-													<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">Running OCR…</span>
-												{:else if ocr === null}
-													<button
-														class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
-														title="Run OCR to extract text from this image"
-														on:click={() => void triggerOcr(att.id)}
-													>Run OCR</button>
-												{:else if ocr.status === 'extracted' || ocr.status === 'low_confidence'}
-													<span
-														class="text-[11px] {ocr.status === 'low_confidence' ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}"
-													>{ocr.confidence_pct !== null ? `${ocr.confidence_pct}% confidence` : ocrStatusLabel(ocr.status)}</span>
-													<button
-														class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
-														on:click={() => toggleOcrExpanded(att.id)}
-													>{isOcrExpanded ? 'Hide OCR' : 'Show OCR'}</button>
-													<button
-														class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline"
-														title="Re-run OCR"
-														on:click={() => void triggerOcr(att.id)}
-													>Re-run</button>
-												{:else if ocr.status === 'no_text_found'}
-													<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">No text found in image</span>
-													<button
-														class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline"
-														title="Re-run OCR"
-														on:click={() => void triggerOcr(att.id)}
-													>Retry</button>
-												{:else if ocr.status === 'failed'}
-													<span class="text-[11px] text-red-500 italic" title={ocr.error_message ?? ''}>OCR failed</span>
-													<button
-														class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
-														on:click={() => void triggerOcr(att.id)}
-													>Retry</button>
-												{:else}
-													<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">{ocrStatusLabel(ocr.status)}</span>
-												{/if}
-											</div>
+					<!-- Guidance when attachments exist but no extraction/OCR sources are ready yet -->
+					{#if noteAttachments.length > 0 && proposalSources.length === 0}
+						<p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 italic">
+							Step 1: Extract text or Run OCR on an attachment above. Once done, a note proposal generator will appear here so you can turn that derived text into a reviewable draft.
+						</p>
+					{/if}
 
-											<!-- OCR text panel — amber/orange, distinct from deterministic extraction and note body -->
-											{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
-												<div
-													class="mx-2.5 mb-2 rounded border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2"
-													data-testid="ocr-text-panel"
-												>
-													<div class="mb-1 flex items-center gap-1.5">
-														<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">OCR-derived text</span>
-														{#if ocr?.confidence_pct !== null}
-															<span class="text-[10px] text-gray-400 dark:text-gray-500">· {ocr?.confidence_pct}% confidence</span>
-														{/if}
-														{#if ocr?.status === 'low_confidence'}
-															<span class="text-[10px] text-amber-700 dark:text-amber-500 font-medium">· Low confidence</span>
-														{/if}
-													</div>
-													<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{ocr?.derived_text}</pre>
-													<p class="mt-1.5 text-[10px] text-amber-700 dark:text-amber-500 italic">OCR-derived text may be imperfect, especially for handwriting or low-quality scans. This is not the note body and not the original file.</p>
-												</div>
-											{/if}
-										{/if}
-									</li>
-								{/each}
-							</ul>
-						{/if}
-
-						<!-- AI Note Proposal section (P30-05) — only when there are eligible sources -->
-						{#if proposalSources.length > 0}
-							<div class="mt-3 rounded border border-dashed border-indigo-300 dark:border-indigo-700 px-3 py-2.5 bg-indigo-50/50 dark:bg-indigo-950/20">
-								<div class="mb-2 flex items-center gap-2">
-									<span class="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">Generate AI Note Proposal</span>
-									<span class="text-[10px] text-gray-400 dark:text-gray-500 italic">from attachment sources</span>
-								</div>
+					<!-- AI Note Proposal section (P30-05) — only when there are eligible sources -->
+					{#if proposalSources.length > 0}
+						<div class="mt-3 rounded border border-dashed border-indigo-300 dark:border-indigo-700 px-3 py-2.5 bg-indigo-50/50 dark:bg-indigo-950/20">
+							<div class="mb-1.5 flex items-center gap-2">
+								<span class="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">Step 2 — Generate AI Note Proposal</span>
+								<span class="text-[10px] text-gray-400 dark:text-gray-500 italic">from attachment sources</span>
+							</div>
+							{#if !currentProposal}
+								<p class="mb-2 text-[11px] text-indigo-700 dark:text-indigo-300">Derived text is ready. Select sources below and click Generate to create a reviewable note draft.</p>
+							{/if}
 
 								<!-- Source selection — all eligible sources shown with checkboxes -->
 								<div class="mb-2 space-y-1">
