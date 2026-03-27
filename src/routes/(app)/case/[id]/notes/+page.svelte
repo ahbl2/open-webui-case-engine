@@ -340,8 +340,11 @@
 	 *
 	 * Only modifies the UNSAVED draft. Does NOT save the note.
 	 * In view mode (no active draft editor) → noop; the button is disabled.
+	 *
+	 * After insertion, collapses the expanded preview panel for this attachment
+	 * so the UI no longer implies insertion is still pending.
 	 */
-	function insertProcessedText(text: string, filename: string): void {
+	function insertProcessedText(text: string, filename: string, attachmentId: string): void {
 		const separator = `\n\n---\nAttachment: ${filename}\n---\n\n`;
 		if (mode === 'create') {
 			createText = createText.trim() ? createText + separator + text : text;
@@ -351,7 +354,16 @@
 			editText = editText.trim() ? editText + separator + text : text;
 			editEditorRenderKey += 1;
 			toast.success('Inserted into draft.');
+		} else {
+			return; // view mode: noop
 		}
+		// Collapse the expanded preview panel so the UI reflects that insertion is done.
+		const nextExt = new Set(expandedExtractionIds);
+		nextExt.delete(attachmentId);
+		expandedExtractionIds = nextExt;
+		const nextOcr = new Set(expandedOcrIds);
+		nextOcr.delete(attachmentId);
+		expandedOcrIds = nextOcr;
 	}
 
 	async function triggerOcr(attachmentId: string): Promise<void> {
@@ -1742,6 +1754,25 @@
 
 	// ── CE API handlers ────────────────────────────────────────────────────────
 
+	/**
+	 * Derive a concise title from note body text.
+	 * Used only when the investigator leaves the title field blank.
+	 * Takes the first non-empty, non-separator line and trims it to 60 chars.
+	 * Never called when the user has supplied a title.
+	 */
+	function generateTitle(text: string): string {
+		const lines = text.split('\n').map((l) => l.trim());
+		for (const line of lines) {
+			// Skip blank lines and markdown separator lines (---)
+			if (!line || /^-{3,}$/.test(line)) continue;
+			// Strip leading markdown heading markers if present
+			const clean = line.replace(/^#+\s*/, '').trim();
+			if (!clean) continue;
+			return clean.length > 60 ? clean.slice(0, 57) + '…' : clean;
+		}
+		return 'Untitled Note';
+	}
+
 	async function handleCreate(): Promise<void> {
 		if (!$caseEngineToken) return;
 		// Capture caseId at call time; discard result if case switches during request.
@@ -1753,11 +1784,11 @@
 		}
 		creating = true;
 		try {
-			const note = await createCaseNotebookNote(
-				activeCaseId,
-				{ title: createTitle.trim() || null, text },
-				$caseEngineToken
-			);
+		const note = await createCaseNotebookNote(
+			activeCaseId,
+			{ title: createTitle.trim() || generateTitle(text), text },
+			$caseEngineToken
+		);
 			if (caseId !== activeCaseId) return;
 			notes = [note, ...notes];
 			createTitle = '';
@@ -1800,16 +1831,16 @@
 		editConflictMessage = '';
 		saving = true;
 		try {
-			const updated = await updateCaseNotebookNote(
-				activeCaseId,
-				selectedNote.id,
-				{
-					title: editTitle.trim() || null,
-					text,
-					expected_updated_at: editExpectedUpdatedAt
-				},
-				$caseEngineToken
-			);
+		const updated = await updateCaseNotebookNote(
+			activeCaseId,
+			selectedNote.id,
+			{
+				title: editTitle.trim() || generateTitle(text),
+				text,
+				expected_updated_at: editExpectedUpdatedAt
+			},
+			$caseEngineToken
+		);
 			if (caseId !== activeCaseId) return;
 			notes = notes.map((n) => (n.id === updated.id ? updated : n));
 			selectedNote = updated;
@@ -2243,7 +2274,7 @@
 								<button
 									class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white"
 									title="Insert extracted text into the active draft editor (appends if draft already has content)"
-									on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename)}
+									on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename, att.id)}
 								>Insert into draft</button>
 								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
 							{:else if ocr?.status === 'extracted' || ocr?.status === 'low_confidence'}
@@ -2258,7 +2289,7 @@
 								<button
 									class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white"
 									title="Insert OCR text into the active draft editor (appends if draft already has content)"
-									on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename)}
+									on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename, att.id)}
 								>Insert into draft</button>
 								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
 							{:else if extraction?.status === 'no_text_found'}
@@ -2798,39 +2829,39 @@
 											disabled={!isOcrEligible(att) && !isExtractionEligible(att)}
 											on:click={() => void processAttachment(att)}
 										>Process attachment</button>
-									{:else if extraction?.status === 'extracted'}
+								{:else if extraction?.status === 'extracted'}
+									<button
+										class="text-[11px] text-green-700 dark:text-green-400 hover:underline"
+										on:click={() => toggleExtractionExpanded(att.id)}
+									>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
+									{#if mode === 'edit'}
 										<button
-											class="text-[11px] text-green-700 dark:text-green-400 hover:underline"
-											on:click={() => toggleExtractionExpanded(att.id)}
-										>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
-										{#if mode === 'edit'}
-											<button
-												class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white"
-												title="Insert extracted text into the note editor (appends if editor already has content)"
-												on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename)}
-											>Insert into draft</button>
-										{:else}
-											<span class="text-[10px] text-gray-400 dark:text-gray-500 italic" title="Open the note in Edit mode to insert">Enter edit mode to insert</span>
-										{/if}
-										<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
-									{:else if ocr?.status === 'extracted' || ocr?.status === 'low_confidence'}
+											class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white"
+											title="Insert extracted text into the note editor (appends if editor already has content)"
+											on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename, att.id)}
+										>Insert into draft</button>
+									{:else}
+										<span class="text-[10px] text-gray-400 dark:text-gray-500 italic" title="Open the note in Edit mode to insert">Enter edit mode to insert</span>
+									{/if}
+									<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
+								{:else if ocr?.status === 'extracted' || ocr?.status === 'low_confidence'}
+									<button
+										class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
+										on:click={() => toggleOcrExpanded(att.id)}
+									>{isOcrExpanded ? 'Hide OCR text' : 'Show OCR text'}</button>
+									{#if ocr.confidence_pct !== null}
+										<span class="text-[10px] text-gray-400 dark:text-gray-500">{ocr.confidence_pct}% confidence</span>
+									{/if}
+									{#if mode === 'edit'}
 										<button
-											class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
-											on:click={() => toggleOcrExpanded(att.id)}
-										>{isOcrExpanded ? 'Hide OCR text' : 'Show OCR text'}</button>
-										{#if ocr.confidence_pct !== null}
-											<span class="text-[10px] text-gray-400 dark:text-gray-500">{ocr.confidence_pct}% confidence</span>
-										{/if}
-										{#if mode === 'edit'}
-											<button
-												class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white"
-												title="Insert OCR text into the note editor (appends if editor already has content)"
-												on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename)}
-											>Insert into draft</button>
-										{:else}
-											<span class="text-[10px] text-gray-400 dark:text-gray-500 italic" title="Open the note in Edit mode to insert">Enter edit mode to insert</span>
-										{/if}
-										<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
+											class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white"
+											title="Insert OCR text into the note editor (appends if editor already has content)"
+											on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename, att.id)}
+										>Insert into draft</button>
+									{:else}
+										<span class="text-[10px] text-gray-400 dark:text-gray-500 italic" title="Open the note in Edit mode to insert">Enter edit mode to insert</span>
+									{/if}
+									<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
 									{:else if extraction?.status === 'no_text_found'}
 										<span class="text-[11px] text-gray-500 dark:text-gray-400 italic">No machine-readable text found.</span>
 										{#if !ocrEligible}

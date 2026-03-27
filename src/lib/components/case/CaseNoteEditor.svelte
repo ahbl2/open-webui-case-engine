@@ -39,7 +39,6 @@
 	 */
 
 	import { createEventDispatcher, getContext } from 'svelte';
-	import { marked } from 'marked';
 	import RichTextInput from '$lib/components/common/RichTextInput.svelte';
 
 	const i18n = getContext('i18n');
@@ -56,9 +55,22 @@
 	let editor = null;
 
 	// ── View mode ────────────────────────────────────────────────────────────
-	// Parse markdown → HTML for rich display in read-only mode.
+	// Notes are stored as plain text (newline-separated) from the TipTap editor.
+	// Running through marked.parse() collapses single newlines into spaces per
+	// Markdown spec, causing view mode to appear visually flattened.
+	// Use the same HTML representation as edit mode: each \n becomes <br> inside
+	// a single paragraph, so view and edit are visually consistent.
 	let renderedHtml = '';
-	$: renderedHtml = content ? (marked.parse(content) as string) : '';
+	function toViewHtml(text: string): string {
+		if (!text) return '';
+		const normalized = text.replace(/\r\n?/g, '\n');
+		const escaped = normalized
+			.replace(/&/g, '&amp;')
+			.replace(/</g, '&lt;')
+			.replace(/>/g, '&gt;');
+		return `<p>${escaped.replace(/\n/g, '<br>')}</p>`;
+	}
+	$: renderedHtml = content ? toViewHtml(content) : '';
 
 	// Push external content changes into the read-only editor (e.g. after a CE reload).
 	// Guard: only in view mode — edit mode must never have content pushed in reactively.
