@@ -3731,10 +3731,7 @@ let warrantToolsRequestInFlight = false;
 
 			if (res && res.ok && res.body && generating) {
 				generationController = controller as AbortController;
-				const textStream = await createOpenAITextStream(
-					res.body,
-					Boolean($settings?.splitLargeChunks ?? false)
-				);
+				const textStream = await createOpenAITextStream(res.body, false);
 				for await (const update of textStream) {
 					const { value, done, sources, error, usage } = update;
 					if (error || done) {

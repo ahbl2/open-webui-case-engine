@@ -29,16 +29,42 @@
 	let addingTagFileId: string | null = null;
 	let newTagInput = '';
 
+	// ── Route-reuse case-switch guard (P28-45) ─────────────────────────────────
+	// Seeded to the initial prop value so the reactive block is a no-op on first
+	// render (the top-level loadFiles() handles initial load). Fires when the
+	// parent passes a new caseId during SvelteKit route reuse.
+	let prevLoadedCaseId: string = caseId;
+	/** Incremented on each load; guards stale responses from writing to the wrong case. */
+	let activeLoadId = 0;
+
+	$: if (caseId && token && caseId !== prevLoadedCaseId) {
+		prevLoadedCaseId = caseId;
+		files = [];
+		loadError = '';
+		viewTextFileId = null;
+		viewTextContent = null;
+		uploading = false;
+		extractingId = null;
+		addingTagFileId = null;
+		newTagInput = '';
+		loadFiles();
+	}
+
 	async function loadFiles() {
+		activeLoadId += 1;
+		const loadId = activeLoadId;
 		loading = true;
 		loadError = '';
 		try {
-			files = await listCaseFiles(caseId, token);
+			const result = await listCaseFiles(caseId, token);
+			if (loadId !== activeLoadId) return;
+			files = result;
 		} catch (e: any) {
+			if (loadId !== activeLoadId) return;
 			loadError = e?.message ?? 'Failed to load files.';
 			files = [];
 		} finally {
-			loading = false;
+			if (loadId === activeLoadId) loading = false;
 		}
 	}
 

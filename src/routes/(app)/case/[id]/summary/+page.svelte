@@ -23,6 +23,15 @@
 
 	$: caseId = $page.params.id;
 
+	// ── Route-reuse case-switch guard (P28-45) ─────────────────────────────────
+	// prevLoadedCaseId is seeded to the initial param so the reactive block is a
+	// no-op on first render (onMount handles initial load); fires only on switch.
+	let prevLoadedCaseId: string = $page.params.id ?? '';
+	/** Per-function load IDs; guard stale async responses from writing to new case. */
+	let activeStatusLoadId = 0;
+	let activeBriefLoadId = 0;
+	let activeTimelineSummaryLoadId = 0;
+
 	let loading = true;
 	let updatingSummary = false;
 	let error = '';
@@ -47,6 +56,28 @@
 	let timelineSummaryFilterLine: string | null = null;
 	$: briefEntryCount = brief ? brief.sections.reduce((sum, section) => sum + section.entries.length, 0) : 0;
 	const TIMELINE_SUMMARY_TIMEOUT_MS = 60_000;
+
+	$: if (caseId && $caseEngineToken && caseId !== prevLoadedCaseId) {
+		prevLoadedCaseId = caseId;
+		// Clear all case-bound state immediately so stale data is never shown.
+		summary = null;
+		lastUpdatedAt = null;
+		latestActivityAt = '';
+		stale = false;
+		error = '';
+		summaryError = '';
+		brief = null;
+		briefGeneratedAt = null;
+		briefError = '';
+		briefExportRef = '';
+		timelineSummary = null;
+		timelineSummaryEvents = [];
+		timelineSummaryEntryCountLine = '';
+		timelineSummaryFilterLine = null;
+		timelineSummaryError = '';
+		// Reload status for the new case.
+		loadSummaryStatus();
+	}
 
 	function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
 		return new Promise<T>((resolve, reject) => {
@@ -77,18 +108,22 @@
 			loading = false;
 			return;
 		}
+		activeStatusLoadId += 1;
+		const loadId = activeStatusLoadId;
 		loading = true;
 		error = '';
 		try {
 			const status = await getCaseSummaryStatus(caseId, $caseEngineToken);
+			if (loadId !== activeStatusLoadId) return;
 			summary = status.summary;
 			lastUpdatedAt = status.lastSummaryGeneratedAt;
 			latestActivityAt = status.latestActivityAt;
 			stale = status.isStale;
 		} catch (err) {
+			if (loadId !== activeStatusLoadId) return;
 			error = err instanceof Error ? err.message : 'Failed to load case summary.';
 		} finally {
-			loading = false;
+			if (loadId === activeStatusLoadId) loading = false;
 		}
 	}
 
@@ -108,17 +143,22 @@
 
 	async function generateBrief(): Promise<void> {
 		if (!$caseEngineToken || !caseId || briefLoading) return;
+		activeBriefLoadId += 1;
+		const loadId = activeBriefLoadId;
 		briefLoading = true;
 		briefError = '';
 		try {
-			brief = await requestCaseBrief(caseId, $caseEngineToken, briefFilters);
+			const result = await requestCaseBrief(caseId, $caseEngineToken, briefFilters);
+			if (loadId !== activeBriefLoadId) return;
+			brief = result;
 			briefGeneratedAt = new Date().toISOString();
 		} catch (err) {
+			if (loadId !== activeBriefLoadId) return;
 			brief = null;
 			briefGeneratedAt = null;
 			briefError = err instanceof Error ? err.message : 'Unable to generate brief. Please try again.';
 		} finally {
-			briefLoading = false;
+			if (loadId === activeBriefLoadId) briefLoading = false;
 		}
 	}
 
@@ -148,35 +188,39 @@
 
 	async function summarizeTimeline(): Promise<void> {
 		if (!$caseEngineToken || !caseId || timelineSummaryLoading) return;
+		activeTimelineSummaryLoadId += 1;
+		const loadId = activeTimelineSummaryLoadId;
 		timelineSummaryLoading = true;
 		timelineSummaryError = '';
 		try {
-		const summaryResult = await withTimeout(
-			requestTimelineIntelligenceSummary(caseId, $caseEngineToken, timelineSummaryFilters),
-			TIMELINE_SUMMARY_TIMEOUT_MS,
-			'Timeline summary'
-		);
-		const timelineEntries = await withTimeout(
-			listCaseTimelineEntries(caseId, $caseEngineToken),
-			TIMELINE_SUMMARY_TIMEOUT_MS,
-			'Timeline entries load'
-		);
+			const summaryResult = await withTimeout(
+				requestTimelineIntelligenceSummary(caseId, $caseEngineToken, timelineSummaryFilters),
+				TIMELINE_SUMMARY_TIMEOUT_MS,
+				'Timeline summary'
+			);
+			const timelineEntries = await withTimeout(
+				listCaseTimelineEntries(caseId, $caseEngineToken),
+				TIMELINE_SUMMARY_TIMEOUT_MS,
+				'Timeline entries load'
+			);
+			if (loadId !== activeTimelineSummaryLoadId) return;
 			timelineSummary = summaryResult;
 			timelineSummaryEvents = mapTimelineSummaryKeyEvents(summaryResult, timelineEntries);
 			const context = buildTimelineSummaryContext(summaryResult);
 			timelineSummaryEntryCountLine = context.entryCountLine;
 			timelineSummaryFilterLine = context.filterLine;
 		} catch (err) {
+			if (loadId !== activeTimelineSummaryLoadId) return;
 			timelineSummary = null;
 			timelineSummaryEvents = [];
 			timelineSummaryEntryCountLine = '';
 			timelineSummaryFilterLine = null;
-		timelineSummaryError =
-			err instanceof Error && err.message.trim()
-				? err.message
-				: 'Unable to generate summary. Please try again.';
+			timelineSummaryError =
+				err instanceof Error && err.message.trim()
+					? err.message
+					: 'Unable to generate summary. Please try again.';
 		} finally {
-			timelineSummaryLoading = false;
+			if (loadId === activeTimelineSummaryLoadId) timelineSummaryLoading = false;
 		}
 	}
 

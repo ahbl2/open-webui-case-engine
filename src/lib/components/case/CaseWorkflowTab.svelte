@@ -22,6 +22,7 @@ import {
 	type WorkflowItemType as LocalType
 } from '$lib/components/case/workflowStatus';
 import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
+import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
@@ -52,9 +53,54 @@ import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	let acceptTarget: WorkflowProposal | null = null;
 	let rejectTarget: WorkflowProposal | null = null;
 	let rejectReason = '';
+	// ── Confirm dialog visibility (P28-49) ─────────────────────────────────────
+	// These replace the four hand-rolled fixed-inset modals. Target variables
+	// above still hold the item/proposal being acted on; these booleans are the
+	// single source of truth for dialog visibility passed to ConfirmDialog.
+	let showDeleteConfirm = false;
+	let showRestoreConfirm = false;
+	let showAcceptConfirm = false;
+	let showRejectConfirm = false;
 	let showEntityWorkspace = false;
 	let entityWorkspaceType: string | null = null;
 	let entityWorkspaceId: string | null = null;
+
+	// ── Route-reuse case-switch guard (P28-45) ─────────────────────────────────
+	// The naked $: if (caseId && token) block below handles all data loading
+	// (including initial load). This sentinel fires ONLY when caseId changes,
+	// closing any open forms/panels so stale-case UI state is cleared immediately.
+	// The activeItemsLoadId guards stale in-flight responses from loadItems().
+	let prevWorkflowCaseId: string = caseId;
+	/** Guards stale loadItems() responses from writing to the new case. */
+	let activeItemsLoadId = 0;
+	$: workflowListViewState = loading ? 'loading' : loadError ? 'error' : items.length === 0 ? 'empty' : 'success';
+
+	$: if (caseId && token && caseId !== prevWorkflowCaseId) {
+		prevWorkflowCaseId = caseId;
+		items = [];
+		loading = true;
+		loadError = '';
+		createOpen = false;
+		editItem = null;
+		deleteTarget = null;
+		restoreTarget = null;
+		createResultMessage = null;
+		createResultTone = null;
+		showDeleteConfirm = false;
+		showRestoreConfirm = false;
+		showProposals = false;
+		proposals = [];
+		proposalError = null;
+		expandedProposalId = null;
+		acceptTarget = null;
+		rejectTarget = null;
+		rejectReason = '';
+		showAcceptConfirm = false;
+		showRejectConfirm = false;
+		showEntityWorkspace = false;
+		entityWorkspaceType = null;
+		entityWorkspaceId = null;
+	}
 
 	// Create form
 	let createType: WorkflowItemType = 'HYPOTHESIS';
@@ -65,8 +111,6 @@ import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	let createSubmitting = false;
 	let createResultMessage: string | null = null;
 	let createResultTone: 'ok' | 'warn' | 'error' | null = null;
-	let activeItemsLoadId = 0;
-	$: workflowListViewState = loading ? 'loading' : loadError ? 'error' : items.length === 0 ? 'empty' : 'success';
 
 	// Edit form (immutable: type, case_id, origin, created_*)
 	let editTitle = '';
@@ -237,9 +281,11 @@ import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 
 	function confirmDelete(item: WorkflowItem) {
 		deleteTarget = item;
+		showDeleteConfirm = true;
 	}
 
 	function cancelDelete() {
+		showDeleteConfirm = false;
 		deleteTarget = null;
 	}
 
@@ -258,9 +304,11 @@ import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 
 	function confirmRestore(item: WorkflowItem) {
 		restoreTarget = item;
+		showRestoreConfirm = true;
 	}
 
 	function cancelRestore() {
+		showRestoreConfirm = false;
 		restoreTarget = null;
 	}
 
@@ -329,9 +377,11 @@ import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 
 	function openAccept(p: WorkflowProposal) {
 		acceptTarget = p;
+		showAcceptConfirm = true;
 	}
 
 	function cancelAccept() {
+		showAcceptConfirm = false;
 		acceptTarget = null;
 	}
 
@@ -358,9 +408,11 @@ import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	function openReject(p: WorkflowProposal) {
 		rejectTarget = p;
 		rejectReason = '';
+		showRejectConfirm = true;
 	}
 
 	function cancelReject() {
+		showRejectConfirm = false;
 		rejectTarget = null;
 		rejectReason = '';
 	}
@@ -604,6 +656,9 @@ import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 			<h3 class="text-xs font-medium text-gray-600 dark:text-gray-400">Workflow Proposals</h3>
 			{#if proposalsLoading}
 				<div class="text-sm text-gray-500">Loading proposals...</div>
+			{:else if proposalError}
+				<!-- ── Proposal load error (P28-51) ───────────────────────────────────── -->
+				<CaseErrorState message={proposalError} onRetry={loadProposals} />
 			{:else if proposals.length === 0}
 				<div class="text-sm text-gray-500 dark:text-gray-400">
 					No workflow proposals yet. AI suggestions will appear here when available.
@@ -883,127 +938,52 @@ import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	</div>
 {/if}
 
-<!-- Delete confirm -->
-{#if deleteTarget}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="delete-workflow-title"
-	>
-		<div class="bg-white dark:bg-gray-900 rounded-lg shadow-lg max-w-sm w-full mx-4 p-4">
-			<h3 id="delete-workflow-title" class="font-medium mb-2">Remove workflow item?</h3>
-			<p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-				This will soft-delete &quot;{deleteTarget.title}&quot;. You can restore it later (admin only).
-			</p>
-			<div class="flex gap-2 justify-end">
-				<button type="button" class="px-3 py-1.5 text-sm rounded hover:bg-gray-100 dark:hover:bg-gray-800" on:click={cancelDelete}>
-					Cancel
-				</button>
-				<button
-					type="button"
-					class="px-3 py-1.5 text-sm rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50"
-					on:click={doDelete}
-				>
-					Delete
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+<!-- ── Delete workflow item (P28-49) ──────────────────────────────────────── -->
+<ConfirmDialog
+	bind:show={showDeleteConfirm}
+	title="Delete workflow item?"
+	message={deleteTarget ? `"${deleteTarget.title}" will be removed from the active list. Admins can restore it later.` : ''}
+	cancelLabel="Cancel"
+	confirmLabel="Delete"
+	onConfirm={doDelete}
+	on:cancel={cancelDelete}
+/>
 
-<!-- Restore confirm -->
-{#if restoreTarget}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="restore-workflow-title"
-	>
-		<div class="bg-white dark:bg-gray-900 rounded-lg shadow-lg max-w-sm w-full mx-4 p-4">
-			<h3 id="restore-workflow-title" class="font-medium mb-2">Restore workflow item?</h3>
-			<p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-				Restore &quot;{restoreTarget.title}&quot; so it appears in the active list again.
-			</p>
-			<div class="flex gap-2 justify-end">
-				<button type="button" class="px-3 py-1.5 text-sm rounded hover:bg-gray-100 dark:hover:bg-gray-800" on:click={cancelRestore}>
-					Cancel
-				</button>
-				<button
-					type="button"
-					class="px-3 py-1.5 text-sm rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50"
-					on:click={doRestore}
-				>
-					Restore
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+<!-- ── Restore workflow item (P28-49) ─────────────────────────────────────── -->
+<ConfirmDialog
+	bind:show={showRestoreConfirm}
+	title="Restore workflow item?"
+	message={restoreTarget ? `"${restoreTarget.title}" will reappear in the active list.` : ''}
+	cancelLabel="Cancel"
+	confirmLabel="Restore"
+	onConfirm={doRestore}
+	on:cancel={cancelRestore}
+/>
 
-<!-- Accept proposal confirm -->
-{#if acceptTarget}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="accept-proposal-title"
-	>
-		<div class="bg-white dark:bg-gray-900 rounded-lg shadow-lg max-w-sm w-full mx-4 p-4">
-			<h3 id="accept-proposal-title" class="font-medium mb-2">Accept workflow proposal?</h3>
-			<p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-				This will create a workflow item from the suggested payload. You can edit the workflow item later from the Workflow tab.
-			</p>
-			<div class="flex gap-2 justify-end">
-				<button type="button" class="px-3 py-1.5 text-sm rounded hover:bg-gray-100 dark:hover:bg-gray-800" on:click={cancelAccept}>
-					Cancel
-				</button>
-				<button
-					type="button"
-					class="px-3 py-1.5 text-sm rounded bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-300 hover:bg-green-200 dark:hover:bg-green-900/50"
-					on:click={confirmAccept}
-				>
-					Accept
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+<!-- ── Accept workflow proposal (P28-49) ──────────────────────────────────── -->
+<ConfirmDialog
+	bind:show={showAcceptConfirm}
+	title="Accept proposal?"
+	message="A workflow item will be created from the suggested payload. You can edit it from the Workflow tab."
+	cancelLabel="Cancel"
+	confirmLabel="Accept"
+	onConfirm={confirmAccept}
+	on:cancel={cancelAccept}
+/>
 
-<!-- Reject proposal confirm -->
-{#if rejectTarget}
-	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
-		role="dialog"
-		aria-modal="true"
-		aria-labelledby="reject-proposal-title"
-	>
-		<div class="bg-white dark:bg-gray-900 rounded-lg shadow-lg max-w-sm w-full mx-4 p-4">
-			<h3 id="reject-proposal-title" class="font-medium mb-2">Reject workflow proposal?</h3>
-			<p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
-				This will mark the proposal as rejected. No workflow item will be created.
-			</p>
-			<label class="block text-xs font-medium text-gray-600 dark:text-gray-400 mb-1">
-				Optional reason
-			</label>
-			<textarea
-				class="w-full text-sm border border-gray-300 dark:border-gray-600 rounded px-2 py-1.5 bg-white dark:bg-gray-800 mb-3"
-				rows="2"
-				bind:value={rejectReason}
-				placeholder="Reason for rejection (optional)"
-			></textarea>
-			<div class="flex gap-2 justify-end">
-				<button type="button" class="px-3 py-1.5 text-sm rounded hover:bg-gray-100 dark:hover:bg-gray-800" on:click={cancelReject}>
-					Cancel
-				</button>
-				<button
-					type="button"
-					class="px-3 py-1.5 text-sm rounded bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-300 hover:bg-red-200 dark:hover:bg-red-900/50"
-					on:click={confirmReject}
-				>
-					Reject
-				</button>
-			</div>
-		</div>
-	</div>
-{/if}
+<!-- ── Reject workflow proposal (P28-49) ──────────────────────────────────── -->
+<!-- Uses ConfirmDialog's built-in input mode so the reject reason lives inside -->
+<!-- the shared dialog rather than in a bespoke overlay. rejectReason is two-way -->
+<!-- bound to inputValue; ConfirmDialog resets it to '' each time show→true.    -->
+<ConfirmDialog
+	bind:show={showRejectConfirm}
+	title="Reject proposal?"
+	message="This proposal will be marked as rejected. No workflow item will be created."
+	input={true}
+	inputPlaceholder="Reason for rejection (optional)"
+	bind:inputValue={rejectReason}
+	cancelLabel="Cancel"
+	confirmLabel="Reject"
+	onConfirm={confirmReject}
+	on:cancel={cancelReject}
+/>

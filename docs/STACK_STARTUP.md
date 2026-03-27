@@ -39,6 +39,101 @@ Frontend proxies: `/case-api` → Case Engine (3010); `/api`, `/ollama`, `/ws`, 
 
 **P20-PRE-01:** If Case Engine `browser-resolve` fails with an HTTP-classified error (not pure network failure), the app redirects to **`/access-unavailable`** — the main shell does not load without a successful Case Engine linkage decision.
 
+## LAN dictation (secure context required)
+
+Browser speech recognition for the Notes `Dictate` action requires a secure context:
+
+- Works on `http://localhost` (local-only testing)
+- For LAN hosts (`http://192.168.x.x:3001`), use **HTTPS**
+
+### 1) Create a local LAN certificate (mkcert recommended)
+
+Install `mkcert`, then generate a cert that covers your LAN IP (and optional hostname):
+
+```bash
+mkcert -install
+mkcert -cert-file ~/.local/share/mkcert/owui-lan-cert.pem -key-file ~/.local/share/mkcert/owui-lan-key.pem localhost 127.0.0.1 ::1 192.168.1.194
+```
+
+Replace `192.168.1.194` with your actual LAN IP.
+
+If `mkcert` is not installed, you can use a self-signed cert:
+
+```bash
+mkdir -p ~/.local/share/detective-lan-certs
+openssl req -x509 -newkey rsa:2048 -sha256 -nodes -days 365 \
+  -keyout ~/.local/share/detective-lan-certs/owui-lan-key.pem \
+  -out ~/.local/share/detective-lan-certs/owui-lan-cert.pem \
+  -subj "/CN=192.168.1.194" \
+  -addext "subjectAltName=DNS:localhost,IP:127.0.0.1,IP:192.168.1.194"
+```
+
+### 2) Enable HTTPS for Vite
+
+Set the optional Vite HTTPS env vars (see `.env.example`):
+
+```bash
+export DEV_HTTPS_KEY_FILE="$HOME/.local/share/detective-lan-certs/owui-lan-key.pem"
+export DEV_HTTPS_CERT_FILE="$HOME/.local/share/detective-lan-certs/owui-lan-cert.pem"
+```
+
+Then start frontend normally:
+
+```bash
+npm run dev -- --host 0.0.0.0
+```
+
+Open `https://<LAN-IP>:3001`.
+
+### 3) Keep backend CORS aligned
+
+When backend CORS is not wildcard, include the **HTTPS LAN origin**:
+
+```bash
+CORS_ALLOW_ORIGIN='http://localhost:3001;http://localhost:8080;https://192.168.1.194:3001'
+```
+
+### 4) Verify dictation preconditions
+
+- Use a Chromium-based browser for best SpeechRecognition support
+- Allow microphone permission for `https://<LAN-IP>:3001`
+- Confirm page is secure (`window.isSecureContext === true`)
+
+### Troubleshooting: Socket.IO `400` on LAN HTTPS
+
+**Failure signature (browser console):**
+
+- `wss://<LAN-IP>:3001/ws/socket.io/...` connect/polling failures
+- `Failed to load resource: the server responded with a status of 400`
+- Transport loop: websocket + polling retries
+
+**Failure signature (backend logs):**
+
+- Repeating `GET /ws/socket.io ... 200` followed by `POST /ws/socket.io ... 400`
+
+This is usually an **origin allowlist mismatch** for Engine.IO:
+
+- page is loaded from `https://<LAN-IP>:3001`
+- backend CORS allowlist only contains `http://<LAN-IP>:3001`
+
+In this state, the handshake can partially succeed, but polling POST is rejected with `400`.
+
+**Fix: include HTTPS LAN origin in backend CORS allowlist**
+
+Example:
+
+```bash
+CORS_ALLOW_ORIGIN='http://localhost:3001;https://localhost:3001;http://localhost:8080;http://192.168.1.194:3001;https://192.168.1.194:3001'
+```
+
+Then restart backend and frontend.
+
+**Quick validation**
+
+- Browser app URL is `https://<LAN-IP>:3001`
+- Socket.IO target is `wss://<LAN-IP>:3001/ws/socket.io`
+- Backend log no longer shows repeated `POST /ws/socket.io ... 400`
+
 ## Realtime (WebSocket)
 
 The **Socket.IO server** (Engine.IO) runs on the **Open WebUI Python backend** (uvicorn, port **8080** in this stack). The HTTP path is **`/ws/socket.io`**. Canonical constant: `SOCKET_IO_SERVER_PATH` in `src/lib/socketOrigin.ts` (must match the server).

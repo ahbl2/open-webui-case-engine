@@ -383,6 +383,24 @@ async def update_user_settings_by_session_user(
 ):
     updated_user_settings = form_data.model_dump()
     ui_settings = updated_user_settings.get("ui")
+
+    # Harden settings updates to support partial UI payloads. This prevents
+    # hidden/legacy keys from being rewritten when only visible controls change.
+    existing_user = Users.get_user_by_id(user.id, db=db)
+    existing_settings = existing_user.settings if existing_user and existing_user.settings else {}
+
+    if ui_settings is not None:
+        existing_ui_settings = (
+            existing_settings.get("ui", {}) if isinstance(existing_settings, dict) else {}
+        )
+        if not isinstance(existing_ui_settings, dict):
+            existing_ui_settings = {}
+
+        if not isinstance(ui_settings, dict):
+            ui_settings = {}
+
+        updated_user_settings["ui"] = {**existing_ui_settings, **ui_settings}
+        ui_settings = updated_user_settings["ui"]
     if (
         user.role != "admin"
         and ui_settings is not None

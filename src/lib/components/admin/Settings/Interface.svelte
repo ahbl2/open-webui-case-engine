@@ -1,14 +1,12 @@
 <script lang="ts">
 	import { getModels, getTaskConfig, updateTaskConfig } from '$lib/apis';
-	import { config, settings } from '$lib/stores';
+	import { pickAdminInterfaceGovernedTaskConfig } from '$lib/constants/settingsGovernance';
 	import { createEventDispatcher, onMount, getContext } from 'svelte';
 	import { toast } from 'svelte-sonner';
 
 	import { getBaseModels } from '$lib/apis/models';
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
-	import Switch from '$lib/components/common/Switch.svelte';
-	import Textarea from '$lib/components/common/Textarea.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
 	const dispatch = createEventDispatcher();
@@ -17,25 +15,15 @@
 
 	let taskConfig = {
 		TASK_MODEL: '',
-		TASK_MODEL_EXTERNAL: '',
-		ENABLE_TITLE_GENERATION: true,
-		TITLE_GENERATION_PROMPT_TEMPLATE: '',
-		ENABLE_FOLLOW_UP_GENERATION: true,
-		FOLLOW_UP_GENERATION_PROMPT_TEMPLATE: '',
-		IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE: '',
-		ENABLE_AUTOCOMPLETE_GENERATION: true,
-		AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH: -1,
-		TAGS_GENERATION_PROMPT_TEMPLATE: '',
-		ENABLE_TAGS_GENERATION: true,
-		ENABLE_SEARCH_QUERY_GENERATION: true,
-		ENABLE_RETRIEVAL_QUERY_GENERATION: true,
-		QUERY_GENERATION_PROMPT_TEMPLATE: '',
-		TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE: '',
-		VOICE_MODE_PROMPT_TEMPLATE: ''
+		TASK_MODEL_EXTERNAL: ''
+	};
+
+	const buildGovernedTaskPayload = () => {
+		return pickAdminInterfaceGovernedTaskConfig(taskConfig);
 	};
 
 	const updateInterfaceHandler = async () => {
-		taskConfig = await updateTaskConfig(localStorage.token, taskConfig);
+		taskConfig = await updateTaskConfig(localStorage.token, buildGovernedTaskPayload());
 	};
 
 	let workspaceModels = null;
@@ -45,7 +33,8 @@
 
 	const init = async () => {
 		try {
-			taskConfig = await getTaskConfig(localStorage.token);
+			const fetchedTaskConfig = await getTaskConfig(localStorage.token);
+			taskConfig = pickAdminInterfaceGovernedTaskConfig(fetchedTaskConfig ?? {});
 
 			workspaceModels = await getBaseModels(localStorage.token);
 			baseModels = await getModels(localStorage.token, null, false);
@@ -100,7 +89,7 @@
 					<div class=" text-xs mr-1">{$i18n.t('Task Model')}</div>
 					<Tooltip
 						content={$i18n.t(
-							'A task model is used when performing tasks such as generating titles for chats and web search queries'
+							'A task model is used for background assistant tasks such as title generation.'
 						)}
 					>
 						<svg
@@ -208,210 +197,10 @@
 					</div>
 				</div>
 
-				<div class="mb-2.5 flex w-full items-center justify-between">
-					<div class=" self-center text-xs font-medium">
-						{$i18n.t('Title Generation')}
-					</div>
-
-					<Switch bind:state={taskConfig.ENABLE_TITLE_GENERATION} />
-				</div>
-
-				{#if taskConfig.ENABLE_TITLE_GENERATION}
-					<div class="mb-2.5">
-						<div class=" mb-1 text-xs font-medium">{$i18n.t('Title Generation Prompt')}</div>
-
-						<Tooltip
-							content={$i18n.t('Leave empty to use the default prompt, or enter a custom prompt')}
-							placement="top-start"
-						>
-							<Textarea
-								bind:value={taskConfig.TITLE_GENERATION_PROMPT_TEMPLATE}
-								placeholder={$i18n.t(
-									'Leave empty to use the default prompt, or enter a custom prompt'
-								)}
-							/>
-						</Tooltip>
-					</div>
-				{/if}
-
-				<div class="mb-2.5 flex w-full items-center justify-between">
-					<div class=" self-center text-xs font-medium">
-						{$i18n.t('Voice Mode Custom Prompt')}
-					</div>
-
-					<Switch
-						state={taskConfig.VOICE_MODE_PROMPT_TEMPLATE != null}
-						on:change={(e) => {
-							if (e.detail) {
-								taskConfig.VOICE_MODE_PROMPT_TEMPLATE = '';
-							} else {
-								taskConfig.VOICE_MODE_PROMPT_TEMPLATE = null;
-							}
-						}}
-					/>
-				</div>
-
-				{#if taskConfig.VOICE_MODE_PROMPT_TEMPLATE != null}
-					<div class="mb-2.5">
-						<div class=" mb-1 text-xs font-medium">{$i18n.t('Voice Mode Prompt')}</div>
-
-						<Tooltip
-							content={$i18n.t('Leave empty to use the default prompt, or enter a custom prompt')}
-							placement="top-start"
-						>
-							<Textarea
-								bind:value={taskConfig.VOICE_MODE_PROMPT_TEMPLATE}
-								placeholder={$i18n.t(
-									'Leave empty to use the default prompt, or enter a custom prompt'
-								)}
-							/>
-						</Tooltip>
-					</div>
-				{/if}
-
-				<div class="mb-2.5 flex w-full items-center justify-between">
-					<div class=" self-center text-xs font-medium">
-						{$i18n.t('Follow Up Generation')}
-					</div>
-
-					<Switch bind:state={taskConfig.ENABLE_FOLLOW_UP_GENERATION} />
-				</div>
-
-				{#if taskConfig.ENABLE_FOLLOW_UP_GENERATION}
-					<div class="mb-2.5">
-						<div class=" mb-1 text-xs font-medium">{$i18n.t('Follow Up Generation Prompt')}</div>
-
-						<Tooltip
-							content={$i18n.t('Leave empty to use the default prompt, or enter a custom prompt')}
-							placement="top-start"
-						>
-							<Textarea
-								bind:value={taskConfig.FOLLOW_UP_GENERATION_PROMPT_TEMPLATE}
-								placeholder={$i18n.t(
-									'Leave empty to use the default prompt, or enter a custom prompt'
-								)}
-							/>
-						</Tooltip>
-					</div>
-				{/if}
-
-				<div class="mb-2.5 flex w-full items-center justify-between">
-					<div class=" self-center text-xs font-medium">
-						{$i18n.t('Tags Generation')}
-					</div>
-
-					<Switch bind:state={taskConfig.ENABLE_TAGS_GENERATION} />
-				</div>
-
-				{#if taskConfig.ENABLE_TAGS_GENERATION}
-					<div class="mb-2.5">
-						<div class=" mb-1 text-xs font-medium">{$i18n.t('Tags Generation Prompt')}</div>
-
-						<Tooltip
-							content={$i18n.t('Leave empty to use the default prompt, or enter a custom prompt')}
-							placement="top-start"
-						>
-							<Textarea
-								bind:value={taskConfig.TAGS_GENERATION_PROMPT_TEMPLATE}
-								placeholder={$i18n.t(
-									'Leave empty to use the default prompt, or enter a custom prompt'
-								)}
-							/>
-						</Tooltip>
-					</div>
-				{/if}
-
-				<div class="mb-2.5 flex w-full items-center justify-between">
-					<div class=" self-center text-xs font-medium">
-						{$i18n.t('Retrieval Query Generation')}
-					</div>
-
-					<Switch bind:state={taskConfig.ENABLE_RETRIEVAL_QUERY_GENERATION} />
-				</div>
-
-				<div class="mb-2.5 flex w-full items-center justify-between">
-					<div class=" self-center text-xs font-medium">
-						{$i18n.t('Web Search Query Generation')}
-					</div>
-
-					<Switch bind:state={taskConfig.ENABLE_SEARCH_QUERY_GENERATION} />
-				</div>
-
-				<div class="mb-2.5">
-					<div class=" mb-1 text-xs font-medium">{$i18n.t('Query Generation Prompt')}</div>
-
-					<Tooltip
-						content={$i18n.t('Leave empty to use the default prompt, or enter a custom prompt')}
-						placement="top-start"
-					>
-						<Textarea
-							bind:value={taskConfig.QUERY_GENERATION_PROMPT_TEMPLATE}
-							placeholder={$i18n.t(
-								'Leave empty to use the default prompt, or enter a custom prompt'
-							)}
-						/>
-					</Tooltip>
-				</div>
-
-				<div class="mb-2.5 flex w-full items-center justify-between">
-					<div class=" self-center text-xs font-medium">
-						{$i18n.t('Autocomplete Generation')}
-					</div>
-
-					<Tooltip content={$i18n.t('Enable autocomplete generation for chat messages')}>
-						<Switch bind:state={taskConfig.ENABLE_AUTOCOMPLETE_GENERATION} />
-					</Tooltip>
-				</div>
-
-				{#if taskConfig.ENABLE_AUTOCOMPLETE_GENERATION}
-					<div class="mb-2.5">
-						<div class=" mb-1 text-xs font-medium">
-							{$i18n.t('Autocomplete Generation Input Max Length')}
-						</div>
-
-						<Tooltip
-							content={$i18n.t('Character limit for autocomplete generation input')}
-							placement="top-start"
-						>
-							<input
-								class="w-full outline-hidden bg-transparent"
-								bind:value={taskConfig.AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH}
-								placeholder={$i18n.t('-1 for no limit, or a positive integer for a specific limit')}
-							/>
-						</Tooltip>
-					</div>
-				{/if}
-
-				<div class="mb-2.5">
-					<div class=" mb-1 text-xs font-medium">{$i18n.t('Image Prompt Generation Prompt')}</div>
-
-					<Tooltip
-						content={$i18n.t('Leave empty to use the default prompt, or enter a custom prompt')}
-						placement="top-start"
-					>
-						<Textarea
-							bind:value={taskConfig.IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE}
-							placeholder={$i18n.t(
-								'Leave empty to use the default prompt, or enter a custom prompt'
-							)}
-						/>
-					</Tooltip>
-				</div>
-
-				<div class="mb-2.5">
-					<div class=" mb-1 text-xs font-medium">{$i18n.t('Tools Function Calling Prompt')}</div>
-
-					<Tooltip
-						content={$i18n.t('Leave empty to use the default prompt, or enter a custom prompt')}
-						placement="top-start"
-					>
-						<Textarea
-							bind:value={taskConfig.TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE}
-							placeholder={$i18n.t(
-								'Leave empty to use the default prompt, or enter a custom prompt'
-							)}
-						/>
-					</Tooltip>
+				<div class="mb-2 text-xs text-gray-500 dark:text-gray-400">
+					{$i18n.t(
+						'System Interface is intentionally reduced in this deployment. Task model selection remains available; advanced prompt-engineering controls are hidden.'
+					)}
 				</div>
 			</div>
 		</div>

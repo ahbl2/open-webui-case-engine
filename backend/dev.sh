@@ -5,7 +5,7 @@
 # Symptom: polling GET succeeds (browser omits Origin on same-origin GET), polling POST returns 400
 # (browser always sends Origin on POST), Engine.IO rejects → reconnect storm.
 # The ${:-} form below is safe: it only sets the default when CORS_ALLOW_ORIGIN is unset in the shell.
-export CORS_ALLOW_ORIGIN="${CORS_ALLOW_ORIGIN:-http://localhost:5173;http://localhost:8080;http://localhost:3001;http://192.168.1.194:3001}"
+export CORS_ALLOW_ORIGIN="${CORS_ALLOW_ORIGIN:-http://localhost:5173;http://localhost:8080;http://localhost:3001;https://localhost:3001;http://192.168.1.194:3001;https://192.168.1.194:3001}"
 
 # P27-21: CE_DB_PATH exposes the Case Engine SQLite database for password-reset hierarchy checks.
 # Must match DB_PATH used by the Detective Case Engine Node.js service.

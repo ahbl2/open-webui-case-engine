@@ -17,7 +17,15 @@
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 
-	const caseId = $page.params.id;
+	// ── Route-reuse case-switch guard (P28-45) ─────────────────────────────────
+	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
+	// this component for a different case. prevLoadedCaseId is seeded to the
+	// initial param so the reactive block is a no-op on first render (onMount
+	// handles initial load); it fires only on case switch.
+	$: caseId = $page.params.id;
+	let prevLoadedCaseId: string = $page.params.id ?? '';
+	/** Incremented on each load; guards stale responses from writing to the wrong case. */
+	let activeLoadId = 0;
 
 	type ActivityType = 'Timeline' | 'Files' | 'Workflow' | 'Proposals' | 'Notes';
 	type ActivityItem = {
@@ -37,6 +45,14 @@
 	let filterType: 'All' | ActivityType = 'All';
 
 	$: displayedItems = filterType === 'All' ? items : items.filter((i) => i.type === filterType);
+
+	$: if (caseId && $caseEngineToken && caseId !== prevLoadedCaseId) {
+		prevLoadedCaseId = caseId;
+		items = [];
+		loadError = '';
+		filterType = 'All';
+		loadActivity();
+	}
 
 	function asActor(v: unknown): string {
 		const s = typeof v === 'string' ? v.trim() : '';
@@ -141,6 +157,8 @@
 
 	async function loadActivity(): Promise<void> {
 		if (!$caseEngineToken) return;
+		activeLoadId += 1;
+		const loadId = activeLoadId;
 		loading = true;
 		loadError = '';
 		items = [];
@@ -153,6 +171,8 @@
 				listCaseNotebookNotes(caseId, $caseEngineToken),
 				listProposals(caseId, $caseEngineToken)
 			]);
+
+			if (loadId !== activeLoadId) return;
 
 			const activity: ActivityItem[] = [];
 
@@ -238,9 +258,10 @@
 
 			items = sortNewestFirst(activity);
 		} catch (e: unknown) {
+			if (loadId !== activeLoadId) return;
 			loadError = e instanceof Error ? e.message : 'Failed to load activity';
 		} finally {
-			loading = false;
+			if (loadId === activeLoadId) loading = false;
 		}
 	}
 

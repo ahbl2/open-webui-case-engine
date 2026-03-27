@@ -293,9 +293,6 @@ const onCancelCreateCase = async () => {
 
 					speech.onend = () => {
 						speaking = false;
-						if ($settings.conversationMode) {
-							document.getElementById('voice-input-button')?.click();
-						}
 					};
 
 					if (voice) {

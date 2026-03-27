@@ -214,7 +214,6 @@ type Settings = {
 	memory?: boolean;
 	autoTags?: boolean;
 	autoFollowUps?: boolean;
-	splitLargeChunks?(body: any, splitLargeChunks: any): unknown;
 	backgroundImageUrl?: null;
 	landingPageMode?: string;
 	iframeSandboxAllowForms?: boolean;
@@ -224,7 +223,6 @@ type Settings = {
 	chatBubble?: boolean;
 	copyFormatted?: boolean;
 	models?: string[];
-	conversationMode?: boolean;
 	speechAutoSend?: boolean;
 	responseAutoPlayback?: boolean;
 	audio?: AudioSettings;

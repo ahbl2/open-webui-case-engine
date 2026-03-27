@@ -1,10 +1,6 @@
 <script lang="ts">
-	import { config, models, settings, user } from '$lib/stores';
-	import { createEventDispatcher, onMount, onDestroy, getContext } from 'svelte';
-	import { toast } from 'svelte-sonner';
-	import Tooltip from '$lib/components/common/Tooltip.svelte';
-	import { updateUserInfo } from '$lib/apis/users';
-	import { getUserPosition } from '$lib/utils';
+	import { settings, user } from '$lib/stores';
+	import { createEventDispatcher, onMount, getContext } from 'svelte';
 	import { setTextScale } from '$lib/utils/text-scale';
 
 	import Minus from '$lib/components/icons/Minus.svelte';
@@ -23,19 +19,9 @@
 	let inputFiles = null;
 	let filesInputElement;
 
-	// Addons
-	let titleAutoGenerate = true;
-	let autoFollowUps = true;
-	let autoTags = true;
-
-	let responseAutoCopy = false;
 	let widescreenMode = false;
-	let splitLargeChunks = false;
-	let scrollOnBranchChange = true;
-	let userLocation = false;
 
 	// Interface
-	let defaultModelId = '';
 	let showUsername = false;
 
 	let notificationSound = true;
@@ -44,33 +30,14 @@
 	let highContrastMode = false;
 
 	let detectArtifacts = true;
-	let displayMultiModelResponsesInTabs = false;
-
-	let richTextInput = true;
-	let showFormattingToolbar = false;
-	let insertPromptAsRichText = false;
-	let promptAutocomplete = false;
-
-	let largeTextAsFile = false;
-
-	let insertSuggestionPrompt = false;
-	let keepFollowUpPrompts = false;
-	let insertFollowUpPrompt = false;
-
-	let regenerateMenu = true;
 	let enableMessageQueue = true;
 
 	let landingPageMode = '';
 	let chatBubble = true;
 	let chatDirection: 'LTR' | 'RTL' | 'auto' = 'auto';
 	let ctrlEnterToSend = false;
-	let copyFormatted = false;
 
 	let temporaryChatByDefault = false;
-	let chatFadeStreamingText = true;
-	let collapseCodeBlocks = false;
-	let expandDetails = false;
-	let renderMarkdownInPreviews = true;
 	let showChatTitleInTab = true;
 
 	let showFloatingActionButtons = true;
@@ -83,19 +50,6 @@
 	};
 	let imageCompressionInChannels = true;
 
-	// chat export
-	let stylizedPdfExport = true;
-
-	// Admin - Show Update Available Toast
-	let showUpdateToast = true;
-	let showChangelog = true;
-
-	let showEmojiInCall = false;
-	let voiceInterruption = false;
-	let hapticFeedback = false;
-
-	let webSearch = null;
-
 	let iframeSandboxAllowSameOrigin = false;
 	let iframeSandboxAllowForms = false;
 
@@ -107,55 +61,6 @@
 	const toggleLandingPageMode = async () => {
 		landingPageMode = landingPageMode === '' ? 'chat' : '';
 		saveSettings({ landingPageMode: landingPageMode });
-	};
-
-	const toggleUserLocation = async () => {
-		if (userLocation) {
-			const position = await getUserPosition().catch((error) => {
-				toast.error(error.message);
-				return null;
-			});
-
-			if (position) {
-				await updateUserInfo(localStorage.token, { location: position });
-				toast.success($i18n.t('User location successfully retrieved.'));
-			} else {
-				userLocation = false;
-			}
-		}
-
-		saveSettings({ userLocation });
-	};
-
-	const toggleTitleAutoGenerate = async () => {
-		saveSettings({
-			title: {
-				...$settings.title,
-				auto: titleAutoGenerate
-			}
-		});
-	};
-
-	const toggleResponseAutoCopy = async () => {
-		const permission = await navigator.clipboard
-			.readText()
-			.then(() => {
-				return 'granted';
-			})
-			.catch(() => {
-				return '';
-			});
-
-		if (permission === 'granted') {
-			saveSettings({ responseAutoCopy: responseAutoCopy });
-		} else {
-			responseAutoCopy = false;
-			toast.error(
-				$i18n.t(
-					'Clipboard write permission denied. Please check your browser settings to grant the necessary access.'
-				)
-			);
-		}
 	};
 
 	const toggleChangeChatDirection = async () => {
@@ -176,14 +81,8 @@
 
 	const updateInterfaceHandler = async () => {
 		saveSettings({
-			models: [defaultModelId],
 			imageCompressionSize: imageCompressionSize
 		});
-	};
-
-	const toggleWebSearch = async () => {
-		webSearch = webSearch === null ? 'always' : null;
-		saveSettings({ webSearch: webSearch });
 	};
 
 	const setTextScaleHandler = (scale) => {
@@ -196,54 +95,45 @@
 		saveSettings({ textScale });
 	};
 
-	onMount(async () => {
-		titleAutoGenerate = $settings?.title?.auto ?? true;
-		autoTags = $settings?.autoTags ?? true;
-		autoFollowUps = $settings?.autoFollowUps ?? true;
+	const confirmSandboxRelaxation = (capability: string) => {
+		if (typeof window === 'undefined') return true;
+		return window.confirm(
+			$i18n.t(
+				`This setting relaxes iframe sandbox protections (${capability}) for embedded/artifact content. Enable only if you trust the source.`
+			)
+		);
+	};
 
+	const handleIframeAllowSameOriginChange = () => {
+		if (iframeSandboxAllowSameOrigin && !confirmSandboxRelaxation('allow-same-origin')) {
+			iframeSandboxAllowSameOrigin = false;
+			return;
+		}
+		saveSettings({ iframeSandboxAllowSameOrigin });
+	};
+
+	const handleIframeAllowFormsChange = () => {
+		if (iframeSandboxAllowForms && !confirmSandboxRelaxation('allow-forms')) {
+			iframeSandboxAllowForms = false;
+			return;
+		}
+		saveSettings({ iframeSandboxAllowForms });
+	};
+
+	onMount(async () => {
 		highContrastMode = $settings?.highContrastMode ?? false;
 
 		detectArtifacts = $settings?.detectArtifacts ?? true;
-		responseAutoCopy = $settings?.responseAutoCopy ?? false;
 
 		showUsername = $settings?.showUsername ?? false;
-		showUpdateToast = $settings?.showUpdateToast ?? true;
-		showChangelog = $settings?.showChangelog ?? true;
-
-		showEmojiInCall = $settings?.showEmojiInCall ?? false;
-		voiceInterruption = $settings?.voiceInterruption ?? false;
-
-		displayMultiModelResponsesInTabs = $settings?.displayMultiModelResponsesInTabs ?? false;
-		chatFadeStreamingText = $settings?.chatFadeStreamingText ?? true;
-
-		richTextInput = $settings?.richTextInput ?? true;
-		showFormattingToolbar = $settings?.showFormattingToolbar ?? false;
-		insertPromptAsRichText = $settings?.insertPromptAsRichText ?? false;
-		promptAutocomplete = $settings?.promptAutocomplete ?? false;
-
-		insertSuggestionPrompt = $settings?.insertSuggestionPrompt ?? false;
-		keepFollowUpPrompts = $settings?.keepFollowUpPrompts ?? false;
-		insertFollowUpPrompt = $settings?.insertFollowUpPrompt ?? false;
-
-		regenerateMenu = $settings?.regenerateMenu ?? true;
 		enableMessageQueue = $settings?.enableMessageQueue ?? true;
-
-		largeTextAsFile = $settings?.largeTextAsFile ?? false;
-		copyFormatted = $settings?.copyFormatted ?? false;
-
-		collapseCodeBlocks = $settings?.collapseCodeBlocks ?? false;
-		expandDetails = $settings?.expandDetails ?? false;
-		renderMarkdownInPreviews = $settings?.renderMarkdownInPreviews ?? true;
 
 		landingPageMode = $settings?.landingPageMode ?? '';
 		chatBubble = $settings?.chatBubble ?? true;
 		widescreenMode = $settings?.widescreenMode ?? false;
-		splitLargeChunks = $settings?.splitLargeChunks ?? false;
-		scrollOnBranchChange = $settings?.scrollOnBranchChange ?? true;
 
 		temporaryChatByDefault = $settings?.temporaryChatByDefault ?? false;
 		chatDirection = $settings?.chatDirection ?? 'auto';
-		userLocation = $settings?.userLocation ?? false;
 		showChatTitleInTab = $settings?.showChatTitleInTab ?? true;
 
 		notificationSound = $settings?.notificationSound ?? true;
@@ -252,9 +142,6 @@
 		iframeSandboxAllowSameOrigin = $settings?.iframeSandboxAllowSameOrigin ?? false;
 		iframeSandboxAllowForms = $settings?.iframeSandboxAllowForms ?? false;
 
-		stylizedPdfExport = $settings?.stylizedPdfExport ?? true;
-
-		hapticFeedback = $settings?.hapticFeedback ?? false;
 		ctrlEnterToSend = $settings?.ctrlEnterToSend ?? false;
 
 		showFloatingActionButtons = $settings?.showFloatingActionButtons ?? true;
@@ -264,13 +151,7 @@
 		imageCompressionSize = $settings?.imageCompressionSize ?? { width: '', height: '' };
 		imageCompressionInChannels = $settings?.imageCompressionInChannels ?? true;
 
-		defaultModelId = $settings?.models?.at(0) ?? '';
-		if ($config?.default_models) {
-			defaultModelId = $config.default_models.split(',')[0];
-		}
-
 		backgroundImageUrl = $settings?.backgroundImageUrl ?? null;
-		webSearch = $settings?.webSearch ?? null;
 
 		textScale = $settings?.textScale ?? null;
 	});
@@ -491,101 +372,6 @@
 				</div>
 			{/if}
 
-			<div>
-				<div id="allow-user-location-label" class=" py-0.5 flex w-full justify-between">
-					<div class=" self-center text-xs">{$i18n.t('Allow User Location')}</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="allow-user-location-label"
-							tooltip={true}
-							bind:state={userLocation}
-							on:change={() => {
-								toggleUserLocation();
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="haptic-feedback-label" class=" self-center text-xs">
-						{$i18n.t('Haptic Feedback')} ({$i18n.t('Android')})
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="haptic-feedback-label"
-							tooltip={true}
-							bind:state={hapticFeedback}
-							on:change={() => {
-								saveSettings({ hapticFeedback });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="copy-formatted-label" class=" self-center text-xs">
-						{$i18n.t('Copy Formatted Text')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="copy-formatted-label"
-							tooltip={true}
-							bind:state={copyFormatted}
-							on:change={() => {
-								saveSettings({ copyFormatted });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			{#if $user?.role === 'admin'}
-				<div>
-					<div class=" py-0.5 flex w-full justify-between">
-						<div id="toast-notifications-label" class=" self-center text-xs">
-							{$i18n.t('Toast notifications for new updates')}
-						</div>
-
-						<div class="flex items-center gap-2 p-1">
-							<Switch
-								ariaLabelledbyId="toast-notifications-label"
-								tooltip={true}
-								bind:state={showUpdateToast}
-								on:change={() => {
-									saveSettings({ showUpdateToast });
-								}}
-							/>
-						</div>
-					</div>
-				</div>
-
-				<div>
-					<div class=" py-0.5 flex w-full justify-between">
-						<div id="whats-new-label" class=" self-center text-xs">
-							{$i18n.t(`Show "What's New" modal on login`)}
-						</div>
-
-						<div class="flex items-center gap-2 p-1">
-							<Switch
-								ariaLabelledbyId="whats-new-label"
-								tooltip={true}
-								bind:state={showChangelog}
-								on:change={() => {
-									saveSettings({ showChangelog });
-								}}
-							/>
-						</div>
-					</div>
-				</div>
-			{/if}
-
 			<div class=" my-2 text-sm font-medium">{$i18n.t('Chat')}</div>
 
 			<div>
@@ -759,291 +545,6 @@
 
 			<div>
 				<div class=" py-0.5 flex w-full justify-between">
-					<div id="fade-streaming-label" class=" self-center text-xs">
-						{$i18n.t('Fade Effect for Streaming Text')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="fade-streaming-label"
-							tooltip={true}
-							bind:state={chatFadeStreamingText}
-							on:change={() => {
-								saveSettings({ chatFadeStreamingText });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="auto-generation-label" class=" self-center text-xs">
-						{$i18n.t('Title Auto-Generation')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="auto-generation-label"
-							tooltip={true}
-							bind:state={titleAutoGenerate}
-							on:change={() => {
-								toggleTitleAutoGenerate();
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div class=" self-center text-xs" id="follow-up-auto-generation-label">
-						{$i18n.t('Follow-Up Auto-Generation')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="follow-up-auto-generation-label"
-							tooltip={true}
-							bind:state={autoFollowUps}
-							on:change={() => {
-								saveSettings({ autoFollowUps });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="chat-tags-label" class=" self-center text-xs">
-						{$i18n.t('Chat Tags Auto-Generation')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="chat-tags-label"
-							tooltip={true}
-							bind:state={autoTags}
-							on:change={() => {
-								saveSettings({ autoTags });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="auto-copy-label" class=" self-center text-xs">
-						{$i18n.t('Auto-Copy Response to Clipboard')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="auto-copy-label"
-							tooltip={true}
-							bind:state={responseAutoCopy}
-							on:change={() => {
-								toggleResponseAutoCopy();
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="insert-suggestion-prompt-label" class=" self-center text-xs">
-						{$i18n.t('Insert Suggestion Prompt to Input')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="insert-suggestion-prompt-label"
-							tooltip={true}
-							bind:state={insertSuggestionPrompt}
-							on:change={() => {
-								saveSettings({ insertSuggestionPrompt });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="keep-follow-up-prompts-label" class=" self-center text-xs">
-						{$i18n.t('Keep Follow-Up Prompts in Chat')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="keep-follow-up-prompts-label"
-							tooltip={true}
-							bind:state={keepFollowUpPrompts}
-							on:change={() => {
-								saveSettings({ keepFollowUpPrompts });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="insert-follow-up-prompt-label" class=" self-center text-xs">
-						{$i18n.t('Insert Follow-Up Prompt to Input')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="insert-follow-up-prompt-label"
-							tooltip={true}
-							bind:state={insertFollowUpPrompt}
-							on:change={() => {
-								saveSettings({ insertFollowUpPrompt });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="regenerate-menu-label" class=" self-center text-xs">
-						{$i18n.t('Regenerate Menu')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="regenerate-menu-label"
-							tooltip={true}
-							bind:state={regenerateMenu}
-							on:change={() => {
-								saveSettings({ regenerateMenu });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="always-collapse-label" class=" self-center text-xs">
-						{$i18n.t('Always Collapse Code Blocks')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="always-collapse-label"
-							tooltip={true}
-							bind:state={collapseCodeBlocks}
-							on:change={() => {
-								saveSettings({ collapseCodeBlocks });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="always-expand-label" class=" self-center text-xs">
-						{$i18n.t('Always Expand Details')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="always-expand-label"
-							tooltip={true}
-							bind:state={expandDetails}
-							on:change={() => {
-								saveSettings({ expandDetails });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="render-markdown-in-previews-label" class=" self-center text-xs">
-						{$i18n.t('Render Markdown in Previews')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="render-markdown-in-previews-label"
-							tooltip={true}
-							bind:state={renderMarkdownInPreviews}
-							on:change={() => {
-								saveSettings({ renderMarkdownInPreviews });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="keep-followup-prompts-label" class=" self-center text-xs">
-						{$i18n.t('Display Multi-model Responses in Tabs')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="keep-followup-prompts-label"
-							tooltip={true}
-							bind:state={displayMultiModelResponsesInTabs}
-							on:change={() => {
-								saveSettings({ displayMultiModelResponsesInTabs });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="scroll-on-branch-change-label" class=" self-center text-xs">
-						{$i18n.t('Scroll On Branch Change')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="scroll-on-branch-change-label"
-							tooltip={true}
-							bind:state={scrollOnBranchChange}
-							on:change={() => {
-								saveSettings({ scrollOnBranchChange });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="stylized-pdf-export-label" class=" self-center text-xs">
-						{$i18n.t('Stylized PDF Export')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="stylized-pdf-export-label"
-							tooltip={true}
-							bind:state={stylizedPdfExport}
-							on:change={() => {
-								saveSettings({ stylizedPdfExport });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
 					<label id="floating-action-buttons-label" class=" self-center text-xs">
 						{$i18n.t('Floating Quick Actions')}
 					</label>
@@ -1074,27 +575,6 @@
 				</div>
 			</div>
 
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="web-search-in-chat-label" class=" self-center text-xs">
-						{$i18n.t('Web Search in Chat')}
-					</div>
-
-					<button
-						aria-labelledby="web-search-in-chat-label web-search-state"
-						class="p-1 px-3 text-xs flex rounded-sm transition"
-						on:click={() => {
-							toggleWebSearch();
-						}}
-						type="button"
-					>
-						<span class="ml-2 self-center" id="web-search-state"
-							>{webSearch === 'always' ? $i18n.t('Always') : $i18n.t('Default')}</span
-						>
-					</button>
-				</div>
-			</div>
-
 			<div class=" my-2 text-sm font-medium">{$i18n.t('Input')}</div>
 
 			<div>
@@ -1117,105 +597,6 @@
 								: $i18n.t('Enter to Send')}</span
 						>
 					</button>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="rich-input-label" class=" self-center text-xs">
-						{$i18n.t('Rich Text Input for Chat')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							tooltip={true}
-							ariaLabelledbyId="rich-input-label"
-							bind:state={richTextInput}
-							on:change={() => {
-								saveSettings({ richTextInput });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			{#if $config?.features?.enable_autocomplete_generation}
-				<div>
-					<div class=" py-0.5 flex w-full justify-between">
-						<div id="prompt-autocompletion-label" class=" self-center text-xs">
-							{$i18n.t('Prompt Autocompletion')}
-						</div>
-
-						<div class="flex items-center gap-2 p-1">
-							<Switch
-								ariaLabelledbyId="prompt-autocompletion-label"
-								tooltip={true}
-								bind:state={promptAutocomplete}
-								on:change={() => {
-									saveSettings({ promptAutocomplete });
-								}}
-							/>
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			{#if richTextInput}
-				<div>
-					<div class=" py-0.5 flex w-full justify-between">
-						<div id="show-formatting-toolbar-label" class=" self-center text-xs">
-							{$i18n.t('Show Formatting Toolbar')}
-						</div>
-
-						<div class="flex items-center gap-2 p-1">
-							<Switch
-								ariaLabelledbyId="show-formatting-toolbar-label"
-								tooltip={true}
-								bind:state={showFormattingToolbar}
-								on:change={() => {
-									saveSettings({ showFormattingToolbar });
-								}}
-							/>
-						</div>
-					</div>
-				</div>
-
-				<div>
-					<div class=" py-0.5 flex w-full justify-between">
-						<div id="insert-prompt-as-rich-text-label" class=" self-center text-xs">
-							{$i18n.t('Insert Prompt as Rich Text')}
-						</div>
-
-						<div class="flex items-center gap-2 p-1">
-							<Switch
-								ariaLabelledbyId="insert-prompt-as-rich-text-label"
-								tooltip={true}
-								bind:state={insertPromptAsRichText}
-								on:change={() => {
-									saveSettings({ insertPromptAsRichText });
-								}}
-							/>
-						</div>
-					</div>
-				</div>
-			{/if}
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="paste-large-label" class=" self-center text-xs">
-						{$i18n.t('Paste Large Text as File')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							tooltip={true}
-							ariaLabelledbyId="paste-large-label"
-							bind:state={largeTextAsFile}
-							on:change={() => {
-								saveSettings({ largeTextAsFile });
-							}}
-						/>
-					</div>
 				</div>
 			</div>
 
@@ -1243,7 +624,7 @@
 			<div>
 				<div class=" py-0.5 flex w-full justify-between">
 					<div id="iframe-sandbox-allow-same-origin-label" class=" self-center text-xs">
-						{$i18n.t('iframe Sandbox Allow Same Origin')}
+						{$i18n.t('Allow Same-Origin in Embedded iframes')}
 					</div>
 
 					<div class="flex items-center gap-2 p-1">
@@ -1251,18 +632,21 @@
 							ariaLabelledbyId="iframe-sandbox-allow-same-origin-label"
 							tooltip={true}
 							bind:state={iframeSandboxAllowSameOrigin}
-							on:change={() => {
-								saveSettings({ iframeSandboxAllowSameOrigin });
-							}}
+							on:change={handleIframeAllowSameOriginChange}
 						/>
 					</div>
+				</div>
+				<div class="text-[11px] text-amber-700 dark:text-amber-300">
+					{$i18n.t(
+						'Risk-sensitive: relaxing iframe sandbox can expose embedded content to your session context. Keep OFF unless intentionally required.'
+					)}
 				</div>
 			</div>
 
 			<div>
 				<div class=" py-0.5 flex w-full justify-between">
 					<div id="iframe-sandbox-allow-forms-label" class=" self-center text-xs">
-						{$i18n.t('iframe Sandbox Allow Forms')}
+						{$i18n.t('Allow Forms in Embedded iframes')}
 					</div>
 
 					<div class="flex items-center gap-2 p-1">
@@ -1270,51 +654,14 @@
 							ariaLabelledbyId="iframe-sandbox-allow-forms-label"
 							tooltip={true}
 							bind:state={iframeSandboxAllowForms}
-							on:change={() => {
-								saveSettings({ iframeSandboxAllowForms });
-							}}
+							on:change={handleIframeAllowFormsChange}
 						/>
 					</div>
 				</div>
-			</div>
-
-			<div class=" my-2 text-sm font-medium">{$i18n.t('Voice')}</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div class=" self-center text-xs" id="allow-voice-interruption-in-call-label">
-						{$i18n.t('Allow Voice Interruption in Call')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="allow-voice-interruption-in-call-label"
-							tooltip={true}
-							bind:state={voiceInterruption}
-							on:change={() => {
-								saveSettings({ voiceInterruption });
-							}}
-						/>
-					</div>
-				</div>
-			</div>
-
-			<div>
-				<div class=" py-0.5 flex w-full justify-between">
-					<div id="display-emoji-label" class=" self-center text-xs">
-						{$i18n.t('Display Emoji in Call')}
-					</div>
-
-					<div class="flex items-center gap-2 p-1">
-						<Switch
-							ariaLabelledbyId="display-emoji-label"
-							tooltip={true}
-							bind:state={showEmojiInCall}
-							on:change={() => {
-								saveSettings({ showEmojiInCall });
-							}}
-						/>
-					</div>
+				<div class="text-[11px] text-amber-700 dark:text-amber-300">
+					{$i18n.t(
+						'Risk-sensitive: only enable for trusted workflows that require form submissions inside embedded content.'
+					)}
 				</div>
 			</div>
 

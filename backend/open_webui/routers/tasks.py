@@ -86,74 +86,86 @@ async def get_task_config(request: Request, user=Depends(get_verified_user)):
 
 
 class TaskConfigForm(BaseModel):
-    TASK_MODEL: Optional[str]
-    TASK_MODEL_EXTERNAL: Optional[str]
-    ENABLE_TITLE_GENERATION: bool
-    TITLE_GENERATION_PROMPT_TEMPLATE: str
-    IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE: str
-    ENABLE_AUTOCOMPLETE_GENERATION: bool
-    AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH: int
-    TAGS_GENERATION_PROMPT_TEMPLATE: str
-    FOLLOW_UP_GENERATION_PROMPT_TEMPLATE: str
-    ENABLE_FOLLOW_UP_GENERATION: bool
-    ENABLE_TAGS_GENERATION: bool
-    ENABLE_SEARCH_QUERY_GENERATION: bool
-    ENABLE_RETRIEVAL_QUERY_GENERATION: bool
-    QUERY_GENERATION_PROMPT_TEMPLATE: str
-    TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE: str
-    VOICE_MODE_PROMPT_TEMPLATE: Optional[str]
+    TASK_MODEL: Optional[str] = None
+    TASK_MODEL_EXTERNAL: Optional[str] = None
+    ENABLE_TITLE_GENERATION: Optional[bool] = None
+    TITLE_GENERATION_PROMPT_TEMPLATE: Optional[str] = None
+    IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE: Optional[str] = None
+    ENABLE_AUTOCOMPLETE_GENERATION: Optional[bool] = None
+    AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH: Optional[int] = None
+    TAGS_GENERATION_PROMPT_TEMPLATE: Optional[str] = None
+    FOLLOW_UP_GENERATION_PROMPT_TEMPLATE: Optional[str] = None
+    ENABLE_FOLLOW_UP_GENERATION: Optional[bool] = None
+    ENABLE_TAGS_GENERATION: Optional[bool] = None
+    ENABLE_SEARCH_QUERY_GENERATION: Optional[bool] = None
+    ENABLE_RETRIEVAL_QUERY_GENERATION: Optional[bool] = None
+    QUERY_GENERATION_PROMPT_TEMPLATE: Optional[str] = None
+    TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE: Optional[str] = None
+    VOICE_MODE_PROMPT_TEMPLATE: Optional[str] = None
 
 
 @router.post("/config/update")
 async def update_task_config(
     request: Request, form_data: TaskConfigForm, user=Depends(get_admin_user)
 ):
-    request.app.state.config.TASK_MODEL = form_data.TASK_MODEL
-    request.app.state.config.TASK_MODEL_EXTERNAL = form_data.TASK_MODEL_EXTERNAL
-    request.app.state.config.ENABLE_TITLE_GENERATION = form_data.ENABLE_TITLE_GENERATION
-    request.app.state.config.TITLE_GENERATION_PROMPT_TEMPLATE = (
-        form_data.TITLE_GENERATION_PROMPT_TEMPLATE
-    )
+    payload = form_data.model_dump(exclude_none=True)
 
-    request.app.state.config.ENABLE_FOLLOW_UP_GENERATION = (
-        form_data.ENABLE_FOLLOW_UP_GENERATION
-    )
-    request.app.state.config.FOLLOW_UP_GENERATION_PROMPT_TEMPLATE = (
-        form_data.FOLLOW_UP_GENERATION_PROMPT_TEMPLATE
-    )
-
-    request.app.state.config.IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE = (
-        form_data.IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE
-    )
-
-    request.app.state.config.ENABLE_AUTOCOMPLETE_GENERATION = (
-        form_data.ENABLE_AUTOCOMPLETE_GENERATION
-    )
-    request.app.state.config.AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH = (
-        form_data.AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH
-    )
-
-    request.app.state.config.TAGS_GENERATION_PROMPT_TEMPLATE = (
-        form_data.TAGS_GENERATION_PROMPT_TEMPLATE
-    )
-    request.app.state.config.ENABLE_TAGS_GENERATION = form_data.ENABLE_TAGS_GENERATION
-    request.app.state.config.ENABLE_SEARCH_QUERY_GENERATION = (
-        form_data.ENABLE_SEARCH_QUERY_GENERATION
-    )
-    request.app.state.config.ENABLE_RETRIEVAL_QUERY_GENERATION = (
-        form_data.ENABLE_RETRIEVAL_QUERY_GENERATION
-    )
-
-    request.app.state.config.QUERY_GENERATION_PROMPT_TEMPLATE = (
-        form_data.QUERY_GENERATION_PROMPT_TEMPLATE
-    )
-    request.app.state.config.TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE = (
-        form_data.TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE
-    )
-
-    request.app.state.config.VOICE_MODE_PROMPT_TEMPLATE = (
-        form_data.VOICE_MODE_PROMPT_TEMPLATE
-    )
+    if "TASK_MODEL" in payload:
+        request.app.state.config.TASK_MODEL = payload["TASK_MODEL"]
+    if "TASK_MODEL_EXTERNAL" in payload:
+        request.app.state.config.TASK_MODEL_EXTERNAL = payload["TASK_MODEL_EXTERNAL"]
+    if "ENABLE_TITLE_GENERATION" in payload:
+        request.app.state.config.ENABLE_TITLE_GENERATION = payload["ENABLE_TITLE_GENERATION"]
+    if "TITLE_GENERATION_PROMPT_TEMPLATE" in payload:
+        request.app.state.config.TITLE_GENERATION_PROMPT_TEMPLATE = payload[
+            "TITLE_GENERATION_PROMPT_TEMPLATE"
+        ]
+    if "ENABLE_FOLLOW_UP_GENERATION" in payload:
+        request.app.state.config.ENABLE_FOLLOW_UP_GENERATION = payload[
+            "ENABLE_FOLLOW_UP_GENERATION"
+        ]
+    if "FOLLOW_UP_GENERATION_PROMPT_TEMPLATE" in payload:
+        request.app.state.config.FOLLOW_UP_GENERATION_PROMPT_TEMPLATE = payload[
+            "FOLLOW_UP_GENERATION_PROMPT_TEMPLATE"
+        ]
+    if "IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE" in payload:
+        request.app.state.config.IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE = payload[
+            "IMAGE_PROMPT_GENERATION_PROMPT_TEMPLATE"
+        ]
+    if "ENABLE_AUTOCOMPLETE_GENERATION" in payload:
+        request.app.state.config.ENABLE_AUTOCOMPLETE_GENERATION = payload[
+            "ENABLE_AUTOCOMPLETE_GENERATION"
+        ]
+    if "AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH" in payload:
+        request.app.state.config.AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH = payload[
+            "AUTOCOMPLETE_GENERATION_INPUT_MAX_LENGTH"
+        ]
+    if "TAGS_GENERATION_PROMPT_TEMPLATE" in payload:
+        request.app.state.config.TAGS_GENERATION_PROMPT_TEMPLATE = payload[
+            "TAGS_GENERATION_PROMPT_TEMPLATE"
+        ]
+    if "ENABLE_TAGS_GENERATION" in payload:
+        request.app.state.config.ENABLE_TAGS_GENERATION = payload["ENABLE_TAGS_GENERATION"]
+    if "ENABLE_SEARCH_QUERY_GENERATION" in payload:
+        request.app.state.config.ENABLE_SEARCH_QUERY_GENERATION = payload[
+            "ENABLE_SEARCH_QUERY_GENERATION"
+        ]
+    if "ENABLE_RETRIEVAL_QUERY_GENERATION" in payload:
+        request.app.state.config.ENABLE_RETRIEVAL_QUERY_GENERATION = payload[
+            "ENABLE_RETRIEVAL_QUERY_GENERATION"
+        ]
+    if "QUERY_GENERATION_PROMPT_TEMPLATE" in payload:
+        request.app.state.config.QUERY_GENERATION_PROMPT_TEMPLATE = payload[
+            "QUERY_GENERATION_PROMPT_TEMPLATE"
+        ]
+    if "TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE" in payload:
+        request.app.state.config.TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE = payload[
+            "TOOLS_FUNCTION_CALLING_PROMPT_TEMPLATE"
+        ]
+    if "VOICE_MODE_PROMPT_TEMPLATE" in payload:
+        request.app.state.config.VOICE_MODE_PROMPT_TEMPLATE = payload[
+            "VOICE_MODE_PROMPT_TEMPLATE"
+        ]
 
     return {
         "TASK_MODEL": request.app.state.config.TASK_MODEL,

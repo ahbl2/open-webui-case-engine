@@ -1895,16 +1895,49 @@ export interface TimelineEntry {
 	text_original: string;
 	text_cleaned: string | null;
 	deleted_at: string | null;
+	/** Number of prior-state version snapshots. 0 = never edited; N = edited N times (current = vN+1). */
+	version_count?: number;
 }
 
-/** List all non-deleted official timeline entries for a case, ordered by occurred_at ASC. */
-export async function listCaseTimelineEntries(caseId: string, token: string): Promise<TimelineEntry[]> {
-	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries`, {
+/**
+ * List official timeline entries for a case, ordered by occurred_at ASC.
+ * By default returns only non-deleted entries.
+ * When options.includeDeleted is true AND the authenticated user is ADMIN,
+ * the backend also returns soft-deleted entries (with deleted_at populated).
+ * Non-ADMIN requests ignore includeDeleted and always receive active-only entries.
+ */
+export async function listCaseTimelineEntries(
+	caseId: string,
+	token: string,
+	options?: { includeDeleted?: boolean }
+): Promise<TimelineEntry[]> {
+	const qs = options?.includeDeleted ? '?includeDeleted=true' : '';
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries${qs}`, {
 		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to load timeline (${res.status})`);
 	return data as TimelineEntry[];
+}
+
+/**
+ * P28-35: Soft-delete a timeline entry.
+ * Endpoint: DELETE /entries/:entryId  (not case-scoped in the URL)
+ * Available to any authenticated user with mutate access to the entry's case.
+ * Returns 204 No Content. The entry is NOT permanently deleted — an ADMIN can restore it.
+ * The action is audited as ENTRY_DELETE_SOFT.
+ */
+export async function softDeleteTimelineEntry(entryId: string, token: string): Promise<void> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/entries/${entryId}`, {
+		method: 'DELETE',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error(
+			(data as { error?: string })?.error ?? `Soft-delete failed (${res.status})`
+		);
+	}
 }
 
 export async function restoreTimelineEntry(caseId: string, entryId: string, token: string): Promise<Record<string, unknown>> {
@@ -1915,6 +1948,219 @@ export async function restoreTimelineEntry(caseId: string, entryId: string, toke
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Restore failed (${res.status})`);
 	return data;
+}
+
+/** P28-33: Prior-state snapshot for a timeline entry version. */
+export interface TimelineEntryVersion {
+	id: string;
+	entry_id: string;
+	case_id: string;
+	version_number: number;
+	prior_occurred_at: string;
+	prior_type: string;
+	prior_text_original: string;
+	prior_text_cleaned: string | null;
+	prior_location_text: string | null;
+	prior_tags: string | null;
+	changed_by: string;
+	changed_at: string;
+	change_reason: string;
+}
+
+/**
+ * P28-33: Lazy-fetch prior-version history for a single timeline entry.
+ * Endpoint: GET /cases/:caseId/entries/:entryId/versions
+ * Returns versions ordered by version_number DESC (newest capture first).
+ * The current entry state is NOT included — only prior-state snapshots.
+ */
+export async function listTimelineEntryVersions(
+	caseId: string,
+	entryId: string,
+	token: string
+): Promise<TimelineEntryVersion[]> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries/${entryId}/versions`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to load version history (${res.status})`
+		);
+	}
+	return data as TimelineEntryVersion[];
+}
+
+/**
+ * P28-34: Update an existing timeline entry with mandatory version capture.
+ * Endpoint: PUT /cases/:caseId/entries/:entryId
+ * - change_reason is required (enforced by both UI and backend)
+ * - Backend atomically captures the prior state before applying the update
+ * - Response is the updated timeline_entries row (does NOT include computed version_count)
+ * - Caller is responsible for locally incrementing version_count after a successful save
+ */
+export async function updateCaseTimelineEntry(
+	caseId: string,
+	entryId: string,
+	token: string,
+	payload: {
+		text_original?: string;
+		type?: string;
+		occurred_at?: string;
+		location_text?: string | null;
+		change_reason: string;
+	}
+): Promise<Partial<TimelineEntry>> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries/${entryId}`,
+		{
+			method: 'PUT',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify(payload)
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(
+			(data as { error?: string })?.error ?? `Update failed (${res.status})`
+		);
+	}
+	return data as Partial<TimelineEntry>;
+}
+
+/**
+ * P28-37: Create a new timeline entry directly in a case.
+ * Endpoint: POST /cases/:caseId/entries
+ *
+ * - occurred_at must be ISO 8601 with timezone (Z or ±HH:MM)
+ * - type and text_original are required
+ * - location_text is optional (pass null or omit to leave blank)
+ * - Available to any user with mutate access to the case (CID/SIU/ADMIN)
+ * - Returns HTTP 201 + the created timeline_entries row
+ * - Note: version_count is not included in the create response (starts at 0 implicitly)
+ */
+export async function createCaseTimelineEntry(
+	caseId: string,
+	token: string,
+	payload: {
+		occurred_at: string;
+		type: string;
+		text_original: string;
+		location_text?: string | null;
+	}
+): Promise<TimelineEntry> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(payload)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(
+			(data as { error?: string })?.error ?? `Create failed (${res.status})`
+		);
+	}
+	return data as TimelineEntry;
+}
+
+// ── Intelligence alerts (P28-40) ─────────────────────────────────────────────
+//
+// The backend produces ENTITY_OVERLAP alerts when a phone number or address
+// extracted from a new timeline entry or file matches the same entity in another
+// active case in the same unit. Alerts are deterministic, deduplicated, evidence-
+// validated, and RBAC-enforced. This is a read surface only — alerts are not
+// created or modified here except via ACK.
+
+export interface IntelligenceCitation {
+	source_kind: 'timeline_entry' | 'file';
+	source_id: string;
+	case_id: string;
+	case_number: string;
+	excerpt: string;
+}
+
+export interface IntelligenceAlertMatch {
+	entity_kind: 'PHONE' | 'ADDRESS';
+	normalized: string;
+	display: string;
+}
+
+export interface IntelligenceAlertExplanation {
+	reason_code: string;
+	match: IntelligenceAlertMatch;
+	source: { case_id: string; citations: IntelligenceCitation[] };
+	target: { case_id: string; citations: IntelligenceCitation[] };
+}
+
+export interface IntelligenceAlert {
+	id: number;
+	status: 'OPEN' | 'ACKED';
+	alert_type: string;
+	unit: string;
+	created_at: string;
+	acked_at: string | null;
+	acked_by: string | null;
+	entity_type: string;
+	normalized_entity: string;
+	source_case_id: string;
+	source_case_number: string;
+	target_case_id: string;
+	target_case_number: string;
+	reason_code: string;
+	explanation_json: IntelligenceAlertExplanation;
+	source_case: { id: string; case_number: string; title: string };
+	target_case: { id: string; case_number: string; title: string };
+	match: IntelligenceAlertMatch;
+	summary: string;
+}
+
+/**
+ * P28-40: List OPEN intelligence alerts involving a specific case.
+ * Endpoint: GET /alerts?caseId=:caseId&status=OPEN
+ *
+ * Returns alerts where the case is either source or target.
+ * Only OPEN alerts are returned — ACKED alerts are excluded.
+ * Evidence is validated server-side; stale alerts are filtered out automatically.
+ */
+export async function listCaseIntelligenceAlerts(
+	caseId: string,
+	token: string
+): Promise<IntelligenceAlert[]> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/alerts?caseId=${encodeURIComponent(caseId)}&status=OPEN&limit=50`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to load alerts (${res.status})`
+		);
+	}
+	return ((data as { alerts?: IntelligenceAlert[] })?.alerts ?? []);
+}
+
+/**
+ * P28-40: Acknowledge an intelligence alert.
+ * Endpoint: POST /alerts/:id/ack
+ *
+ * Transitions the alert from OPEN to ACKED. Audited server-side.
+ * Returns the updated alert object.
+ */
+export async function ackIntelligenceAlert(
+	alertId: number,
+	token: string
+): Promise<IntelligenceAlert> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/alerts/${alertId}/ack`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(
+			(data as { error?: string })?.error ?? `Acknowledge failed (${res.status})`
+		);
+	}
+	return data as IntelligenceAlert;
 }
 
 export async function restoreCaseFile(caseId: string, fileId: string, token: string): Promise<Record<string, unknown>> {
@@ -3606,10 +3852,24 @@ export interface NotebookNote {
 	current_text: string;
 	created_at: string;
 	created_by: string;
+	created_by_name?: string | null;
 	updated_at: string;
 	updated_by: string;
+	updated_by_name?: string | null;
 	deleted_at: string | null;
 	deleted_by: string | null;
+}
+
+export interface NotebookNoteVersion {
+	id: number;
+	note_id: number;
+	case_id: string;
+	version_number: number;
+	text_content: string;
+	title: string | null;
+	created_at: string;
+	created_by: string;
+	created_by_name?: string | null;
 }
 
 /** List the current user's notebook notes for a case (owner-scoped by backend). */
@@ -3620,6 +3880,22 @@ export async function listCaseNotebookNotes(caseId: string, token: string): Prom
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to load notes (${res.status})`);
 	return data as NotebookNote[];
+}
+
+/** List saved notebook note versions (newest first). */
+export async function listCaseNotebookNoteVersions(
+	caseId: string,
+	noteId: number,
+	token: string
+): Promise<NotebookNoteVersion[]> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/${noteId}/versions`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to load note history (${res.status})`);
+	}
+	return data as NotebookNoteVersion[];
 }
 
 /** Create a new notebook note. Returns the created note. */
@@ -3677,4 +3953,21 @@ export async function deleteCaseNotebookNote(
 		const data = await res.json().catch(() => ({}));
 		throw new Error((data as { error?: string })?.error ?? `Failed to delete note (${res.status})`);
 	}
+}
+
+/** Restore a soft-deleted notebook note. Returns the restored note row. */
+export async function restoreCaseNotebookNote(
+	caseId: string,
+	noteId: number,
+	token: string
+): Promise<NotebookNote> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/${noteId}/restore`, {
+		method: 'POST',
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to restore note (${res.status})`);
+	}
+	return data as NotebookNote;
 }

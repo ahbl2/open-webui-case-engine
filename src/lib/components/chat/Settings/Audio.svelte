@@ -15,7 +15,6 @@
 	export let saveSettings: Function;
 
 	// Audio
-	let conversationMode = false;
 	let speechAutoSend = false;
 	let responseAutoPlayback = false;
 	let nonLocalVoices = false;
@@ -84,7 +83,6 @@
 
 	onMount(async () => {
 		playbackRate = $settings.audio?.tts?.playbackRate ?? 1;
-		conversationMode = $settings.conversationMode ?? false;
 		speechAutoSend = $settings.speechAutoSend ?? false;
 		responseAutoPlayback = $settings.responseAutoPlayback ?? false;
 

@@ -1,5 +1,6 @@
 import { sveltekit } from '@sveltejs/kit/vite';
 import { defineConfig, loadEnv } from 'vite';
+import fs from 'node:fs';
 
 import { viteStaticCopy } from 'vite-plugin-static-copy';
 
@@ -10,6 +11,19 @@ export default defineConfig(({ mode }) => {
 	const owuiBackendPort = env.PUBLIC_WEBUI_BACKEND_PORT || env.WEBUI_BACKEND_PORT || '8080';
 	const owuiBackendTarget = `http://127.0.0.1:${owuiBackendPort}`;
 	const caseEngineTarget = 'http://127.0.0.1:3010';
+	const devHttpsKeyPath = env.DEV_HTTPS_KEY_FILE?.trim();
+	const devHttpsCertPath = env.DEV_HTTPS_CERT_FILE?.trim();
+
+	const devHttps =
+		devHttpsKeyPath &&
+		devHttpsCertPath &&
+		fs.existsSync(devHttpsKeyPath) &&
+		fs.existsSync(devHttpsCertPath)
+			? {
+					key: fs.readFileSync(devHttpsKeyPath),
+					cert: fs.readFileSync(devHttpsCertPath)
+				}
+			: undefined;
 
 	return {
 		plugins: [
@@ -23,6 +37,10 @@ export default defineConfig(({ mode }) => {
 						console.log('    Case Engine:     ', caseEngineTarget);
 						console.log('    WebUI backend:   ', owuiBackendTarget);
 						console.log('    WebSocket /ws:   ', owuiBackendTarget);
+						console.log(
+							'    Frontend scheme: ',
+							devHttps ? 'https (DEV_HTTPS_KEY_FILE/DEV_HTTPS_CERT_FILE)' : 'http'
+						);
 						console.log('');
 					});
 				}
@@ -45,6 +63,7 @@ export default defineConfig(({ mode }) => {
 			host: true,
 			port: 3001,
 			strictPort: true,
+			https: devHttps,
 			proxy: {
 				'/case-api': {
 					target: caseEngineTarget,

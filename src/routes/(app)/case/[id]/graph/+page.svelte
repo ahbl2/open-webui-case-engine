@@ -21,6 +21,10 @@
 	let selectedNode: GraphNode | null = null;
 	let selectedEdge: GraphEdge | null = null;
 
+	// In-flight guard: prevents a slow stale response from overwriting fresh data
+	// or dismissing the loading spinner for a concurrent newer load (P28-44).
+	let activeGraphLoadId = 0;
+
 	const TYPE_LABELS: Record<string, string> = {
 		person: 'Person',
 		phone: 'Phone',
@@ -58,17 +62,22 @@
 	}
 
 	async function loadGraph(): Promise<void> {
+		activeGraphLoadId += 1;
+		const loadId = activeGraphLoadId;
 		loading = true;
 		error = '';
 		selectedNode = null;
 		selectedEdge = null;
 		try {
-			data = await getCaseGraph(caseId, $caseEngineToken!);
+			const result = await getCaseGraph(caseId, $caseEngineToken!);
+			if (loadId !== activeGraphLoadId) return;
+			data = result;
 		} catch (err) {
+			if (loadId !== activeGraphLoadId) return;
 			error = err instanceof Error ? err.message : 'Graph data could not be loaded.';
 			data = null;
 		} finally {
-			loading = false;
+			if (loadId === activeGraphLoadId) loading = false;
 		}
 	}
 

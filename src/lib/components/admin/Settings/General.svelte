@@ -2,7 +2,7 @@
 	import DOMPurify from 'dompurify';
 	import { v4 as uuidv4 } from 'uuid';
 
-	import { getBackendConfig, getWebhookUrl, updateWebhookUrl } from '$lib/apis';
+	import { getBackendConfig } from '$lib/apis';
 	import {
 		getAdminConfig,
 		getLdapConfig,
@@ -12,7 +12,10 @@
 		updateLdapServer
 	} from '$lib/apis/auths';
 	import { getBanners, setBanners } from '$lib/apis/configs';
-	import { getGroups } from '$lib/apis/groups';
+	import {
+		mapAdminGeneralGovernedConfig,
+		pickAdminGeneralGovernedConfig
+	} from '$lib/constants/settingsGovernance';
 	import SensitiveInput from '$lib/components/common/SensitiveInput.svelte';
 	import Switch from '$lib/components/common/Switch.svelte';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -29,8 +32,6 @@
 	export let saveHandler: Function;
 
 	let adminConfig = null;
-	let webhookUrl = '';
-	let groups = [];
 
 	let banners: Banner[] = [];
 
@@ -66,9 +67,12 @@
 		_banners.set(await setBanners(localStorage.token, banners));
 	};
 
+	const buildGovernedAdminPayload = () => {
+		return pickAdminGeneralGovernedConfig(adminConfig);
+	};
+
 	const updateHandler = async () => {
-		webhookUrl = await updateWebhookUrl(localStorage.token, webhookUrl);
-		const res = await updateAdminConfig(localStorage.token, adminConfig);
+		const res = await updateAdminConfig(localStorage.token, buildGovernedAdminPayload());
 		await updateLdapConfig(localStorage.token, ENABLE_LDAP);
 		await updateLdapServerHandler();
 
@@ -86,17 +90,10 @@
 	onMount(async () => {
 		await Promise.all([
 			(async () => {
-				adminConfig = await getAdminConfig(localStorage.token);
-			})(),
-
-			(async () => {
-				webhookUrl = await getWebhookUrl(localStorage.token);
+				adminConfig = mapAdminGeneralGovernedConfig(await getAdminConfig(localStorage.token));
 			})(),
 			(async () => {
 				LDAP_SERVER = await getLdapServer(localStorage.token);
-			})(),
-			(async () => {
-				groups = await getGroups(localStorage.token);
 			})()
 		]);
 
@@ -140,52 +137,6 @@
 						<div class="flex w-full justify-between items-center">
 							<div class="text-xs pr-2">
 								<div class="">
-									{$i18n.t('Help')}
-								</div>
-								<div class=" text-xs text-gray-500">
-									{$i18n.t('Discover how to use Open WebUI and seek support from the community.')}
-								</div>
-							</div>
-
-							<a
-								class="flex-shrink-0 text-xs font-medium underline"
-								href="https://docs.openwebui.com/"
-								target="_blank"
-							>
-								{$i18n.t('Documentation')}
-							</a>
-						</div>
-
-						<div class="mt-1">
-							<div class="flex space-x-1">
-								<a href="https://discord.gg/5rJgQTnV4s" target="_blank">
-									<img
-										alt="Discord"
-										src="https://img.shields.io/badge/Discord-Open_WebUI-blue?logo=discord&logoColor=white"
-									/>
-								</a>
-
-								<a href="https://twitter.com/OpenWebUI" target="_blank">
-									<img
-										alt="X (formerly Twitter) Follow"
-										src="https://img.shields.io/twitter/follow/OpenWebUI"
-									/>
-								</a>
-
-								<a href="https://github.com/open-webui/open-webui" target="_blank">
-									<img
-										alt="Github Repo"
-										src="https://img.shields.io/github/stars/open-webui/open-webui?style=social&label=Star us on Github"
-									/>
-								</a>
-							</div>
-						</div>
-					</div>
-
-					<div class="mb-2.5">
-						<div class="flex w-full justify-between items-center">
-							<div class="text-xs pr-2">
-								<div class="">
 									{$i18n.t('License')}
 								</div>
 
@@ -213,18 +164,6 @@
 											{@html DOMPurify.sanitize($config?.license_metadata?.html)}
 										</div>
 									{/if}
-								{:else}
-									<a
-										class=" text-xs hover:underline"
-										href="https://docs.openwebui.com/enterprise"
-										target="_blank"
-									>
-										<span class="text-gray-500">
-											{$i18n.t(
-												'Upgrade to a licensed plan for enhanced capabilities, including custom theming and branding, and dedicated support.'
-											)}
-										</span>
-									</a>
 								{/if}
 							</div>
 
@@ -253,22 +192,6 @@
 								<option value="pending">{$i18n.t('pending')}</option>
 								<option value="user">{$i18n.t('user')}</option>
 								<option value="admin">{$i18n.t('admin')}</option>
-							</select>
-						</div>
-					</div>
-
-					<div class="  mb-2.5 flex w-full justify-between">
-						<div class=" self-center text-xs font-medium">{$i18n.t('Default Group')}</div>
-						<div class="flex items-center relative">
-							<select
-								class="w-fit pr-8 rounded-sm px-2 text-xs bg-transparent outline-hidden text-right"
-								bind:value={adminConfig.DEFAULT_GROUP_ID}
-								placeholder={$i18n.t('Select a group')}
-							>
-								<option value={''}>None</option>
-								{#each groups as group}
-									<option value={group.id}>{group.name}</option>
-								{/each}
 							</select>
 						</div>
 					</div>
@@ -622,144 +545,6 @@
 									</div>
 								</div>
 							{/if}
-						</div>
-					</div>
-				</div>
-
-				<div class="mb-3">
-					<div class=" mt-0.5 mb-2.5 text-base font-medium">{$i18n.t('Features')}</div>
-
-					<hr class=" border-gray-100/30 dark:border-gray-850/30 my-2" />
-
-					<div class="mb-2.5 flex w-full items-center justify-between pr-2">
-						<div class=" self-center text-xs font-medium">
-							{$i18n.t('Enable Community Sharing')}
-						</div>
-
-						<Switch bind:state={adminConfig.ENABLE_COMMUNITY_SHARING} />
-					</div>
-
-					<div class="mb-2.5 flex w-full items-center justify-between pr-2">
-						<div class=" self-center text-xs font-medium">{$i18n.t('Enable Message Rating')}</div>
-
-						<Switch bind:state={adminConfig.ENABLE_MESSAGE_RATING} />
-					</div>
-
-					<div class="mb-2.5 flex w-full items-center justify-between pr-2">
-						<div class=" self-center text-xs font-medium">
-							{$i18n.t('Folders')}
-						</div>
-
-						<Switch bind:state={adminConfig.ENABLE_FOLDERS} />
-					</div>
-
-					{#if adminConfig.ENABLE_FOLDERS}
-						<div class="mb-2.5 w-full justify-between">
-							<div class="flex w-full justify-between">
-								<div class=" self-center text-xs font-medium">
-									{$i18n.t('Folder Max File Count')}
-								</div>
-							</div>
-
-							<div class="flex mt-2 space-x-2">
-								<input
-									class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
-									type="number"
-									min="0"
-									placeholder={$i18n.t('Leave empty for unlimited')}
-									bind:value={adminConfig.FOLDER_MAX_FILE_COUNT}
-								/>
-							</div>
-
-							<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
-								{$i18n.t('Maximum number of files allowed per folder.')}
-							</div>
-						</div>
-					{/if}
-
-					<div class="mb-2.5 flex w-full items-center justify-between pr-2">
-						<div class=" self-center text-xs font-medium">
-							{$i18n.t('Notes')} ({$i18n.t('Beta')})
-						</div>
-
-						<Switch bind:state={adminConfig.ENABLE_NOTES} />
-					</div>
-
-					<div class="mb-2.5 flex w-full items-center justify-between pr-2">
-						<div class=" self-center text-xs font-medium">
-							{$i18n.t('Channels')} ({$i18n.t('Beta')})
-						</div>
-
-						<Switch bind:state={adminConfig.ENABLE_CHANNELS} />
-					</div>
-
-					<div class="mb-2.5 flex w-full items-center justify-between pr-2">
-						<div class=" self-center text-xs font-medium">
-							{$i18n.t('Memories')} ({$i18n.t('Beta')})
-						</div>
-
-						<Switch bind:state={adminConfig.ENABLE_MEMORIES} />
-					</div>
-
-					<div class="mb-2.5 flex w-full items-center justify-between pr-2">
-						<div class=" self-center text-xs font-medium">
-							{$i18n.t('User Webhooks')}
-						</div>
-
-						<Switch bind:state={adminConfig.ENABLE_USER_WEBHOOKS} />
-					</div>
-
-					<div class="mb-2.5 flex w-full items-center justify-between pr-2">
-						<div class=" self-center text-xs font-medium">
-							{$i18n.t('User Status')}
-						</div>
-
-						<Switch bind:state={adminConfig.ENABLE_USER_STATUS} />
-					</div>
-
-					<div class="mb-2.5">
-						<div class=" self-center text-xs font-medium mb-2">
-							{$i18n.t('Response Watermark')}
-						</div>
-						<Textarea
-							placeholder={$i18n.t('Enter a watermark for the response. Leave empty for none.')}
-							bind:value={adminConfig.RESPONSE_WATERMARK}
-						/>
-					</div>
-
-					<div class="mb-2.5 w-full justify-between">
-						<div class="flex w-full justify-between">
-							<div class=" self-center text-xs font-medium">{$i18n.t('WebUI URL')}</div>
-						</div>
-
-						<div class="flex mt-2 space-x-2">
-							<input
-								class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
-								type="text"
-								placeholder={`e.g.) "https://example.com"`}
-								bind:value={adminConfig.WEBUI_URL}
-							/>
-						</div>
-
-						<div class="mt-2 text-xs text-gray-400 dark:text-gray-500">
-							{$i18n.t(
-								'Enter the public URL of your WebUI. This URL will be used to generate links in the notifications.'
-							)}
-						</div>
-					</div>
-
-					<div class=" w-full justify-between">
-						<div class="flex w-full justify-between">
-							<div class=" self-center text-xs font-medium">{$i18n.t('Webhook URL')}</div>
-						</div>
-
-						<div class="flex mt-2 space-x-2">
-							<input
-								class="w-full rounded-lg py-2 px-4 text-sm bg-gray-50 dark:text-gray-300 dark:bg-gray-850 outline-hidden"
-								type="text"
-								placeholder={`https://example.com/webhook`}
-								bind:value={webhookUrl}
-							/>
 						</div>
 					</div>
 				</div>

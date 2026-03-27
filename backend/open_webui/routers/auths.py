@@ -1012,25 +1012,25 @@ async def get_admin_config(request: Request, user=Depends(get_admin_user)):
 
 
 class AdminConfig(BaseModel):
-    SHOW_ADMIN_DETAILS: bool
+    SHOW_ADMIN_DETAILS: Optional[bool] = None
     ADMIN_EMAIL: Optional[str] = None
-    WEBUI_URL: str
-    ENABLE_SIGNUP: bool
-    ENABLE_API_KEYS: bool
-    ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS: bool
-    API_KEYS_ALLOWED_ENDPOINTS: str
-    DEFAULT_USER_ROLE: str
-    DEFAULT_GROUP_ID: str
-    JWT_EXPIRES_IN: str
-    ENABLE_COMMUNITY_SHARING: bool
-    ENABLE_MESSAGE_RATING: bool
-    ENABLE_FOLDERS: bool
+    WEBUI_URL: Optional[str] = None
+    ENABLE_SIGNUP: Optional[bool] = None
+    ENABLE_API_KEYS: Optional[bool] = None
+    ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS: Optional[bool] = None
+    API_KEYS_ALLOWED_ENDPOINTS: Optional[str] = None
+    DEFAULT_USER_ROLE: Optional[str] = None
+    DEFAULT_GROUP_ID: Optional[str] = None
+    JWT_EXPIRES_IN: Optional[str] = None
+    ENABLE_COMMUNITY_SHARING: Optional[bool] = None
+    ENABLE_MESSAGE_RATING: Optional[bool] = None
+    ENABLE_FOLDERS: Optional[bool] = None
     FOLDER_MAX_FILE_COUNT: Optional[int | str] = None
-    ENABLE_CHANNELS: bool
-    ENABLE_MEMORIES: bool
-    ENABLE_NOTES: bool
-    ENABLE_USER_WEBHOOKS: bool
-    ENABLE_USER_STATUS: bool
+    ENABLE_CHANNELS: Optional[bool] = None
+    ENABLE_MEMORIES: Optional[bool] = None
+    ENABLE_NOTES: Optional[bool] = None
+    ENABLE_USER_WEBHOOKS: Optional[bool] = None
+    ENABLE_USER_STATUS: Optional[bool] = None
     PENDING_USER_OVERLAY_TITLE: Optional[str] = None
     PENDING_USER_OVERLAY_CONTENT: Optional[str] = None
     RESPONSE_WATERMARK: Optional[str] = None
@@ -1040,54 +1040,80 @@ class AdminConfig(BaseModel):
 async def update_admin_config(
     request: Request, form_data: AdminConfig, user=Depends(get_admin_user)
 ):
-    request.app.state.config.SHOW_ADMIN_DETAILS = form_data.SHOW_ADMIN_DETAILS
-    request.app.state.config.ADMIN_EMAIL = form_data.ADMIN_EMAIL
-    request.app.state.config.WEBUI_URL = form_data.WEBUI_URL
-    request.app.state.config.ENABLE_SIGNUP = form_data.ENABLE_SIGNUP
+    payload = form_data.model_dump(exclude_none=True)
 
-    request.app.state.config.ENABLE_API_KEYS = form_data.ENABLE_API_KEYS
-    request.app.state.config.ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS = (
-        form_data.ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS
-    )
-    request.app.state.config.API_KEYS_ALLOWED_ENDPOINTS = (
-        form_data.API_KEYS_ALLOWED_ENDPOINTS
-    )
+    if "SHOW_ADMIN_DETAILS" in payload:
+        request.app.state.config.SHOW_ADMIN_DETAILS = payload["SHOW_ADMIN_DETAILS"]
+    if "ADMIN_EMAIL" in payload:
+        request.app.state.config.ADMIN_EMAIL = payload["ADMIN_EMAIL"]
+    if "WEBUI_URL" in payload:
+        request.app.state.config.WEBUI_URL = payload["WEBUI_URL"]
+    if "ENABLE_SIGNUP" in payload:
+        request.app.state.config.ENABLE_SIGNUP = payload["ENABLE_SIGNUP"]
 
-    request.app.state.config.ENABLE_FOLDERS = form_data.ENABLE_FOLDERS
-    request.app.state.config.FOLDER_MAX_FILE_COUNT = (
-        int(form_data.FOLDER_MAX_FILE_COUNT) if form_data.FOLDER_MAX_FILE_COUNT else ""
-    )
-    request.app.state.config.ENABLE_CHANNELS = form_data.ENABLE_CHANNELS
-    request.app.state.config.ENABLE_MEMORIES = form_data.ENABLE_MEMORIES
-    request.app.state.config.ENABLE_NOTES = form_data.ENABLE_NOTES
+    if "ENABLE_API_KEYS" in payload:
+        request.app.state.config.ENABLE_API_KEYS = payload["ENABLE_API_KEYS"]
+    if "ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS" in payload:
+        request.app.state.config.ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS = payload[
+            "ENABLE_API_KEYS_ENDPOINT_RESTRICTIONS"
+        ]
+    if "API_KEYS_ALLOWED_ENDPOINTS" in payload:
+        request.app.state.config.API_KEYS_ALLOWED_ENDPOINTS = payload[
+            "API_KEYS_ALLOWED_ENDPOINTS"
+        ]
 
-    if form_data.DEFAULT_USER_ROLE in ["pending", "user", "admin"]:
-        request.app.state.config.DEFAULT_USER_ROLE = form_data.DEFAULT_USER_ROLE
+    if "ENABLE_FOLDERS" in payload:
+        request.app.state.config.ENABLE_FOLDERS = payload["ENABLE_FOLDERS"]
+    if "FOLDER_MAX_FILE_COUNT" in payload:
+        request.app.state.config.FOLDER_MAX_FILE_COUNT = (
+            int(payload["FOLDER_MAX_FILE_COUNT"])
+            if payload["FOLDER_MAX_FILE_COUNT"]
+            else ""
+        )
+    if "ENABLE_CHANNELS" in payload:
+        request.app.state.config.ENABLE_CHANNELS = payload["ENABLE_CHANNELS"]
+    if "ENABLE_MEMORIES" in payload:
+        request.app.state.config.ENABLE_MEMORIES = payload["ENABLE_MEMORIES"]
+    if "ENABLE_NOTES" in payload:
+        request.app.state.config.ENABLE_NOTES = payload["ENABLE_NOTES"]
 
-    request.app.state.config.DEFAULT_GROUP_ID = form_data.DEFAULT_GROUP_ID
+    if (
+        "DEFAULT_USER_ROLE" in payload
+        and payload["DEFAULT_USER_ROLE"] in ["pending", "user", "admin"]
+    ):
+        request.app.state.config.DEFAULT_USER_ROLE = payload["DEFAULT_USER_ROLE"]
 
-    pattern = r"^(-1|0|(-?\d+(\.\d+)?)(ms|s|m|h|d|w))$"
+    if "DEFAULT_GROUP_ID" in payload:
+        request.app.state.config.DEFAULT_GROUP_ID = payload["DEFAULT_GROUP_ID"]
 
-    # Check if the input string matches the pattern
-    if re.match(pattern, form_data.JWT_EXPIRES_IN):
-        request.app.state.config.JWT_EXPIRES_IN = form_data.JWT_EXPIRES_IN
+    if "JWT_EXPIRES_IN" in payload:
+        pattern = r"^(-1|0|(-?\d+(\.\d+)?)(ms|s|m|h|d|w))$"
+        if re.match(pattern, payload["JWT_EXPIRES_IN"]):
+            request.app.state.config.JWT_EXPIRES_IN = payload["JWT_EXPIRES_IN"]
 
-    request.app.state.config.ENABLE_COMMUNITY_SHARING = (
-        form_data.ENABLE_COMMUNITY_SHARING
-    )
-    request.app.state.config.ENABLE_MESSAGE_RATING = form_data.ENABLE_MESSAGE_RATING
+    if "ENABLE_COMMUNITY_SHARING" in payload:
+        request.app.state.config.ENABLE_COMMUNITY_SHARING = payload[
+            "ENABLE_COMMUNITY_SHARING"
+        ]
+    if "ENABLE_MESSAGE_RATING" in payload:
+        request.app.state.config.ENABLE_MESSAGE_RATING = payload["ENABLE_MESSAGE_RATING"]
 
-    request.app.state.config.ENABLE_USER_WEBHOOKS = form_data.ENABLE_USER_WEBHOOKS
-    request.app.state.config.ENABLE_USER_STATUS = form_data.ENABLE_USER_STATUS
+    if "ENABLE_USER_WEBHOOKS" in payload:
+        request.app.state.config.ENABLE_USER_WEBHOOKS = payload["ENABLE_USER_WEBHOOKS"]
+    if "ENABLE_USER_STATUS" in payload:
+        request.app.state.config.ENABLE_USER_STATUS = payload["ENABLE_USER_STATUS"]
 
-    request.app.state.config.PENDING_USER_OVERLAY_TITLE = (
-        form_data.PENDING_USER_OVERLAY_TITLE
-    )
-    request.app.state.config.PENDING_USER_OVERLAY_CONTENT = (
-        form_data.PENDING_USER_OVERLAY_CONTENT
-    )
+    if "PENDING_USER_OVERLAY_TITLE" in payload:
+        request.app.state.config.PENDING_USER_OVERLAY_TITLE = payload[
+            "PENDING_USER_OVERLAY_TITLE"
+        ]
+    if "PENDING_USER_OVERLAY_CONTENT" in payload:
+        request.app.state.config.PENDING_USER_OVERLAY_CONTENT = payload[
+            "PENDING_USER_OVERLAY_CONTENT"
+        ]
 
-    request.app.state.config.RESPONSE_WATERMARK = form_data.RESPONSE_WATERMARK
+    if "RESPONSE_WATERMARK" in payload:
+        request.app.state.config.RESPONSE_WATERMARK = payload["RESPONSE_WATERMARK"]
 
     return {
         "SHOW_ADMIN_DETAILS": request.app.state.config.SHOW_ADMIN_DETAILS,

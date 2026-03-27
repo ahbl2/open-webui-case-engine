@@ -157,6 +157,9 @@
 			clearTimeout(activeLoadGuard);
 			activeLoadGuard = null;
 		}
+		// Reset caseUnit on every new load so a case switch doesn't carry over
+		// the previous case's unit (affects admin THIS_CASE scope resolution).
+		caseUnit = '';
 		loading = true;
 		error = '';
 		activeLoadGuard = setTimeout(() => {
@@ -187,10 +190,14 @@
 				ENTITY_FOCUS_TIMEOUT_MS,
 				'Entity focus request'
 			);
+			// Guard all state writes — a stale in-flight response must not overwrite
+			// results from a newer load triggered by a case/entity/scope change.
+			if (loadId !== activeLoadId) return;
 			profile = p;
 			timeline = t;
 			casesRef = c;
 		} catch (err) {
+			if (loadId !== activeLoadId) return;
 			profile = null;
 			timeline = null;
 			casesRef = null;
@@ -200,7 +207,9 @@
 				clearTimeout(activeLoadGuard);
 				activeLoadGuard = null;
 			}
-			loading = false;
+			// Only dismiss the loading spinner for the current load — a stale
+			// completing load must not hide the spinner for the active load.
+			if (loadId === activeLoadId) loading = false;
 		}
 	}
 
