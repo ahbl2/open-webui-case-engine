@@ -2132,27 +2132,30 @@
 						{@const isOcrRunning = ocrRunningIds.has(att.id)}
 						{@const isOcrExpanded = expandedOcrIds.has(att.id)}
 						{@const ocrEligible = isOcrEligible(att)}
-						{@const attachmentStatusInfo = (() => {
-							if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
-							const extDone = extraction?.status === 'extracted';
-							const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
-							if (extDone && ocrDone) return { label: 'Processed (Extraction + OCR)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-							if (extDone) return { label: 'Processed (Extraction)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-							if (ocrDone) return { label: 'Processed (OCR)', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
-							if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
-							if (extraction?.status === 'unsupported') return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-							if (extraction?.status === 'no_text_found' || ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-							return { label: 'Ready to process', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-						})()}
-						<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
-							<!-- Row 1: file info + explicit status badge + remove -->
-							<div class="flex items-center gap-2 px-2.5 py-1.5">
-								<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
-								<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
-								<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
-								<!-- Explicit processing status badge — always visible, updates immediately -->
-								<span class="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
-								<!-- Remove draft attachment — no confirmation needed for unsaved drafts -->
+					{@const attachmentStatusInfo = (() => {
+						if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
+						const extDone = extraction?.status === 'extracted';
+						const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
+						if (extDone && ocrDone) return { label: 'Processed (Extraction + OCR)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+						if (extDone) return { label: 'Processed (Extraction)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+						if (ocrDone) return { label: 'Processed (OCR)', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
+						if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
+						// Only show Unsupported when OCR is also not an option; image files with
+						// unsupported text extraction still have OCR available.
+						if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+						if (ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+						if (extraction?.status === 'no_text_found' && !ocrEligible) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+						return { label: 'Ready to process', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+					})()}
+					<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
+						<!-- Row 1: file info + explicit status badge + remove -->
+						<div class="flex items-center gap-2 px-2.5 py-1.5">
+							<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
+							<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
+							<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
+							<!-- Explicit processing status badge — always visible, updates immediately -->
+							<span class="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
+							<!-- Remove draft attachment — no confirmation needed for unsaved drafts -->
 								{#if removingAttachmentIds.has(att.id)}
 									<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 italic">Removing…</span>
 								{:else}
@@ -2658,27 +2661,30 @@
 								{@const isOcrRunning = ocrRunningIds.has(att.id)}
 								{@const isOcrExpanded = expandedOcrIds.has(att.id)}
 								{@const ocrEligible = isOcrEligible(att)}
-								{@const attachmentStatusInfo = (() => {
-									if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
-									const extDone = extraction?.status === 'extracted';
-									const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
-									if (extDone && ocrDone) return { label: 'Processed (Extraction + OCR)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-									if (extDone) return { label: 'Processed (Extraction)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-									if (ocrDone) return { label: 'Processed (OCR)', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
-									if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
-									if (extraction?.status === 'unsupported') return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-									if (extraction?.status === 'no_text_found' || ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-									return { label: 'Ready to process', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-								})()}
-								<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
-									<!-- Row 1: file info + explicit status badge + remove -->
-									<div class="flex items-center gap-2 px-2.5 py-1.5">
-										<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
-										<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
-										<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
-										<!-- Explicit processing status badge — always visible, updates immediately -->
-										<span class="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
-										<!-- Remove attachment — confirmation required for saved notes -->
+							{@const attachmentStatusInfo = (() => {
+								if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
+								const extDone = extraction?.status === 'extracted';
+								const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
+								if (extDone && ocrDone) return { label: 'Processed (Extraction + OCR)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+								if (extDone) return { label: 'Processed (Extraction)', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
+								if (ocrDone) return { label: 'Processed (OCR)', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
+								if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
+								// Only show Unsupported when OCR is also not an option; image files with
+								// unsupported text extraction still have OCR available.
+								if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+								if (ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+								if (extraction?.status === 'no_text_found' && !ocrEligible) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+								return { label: 'Ready to process', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+							})()}
+							<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
+								<!-- Row 1: file info + explicit status badge + remove -->
+								<div class="flex items-center gap-2 px-2.5 py-1.5">
+									<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
+									<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
+									<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
+									<!-- Explicit processing status badge — always visible, updates immediately -->
+									<span class="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
+									<!-- Remove attachment — confirmation required for saved notes -->
 										{#if confirmRemoveAttachmentId === att.id}
 											<span class="shrink-0 flex items-center gap-1 text-[11px] text-red-600 dark:text-red-400">
 												Remove?
