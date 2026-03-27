@@ -63,6 +63,13 @@
 	import { caseEngineToken, models, settings, config } from '$lib/stores';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
 	import { WEBUI_BASE_URL } from '$lib/constants';
+	import { DropdownMenu } from 'bits-ui';
+	import { flyAndScale } from '$lib/utils/transitions';
+	import GarbageBin from '$lib/components/icons/GarbageBin.svelte';
+	import DocumentDuplicate from '$lib/components/icons/DocumentDuplicate.svelte';
+	import Download from '$lib/components/icons/Download.svelte';
+	import EllipsisVertical from '$lib/components/icons/EllipsisVertical.svelte';
+	import ClockRotateRight from '$lib/components/icons/ClockRotateRight.svelte';
 	import {
 		listCaseNotebookNotes,
 		listCaseNotebookNoteVersions,
@@ -114,6 +121,8 @@
 	let notes: NotebookNote[] = [];
 	let loading = true;
 	let loadError = '';
+	// P30-19: kebab menu open state for the note view action menu.
+	let noteMenuOpen = false;
 	let showVersionHistory = false;
 	let versionHistoryLoading = false;
 	let versionHistoryError = '';
@@ -2956,55 +2965,95 @@
 								</div>
 							{/if}
 						</div>
-						<div class="shrink-0 flex items-center gap-3 pt-0.5">
-							<button
-								type="button"
-								class="text-xs text-blue-600 dark:text-blue-400 hover:underline transition"
-								on:click={startEdit}
-							>
-								Edit
-							</button>
-							<button
-								type="button"
-								class="text-xs text-blue-600 dark:text-blue-400 hover:underline transition"
-								on:click={openVersionHistory}
-								data-testid="case-note-version-history-action"
-							>
-								Version history
-							</button>
-							<button
-								type="button"
-								class="text-xs text-blue-600 dark:text-blue-400 hover:underline transition"
-								on:click={duplicateSelectedNote}
-								data-testid="case-note-duplicate-action"
-							>
-								Duplicate
-							</button>
-							<button
-								type="button"
-								class="text-xs text-blue-600 dark:text-blue-400 hover:underline transition"
-								on:click={() => exportNoteContent('txt')}
-								data-testid="case-note-export-txt-action"
-							>
-								Export TXT
-							</button>
-							<button
-								type="button"
-								class="text-xs text-blue-600 dark:text-blue-400 hover:underline transition"
-								on:click={() => exportNoteContent('md')}
-								data-testid="case-note-export-md-action"
-							>
-								Export MD
-							</button>
+					<!-- P30-19: Note action bar refactored to Edit + kebab menu.
+					     Replaces 6 inline links with a compact, scalable dropdown. -->
+					<div class="shrink-0 flex items-center gap-1.5 pt-0.5">
+						<!-- Primary action: Edit remains visible -->
 						<button
 							type="button"
-							class="text-xs text-red-500 dark:text-red-400 hover:underline disabled:opacity-50 transition"
-							disabled={deletingId === selectedNote.id}
-							on:click={requestDelete}
+							class="text-xs px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition font-medium"
+							on:click={startEdit}
 						>
-							{deletingId === selectedNote.id ? 'Deleting…' : 'Delete'}
+							Edit
 						</button>
-						</div>
+
+						<!-- Kebab menu: secondary actions -->
+						<DropdownMenu.Root
+							bind:open={noteMenuOpen}
+							onOpenChange={(s) => { noteMenuOpen = s; }}
+						>
+							<DropdownMenu.Trigger>
+								<button
+									type="button"
+									class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+									aria-label="Note actions"
+									title="Note actions"
+								>
+									<EllipsisVertical />
+								</button>
+							</DropdownMenu.Trigger>
+
+							<DropdownMenu.Content
+								class="w-full max-w-[190px] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+								sideOffset={4}
+								side="bottom"
+								align="end"
+								transition={flyAndScale}
+							>
+								<!-- Group 1: note management -->
+								<DropdownMenu.Item
+									class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+									on:click={() => { noteMenuOpen = false; openVersionHistory(); }}
+									data-testid="case-note-version-history-action"
+								>
+									<ClockRotateRight className="w-4 h-4 shrink-0" />
+									<span>Version history</span>
+								</DropdownMenu.Item>
+
+								<DropdownMenu.Item
+									class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+									on:click={() => { noteMenuOpen = false; void duplicateSelectedNote(); }}
+									data-testid="case-note-duplicate-action"
+								>
+									<DocumentDuplicate className="w-4 h-4 shrink-0" />
+									<span>Duplicate</span>
+								</DropdownMenu.Item>
+
+								<hr class="border-gray-100 dark:border-gray-800 my-1" />
+
+								<!-- Group 2: export -->
+								<DropdownMenu.Item
+									class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+									on:click={() => { noteMenuOpen = false; exportNoteContent('txt'); }}
+									data-testid="case-note-export-txt-action"
+								>
+									<Download className="w-4 h-4 shrink-0" />
+									<span>Export TXT</span>
+								</DropdownMenu.Item>
+
+								<DropdownMenu.Item
+									class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+									on:click={() => { noteMenuOpen = false; exportNoteContent('md'); }}
+									data-testid="case-note-export-md-action"
+								>
+									<Download className="w-4 h-4 shrink-0" />
+									<span>Export MD</span>
+								</DropdownMenu.Item>
+
+								<hr class="border-gray-100 dark:border-gray-800 my-1" />
+
+								<!-- Group 3: destructive -->
+								<DropdownMenu.Item
+									class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 rounded-lg disabled:opacity-50"
+									on:click={() => { noteMenuOpen = false; requestDelete(); }}
+									disabled={deletingId === selectedNote.id}
+								>
+									<GarbageBin className="w-4 h-4 shrink-0" />
+									<span>{deletingId === selectedNote.id ? 'Deleting…' : 'Delete'}</span>
+								</DropdownMenu.Item>
+							</DropdownMenu.Content>
+						</DropdownMenu.Root>
+					</div>
 					</div>
 					{#if showVersionHistory}
 						<div class="shrink-0 mx-5 mt-3 rounded-md border border-gray-200 dark:border-gray-700">
