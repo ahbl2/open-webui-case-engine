@@ -4354,3 +4354,20 @@ export async function listNoteAttachmentOcrResults(
 		);
 	return data as OcrRecord[];
 }
+
+/** Soft-delete a note attachment. Works for draft and saved-note attachments. */
+export async function deleteNoteAttachment(
+	caseId: string,
+	attachmentId: string,
+	token: string
+): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/${attachmentId}`,
+		{ method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to delete attachment (${res.status})`
+		);
+}

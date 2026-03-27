@@ -82,6 +82,7 @@
 		createNoteAttachmentProposal,
 		listNoteAttachmentProposals,
 		dismissNoteAttachmentProposal,
+		deleteNoteAttachment,
 		CaseEngineRequestError,
 		type NotebookNote,
 		type NotebookNoteVersion,
@@ -174,6 +175,12 @@
 	let ocrRunningIds: Set<string> = new Set();
 	// Track which OCR text panels are expanded
 	let expandedOcrIds: Set<string> = new Set();
+
+	// ── Attachment removal state (P30-09) ─────────────────────────────────────
+	// For saved-note attachments: track which attachment is pending remove confirmation
+	let confirmRemoveAttachmentId: string | null = null;
+	// Track which attachments are currently being deleted
+	let removingAttachmentIds: Set<string> = new Set();
 
 	function generateDraftSessionId(): string {
 		if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
@@ -397,20 +404,23 @@
 	 */
 	async function loadDraftAttachmentIngestionState(ids: string[]): Promise<void> {
 		if (ids.length === 0) return;
-		// Batch-load extraction records — non-fatal
+		// Batch-load extraction records — merge with existing map to avoid overwriting
+		// in-progress trigger results that arrived after this batch fetch was initiated.
 		try {
 			const records = await listNoteAttachmentExtractions(caseId, ids, $caseEngineToken ?? '');
-			const byId = new Map<string, ExtractionRecord | null>(ids.map((id) => [id, null]));
+			const byId = new Map<string, ExtractionRecord | null>(extractionsByAttachmentId);
+			for (const id of ids) { if (!byId.has(id)) byId.set(id, null); }
 			for (const r of records) byId.set(r.attachment_id, r);
 			extractionsByAttachmentId = byId;
-		} catch { /* extraction records failing doesn't block attachment display */ }
-		// Batch-load OCR records — non-fatal
+		} catch { /* non-fatal */ }
+		// Batch-load OCR records — same merge strategy
 		try {
 			const ocrRecords = await listNoteAttachmentOcrResults(caseId, ids, $caseEngineToken ?? '');
-			const ocrById = new Map<string, OcrRecord | null>(ids.map((id) => [id, null]));
+			const ocrById = new Map<string, OcrRecord | null>(ocrByAttachmentId);
+			for (const id of ids) { if (!ocrById.has(id)) ocrById.set(id, null); }
 			for (const r of ocrRecords) ocrById.set(r.attachment_id, r);
 			ocrByAttachmentId = ocrById;
-		} catch { /* OCR records failing doesn't block attachment display */ }
+		} catch { /* non-fatal */ }
 		// Load eligible proposal sources and any existing draft proposal
 		await refreshProposalSources(ids, null, draftSessionId || undefined).catch(() => {});
 	}
@@ -578,6 +588,13 @@
 			try {
 				const attachment = await uploadNoteAttachment(caseId, selectedNote.id, file, $caseEngineToken ?? '');
 				noteAttachments = [...noteAttachments, attachment];
+				// Initialize map entries for the new attachment so Extract/OCR buttons appear immediately.
+				const extMap = new Map(extractionsByAttachmentId);
+				if (!extMap.has(attachment.id)) extMap.set(attachment.id, null);
+				extractionsByAttachmentId = extMap;
+				const ocrMap = new Map(ocrByAttachmentId);
+				if (!ocrMap.has(attachment.id)) ocrMap.set(attachment.id, null);
+				ocrByAttachmentId = ocrMap;
 			} catch (e) {
 				failed.push(`${file.name}: ${(e as Error)?.message ?? 'upload failed'}`);
 			}
@@ -618,6 +635,65 @@
 		}
 	}
 
+	/**
+	 * Remove an attachment (soft-delete on backend).
+	 * Works for both draft attachments and saved-note attachments.
+	 * Updates all local state (lists, extraction/OCR maps, proposal sources) after removal.
+	 * If the removed attachment was a proposal source, proposal becomes stale via reactive check.
+	 *
+	 * @param attachmentId - ID of the attachment to remove
+	 * @param isDraft      - true = draft context (no confirmation prompt); false = saved-note (caller should confirm)
+	 */
+	async function removeAttachment(attachmentId: string, isDraft: boolean): Promise<void> {
+		try {
+			await deleteNoteAttachment(caseId, attachmentId, $caseEngineToken ?? '');
+		} catch (e) {
+			toast.error((e as Error)?.message ?? 'Could not remove attachment');
+			return;
+		}
+
+		// Update local lists
+		if (isDraft) {
+			draftAttachments = draftAttachments.filter((a) => a.id !== attachmentId);
+		} else {
+			noteAttachments = noteAttachments.filter((a) => a.id !== attachmentId);
+		}
+
+		// Remove from extraction and OCR maps
+		const extMap = new Map(extractionsByAttachmentId);
+		extMap.delete(attachmentId);
+		extractionsByAttachmentId = extMap;
+
+		const ocrMap = new Map(ocrByAttachmentId);
+		ocrMap.delete(attachmentId);
+		ocrByAttachmentId = ocrMap;
+
+		// Also remove from expanded sets
+		const nextExpExt = new Set(expandedExtractionIds);
+		nextExpExt.delete(attachmentId);
+		expandedExtractionIds = nextExpExt;
+
+		const nextExpOcr = new Set(expandedOcrIds);
+		nextExpOcr.delete(attachmentId);
+		expandedOcrIds = nextExpOcr;
+
+		// Refresh proposal sources — the removed attachment's sources will disappear,
+		// making the current proposal stale if it referenced them (proposalIsStale reactive).
+		const remainingIds = isDraft
+			? draftAttachments.map((a) => a.id)
+			: noteAttachments.map((a) => a.id);
+
+		if (remainingIds.length > 0) {
+			const noteCtx = isDraft ? null : (viewingNote?.id ?? null);
+			const sessionCtx = isDraft ? (draftSessionId || undefined) : undefined;
+			await refreshProposalSources(remainingIds, noteCtx, sessionCtx).catch(() => {});
+		} else {
+			// No attachments left — clear proposal state
+			proposalSources = [];
+			selectedProposalSourceIds = new Set();
+		}
+	}
+
 	function clearAttachmentState(): void {
 		noteAttachments = [];
 		draftAttachments = [];
@@ -636,6 +712,8 @@
 		proposalGenerating = false;
 		currentProposal = null;
 		showProposalPanel = false;
+		confirmRemoveAttachmentId = null;
+		removingAttachmentIds = new Set();
 	}
 
 	// ── AI Enhance state (P29-Notes-08) ───────────────────────────────────────
@@ -2086,7 +2164,21 @@
 											on:click={() => void triggerExtraction(att.id)}
 										>Retry</button>
 									{/if}
-								</div>
+								<!-- Remove draft attachment — no confirmation needed for unsaved drafts -->
+								{#if removingAttachmentIds.has(att.id)}
+									<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 italic">Removing…</span>
+								{:else}
+									<button
+										class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
+										title="Remove attachment"
+										on:click={async () => {
+											removingAttachmentIds = new Set([...removingAttachmentIds, att.id]);
+											await removeAttachment(att.id, true);
+											removingAttachmentIds = new Set([...removingAttachmentIds].filter(id => id !== att.id));
+										}}
+									>×</button>
+								{/if}
+							</div>
 								<!-- Extracted text panel — green, distinct from draft editor -->
 								{#if extraction?.status === 'extracted' && isExtractExpanded}
 									<div class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2">
@@ -2554,33 +2646,56 @@
 											<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
 											<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
 											<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
-											<!-- Extraction trigger / status (P30-03) -->
-											{#if isExtracting}
-												<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 italic">Extracting…</span>
-											{:else if extraction === null}
+									<!-- Extraction trigger / status (P30-03) -->
+										{#if isExtracting}
+											<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 italic">Extracting…</span>
+										{:else if extraction === null}
+											<button
+												class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+												title="Extract text from this file"
+												on:click={() => void triggerExtraction(att.id)}
+											>Extract text</button>
+										{:else if extraction.status === 'extracted'}
+											<button
+												class="shrink-0 text-[11px] text-green-700 dark:text-green-400 hover:underline"
+												title={isExtractExpanded ? 'Hide extracted text' : 'Show extracted text'}
+												on:click={() => toggleExtractionExpanded(att.id)}
+											>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
+										{:else}
+											<span
+												class="shrink-0 text-[11px] {extraction.status === 'failed' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'} italic"
+												title={extraction.error_message ?? ''}
+											>{extractionStatusLabel(extraction.status)}</span>
+											<button
+												class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+												title="Re-run extraction"
+												on:click={() => void triggerExtraction(att.id)}
+											>Retry</button>
+										{/if}
+										<!-- Remove attachment — confirmation required for saved notes -->
+										{#if confirmRemoveAttachmentId === att.id}
+											<span class="shrink-0 flex items-center gap-1 text-[11px] text-red-600 dark:text-red-400">
+												Remove?
 												<button
-													class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-													title="Extract text from this file"
-													on:click={() => void triggerExtraction(att.id)}
-												>Extract text</button>
-											{:else if extraction.status === 'extracted'}
-												<button
-													class="shrink-0 text-[11px] text-green-700 dark:text-green-400 hover:underline"
-													title={isExtractExpanded ? 'Hide extracted text' : 'Show extracted text'}
-													on:click={() => toggleExtractionExpanded(att.id)}
-												>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
-											{:else}
-												<span
-													class="shrink-0 text-[11px] {extraction.status === 'failed' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'} italic"
-													title={extraction.error_message ?? ''}
-												>{extractionStatusLabel(extraction.status)}</span>
-												<button
-													class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-													title="Re-run extraction"
-													on:click={() => void triggerExtraction(att.id)}
-												>Retry</button>
-											{/if}
-										</div>
+													class="hover:underline font-medium"
+													disabled={removingAttachmentIds.has(att.id)}
+													on:click={async () => {
+														removingAttachmentIds = new Set([...removingAttachmentIds, att.id]);
+														confirmRemoveAttachmentId = null;
+														await removeAttachment(att.id, false);
+														removingAttachmentIds = new Set([...removingAttachmentIds].filter(id => id !== att.id));
+													}}
+												>{removingAttachmentIds.has(att.id) ? 'Removing…' : 'Yes'}</button>
+												<button class="hover:underline" on:click={() => { confirmRemoveAttachmentId = null; }}>Cancel</button>
+											</span>
+										{:else}
+											<button
+												class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
+												title="Remove attachment"
+												on:click={() => { confirmRemoveAttachmentId = att.id; }}
+											>×</button>
+										{/if}
+									</div>
 
 										<!-- Extracted text panel (P30-03) — green, distinct from note body -->
 										{#if extraction?.status === 'extracted' && isExtractExpanded}
