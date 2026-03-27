@@ -70,6 +70,9 @@
 	import Download from '$lib/components/icons/Download.svelte';
 	import EllipsisVertical from '$lib/components/icons/EllipsisVertical.svelte';
 	import ClockRotateRight from '$lib/components/icons/ClockRotateRight.svelte';
+	// P30-24: upgraded action icons for desktop clarity
+	import Clip from '$lib/components/icons/Clip.svelte';
+	import MicSolid from '$lib/components/icons/MicSolid.svelte';
 	import {
 		listCaseNotebookNotes,
 		listCaseNotebookNoteVersions,
@@ -2510,55 +2513,62 @@
 				>
 					{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}
 				</button>
-				<label class="cursor-pointer px-3 py-1.5 rounded text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}" title="Attach file to note">
-					📎
-					<input
-						type="file"
-						multiple
-						class="hidden"
-						disabled={attachmentUploading}
-						on:change={(e) => void handleAttachFileToDraft((e.target as HTMLInputElement).files)}
-					/>
-				</label>
-				{#if dictationState === 'recording'}
-					<button
-						type="button"
-						class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-						aria-label="Cancel dictation"
-						on:click={cancelDictation}
-						data-testid="case-note-dictate-cancel"
-					>
-						<span class="text-sm font-semibold">X</span>
-					</button>
-					<button
-						type="button"
-						class="h-8 w-8 inline-flex items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-500 transition"
-						aria-label="Finish dictation"
-						on:click={stopDictation}
-						data-testid="case-note-dictate-finish"
-					>
-						<svg viewBox="0 0 20 20" class="h-4 w-4" fill="currentColor" aria-hidden="true">
-							<path d="M7.8 13.6 4.5 10.3l-1.1 1.1 4.4 4.4L16.6 7l-1.1-1.1-7.7 7.7Z" />
-						</svg>
-					</button>
-				{:else}
-					<button
-						type="button"
-						disabled={dictationState === 'processing'}
-						class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition"
-						aria-label="Start dictation"
-						on:click={startDictation}
-						data-testid="case-note-dictate-action"
-					>
-						<svg viewBox="0 0 20 20" class="h-4 w-4" fill="currentColor" aria-hidden="true">
-							<path d="M10 2.5a3 3 0 0 0-3 3v4a3 3 0 1 0 6 0v-4a3 3 0 0 0-3-3Zm-4 7a1 1 0 1 1 2 0 2 2 0 1 0 4 0 1 1 0 1 1 2 0 3.99 3.99 0 0 1-3 3.86V17h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2.64A3.99 3.99 0 0 1 6 9.5Z" />
-						</svg>
-					</button>
-				{/if}
-			</div>
+			<!-- P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
+			<label
+				class="cursor-pointer h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}"
+				title="Attach file"
+				aria-label="Attach file"
+			>
+				<Clip className="size-5" strokeWidth="2" />
+				<input
+					type="file"
+					multiple
+					class="hidden"
+					disabled={attachmentUploading}
+					on:change={(e) => void handleAttachFileToDraft((e.target as HTMLInputElement).files)}
+				/>
+			</label>
+			{#if dictationState === 'recording'}
+				<button
+					type="button"
+					class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+					aria-label="Cancel dictation"
+					title="Cancel dictation"
+					on:click={cancelDictation}
+					data-testid="case-note-dictate-cancel"
+				>
+					<span class="text-sm font-semibold">✕</span>
+				</button>
+				<button
+					type="button"
+					class="h-8 w-8 inline-flex items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-500 transition"
+					aria-label="Finish dictation"
+					title="Finish dictation"
+					on:click={stopDictation}
+					data-testid="case-note-dictate-finish"
+				>
+					<svg viewBox="0 0 20 20" class="h-4 w-4" fill="currentColor" aria-hidden="true">
+						<path d="M7.8 13.6 4.5 10.3l-1.1 1.1 4.4 4.4L16.6 7l-1.1-1.1-7.7 7.7Z" />
+					</svg>
+				</button>
+			{:else}
+				<!-- P30-24: MicSolid at size-5 for a clear, solid microphone silhouette -->
+				<button
+					type="button"
+					disabled={dictationState === 'processing'}
+					class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition"
+					aria-label="Start dictation"
+					title="Dictate note"
+					on:click={startDictation}
+					data-testid="case-note-dictate-action"
+				>
+					<MicSolid className="size-5" />
+				</button>
+			{/if}
 		</div>
+	</div>
 
-	{:else if selectedNote}
+{:else if selectedNote}
 			<!-- ── View or Edit mode ───────────────────────────────────────── -->
 			<div class="flex flex-col h-full">
 
@@ -3278,9 +3288,13 @@
 					>
 						{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}
 					</button>
-					<!-- P30-23: paperclip attachment control — mirrors create mode footer placement -->
-					<label class="cursor-pointer px-3 py-1.5 rounded text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}" title="Attach file to note">
-						📎
+					<!-- P30-23/P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
+					<label
+						class="cursor-pointer h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}"
+						title="Attach file"
+						aria-label="Attach file"
+					>
+						<Clip className="size-5" strokeWidth="2" />
 						<input
 							type="file"
 							multiple
@@ -3294,15 +3308,17 @@
 							type="button"
 							class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-600 dark:text-gray-300 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
 							aria-label="Cancel dictation"
+							title="Cancel dictation"
 							on:click={cancelDictation}
 							data-testid="case-note-dictate-cancel"
 						>
-							<span class="text-sm font-semibold">X</span>
+							<span class="text-sm font-semibold">✕</span>
 						</button>
 						<button
 							type="button"
 							class="h-8 w-8 inline-flex items-center justify-center rounded bg-blue-600 text-white hover:bg-blue-500 transition"
 							aria-label="Finish dictation"
+							title="Finish dictation"
 							on:click={stopDictation}
 							data-testid="case-note-dictate-finish"
 						>
@@ -3311,17 +3327,17 @@
 							</svg>
 						</button>
 					{:else}
+						<!-- P30-24: MicSolid at size-5 for a clear, solid microphone silhouette -->
 						<button
 							type="button"
 							disabled={dictationState === 'processing'}
 							class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition"
 							aria-label="Start dictation"
+							title="Dictate note"
 							on:click={startDictation}
 							data-testid="case-note-dictate-action"
 						>
-							<svg viewBox="0 0 20 20" class="h-4 w-4" fill="currentColor" aria-hidden="true">
-								<path d="M10 2.5a3 3 0 0 0-3 3v4a3 3 0 1 0 6 0v-4a3 3 0 0 0-3-3Zm-4 7a1 1 0 1 1 2 0 2 2 0 1 0 4 0 1 1 0 1 1 2 0 3.99 3.99 0 0 1-3 3.86V17h2a1 1 0 1 1 0 2H7a1 1 0 1 1 0-2h2v-2.64A3.99 3.99 0 0 1 6 9.5Z" />
-							</svg>
+							<MicSolid className="size-5" />
 						</button>
 					{/if}
 				</div>
