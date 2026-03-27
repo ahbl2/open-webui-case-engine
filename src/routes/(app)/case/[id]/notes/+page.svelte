@@ -169,6 +169,15 @@
 	// Whether the proposal panel is shown (user can toggle after generation)
 	let showProposalPanel = false;
 
+	// ── Proposal context gate (P30-13) ─────────────────────────────────────────
+	// Proposal generation is only valid in create (draft) or edit contexts.
+	// View mode must never show or trigger proposal generation.
+	$: proposalContextValid = mode === 'create' || mode === 'edit';
+	// Derived note reference for saved-note contexts (view + edit modes).
+	$: viewingNote = (mode === 'view' || mode === 'edit') ? selectedNote : null;
+	// True only in active edit mode.
+	$: isEditing = mode === 'edit';
+
 	// ── OCR state (P30-04) ─────────────────────────────────────────────────────
 	// Map of attachment_id → OcrRecord (or null if not yet run)
 	let ocrByAttachmentId: Map<string, OcrRecord | null> = new Map();
@@ -508,6 +517,11 @@
 	 */
 	async function generateAttachmentProposal(): Promise<void> {
 		if (proposalGenerating) return;
+		// P30-13: Block proposal generation in view mode — must be in draft or edit context.
+		if (!proposalContextValid) {
+			toast.error('Generate a draft or enter edit mode to create a proposal.');
+			return;
+		}
 		const selectedSources = proposalSources.filter((s) =>
 			selectedProposalSourceIds.has(s.record_id)
 		);
@@ -567,9 +581,10 @@
 				return;
 			}
 
-			// Persist proposal + lineage to backend
-			const noteCtx = viewingNote ? viewingNote.id : null;
-			const draftCtx = !viewingNote && draftSessionId ? draftSessionId : null;
+		// Persist proposal + lineage to backend.
+		// In edit mode, link to the saved note. In create mode, link to the draft session.
+		const noteCtx = mode === 'edit' ? (selectedNote?.id ?? null) : null;
+		const draftCtx = mode === 'create' && draftSessionId ? draftSessionId : null;
 			const proposal = await createNoteAttachmentProposal(
 				caseId,
 				{
@@ -593,10 +608,10 @@
 	/** Apply the proposal text to the active draft (same pattern as Enhance Apply). */
 	function applyAttachmentProposal(): void {
 		if (!currentProposal?.proposed_text) return;
-		if (viewingNote && isEditing) {
+		if (mode === 'edit') {
 			editText = currentProposal.proposed_text;
 			editEditorRenderKey += 1;
-		} else if (!viewingNote) {
+		} else if (mode === 'create') {
 			createText = currentProposal.proposed_text;
 			createEditorRenderKey += 1;
 		}
@@ -2995,146 +3010,18 @@
 						</ul>
 					{/if}
 
-					<!-- Guidance when attachments exist but no extraction/OCR sources are ready yet -->
-					{#if noteAttachments.length > 0 && proposalSources.length === 0}
-						<p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 italic">
-							Step 1: Extract text or Run OCR on an attachment above. Once done, a note proposal generator will appear here so you can turn that derived text into a reviewable draft.
-						</p>
-					{/if}
-
-					<!-- AI Note Proposal section (P30-05) — only when there are eligible sources -->
-					{#if proposalSources.length > 0}
-						<div class="mt-3 rounded border border-dashed border-indigo-300 dark:border-indigo-700 px-3 py-2.5 bg-indigo-50/50 dark:bg-indigo-950/20">
-							<div class="mb-1.5 flex items-center gap-2">
-								<span class="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">Step 2 — Generate AI Note Proposal</span>
-								<span class="text-[10px] text-gray-400 dark:text-gray-500 italic">from attachment sources</span>
-							</div>
-							{#if !currentProposal}
-								<p class="mb-2 text-[11px] text-indigo-700 dark:text-indigo-300">Derived text is ready. Select sources below and click Generate to create a reviewable note draft.</p>
-							{/if}
-
-								<!-- Source selection — all eligible sources shown with checkboxes -->
-								<div class="mb-2 space-y-1">
-									{#each proposalSources as src (src.record_id)}
-										<label class="flex items-start gap-2 cursor-pointer group">
-											<input
-												type="checkbox"
-												class="mt-0.5 rounded accent-indigo-600"
-												checked={selectedProposalSourceIds.has(src.record_id)}
-												on:change={() => toggleProposalSource(src.record_id)}
-											/>
-											<span class="min-w-0 flex-1 text-[11px] text-gray-700 dark:text-gray-300">
-												<span class="font-medium">{src.attachment_filename}</span>
-												<span class="ml-1 text-[10px] {src.type === 'ocr' ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}">
-													{src.type === 'extraction' ? 'extracted text' : 'OCR text'}
-												</span>
-												{#if src.low_confidence}
-													<span class="ml-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">⚠ low confidence ({src.confidence_pct}%)</span>
-												{/if}
-												<span class="text-[10px] text-gray-400 dark:text-gray-500 ml-1">· {src.text_length.toLocaleString()} chars</span>
-											</span>
-										</label>
-									{/each}
-								</div>
-
-							{#if proposalSources.some((s) => s.low_confidence && selectedProposalSourceIds.has(s.record_id))}
-								<p class="mb-2 text-[10px] text-amber-700 dark:text-amber-400 italic">
-									⚠ Low-confidence OCR sources are selected. The AI will note uncertainty for that content.
-								</p>
-							{/if}
-
-							{#if selectedProposalSourceIds.size === 0}
-								<p class="mb-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">
-									Select at least one source to generate a proposal.
-								</p>
-							{/if}
-
-							<div class="flex items-center gap-2 flex-wrap">
-								<button
-									class="rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
-									disabled={proposalGenerating || selectedProposalSourceIds.size === 0}
-									on:click={() => void generateAttachmentProposal()}
-								>
-									{proposalGenerating
-										? 'Generating…'
-										: currentProposal
-										  ? 'Regenerate Proposal'
-										  : 'Generate AI Note Proposal'}
-								</button>
-
-								{#if currentProposal && !showProposalPanel}
-									<button
-										class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
-										on:click={() => { showProposalPanel = true; }}
-									>View last proposal</button>
-								{/if}
-							</div>
-
-							{#if currentProposal && showProposalPanel}
-									<!-- AI Proposal panel — purple/indigo, distinct from green extraction and amber OCR -->
-									<div class="mt-3 rounded border border-indigo-400 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2.5" data-testid="attachment-proposal-panel">
-										<div class="mb-1.5 flex items-center gap-2">
-											<span class="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">AI Note Proposal</span>
-											{#if currentProposal.has_low_confidence_ocr}
-												<span class="text-[10px] text-amber-700 dark:text-amber-400 font-medium">⚠ includes low-confidence OCR source</span>
-											{/if}
-										</div>
-
-								{#if proposalIsStale}
-									<div class="mb-2 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-[10px] text-amber-800 dark:text-amber-300">
-										⚠ Source selection has changed since this proposal was generated.
-										<button
-											class="ml-1 underline"
-											on:click={() => void generateAttachmentProposal()}
-										>Regenerate</button> to reflect current sources.
-									</div>
-								{/if}
-
-								<!-- Source provenance -->
-								<div class="mb-2 flex flex-wrap gap-1">
-									{#each currentProposal.source_lineage as src}
-												<span
-													class="text-[10px] rounded px-1.5 py-0.5 {src.low_confidence
-														? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
-														: src.type === 'ocr'
-														  ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
-														  : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'}"
-												>
-													{src.attachment_filename}
-													· {src.type === 'extraction' ? 'extracted' : src.low_confidence ? 'OCR ⚠' : 'OCR'}
-												</span>
-											{/each}
-										</div>
-
-										<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-60 overflow-y-auto font-sans mb-2">{currentProposal.proposed_text}</pre>
-
-										<p class="mb-2 text-[10px] text-indigo-600 dark:text-indigo-400 italic">
-											This is an AI-generated draft proposal, not an official note. Review before applying.
-										</p>
-
-										<div class="flex items-center gap-2">
-											{#if isEditing || !viewingNote}
-												<button
-													class="rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] px-3 py-1"
-													on:click={applyAttachmentProposal}
-												>Apply to draft</button>
-											{:else}
-												<span class="text-[10px] text-gray-400 italic">Enter edit mode to apply</span>
-											{/if}
-											<button
-												class="rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-[11px] px-3 py-1"
-												on:click={() => void dismissCurrentProposal()}
-											>Dismiss</button>
-											<button
-												class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
-												on:click={() => void generateAttachmentProposal()}
-											>Regenerate</button>
-										</div>
-									</div>
-								{/if}
-							</div>
+				<!-- P30-13: Proposal generation is not available in view mode.
+				     Attachments and processed text remain visible; enter edit mode to generate a proposal. -->
+				{#if noteAttachments.length > 0}
+					<p class="mt-2 text-[11px] text-gray-400 dark:text-gray-500 italic">
+						{#if proposalSources.length > 0}
+							Attachment sources are ready. Enter edit mode to generate a note proposal.
+						{:else}
+							Process an attachment above to extract text. Enter edit mode to generate a note proposal from it.
 						{/if}
-					</div>
+					</p>
+				{/if}
+				</div>
 
 				{:else if mode === 'edit'}
 					<!-- Edit: title input header -->
@@ -3244,20 +3131,127 @@
 								</div>
 							{/if}
 						</div>
-					{/if}
-					<!-- Footer actions -->
-					<div
-						class="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800"
+				{/if}
+
+				<!-- P30-13: AI Note Proposal section in edit mode — gated to edit context only -->
+				{#if proposalSources.length > 0}
+					<div class="shrink-0 mx-5 mt-2 mb-1 rounded border border-dashed border-indigo-300 dark:border-indigo-700 px-3 py-2.5 bg-indigo-50/50 dark:bg-indigo-950/20">
+						<div class="mb-1.5 flex items-center gap-2">
+							<span class="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">Generate AI Note Proposal</span>
+							<span class="text-[10px] text-gray-400 dark:text-gray-500 italic">from attachment sources</span>
+						</div>
+						{#if !currentProposal}
+							<p class="mb-2 text-[11px] text-indigo-700 dark:text-indigo-300">Derived text is ready. Select sources and click Generate to create a reviewable draft.</p>
+						{/if}
+
+						<div class="mb-2 space-y-1">
+							{#each proposalSources as src (src.record_id)}
+								<label class="flex items-start gap-2 cursor-pointer group">
+									<input
+										type="checkbox"
+										class="mt-0.5 rounded accent-indigo-600"
+										checked={selectedProposalSourceIds.has(src.record_id)}
+										on:change={() => toggleProposalSource(src.record_id)}
+									/>
+									<span class="min-w-0 flex-1 text-[11px] text-gray-700 dark:text-gray-300">
+										<span class="font-medium">{src.attachment_filename}</span>
+										<span class="ml-1 text-[10px] {src.type === 'ocr' ? 'text-amber-600 dark:text-amber-400' : 'text-green-600 dark:text-green-400'}">
+											{src.type === 'extraction' ? 'extracted text' : 'OCR text'}
+										</span>
+										{#if src.low_confidence}
+											<span class="ml-1 text-[10px] font-medium text-amber-700 dark:text-amber-400">⚠ low confidence ({src.confidence_pct}%)</span>
+										{/if}
+										<span class="text-[10px] text-gray-400 dark:text-gray-500 ml-1">· {src.text_length.toLocaleString()} chars</span>
+									</span>
+								</label>
+							{/each}
+						</div>
+
+						{#if proposalSources.some((s) => s.low_confidence && selectedProposalSourceIds.has(s.record_id))}
+							<p class="mb-2 text-[10px] text-amber-700 dark:text-amber-400 italic">⚠ Low-confidence OCR sources are selected. The AI will note uncertainty for that content.</p>
+						{/if}
+
+						{#if proposalIsStale}
+							<div class="mb-2 rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-2 py-1 text-[10px] text-amber-800 dark:text-amber-300">
+								⚠ Source selection has changed since this proposal was generated.
+								<button class="ml-1 underline" on:click={() => void generateAttachmentProposal()}>Regenerate</button> to reflect current sources.
+							</div>
+						{/if}
+
+						<div class="flex items-center gap-2 flex-wrap">
+							<button
+								class="rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] px-3 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+								disabled={proposalGenerating || selectedProposalSourceIds.size === 0}
+								on:click={() => void generateAttachmentProposal()}
+							>
+								{proposalGenerating ? 'Generating…' : currentProposal ? 'Regenerate Proposal' : 'Generate AI Note Proposal'}
+							</button>
+							{#if currentProposal && !showProposalPanel}
+								<button
+									class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
+									on:click={() => { showProposalPanel = true; }}
+								>View last proposal</button>
+							{/if}
+						</div>
+
+						{#if currentProposal && showProposalPanel}
+							<div class="mt-3 rounded border border-indigo-400 dark:border-indigo-600 bg-indigo-50 dark:bg-indigo-950/40 px-3 py-2.5" data-testid="attachment-proposal-panel">
+								<div class="mb-1.5 flex items-center gap-2">
+									<span class="text-[10px] font-semibold uppercase tracking-wide text-indigo-700 dark:text-indigo-400">AI Note Proposal</span>
+									{#if currentProposal.has_low_confidence_ocr}
+										<span class="text-[10px] text-amber-700 dark:text-amber-400 font-medium">⚠ includes low-confidence OCR source</span>
+									{/if}
+								</div>
+								<div class="mb-2 flex flex-wrap gap-1">
+									{#each currentProposal.source_lineage as src}
+										<span
+											class="text-[10px] rounded px-1.5 py-0.5 {src.low_confidence
+												? 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300'
+												: src.type === 'ocr'
+												  ? 'bg-amber-50 text-amber-700 dark:bg-amber-950/30 dark:text-amber-400'
+												  : 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-300'}"
+										>
+											{src.attachment_filename}
+											· {src.type === 'extraction' ? 'extracted' : src.low_confidence ? 'OCR ⚠' : 'OCR'}
+										</span>
+									{/each}
+								</div>
+								<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-60 overflow-y-auto font-sans mb-2">{currentProposal.proposed_text}</pre>
+								<p class="mb-2 text-[10px] text-indigo-600 dark:text-indigo-400 italic">
+									AI-generated draft proposal. Apply copies it into the editor — save the note to commit it.
+								</p>
+								<div class="flex items-center gap-2">
+									<button
+										class="rounded bg-indigo-600 hover:bg-indigo-700 text-white text-[11px] px-3 py-1"
+										on:click={applyAttachmentProposal}
+									>Apply to draft</button>
+									<button
+										class="rounded border border-gray-300 dark:border-gray-600 text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 text-[11px] px-3 py-1"
+										on:click={() => void dismissCurrentProposal()}
+									>Dismiss</button>
+									<button
+										class="text-[11px] text-indigo-600 dark:text-indigo-400 hover:underline"
+										on:click={() => void generateAttachmentProposal()}
+									>Regenerate</button>
+								</div>
+							</div>
+						{/if}
+					</div>
+				{/if}
+
+				<!-- Footer actions -->
+				<div
+					class="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800"
+				>
+					<button
+						type="button"
+						disabled={saving}
+						class="px-3 py-1.5 rounded text-xs font-medium
+						       bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900
+						       hover:bg-gray-700 dark:hover:bg-gray-300 disabled:opacity-50 transition"
+						on:click={handleSave}
 					>
-						<button
-							type="button"
-							disabled={saving}
-							class="px-3 py-1.5 rounded text-xs font-medium
-							       bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900
-							       hover:bg-gray-700 dark:hover:bg-gray-300 disabled:opacity-50 transition"
-							on:click={handleSave}
-						>
-							{saving ? 'Saving…' : 'Save'}
+						{saving ? 'Saving…' : 'Save'}
 						</button>
 						<button
 							type="button"
