@@ -801,13 +801,17 @@
 	let enhanceTruncated = false;
 
 	// P30-17: Full-coverage rewrite prompt. Used for single-paragraph notes.
-	// Explicitly prohibits summarization and condensing.
+	// P30-18: Added explicit directive/action-item preservation clause.
 	const ENHANCE_SYSTEM_PROMPT =
 		'You are a writing assistant for an investigator\'s case notes. ' +
 		'Rewrite the note for clarity, grammar, and readability. ' +
 		'You MUST preserve every paragraph, topic, name, date, quote, number, and detail from the original. ' +
 		'Do NOT summarize. Do NOT shorten for brevity. Do NOT drop any paragraph, topic, or detail. ' +
 		'Every section of the original must appear in the output. ' +
+		'You MUST preserve all action items, next steps, follow-up instructions, and investigative directives. ' +
+		'If the original contains instructions such as "follow up with", "interview", "confirm", "notify", ' +
+		'"establish", "review", "obtain", or "contact", those instructions must remain in the output. ' +
+		'Do NOT remove numbered task lists or operational directives. ' +
 		'Do NOT add new facts, names, dates, or details that are not already present. ' +
 		'Do NOT convert rough notes into polished narrative that changes evidentiary meaning. ' +
 		'Use clear everyday language and avoid overly formal tone or unnecessarily big words. ' +
@@ -820,10 +824,14 @@
 
 	// P30-17: Block-level prompt. Used for each paragraph when enhancing long
 	// multi-paragraph notes chunk-by-chunk. Tightly scoped to one paragraph.
+	// P30-18: Added explicit directive/action-item preservation clause.
 	const ENHANCE_BLOCK_PROMPT =
 		'You are a writing assistant for an investigator\'s case notes. ' +
 		'Rewrite ONLY this one paragraph for clarity, grammar, and readability. ' +
 		'You MUST include every name, date, quote, number, action item, and detail from this paragraph. ' +
+		'You MUST preserve any action items, follow-up instructions, next steps, or investigative directives. ' +
+		'If this paragraph contains instructions such as "follow up with", "interview", "confirm", "notify", ' +
+		'"establish", "review", "obtain", or "contact", those instructions must remain in the output. ' +
 		'Do NOT shorten, summarize, or drop anything from this paragraph. ' +
 		'Do NOT add new information. ' +
 		'Do NOT merge this paragraph with other paragraphs or add surrounding context. ' +
@@ -924,6 +932,82 @@
 		}
 
 		return { ok: true };
+	}
+
+	/**
+	 * Validate that investigative directives and action items from the original
+	 * note are preserved in the enhanced output.
+	 *
+	 * Three checks (any failure rejects the enhancement):
+	 *   1. Directive labels — explicit headers like "action item:" or "next steps:"
+	 *      must still appear in the enhanced output.
+	 *   2. Numbered task lists — if the original has 2+ numbered items, at least
+	 *      half must survive in the enhanced output.
+	 *   3. Directive verb coverage — if the original contains 4+ directive verbs
+	 *      (follow up, interview, confirm, etc.), at least 50% must carry forward.
+	 *      Threshold is high enough to avoid false-positives from valid rephrasing.
+	 *
+	 * P30-18.
+	 */
+	function validateDirectivePreservation(original: string, enhanced: string): boolean {
+		const origLower = original.toLowerCase();
+		const enhLower = enhanced.toLowerCase();
+
+		// 1. Directive label check — if an explicit label appears in the original,
+		//    it must appear in the enhanced output.
+		const directiveLabels = [
+			'action item',
+			'action items',
+			'next step',
+			'next steps',
+			'follow up',
+			'follow-up',
+			'to do',
+			'to-do',
+			'todo'
+		];
+		for (const label of directiveLabels) {
+			if (origLower.includes(label) && !enhLower.includes(label)) {
+				return false;
+			}
+		}
+
+		// 2. Numbered task list check — if the original has 2+ numbered items,
+		//    require at least half to survive (allows merging of short adjacent items).
+		const origNumbered = (original.match(/^\s*\d+[\.\)]\s/gm) ?? []).length;
+		if (origNumbered >= 2) {
+			const enhNumbered = (enhanced.match(/^\s*\d+[\.\)]\s/gm) ?? []).length;
+			if (enhNumbered < Math.ceil(origNumbered * 0.5)) {
+				return false;
+			}
+		}
+
+		// 3. Directive verb coverage — only triggers when 4+ verbs are present
+		//    (indicating a clear task/action section) to avoid false positives.
+		const directiveVerbs = [
+			'follow up',
+			'interview',
+			'confirm',
+			'establish',
+			'review',
+			'notify',
+			'obtain',
+			'contact',
+			'schedule',
+			'request',
+			'verify',
+			'conduct',
+			'arrange'
+		];
+		const origVerbs = directiveVerbs.filter((v) => origLower.includes(v));
+		if (origVerbs.length >= 4) {
+			const enhVerbs = origVerbs.filter((v) => enhLower.includes(v));
+			if (enhVerbs.length < Math.ceil(origVerbs.length * 0.5)) {
+				return false;
+			}
+		}
+
+		return true;
 	}
 
 	/**
@@ -1035,6 +1119,16 @@
 			if (!coverage.ok) {
 				enhanceError =
 					'Enhanced suggestion was rejected because it may have omitted important content. ' +
+					'Please try again.';
+				enhanceState = 'error';
+				return;
+			}
+
+			// P30-18: Directive preservation validation — reject the enhancement if
+			// action items, next steps, or investigative directives were dropped.
+			if (!validateDirectivePreservation(draftText, assembled)) {
+				enhanceError =
+					'Enhanced suggestion was rejected because an action item or investigative directive may have been omitted. ' +
 					'Please try again.';
 				enhanceState = 'error';
 				return;
