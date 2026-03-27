@@ -4090,3 +4090,76 @@ export async function claimDraftNoteAttachments(
 		);
 	return data as { claimed: number };
 }
+
+// ── Note Attachment Extractions (P30-03) ─────────────────────────────────────
+
+export interface ExtractionRecord {
+	id: string;
+	attachment_id: string;
+	case_id: string;
+	method: 'plain_text' | 'pdf_text' | 'unsupported';
+	status: 'extracted' | 'unsupported' | 'failed' | 'no_text_found';
+	extracted_text: string | null;
+	text_length: number;
+	error_message: string | null;
+	created_at: string;
+	created_by: string;
+	updated_at: string;
+}
+
+/** Trigger deterministic text extraction for a note attachment. */
+export async function extractNoteAttachment(
+	caseId: string,
+	attachmentId: string,
+	token: string
+): Promise<ExtractionRecord> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/${attachmentId}/extract`,
+		{ method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Extraction failed (${res.status})`
+		);
+	return data as ExtractionRecord;
+}
+
+/** Get the extraction record for a single attachment. Returns null if not yet extracted. */
+export async function getNoteAttachmentExtraction(
+	caseId: string,
+	attachmentId: string,
+	token: string
+): Promise<ExtractionRecord | null> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/${attachmentId}/extraction`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	if (res.status === 404) return null;
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to get extraction (${res.status})`
+		);
+	return data as ExtractionRecord;
+}
+
+/** Batch-retrieve extraction records for a set of attachment IDs. */
+export async function listNoteAttachmentExtractions(
+	caseId: string,
+	attachmentIds: string[],
+	token: string
+): Promise<ExtractionRecord[]> {
+	if (attachmentIds.length === 0) return [];
+	const params = new URLSearchParams({ attachment_ids: attachmentIds.join(',') });
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/extractions?${params}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list extractions (${res.status})`
+		);
+	return data as ExtractionRecord[];
+}

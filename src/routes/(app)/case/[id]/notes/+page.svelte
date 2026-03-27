@@ -74,10 +74,13 @@
 		listDraftNoteAttachments,
 		uploadDraftNoteAttachment,
 		claimDraftNoteAttachments,
+		extractNoteAttachment,
+		listNoteAttachmentExtractions,
 		CaseEngineRequestError,
 		type NotebookNote,
 		type NotebookNoteVersion,
-		type NoteAttachment
+		type NoteAttachment,
+		type ExtractionRecord
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
@@ -135,6 +138,14 @@
 	let draftSessionId = '';
 	let draftAttachments: NoteAttachment[] = [];
 
+	// ── Extraction state (P30-03) ──────────────────────────────────────────────
+	// Map of attachment_id → ExtractionRecord (or null if not yet extracted)
+	let extractionsByAttachmentId: Map<string, ExtractionRecord | null> = new Map();
+	// Track which attachments are currently being extracted to show loading state
+	let extractingIds: Set<string> = new Set();
+	// Track which extraction text panels are expanded (attachment_id)
+	let expandedExtractionIds: Set<string> = new Set();
+
 	function generateDraftSessionId(): string {
 		if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
 			return globalThis.crypto.randomUUID();
@@ -161,12 +172,63 @@
 	async function loadNoteAttachments(noteId: number): Promise<void> {
 		attachmentsLoading = true;
 		attachmentUploadError = '';
+		extractionsByAttachmentId = new Map();
 		try {
 			noteAttachments = await listNoteAttachments(caseId, noteId, $caseEngineToken ?? '');
+			// Batch-load any existing extraction records for these attachments (P30-03)
+			if (noteAttachments.length > 0) {
+				try {
+					const ids = noteAttachments.map((a) => a.id);
+					const records = await listNoteAttachmentExtractions(caseId, ids, $caseEngineToken ?? '');
+					const byId = new Map<string, ExtractionRecord | null>();
+					for (const id of ids) byId.set(id, null);
+					for (const r of records) byId.set(r.attachment_id, r);
+					extractionsByAttachmentId = byId;
+				} catch {
+					// Extraction load failure is non-fatal; attachments still display
+				}
+			}
 		} catch {
 			noteAttachments = [];
 		} finally {
 			attachmentsLoading = false;
+		}
+	}
+
+	async function triggerExtraction(attachmentId: string): Promise<void> {
+		if (extractingIds.has(attachmentId)) return;
+		extractingIds = new Set([...extractingIds, attachmentId]);
+		try {
+			const record = await extractNoteAttachment(caseId, attachmentId, $caseEngineToken ?? '');
+			const updated = new Map(extractionsByAttachmentId);
+			updated.set(attachmentId, record);
+			extractionsByAttachmentId = updated;
+			// Auto-expand on first successful extraction
+			if (record.status === 'extracted') {
+				expandedExtractionIds = new Set([...expandedExtractionIds, attachmentId]);
+			}
+		} catch (e) {
+			const msg = (e as Error)?.message ?? 'Extraction failed';
+			toast.error(msg);
+		} finally {
+			extractingIds = new Set([...extractingIds].filter((id) => id !== attachmentId));
+		}
+	}
+
+	function toggleExtractionExpanded(attachmentId: string): void {
+		const next = new Set(expandedExtractionIds);
+		if (next.has(attachmentId)) next.delete(attachmentId);
+		else next.add(attachmentId);
+		expandedExtractionIds = next;
+	}
+
+	function extractionStatusLabel(status: ExtractionRecord['status']): string {
+		switch (status) {
+			case 'extracted': return 'Text extracted';
+			case 'unsupported': return 'Not supported';
+			case 'failed': return 'Extraction failed';
+			case 'no_text_found': return 'No machine-readable text';
+			default: return status;
 		}
 	}
 
@@ -222,6 +284,9 @@
 		attachmentsLoading = false;
 		attachmentUploading = false;
 		attachmentUploadError = '';
+		extractionsByAttachmentId = new Map();
+		extractingIds = new Set();
+		expandedExtractionIds = new Set();
 	}
 
 	// ── AI Enhance state (P29-Notes-08) ───────────────────────────────────────
@@ -1888,7 +1953,7 @@
 						<CaseNoteEditor content={selectedNote.current_text} showHeader={false} />
 					</div>
 
-					<!-- Attachments panel (view mode) -->
+					<!-- Attachments panel (view mode, P30-02 + P30-03) -->
 					<div class="shrink-0 mx-5 mb-3 mt-2">
 						<div class="flex items-center justify-between mb-1.5">
 							<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
@@ -1913,12 +1978,58 @@
 						{:else if noteAttachments.length === 0}
 							<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments.</div>
 						{:else}
-							<ul class="space-y-1" data-testid="note-attachment-list">
+							<ul class="space-y-2" data-testid="note-attachment-list">
 								{#each noteAttachments as att (att.id)}
-									<li class="flex items-center gap-2 rounded border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300">
-										<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
-										<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
-										<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
+									{@const extraction = extractionsByAttachmentId.get(att.id) ?? null}
+									{@const isExtracting = extractingIds.has(att.id)}
+									{@const isExpanded = expandedExtractionIds.has(att.id)}
+									<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
+										<!-- Attachment file row -->
+										<div class="flex items-center gap-2 px-2.5 py-1.5">
+											<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
+											<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
+											<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
+											<!-- Extraction trigger / status (P30-03) -->
+											{#if isExtracting}
+												<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 italic">Extracting…</span>
+											{:else if extraction === null}
+												<button
+													class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+													title="Extract text from this file"
+													on:click={() => void triggerExtraction(att.id)}
+												>Extract text</button>
+											{:else if extraction.status === 'extracted'}
+												<button
+													class="shrink-0 text-[11px] text-green-700 dark:text-green-400 hover:underline"
+													title={isExpanded ? 'Hide extracted text' : 'Show extracted text'}
+													on:click={() => toggleExtractionExpanded(att.id)}
+												>{isExpanded ? 'Hide text' : 'Show text'}</button>
+											{:else}
+												<span
+													class="shrink-0 text-[11px] {extraction.status === 'failed' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'} italic"
+													title={extraction.error_message ?? ''}
+												>{extractionStatusLabel(extraction.status)}</span>
+												<button
+													class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
+													title="Re-run extraction"
+													on:click={() => void triggerExtraction(att.id)}
+												>Retry</button>
+											{/if}
+										</div>
+										<!-- Extracted text panel — visually distinct from note body and attachment row -->
+										{#if extraction?.status === 'extracted' && isExpanded}
+											<div
+												class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2"
+												data-testid="extracted-text-panel"
+											>
+												<div class="mb-1 flex items-center gap-1.5">
+													<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
+													<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
+												</div>
+												<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
+												<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">This is derived extracted text — not the note body and not the original file.</p>
+											</div>
+										{/if}
 									</li>
 								{/each}
 							</ul>
