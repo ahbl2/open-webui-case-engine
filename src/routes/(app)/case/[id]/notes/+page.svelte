@@ -800,20 +800,38 @@
 	// the response was rejected as an incomplete enhancement.
 	let enhanceTruncated = false;
 
+	// P30-17: Full-coverage rewrite prompt. Used for single-paragraph notes.
+	// Explicitly prohibits summarization and condensing.
 	const ENHANCE_SYSTEM_PROMPT =
 		'You are a writing assistant for an investigator\'s case notes. ' +
-		'Your task is to improve readability and grammar while keeping the wording natural and plain. ' +
-		'Use clear everyday language and avoid overly formal tone or unnecessarily big words. ' +
-		'You MUST preserve the original meaning exactly. ' +
+		'Rewrite the note for clarity, grammar, and readability. ' +
+		'You MUST preserve every paragraph, topic, name, date, quote, number, and detail from the original. ' +
+		'Do NOT summarize. Do NOT shorten for brevity. Do NOT drop any paragraph, topic, or detail. ' +
+		'Every section of the original must appear in the output. ' +
 		'Do NOT add new facts, names, dates, or details that are not already present. ' +
-		'Do NOT remove material facts. ' +
 		'Do NOT convert rough notes into polished narrative that changes evidentiary meaning. ' +
+		'Use clear everyday language and avoid overly formal tone or unnecessarily big words. ' +
 		'Return ONLY the improved note body text. ' +
 		'Do NOT include any preamble, label, intro sentence, commentary, or explanation. ' +
 		'Do NOT start your response with phrases like "Here is the improved text:", "Improved version:", ' +
 		'"Sure, here is...", "Certainly,", "Here is an enhanced version:", or any similar framing. ' +
 		'Do NOT add markdown formatting unless the original note uses it. ' +
 		'Output the improved note content and nothing else.';
+
+	// P30-17: Block-level prompt. Used for each paragraph when enhancing long
+	// multi-paragraph notes chunk-by-chunk. Tightly scoped to one paragraph.
+	const ENHANCE_BLOCK_PROMPT =
+		'You are a writing assistant for an investigator\'s case notes. ' +
+		'Rewrite ONLY this one paragraph for clarity, grammar, and readability. ' +
+		'You MUST include every name, date, quote, number, action item, and detail from this paragraph. ' +
+		'Do NOT shorten, summarize, or drop anything from this paragraph. ' +
+		'Do NOT add new information. ' +
+		'Do NOT merge this paragraph with other paragraphs or add surrounding context. ' +
+		'Return ONLY the improved paragraph text. ' +
+		'Do NOT include any preamble, label, intro sentence, or explanation. ' +
+		'Do NOT start with phrases like "Here is the improved paragraph:", "Improved:", ' +
+		'"Sure, here is...", or any similar framing. ' +
+		'Output only the improved paragraph text and nothing else.';
 
 	function resetEnhanceState(): void {
 		enhanceState = 'idle';
@@ -856,6 +874,90 @@
 		return result;
 	}
 
+	/**
+	 * Validate that an enhanced output adequately covers the original note content.
+	 * Conservative checks — only rejects clearly lossy rewrites, not minor rephrasing.
+	 *
+	 * Checks:
+	 *   1. Length ratio — enhanced must be ≥ 55% of original (for notes > 150 chars).
+	 *   2. Key-token carry-forward — quoted text, numbers, capitalized names.
+	 *      If ≥ 4 key tokens found, at most 30% may be absent from the enhanced output.
+	 *
+	 * P30-17.
+	 */
+	function validateEnhanceCoverage(
+		original: string,
+		enhanced: string
+	): { ok: boolean; reason?: string } {
+		const orig = original.trim();
+		const enh = enhanced.trim();
+
+		// Length ratio check — only meaningful for non-trivial notes.
+		if (orig.length > 150 && enh.length < orig.length * 0.55) {
+			return { ok: false, reason: 'length' };
+		}
+
+		// Extract significant tokens from the original to check carry-forward.
+		const tokens = new Set<string>();
+		// Quoted phrases (2–60 chars within ASCII quotes).
+		for (const m of orig.matchAll(/["']([^"']{2,60})["']/g)) {
+			tokens.add(m[1].toLowerCase().trim());
+		}
+		// Numeric values and date-like strings (e.g. 14:30, 12/03/2024, 42).
+		for (const m of orig.matchAll(/\b\d+(?:[:.\/\-]\d+)*\b/g)) {
+			tokens.add(m[0]);
+		}
+		// Capitalized words of 3+ chars (likely proper names).
+		for (const m of orig.matchAll(/\b[A-Z][a-z]{2,}\b/g)) {
+			tokens.add(m[0].toLowerCase());
+		}
+
+		if (tokens.size >= 4) {
+			const enhLower = enh.toLowerCase();
+			let missing = 0;
+			for (const t of tokens) {
+				if (!enhLower.includes(t)) missing++;
+			}
+			if (missing / tokens.size > 0.3) {
+				return { ok: false, reason: 'key-terms' };
+			}
+		}
+
+		return { ok: true };
+	}
+
+	/**
+	 * Call the AI to enhance a single block of text.
+	 * Returns the raw content and whether the response was truncated.
+	 * P30-17.
+	 */
+	async function enhanceBlock(
+		modelId: string,
+		block: string,
+		isMultiBlock: boolean
+	): Promise<{ text: string; truncated: boolean }> {
+		const systemPrompt = isMultiBlock ? ENHANCE_BLOCK_PROMPT : ENHANCE_SYSTEM_PROMPT;
+		const res = await generateOpenAIChatCompletion(
+			localStorage.token,
+			{
+				model: modelId,
+				stream: false,
+				max_tokens: -1,
+				messages: [
+					{ role: 'system', content: systemPrompt },
+					{ role: 'user', content: block }
+				]
+			},
+			`${WEBUI_BASE_URL}/api`
+		);
+		type CompletionChoice = { message?: { content?: string }; finish_reason?: string };
+		const choice = (res as { choices?: CompletionChoice[] })?.choices?.[0];
+		return {
+			text: choice?.message?.content ?? '',
+			truncated: (choice?.finish_reason ?? '') === 'length'
+		};
+	}
+
 	function getActiveModelId(): string | null {
 		const s = $settings as Record<string, unknown> | undefined;
 		const c = $config as Record<string, unknown> | undefined;
@@ -887,55 +989,58 @@
 		enhanceError = '';
 		enhanceTruncated = false;
 		try {
-			const res = await generateOpenAIChatCompletion(
-				localStorage.token,
-				{
-					model: modelId,
-					stream: false,
-					// P30-16: Explicit unlimited output budget. Without this, local models
-					// (e.g. Ollama) use a low default token limit and silently truncate
-					// multi-paragraph responses with finish_reason: 'length'.
-					// -1 = unlimited for Ollama-backed completions via OWUI.
-					max_tokens: -1,
-					messages: [
-						{ role: 'system', content: ENHANCE_SYSTEM_PROMPT },
-						{ role: 'user', content: draftText }
-					]
-				},
-				`${WEBUI_BASE_URL}/api`
-			);
-			// P30-16: Extract finish_reason alongside content so truncation can be detected.
-			type CompletionChoice = { message?: { content?: string }; finish_reason?: string };
-			const choice = (res as { choices?: CompletionChoice[] })?.choices?.[0];
-			const finishReason = choice?.finish_reason ?? '';
-			const content: string = choice?.message?.content ?? '';
+			// P30-17: Split into paragraph blocks on double-newline boundaries.
+			// Notes with more than one block are enhanced paragraph-by-paragraph so
+			// the model cannot summarize away later content when rewriting the whole.
+			// Single-paragraph notes still use one completion call.
+			const blocks = draftText.split(/\n\n+/).filter((b) => b.trim().length > 0);
+			const isMultiBlock = blocks.length > 1;
+			const enhancedBlocks: string[] = [];
 
-			if (!content.trim()) {
-				enhanceError = 'AI returned an empty response. Please try again.';
-				enhanceState = 'error';
-				return;
+			for (const block of blocks) {
+				const { text: raw, truncated } = await enhanceBlock(modelId, block, isMultiBlock);
+
+				// P30-16: reject if model stopped early for any block.
+				if (truncated) {
+					enhanceTruncated = true;
+					enhanceError =
+						'Enhanced suggestion is incomplete — the model stopped before finishing. ' +
+						'The note may be too long for the current model. ' +
+						'Try with a shorter note, or save manually without enhancement.';
+					enhanceState = 'error';
+					return;
+				}
+
+				if (!raw.trim()) {
+					enhanceError = 'AI returned an empty response for part of the note. Please try again.';
+					enhanceState = 'error';
+					return;
+				}
+
+				// P30-14: strip wrapper phrases from each block before assembling.
+				const sanitized = sanitizeEnhanceOutput(raw);
+				if (!sanitized) {
+					enhanceError = 'AI returned an empty response after sanitization. Please try again.';
+					enhanceState = 'error';
+					return;
+				}
+				enhancedBlocks.push(sanitized);
 			}
-			// P30-16: Reject responses where the model stopped due to token limit.
-			// finish_reason: 'length' means the output was cut off — do not accept it as
-			// a valid complete enhancement. Surface this clearly to the investigator.
-			if (finishReason === 'length') {
-				enhanceTruncated = true;
+
+			const assembled = enhancedBlocks.join('\n\n');
+
+			// P30-17: Coverage validation — reject the enhancement if it appears to have
+			// dropped substantive content from the original note.
+			const coverage = validateEnhanceCoverage(draftText, assembled);
+			if (!coverage.ok) {
 				enhanceError =
-					'Enhanced suggestion is incomplete — the model stopped before finishing. ' +
-					'The note may be too long for the current model. ' +
-					'Try with a shorter note, or save manually without enhancement.';
+					'Enhanced suggestion was rejected because it may have omitted important content. ' +
+					'Please try again.';
 				enhanceState = 'error';
 				return;
 			}
-			// P30-14: Strip assistant wrapper phrases before storing the proposal.
-			// The sanitizer is conservative — only leading framing text is removed.
-			const sanitized = sanitizeEnhanceOutput(content);
-			if (!sanitized) {
-				enhanceError = 'AI returned an empty response after sanitization. Please try again.';
-				enhanceState = 'error';
-				return;
-			}
-			enhanceProposalText = sanitized;
+
+			enhanceProposalText = assembled;
 			enhanceTruncated = false;
 			enhanceState = 'proposal';
 		} catch (_e: unknown) {
