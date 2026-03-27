@@ -805,12 +805,51 @@
 		'Do NOT add new facts, names, dates, or details that are not already present. ' +
 		'Do NOT remove material facts. ' +
 		'Do NOT convert rough notes into polished narrative that changes evidentiary meaning. ' +
-		'Return ONLY the improved text with no preamble, no commentary, and no markdown formatting unless the original uses it.';
+		'Return ONLY the improved note body text. ' +
+		'Do NOT include any preamble, label, intro sentence, commentary, or explanation. ' +
+		'Do NOT start your response with phrases like "Here is the improved text:", "Improved version:", ' +
+		'"Sure, here is...", "Certainly,", "Here is an enhanced version:", or any similar framing. ' +
+		'Do NOT add markdown formatting unless the original note uses it. ' +
+		'Output the improved note content and nothing else.';
 
 	function resetEnhanceState(): void {
 		enhanceState = 'idle';
 		enhanceProposalText = '';
 		enhanceError = '';
+	}
+
+	/**
+	 * Strip common assistant framing wrappers from AI-returned enhancement output.
+	 * Only removes leading phrases — does not alter the actual note body content.
+	 * Applied only to AI enhance output, never to user-authored content (P30-14).
+	 */
+	function sanitizeEnhanceOutput(text: string): string {
+		// Ordered list of leading wrapper patterns to remove (case-insensitive).
+		// Each pattern matches only at the very start of the trimmed string.
+		const wrapperPatterns: RegExp[] = [
+			/^here is the improved (text|version|note|content)[:\s]*/i,
+			/^here is an? (improved|enhanced|revised|updated|polished|cleaned.up) (text|version|note|content)[:\s]*/i,
+			/^here is the (cleaned|enhanced|revised|updated|polished|cleaned.up) (text|version|note|content)[:\s]*/i,
+			/^improved (text|version|note|content)[:\s]*/i,
+			/^improved note[:\s]*/i,
+			/^enhanced (text|version|note|content)[:\s]*/i,
+			/^enhanced note[:\s]*/i,
+			/^revised (text|version|note|content)[:\s]*/i,
+			/^cleaned.up (text|version|note|content)[:\s]*/i,
+			/^below is the (improved|enhanced|revised|updated|polished) (text|version|note|content)[:\s]*/i,
+			/^(sure|certainly|of course|absolutely)[,!.]?\s*(here is|here's|i've improved|i've enhanced|i have improved|i have enhanced)[^:\n]*[:\s]*/i,
+			/^(sure|certainly|of course|absolutely)[,!.]?\s*/i,
+		];
+		let result = text.trim();
+		for (const pattern of wrapperPatterns) {
+			const stripped = result.replace(pattern, '').trimStart();
+			// Only accept the strip if meaningful content remains.
+			if (stripped.length > 0) {
+				result = stripped;
+				break;
+			}
+		}
+		return result;
 	}
 
 	function getActiveModelId(): string | null {
@@ -863,7 +902,15 @@
 				enhanceState = 'error';
 				return;
 			}
-			enhanceProposalText = content;
+			// P30-14: Strip assistant wrapper phrases before storing the proposal.
+			// The sanitizer is conservative — only leading framing text is removed.
+			const sanitized = sanitizeEnhanceOutput(content);
+			if (!sanitized) {
+				enhanceError = 'AI returned an empty response after sanitization. Please try again.';
+				enhanceState = 'error';
+				return;
+			}
+			enhanceProposalText = sanitized;
 			enhanceState = 'proposal';
 		} catch (_e: unknown) {
 			enhanceError =
