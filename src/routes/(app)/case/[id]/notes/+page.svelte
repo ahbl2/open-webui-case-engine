@@ -76,11 +76,14 @@
 		claimDraftNoteAttachments,
 		extractNoteAttachment,
 		listNoteAttachmentExtractions,
+		runNoteAttachmentOcr,
+		listNoteAttachmentOcrResults,
 		CaseEngineRequestError,
 		type NotebookNote,
 		type NotebookNoteVersion,
 		type NoteAttachment,
-		type ExtractionRecord
+		type ExtractionRecord,
+		type OcrRecord
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
@@ -146,6 +149,14 @@
 	// Track which extraction text panels are expanded (attachment_id)
 	let expandedExtractionIds: Set<string> = new Set();
 
+	// ── OCR state (P30-04) ─────────────────────────────────────────────────────
+	// Map of attachment_id → OcrRecord (or null if not yet run)
+	let ocrByAttachmentId: Map<string, OcrRecord | null> = new Map();
+	// Track which attachments are currently being OCR'd
+	let ocrRunningIds: Set<string> = new Set();
+	// Track which OCR text panels are expanded
+	let expandedOcrIds: Set<string> = new Set();
+
 	function generateDraftSessionId(): string {
 		if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
 			return globalThis.crypto.randomUUID();
@@ -173,19 +184,30 @@
 		attachmentsLoading = true;
 		attachmentUploadError = '';
 		extractionsByAttachmentId = new Map();
+		ocrByAttachmentId = new Map();
 		try {
 			noteAttachments = await listNoteAttachments(caseId, noteId, $caseEngineToken ?? '');
-			// Batch-load any existing extraction records for these attachments (P30-03)
 			if (noteAttachments.length > 0) {
+				const ids = noteAttachments.map((a) => a.id);
+				// Batch-load extraction records (P30-03) — non-fatal on failure
 				try {
-					const ids = noteAttachments.map((a) => a.id);
 					const records = await listNoteAttachmentExtractions(caseId, ids, $caseEngineToken ?? '');
 					const byId = new Map<string, ExtractionRecord | null>();
 					for (const id of ids) byId.set(id, null);
 					for (const r of records) byId.set(r.attachment_id, r);
 					extractionsByAttachmentId = byId;
 				} catch {
-					// Extraction load failure is non-fatal; attachments still display
+					/* extraction records failing doesn't block attachment display */
+				}
+				// Batch-load OCR records (P30-04) — non-fatal on failure
+				try {
+					const ocrRecords = await listNoteAttachmentOcrResults(caseId, ids, $caseEngineToken ?? '');
+					const ocrById = new Map<string, OcrRecord | null>();
+					for (const id of ids) ocrById.set(id, null);
+					for (const r of ocrRecords) ocrById.set(r.attachment_id, r);
+					ocrByAttachmentId = ocrById;
+				} catch {
+					/* OCR records failing doesn't block attachment display */
 				}
 			}
 		} catch {
@@ -228,6 +250,54 @@
 			case 'unsupported': return 'Not supported';
 			case 'failed': return 'Extraction failed';
 			case 'no_text_found': return 'No machine-readable text';
+			default: return status;
+		}
+	}
+
+	// ── OCR helpers (P30-04) ───────────────────────────────────────────────────
+
+	function isOcrEligible(att: NoteAttachment): boolean {
+		const mime = att.mime_type ?? '';
+		const ext = att.original_filename.split('.').pop()?.toLowerCase() ?? '';
+		return (
+			mime === 'image/png' || ext === 'png' ||
+			mime === 'image/jpeg' || ext === 'jpg' || ext === 'jpeg' ||
+			mime === 'image/webp' || ext === 'webp'
+		);
+	}
+
+	async function triggerOcr(attachmentId: string): Promise<void> {
+		if (ocrRunningIds.has(attachmentId)) return;
+		ocrRunningIds = new Set([...ocrRunningIds, attachmentId]);
+		try {
+			const record = await runNoteAttachmentOcr(caseId, attachmentId, $caseEngineToken ?? '');
+			const updated = new Map(ocrByAttachmentId);
+			updated.set(attachmentId, record);
+			ocrByAttachmentId = updated;
+			if (record.status === 'extracted' || record.status === 'low_confidence') {
+				expandedOcrIds = new Set([...expandedOcrIds, attachmentId]);
+			}
+		} catch (e) {
+			toast.error((e as Error)?.message ?? 'OCR failed');
+		} finally {
+			ocrRunningIds = new Set([...ocrRunningIds].filter((id) => id !== attachmentId));
+		}
+	}
+
+	function toggleOcrExpanded(attachmentId: string): void {
+		const next = new Set(expandedOcrIds);
+		if (next.has(attachmentId)) next.delete(attachmentId);
+		else next.add(attachmentId);
+		expandedOcrIds = next;
+	}
+
+	function ocrStatusLabel(status: OcrRecord['status']): string {
+		switch (status) {
+			case 'extracted': return 'OCR text extracted';
+			case 'low_confidence': return 'OCR text (low confidence)';
+			case 'failed': return 'OCR failed';
+			case 'no_text_found': return 'No text found';
+			case 'unsupported': return 'Not supported for OCR';
 			default: return status;
 		}
 	}
@@ -287,6 +357,9 @@
 		extractionsByAttachmentId = new Map();
 		extractingIds = new Set();
 		expandedExtractionIds = new Set();
+		ocrByAttachmentId = new Map();
+		ocrRunningIds = new Set();
+		expandedOcrIds = new Set();
 	}
 
 	// ── AI Enhance state (P29-Notes-08) ───────────────────────────────────────
@@ -1982,7 +2055,11 @@
 								{#each noteAttachments as att (att.id)}
 									{@const extraction = extractionsByAttachmentId.get(att.id) ?? null}
 									{@const isExtracting = extractingIds.has(att.id)}
-									{@const isExpanded = expandedExtractionIds.has(att.id)}
+									{@const isExtractExpanded = expandedExtractionIds.has(att.id)}
+									{@const ocr = ocrByAttachmentId.get(att.id) ?? null}
+									{@const isOcrRunning = ocrRunningIds.has(att.id)}
+									{@const isOcrExpanded = expandedOcrIds.has(att.id)}
+									{@const ocrEligible = isOcrEligible(att)}
 									<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
 										<!-- Attachment file row -->
 										<div class="flex items-center gap-2 px-2.5 py-1.5">
@@ -2001,9 +2078,9 @@
 											{:else if extraction.status === 'extracted'}
 												<button
 													class="shrink-0 text-[11px] text-green-700 dark:text-green-400 hover:underline"
-													title={isExpanded ? 'Hide extracted text' : 'Show extracted text'}
+													title={isExtractExpanded ? 'Hide extracted text' : 'Show extracted text'}
 													on:click={() => toggleExtractionExpanded(att.id)}
-												>{isExpanded ? 'Hide text' : 'Show text'}</button>
+												>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
 											{:else}
 												<span
 													class="shrink-0 text-[11px] {extraction.status === 'failed' ? 'text-red-500' : 'text-gray-400 dark:text-gray-500'} italic"
@@ -2016,8 +2093,9 @@
 												>Retry</button>
 											{/if}
 										</div>
-										<!-- Extracted text panel — visually distinct from note body and attachment row -->
-										{#if extraction?.status === 'extracted' && isExpanded}
+
+										<!-- Extracted text panel (P30-03) — green, distinct from note body -->
+										{#if extraction?.status === 'extracted' && isExtractExpanded}
 											<div
 												class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2"
 												data-testid="extracted-text-panel"
@@ -2029,6 +2107,70 @@
 												<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
 												<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">This is derived extracted text — not the note body and not the original file.</p>
 											</div>
+										{/if}
+
+										<!-- OCR section (P30-04) — only shown for OCR-eligible image attachments -->
+										{#if ocrEligible}
+											<div class="border-t border-gray-100 dark:border-gray-800 px-2.5 py-1.5 flex items-center gap-2">
+												<span class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400">OCR</span>
+												{#if isOcrRunning}
+													<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">Running OCR…</span>
+												{:else if ocr === null}
+													<button
+														class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
+														title="Run OCR to extract text from this image"
+														on:click={() => void triggerOcr(att.id)}
+													>Run OCR</button>
+												{:else if ocr.status === 'extracted' || ocr.status === 'low_confidence'}
+													<span
+														class="text-[11px] {ocr.status === 'low_confidence' ? 'text-amber-700 dark:text-amber-400' : 'text-green-700 dark:text-green-400'}"
+													>{ocr.confidence_pct !== null ? `${ocr.confidence_pct}% confidence` : ocrStatusLabel(ocr.status)}</span>
+													<button
+														class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
+														on:click={() => toggleOcrExpanded(att.id)}
+													>{isOcrExpanded ? 'Hide OCR' : 'Show OCR'}</button>
+													<button
+														class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline"
+														title="Re-run OCR"
+														on:click={() => void triggerOcr(att.id)}
+													>Re-run</button>
+												{:else if ocr.status === 'no_text_found'}
+													<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">No text found in image</span>
+													<button
+														class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline"
+														title="Re-run OCR"
+														on:click={() => void triggerOcr(att.id)}
+													>Retry</button>
+												{:else if ocr.status === 'failed'}
+													<span class="text-[11px] text-red-500 italic" title={ocr.error_message ?? ''}>OCR failed</span>
+													<button
+														class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
+														on:click={() => void triggerOcr(att.id)}
+													>Retry</button>
+												{:else}
+													<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">{ocrStatusLabel(ocr.status)}</span>
+												{/if}
+											</div>
+
+											<!-- OCR text panel — amber/orange, distinct from deterministic extraction and note body -->
+											{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
+												<div
+													class="mx-2.5 mb-2 rounded border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2"
+													data-testid="ocr-text-panel"
+												>
+													<div class="mb-1 flex items-center gap-1.5">
+														<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">OCR-derived text</span>
+														{#if ocr?.confidence_pct !== null}
+															<span class="text-[10px] text-gray-400 dark:text-gray-500">· {ocr?.confidence_pct}% confidence</span>
+														{/if}
+														{#if ocr?.status === 'low_confidence'}
+															<span class="text-[10px] text-amber-700 dark:text-amber-500 font-medium">· Low confidence</span>
+														{/if}
+													</div>
+													<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{ocr?.derived_text}</pre>
+													<p class="mt-1.5 text-[10px] text-amber-700 dark:text-amber-500 italic">OCR-derived text may be imperfect, especially for handwriting or low-quality scans. This is not the note body and not the original file.</p>
+												</div>
+											{/if}
 										{/if}
 									</li>
 								{/each}

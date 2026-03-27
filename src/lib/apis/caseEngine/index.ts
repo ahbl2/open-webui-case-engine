@@ -4163,3 +4163,73 @@ export async function listNoteAttachmentExtractions(
 		);
 	return data as ExtractionRecord[];
 }
+
+// ── Note Attachment OCR (P30-04) ─────────────────────────────────────────────
+
+export interface OcrRecord {
+	id: string;
+	attachment_id: string;
+	case_id: string;
+	method: 'ocr_image' | 'unsupported';
+	status: 'extracted' | 'low_confidence' | 'failed' | 'no_text_found' | 'unsupported';
+	derived_text: string | null;
+	text_length: number;
+	confidence_pct: number | null;
+	error_message: string | null;
+	created_at: string;
+	created_by: string;
+	updated_at: string;
+}
+
+/** Trigger OCR on a note attachment (images: PNG, JPEG, WebP). */
+export async function runNoteAttachmentOcr(
+	caseId: string,
+	attachmentId: string,
+	token: string
+): Promise<OcrRecord> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/${attachmentId}/ocr`,
+		{ method: 'POST', headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error((data as { error?: string })?.error ?? `OCR failed (${res.status})`);
+	return data as OcrRecord;
+}
+
+/** Get the OCR record for a single attachment. Returns null if OCR not yet run. */
+export async function getNoteAttachmentOcr(
+	caseId: string,
+	attachmentId: string,
+	token: string
+): Promise<OcrRecord | null> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/${attachmentId}/ocr`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	if (res.status === 404) return null;
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error((data as { error?: string })?.error ?? `Failed to get OCR record (${res.status})`);
+	return data as OcrRecord;
+}
+
+/** Batch-retrieve OCR records for a set of attachment IDs. */
+export async function listNoteAttachmentOcrResults(
+	caseId: string,
+	attachmentIds: string[],
+	token: string
+): Promise<OcrRecord[]> {
+	if (attachmentIds.length === 0) return [];
+	const params = new URLSearchParams({ attachment_ids: attachmentIds.join(',') });
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/ocr-results?${params}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list OCR results (${res.status})`
+		);
+	return data as OcrRecord[];
+}
