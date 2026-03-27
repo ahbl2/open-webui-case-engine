@@ -3971,3 +3971,122 @@ export async function restoreCaseNotebookNote(
 	}
 	return data as NotebookNote;
 }
+
+// ── P30-02: Note Attachments ─────────────────────────────────────────────────
+
+export interface NoteAttachment {
+	id: string;
+	case_id: string;
+	note_id: number | null;
+	draft_session_id: string | null;
+	original_filename: string;
+	mime_type: string | null;
+	file_size_bytes: number;
+	uploaded_by: string;
+	created_at: string;
+}
+
+/** List attachments for a saved notebook note. */
+export async function listNoteAttachments(
+	caseId: string,
+	noteId: number,
+	token: string
+): Promise<NoteAttachment[]> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/${noteId}/attachments`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to load attachments (${res.status})`
+		);
+	return data as NoteAttachment[];
+}
+
+/** Upload a file and link it to a saved notebook note. */
+export async function uploadNoteAttachment(
+	caseId: string,
+	noteId: number,
+	file: File,
+	token: string
+): Promise<NoteAttachment> {
+	const body = new FormData();
+	body.append('file', file);
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/${noteId}/attachments`,
+		{ method: 'POST', headers: { Authorization: `Bearer ${token}` }, body }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to upload attachment (${res.status})`
+		);
+	return data as NoteAttachment;
+}
+
+/** List draft attachments for a create-mode session (not yet linked to a note). */
+export async function listDraftNoteAttachments(
+	caseId: string,
+	sessionId: string,
+	token: string
+): Promise<NoteAttachment[]> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/draft-attachments?session_id=${encodeURIComponent(sessionId)}`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to load draft attachments (${res.status})`
+		);
+	return data as NoteAttachment[];
+}
+
+/** Upload a file during create mode, linked by draft_session_id (no note_id yet). */
+export async function uploadDraftNoteAttachment(
+	caseId: string,
+	sessionId: string,
+	file: File,
+	token: string
+): Promise<NoteAttachment> {
+	const body = new FormData();
+	body.append('file', file);
+	body.append('draft_session_id', sessionId);
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/draft-attachments`,
+		{ method: 'POST', headers: { Authorization: `Bearer ${token}` }, body }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to upload draft attachment (${res.status})`
+		);
+	return data as NoteAttachment;
+}
+
+/**
+ * Claim draft attachments after a note is created.
+ * Links any attachments uploaded with the given draft_session_id to the new note_id.
+ */
+export async function claimDraftNoteAttachments(
+	caseId: string,
+	noteId: number,
+	draftSessionId: string,
+	token: string
+): Promise<{ claimed: number }> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/${noteId}/claim-draft-attachments`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({ draft_session_id: draftSessionId })
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to claim draft attachments (${res.status})`
+		);
+	return data as { claimed: number };
+}

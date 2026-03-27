@@ -69,9 +69,15 @@
 		updateCaseNotebookNote,
 		deleteCaseNotebookNote,
 		restoreCaseNotebookNote,
+		listNoteAttachments,
+		uploadNoteAttachment,
+		listDraftNoteAttachments,
+		uploadDraftNoteAttachment,
+		claimDraftNoteAttachments,
 		CaseEngineRequestError,
 		type NotebookNote,
-		type NotebookNoteVersion
+		type NotebookNoteVersion,
+		type NoteAttachment
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
@@ -119,6 +125,92 @@
 	let editConflictMessage = '';
 	let saving = false;
 	let editEditorRenderKey = 0;
+
+	// ── Attachment state (P30-02) ──────────────────────────────────────────────
+	let noteAttachments: NoteAttachment[] = [];
+	let attachmentsLoading = false;
+	let attachmentUploadError = '';
+	let attachmentUploading = false;
+	// draft_session_id generated once per create session; stable across retries
+	let draftSessionId = '';
+	let draftAttachments: NoteAttachment[] = [];
+
+	function generateDraftSessionId(): string {
+		if (typeof globalThis.crypto !== 'undefined' && typeof globalThis.crypto.randomUUID === 'function') {
+			return globalThis.crypto.randomUUID();
+		}
+		return Math.random().toString(36).slice(2) + Date.now().toString(36);
+	}
+
+	function mimeTypeIcon(mime: string | null): string {
+		if (!mime) return '📄';
+		if (mime.startsWith('image/')) return '🖼';
+		if (mime === 'application/pdf') return '📕';
+		if (mime.startsWith('text/')) return '📝';
+		if (mime.includes('word') || mime.includes('document')) return '📃';
+		if (mime.includes('spreadsheet') || mime.includes('excel')) return '📊';
+		return '📄';
+	}
+
+	function formatBytes(bytes: number): string {
+		if (bytes < 1024) return `${bytes} B`;
+		if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
+		return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
+	}
+
+	async function loadNoteAttachments(noteId: number): Promise<void> {
+		attachmentsLoading = true;
+		attachmentUploadError = '';
+		try {
+			noteAttachments = await listNoteAttachments(caseId, noteId, $caseEngineToken ?? '');
+		} catch {
+			noteAttachments = [];
+		} finally {
+			attachmentsLoading = false;
+		}
+	}
+
+	async function handleAttachFileToNote(files: FileList | null): Promise<void> {
+		if (!files || files.length === 0 || !selectedNote) return;
+		attachmentUploading = true;
+		attachmentUploadError = '';
+		try {
+			for (const file of Array.from(files)) {
+				const attachment = await uploadNoteAttachment(caseId, selectedNote.id, file, $caseEngineToken ?? '');
+				noteAttachments = [...noteAttachments, attachment];
+			}
+		} catch (e) {
+			attachmentUploadError = (e as Error)?.message ?? 'Could not upload attachment.';
+		} finally {
+			attachmentUploading = false;
+		}
+	}
+
+	async function handleAttachFileToDraft(files: FileList | null): Promise<void> {
+		if (!files || files.length === 0) return;
+		if (!draftSessionId) draftSessionId = generateDraftSessionId();
+		attachmentUploading = true;
+		attachmentUploadError = '';
+		try {
+			for (const file of Array.from(files)) {
+				const attachment = await uploadDraftNoteAttachment(caseId, draftSessionId, file, $caseEngineToken ?? '');
+				draftAttachments = [...draftAttachments, attachment];
+			}
+		} catch (e) {
+			attachmentUploadError = (e as Error)?.message ?? 'Could not upload attachment.';
+		} finally {
+			attachmentUploading = false;
+		}
+	}
+
+	function clearAttachmentState(): void {
+		noteAttachments = [];
+		draftAttachments = [];
+		draftSessionId = '';
+		attachmentsLoading = false;
+		attachmentUploading = false;
+		attachmentUploadError = '';
+	}
 
 	// ── AI Enhance state (P29-Notes-08) ───────────────────────────────────────
 	type EnhanceState = 'idle' | 'loading' | 'proposal' | 'error';
@@ -899,6 +991,7 @@
 		editEditorRenderKey = 0;
 		resetEnhanceState();
 		resetDictationState();
+		clearAttachmentState();
 		deletingId = null;
 		recentlyDeletedNote = null;
 		restoringDeletedNoteId = null;
@@ -986,8 +1079,10 @@
 			resetVersionHistoryState();
 			resetEnhanceState();
 			resetDictationState();
+			clearAttachmentState();
 			selectedNote = note;
 			mode = 'view';
+			void loadNoteAttachments(note.id);
 		});
 	}
 
@@ -1005,6 +1100,10 @@
 			resetVersionHistoryState();
 			resetEnhanceState();
 			resetDictationState();
+			// Fresh draft session for this create attempt
+			draftSessionId = generateDraftSessionId();
+			draftAttachments = [];
+			attachmentUploadError = '';
 			selectedNote = null;
 			mode = 'create';
 		});
@@ -1117,6 +1216,18 @@
 			browserSearch = '';
 			selectedNote = note;
 			mode = 'view';
+			// Claim any draft attachments uploaded during this create session
+			if (draftSessionId && draftAttachments.length > 0) {
+				try {
+					await claimDraftNoteAttachments(activeCaseId, note.id, draftSessionId, $caseEngineToken!);
+				} catch {
+					// Non-fatal: attachments remain as orphaned draft records; can be revisited
+				}
+				draftSessionId = '';
+				draftAttachments = [];
+			}
+			// Load confirmed attachments for the new note view
+			void loadNoteAttachments(note.id);
 			toast.success('Note created');
 		} catch (e: unknown) {
 			if (caseId !== activeCaseId) return;
@@ -1163,6 +1274,7 @@
 			resetEnhanceState();
 			resetDictationState();
 			mode = 'view';
+			void loadNoteAttachments(updated.id);
 			toast.success('Note saved');
 		} catch (e: unknown) {
 			if (caseId !== activeCaseId) return;
@@ -1491,6 +1603,26 @@
 						{/if}
 					</div>
 				{/if}
+				<!-- Draft attachment panel (create mode) -->
+				{#if draftAttachments.length > 0 || attachmentUploadError}
+					<div class="shrink-0 mx-5 mb-2 mt-1">
+						{#if attachmentUploadError}
+							<div class="mb-1 text-xs text-red-600 dark:text-red-400">{attachmentUploadError}</div>
+						{/if}
+						{#if draftAttachments.length > 0}
+							<div class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 mb-1">Attachments (draft)</div>
+							<ul class="space-y-1" data-testid="note-draft-attachment-list">
+								{#each draftAttachments as att (att.id)}
+									<li class="flex items-center gap-2 rounded border border-dashed border-gray-300 dark:border-gray-600 px-2.5 py-1.5 text-xs text-gray-600 dark:text-gray-400">
+										<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
+										<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
+										<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
+					</div>
+				{/if}
 				<!-- Footer actions -->
 				<div
 					class="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800"
@@ -1522,6 +1654,16 @@
 				>
 					{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}
 				</button>
+				<label class="cursor-pointer px-3 py-1.5 rounded text-xs text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}" title="Attach file to note">
+					📎
+					<input
+						type="file"
+						multiple
+						class="hidden"
+						disabled={attachmentUploading}
+						on:change={(e) => void handleAttachFileToDraft((e.target as HTMLInputElement).files)}
+					/>
+				</label>
 				{#if dictationState === 'recording'}
 					<button
 						type="button"
@@ -1732,6 +1874,43 @@
 					<!-- Read-only editor -->
 					<div class="flex-1 overflow-y-auto">
 						<CaseNoteEditor content={selectedNote.current_text} showHeader={false} />
+					</div>
+
+					<!-- Attachments panel (view mode) -->
+					<div class="shrink-0 mx-5 mb-3 mt-2">
+						<div class="flex items-center justify-between mb-1.5">
+							<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
+								Attachments
+							</span>
+							<label class="cursor-pointer text-xs text-blue-600 dark:text-blue-400 hover:underline {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}">
+								{attachmentUploading ? 'Uploading…' : 'Add file'}
+								<input
+									type="file"
+									multiple
+									class="hidden"
+									disabled={attachmentUploading}
+									on:change={(e) => void handleAttachFileToNote((e.target as HTMLInputElement).files)}
+								/>
+							</label>
+						</div>
+						{#if attachmentUploadError}
+							<div class="mb-1.5 text-xs text-red-600 dark:text-red-400">{attachmentUploadError}</div>
+						{/if}
+						{#if attachmentsLoading}
+							<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
+						{:else if noteAttachments.length === 0}
+							<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments.</div>
+						{:else}
+							<ul class="space-y-1" data-testid="note-attachment-list">
+								{#each noteAttachments as att (att.id)}
+									<li class="flex items-center gap-2 rounded border border-gray-200 dark:border-gray-700 px-2.5 py-1.5 text-xs text-gray-700 dark:text-gray-300">
+										<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
+										<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
+										<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
+									</li>
+								{/each}
+							</ul>
+						{/if}
 					</div>
 
 				{:else if mode === 'edit'}
