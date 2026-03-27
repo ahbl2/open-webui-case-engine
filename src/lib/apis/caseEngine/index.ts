@@ -4066,6 +4066,35 @@ export async function uploadDraftNoteAttachment(
 }
 
 /**
+ * P30-28: Download the original file for a note attachment.
+ * Fetches GET /cases/:caseId/note-attachments/:attachmentId/file and triggers a browser download.
+ */
+export async function downloadNoteAttachment(
+	caseId: string,
+	attachmentId: string,
+	filename: string,
+	token: string
+): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/${attachmentId}/file`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `Download failed (${res.status})`);
+	}
+	const blob = await res.blob();
+	const url = URL.createObjectURL(blob);
+	const a = document.createElement('a');
+	a.href = url;
+	a.download = filename;
+	document.body.appendChild(a);
+	a.click();
+	document.body.removeChild(a);
+	URL.revokeObjectURL(url);
+}
+
+/**
  * Claim draft attachments after a note is created.
  * Links any attachments uploaded with the given draft_session_id to the new note_id.
  */
