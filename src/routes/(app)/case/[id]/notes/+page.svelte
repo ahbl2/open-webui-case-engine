@@ -1520,6 +1520,63 @@
 	})();
 
 	/**
+	 * P30-26 — Group notes into relative-time buckets for sidebar display.
+	 *
+	 * Activated only when search is empty. Groups use `updated_at` as the
+	 * timestamp so the sidebar reflects active investigative work.
+	 *
+	 * Buckets: Today | Yesterday | Last 7 Days | Last 30 Days | Month YYYY…
+	 * Notes arrive already sorted newest-first from the backend, so order
+	 * within each group is preserved automatically.
+	 */
+	$: groupedNotes = (() => {
+		type NoteGroup = { label: string; notes: NotebookNote[] };
+		if (browserSearch.trim()) return [] as NoteGroup[];
+
+		const now = new Date();
+		const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+		const yesterdayStart = new Date(todayStart);
+		yesterdayStart.setDate(todayStart.getDate() - 1);
+		const last7Start = new Date(todayStart);
+		last7Start.setDate(todayStart.getDate() - 7);
+		const last30Start = new Date(todayStart);
+		last30Start.setDate(todayStart.getDate() - 30);
+
+		const today: NotebookNote[] = [];
+		const yesterday: NotebookNote[] = [];
+		const last7: NotebookNote[] = [];
+		const last30: NotebookNote[] = [];
+		const olderMap = new Map<string, NotebookNote[]>();
+
+		for (const note of notes) {
+			const d = new Date(note.updated_at);
+			if (d >= todayStart) {
+				today.push(note);
+			} else if (d >= yesterdayStart) {
+				yesterday.push(note);
+			} else if (d >= last7Start) {
+				last7.push(note);
+			} else if (d >= last30Start) {
+				last30.push(note);
+			} else {
+				const label = d.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+				if (!olderMap.has(label)) olderMap.set(label, []);
+				olderMap.get(label)!.push(note);
+			}
+		}
+
+		const groups: NoteGroup[] = [];
+		if (today.length > 0) groups.push({ label: 'Today', notes: today });
+		if (yesterday.length > 0) groups.push({ label: 'Yesterday', notes: yesterday });
+		if (last7.length > 0) groups.push({ label: 'Last 7 Days', notes: last7 });
+		if (last30.length > 0) groups.push({ label: 'Last 30 Days', notes: last30 });
+		for (const [label, groupNotes] of olderMap) {
+			groups.push({ label, notes: groupNotes });
+		}
+		return groups;
+	})();
+
+	/**
 	 * Extract a short content snippet around the first occurrence of the query.
 	 * Returns empty string if query not found in text.
 	 * Used for 'content' and 'both' match rows when a search is active.
@@ -2095,7 +2152,9 @@
 				>
 					No notes match this search.
 				</p>
-			{:else}
+		{:else}
+			{#if browserSearch.trim()}
+				<!-- Search active: flat filtered results with match badges + snippets -->
 				{#each filteredNotes as { note, reason } (note.id)}
 					<button
 						type="button"
@@ -2108,7 +2167,6 @@
 						data-testid="case-note-item"
 						data-note-id={note.id}
 					>
-						<!-- Title row -->
 						<div class="flex items-baseline gap-1.5 min-w-0">
 							{#if note.title}
 								<p class="flex-1 text-xs font-semibold text-gray-800 dark:text-gray-100 truncate leading-snug">
@@ -2119,7 +2177,6 @@
 									Untitled
 								</p>
 							{/if}
-							<!-- Match reason badge — only visible when a search is active -->
 							{#if reason}
 								<span
 									class="shrink-0 text-[9px] font-medium px-1 py-px rounded
@@ -2132,7 +2189,6 @@
 								>{reason === 'both' ? 'Title + Content' : reason === 'title' ? 'Title' : 'Content'}</span>
 							{/if}
 						</div>
-						<!-- Content snippet — only for content or both matches with active search -->
 						{#if (reason === 'content' || reason === 'both') && browserSearch.trim()}
 							{@const snippet = contentSnippet(note.current_text ?? '', browserSearch.trim().toLowerCase())}
 							{#if snippet}
@@ -2151,7 +2207,48 @@
 						{/if}
 					</button>
 				{/each}
+			{:else}
+				<!-- No search: grouped relative-time layout (P30-26) -->
+				{#each groupedNotes as group (group.label)}
+					<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500 px-2.5 pt-3 pb-0.5 select-none">
+						{group.label}
+					</p>
+					{#each group.notes as note (note.id)}
+						<button
+							type="button"
+							class="w-full text-left px-2.5 py-1.5 mb-0.5 rounded-md transition
+							       border-l-2
+							       {selectedNote?.id === note.id
+								       ? 'bg-gray-100 dark:bg-gray-800 border-gray-500 dark:border-gray-400'
+								       : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-850'}"
+							on:click={() => selectNote(note)}
+							data-testid="case-note-item"
+							data-note-id={note.id}
+						>
+							<div class="flex items-baseline gap-1.5 min-w-0">
+								{#if note.title}
+									<p class="flex-1 text-xs font-semibold text-gray-800 dark:text-gray-100 truncate leading-snug">
+										{note.title}
+									</p>
+								{:else}
+									<p class="flex-1 text-xs italic text-gray-400 dark:text-gray-500 truncate leading-snug">
+										Untitled
+									</p>
+								{/if}
+							</div>
+							<p class="text-[10px] text-gray-400 dark:text-gray-500 mt-0.5 truncate">
+								{formatCaseDateTime(note.updated_at)}
+							</p>
+							{#if attributionLabel(note.updated_by_name, note.updated_by)}
+								<p class="text-[10px] text-gray-400 dark:text-gray-500 truncate">
+									Updated by {attributionLabel(note.updated_by_name, note.updated_by)}
+								</p>
+							{/if}
+						</button>
+					{/each}
+				{/each}
 			{/if}
+		{/if}
 		</div>
 	</div>
 
