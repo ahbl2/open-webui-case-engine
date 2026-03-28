@@ -106,6 +106,7 @@
 	import CaseNoteEditor from '$lib/components/case/CaseNoteEditor.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
+	import { mergeNotebookWritePayload } from '$lib/caseNotes/notebookIntegrityPayload';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -168,6 +169,18 @@
 
 	// Derived note reference for saved-note contexts (view + edit modes).
 	$: viewingNote = (mode === 'view' || mode === 'edit') ? selectedNote : null;
+
+	// P31-02: if the investigator restores the draft to exactly the pre-enhance baseline, omit baseline on save.
+	$: {
+		const draft =
+			mode === 'edit' ? editText.trim() : mode === 'create' ? createText.trim() : '';
+		if (
+			integrityBaselineText !== null &&
+			draft === integrityBaselineText.trim()
+		) {
+			integrityBaselineText = null;
+		}
+	}
 	// True only in active edit mode.
 	$: isEditing = mode === 'edit';
 
@@ -556,6 +569,11 @@
 	// the response was rejected as an incomplete enhancement.
 	let enhanceTruncated = false;
 
+	// P31-02: pre-enhance text for the active AI draft cycle; forwarded as integrity_baseline_text on save.
+	let integrityBaselineText: string | null = null;
+	let pendingIntegrityBaseline: string | null = null;
+	let saveIntegrityBlockedMessage = '';
+
 	// P30-17: Full-coverage rewrite prompt. Used for single-paragraph notes.
 	// P30-18: Added explicit directive/action-item preservation clause.
 	const ENHANCE_SYSTEM_PROMPT =
@@ -625,6 +643,13 @@
 		enhanceError = '';
 		enhanceTruncated = false;
 		enhanceFallbackUsed = false;
+		pendingIntegrityBaseline = null;
+	}
+
+	function resetNoteIntegrityDraftState(): void {
+		integrityBaselineText = null;
+		pendingIntegrityBaseline = null;
+		saveIntegrityBlockedMessage = '';
 	}
 
 	/**
@@ -1267,11 +1292,13 @@
 		enhanceError = '';
 		enhanceTruncated = false;
 		enhanceFallbackUsed = false;
+		saveIntegrityBlockedMessage = '';
 		try {
 			// Standard pass (full enhance prompts + all validation).
 			const result = await tryEnhancePass(modelId, draftText, false);
 
 			if (result.ok) {
+				pendingIntegrityBaseline = draftText;
 				enhanceProposalText = result.assembled;
 				enhanceTruncated = false;
 				enhanceState = 'proposal';
@@ -1292,6 +1319,7 @@
 			const safeResult = await tryEnhancePass(modelId, draftText, true);
 
 			if (safeResult.ok) {
+				pendingIntegrityBaseline = draftText;
 				enhanceProposalText = safeResult.assembled;
 				enhanceFallbackUsed = true;
 				enhanceTruncated = false;
@@ -1314,6 +1342,10 @@
 
 	function applyEnhanceProposal(): void {
 		if (!enhanceProposalText) return;
+		if (pendingIntegrityBaseline !== null) {
+			integrityBaselineText = pendingIntegrityBaseline;
+		}
+		pendingIntegrityBaseline = null;
 		if (mode === 'edit') {
 			editText = enhanceProposalText;
 			editEditorRenderKey += 1;
@@ -2121,6 +2153,7 @@
 		pendingDiscardAction = null;
 		showDeleteConfirm = false;
 		pendingDeleteAction = null;
+		resetNoteIntegrityDraftState();
 		loadNotes();
 	}
 
@@ -2201,6 +2234,7 @@
 			resetVersionHistoryState();
 			resetEnhanceState();
 			resetDictationState();
+			resetNoteIntegrityDraftState();
 			clearAttachmentState();
 			selectedNote = note;
 			mode = 'view';
@@ -2222,6 +2256,7 @@
 			resetVersionHistoryState();
 			resetEnhanceState();
 			resetDictationState();
+			resetNoteIntegrityDraftState();
 			// Fresh draft session for this create attempt
 			draftSessionId = generateDraftSessionId();
 			draftAttachments = [];
@@ -2249,6 +2284,7 @@
 			resetVersionHistoryState();
 			resetEnhanceState();
 			resetDictationState();
+			resetNoteIntegrityDraftState();
 			// Keep selectedNote for context; create mode remains an unsaved, independent draft.
 			mode = 'create';
 		});
@@ -2260,6 +2296,7 @@
 		showVersionHistory = false;
 		resetEnhanceState();
 		resetDictationState();
+		resetNoteIntegrityDraftState();
 		editTitle = selectedNote.title ?? '';
 		editText = selectedNote.current_text;
 		editExpectedUpdatedAt = selectedNote.updated_at;
@@ -2298,6 +2335,7 @@
 			editEditorRenderKey = 0;
 			resetEnhanceState();
 			resetDictationState();
+			resetNoteIntegrityDraftState();
 			// P30-20: clear transient workflow state so proposal panel, source
 			// selection, and expansion state do not leak into view mode.
 			resetAttachmentWorkflowState();
@@ -2313,6 +2351,7 @@
 			createEditorRenderKey = 0;
 			resetEnhanceState();
 			resetDictationState();
+			resetNoteIntegrityDraftState();
 			// P30-20: clear transient workflow state on cancel.
 			resetAttachmentWorkflowState();
 			mode = selectedNote ? 'view' : 'idle';
@@ -2350,10 +2389,14 @@
 			return;
 		}
 		creating = true;
+		saveIntegrityBlockedMessage = '';
 		try {
 		const note = await createCaseNotebookNote(
 			activeCaseId,
-			{ title: createTitle.trim() || generateTitle(text), text },
+			mergeNotebookWritePayload(
+				{ title: createTitle.trim() || generateTitle(text), text },
+				integrityBaselineText
+			),
 			$caseEngineToken
 		);
 			if (caseId !== activeCaseId) return;
@@ -2377,9 +2420,20 @@
 			}
 			// Load confirmed attachments for the new note view
 			void loadNoteAttachments(note.id);
+			resetNoteIntegrityDraftState();
 			toast.success('Note created');
 		} catch (e: unknown) {
 			if (caseId !== activeCaseId) return;
+			if (
+				e instanceof CaseEngineRequestError &&
+				e.httpStatus === 400 &&
+				e.errorCode === 'AI_VALIDATION_FAILED'
+			) {
+				saveIntegrityBlockedMessage =
+					e.message ||
+					'Save blocked: this note failed integrity validation. Adjust the text and try again.';
+				return;
+			}
 			toast.error(e instanceof Error ? e.message : 'Failed to create note');
 		} finally {
 			if (caseId === activeCaseId) creating = false;
@@ -2396,16 +2450,20 @@
 			return;
 		}
 		editConflictMessage = '';
+		saveIntegrityBlockedMessage = '';
 		saving = true;
 		try {
 		const updated = await updateCaseNotebookNote(
 			activeCaseId,
 			selectedNote.id,
-			{
-				title: editTitle.trim() || generateTitle(text),
-				text,
-				expected_updated_at: editExpectedUpdatedAt
-			},
+			mergeNotebookWritePayload(
+				{
+					title: editTitle.trim() || generateTitle(text),
+					text,
+					expected_updated_at: editExpectedUpdatedAt
+				},
+				integrityBaselineText
+			),
 			$caseEngineToken
 		);
 			if (caseId !== activeCaseId) return;
@@ -2422,6 +2480,7 @@
 			editEditorRenderKey = 0;
 			resetEnhanceState();
 			resetDictationState();
+			resetNoteIntegrityDraftState();
 			mode = 'view';
 			void loadNoteAttachments(updated.id);
 			toast.success('Note saved');
@@ -2433,6 +2492,16 @@
 			) {
 				editConflictMessage =
 					'This note was updated by someone else before your changes were saved. Review the latest version and re-apply your changes if needed.';
+				return;
+			}
+			if (
+				e instanceof CaseEngineRequestError &&
+				e.httpStatus === 400 &&
+				e.errorCode === 'AI_VALIDATION_FAILED'
+			) {
+				saveIntegrityBlockedMessage =
+					e.message ||
+					'Save blocked: this note failed integrity validation. Adjust the text and try again.';
 				return;
 			}
 			toast.error(e instanceof Error ? e.message : 'Failed to save note');
@@ -3006,6 +3075,14 @@
 				</p>
 				{/if}
 			</div>
+				{#if saveIntegrityBlockedMessage}
+					<div
+						class="shrink-0 mx-5 mt-2 rounded-md border border-red-300/70 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-200"
+						data-testid="case-note-create-integrity-blocked-message"
+					>
+						{saveIntegrityBlockedMessage}
+					</div>
+				{/if}
 				<!-- Footer actions -->
 				<div
 					class="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800"
@@ -3401,6 +3478,14 @@
 							data-testid="case-note-save-conflict-message"
 						>
 							{editConflictMessage}
+						</div>
+					{/if}
+					{#if saveIntegrityBlockedMessage}
+						<div
+							class="shrink-0 mx-5 mt-3 rounded-md border border-red-300/70 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-200"
+							data-testid="case-note-save-integrity-blocked-message"
+						>
+							{saveIntegrityBlockedMessage}
 						</div>
 					{/if}
 					<!-- Editable editor -->

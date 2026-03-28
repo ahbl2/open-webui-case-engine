@@ -42,6 +42,16 @@ function extractApiErrorCode(data: unknown): string | undefined {
 	return undefined;
 }
 
+function extractApiErrorDetails(data: unknown): unknown {
+	if (data != null && typeof data === 'object') {
+		const d = data as Record<string, unknown>;
+		if (d.error != null && typeof d.error === 'object' && 'details' in d.error) {
+			return (d.error as Record<string, unknown>).details;
+		}
+	}
+	return undefined;
+}
+
 function normalizeCaseNumber(input: string): string {
 	return String(input ?? '').trim().toUpperCase();
 }
@@ -3901,7 +3911,7 @@ export async function listCaseNotebookNoteVersions(
 /** Create a new notebook note. Returns the created note. */
 export async function createCaseNotebookNote(
 	caseId: string,
-	input: { title?: string | null; text: string },
+	input: { title?: string | null; text: string; integrity_baseline_text?: string },
 	token: string
 ): Promise<NotebookNote> {
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook`, {
@@ -3910,7 +3920,15 @@ export async function createCaseNotebookNote(
 		body: JSON.stringify(input)
 	});
 	const data = await res.json().catch(() => ({}));
-	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to create note (${res.status})`);
+	if (!res.ok) {
+		throw new CaseEngineRequestError(
+			extractApiErrorMessage(data, `Failed to create note (${res.status})`),
+			res.status,
+			extractApiErrorCode(data),
+			extractApiErrorDetails(data),
+			responseRequestId(res)
+		);
+	}
 	return data as NotebookNote;
 }
 
@@ -3921,7 +3939,7 @@ export async function createCaseNotebookNote(
 export async function updateCaseNotebookNote(
 	caseId: string,
 	noteId: number,
-	input: { title?: string | null; text: string; expected_updated_at?: string },
+	input: { title?: string | null; text: string; expected_updated_at?: string; integrity_baseline_text?: string },
 	token: string
 ): Promise<NotebookNote> {
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/${noteId}/versions`, {
@@ -3932,8 +3950,11 @@ export async function updateCaseNotebookNote(
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) {
 		throw new CaseEngineRequestError(
-			(data as { error?: string })?.error ?? `Failed to update note (${res.status})`,
-			res.status
+			extractApiErrorMessage(data, `Failed to update note (${res.status})`),
+			res.status,
+			extractApiErrorCode(data),
+			extractApiErrorDetails(data),
+			responseRequestId(res)
 		);
 	}
 	return data as NotebookNote;

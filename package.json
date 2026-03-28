@@ -19,7 +19,7 @@
 		"i18n:parse": "i18next --config i18next-parser.config.ts && prettier --write \"src/lib/i18n/**/*.{js,json}\"",
 		"cy:open": "cypress open",
 		"test:frontend": "vitest --passWithNoTests",
-		"test:p20-pre": "vitest --passWithNoTests --run src/lib/apis/caseEngine/__tests__/p20_pre_02_envelope.test.ts src/lib/apis/caseEngine/__tests__/retryPolicy.test.ts src/lib/apis/caseEngine/__tests__/askCaseQuestion.safeReadRetry.test.ts src/lib/apis/caseEngine/__tests__/mutatingNoRetry.test.ts src/lib/apis/caseEngine/__tests__/p20_pre_06_correlation.test.ts src/lib/utils/caseEngineUiState.test.ts src/lib/utils/isShortcutMatch.test.ts src/lib/socketOrigin.test.ts src/lib/socket.lifecycle.test.ts",
+    "test:p20-pre": "vitest --passWithNoTests --run src/lib/apis/caseEngine/__tests__/p20_pre_02_envelope.test.ts src/lib/apis/caseEngine/__tests__/retryPolicy.test.ts src/lib/apis/caseEngine/__tests__/askCaseQuestion.safeReadRetry.test.ts src/lib/apis/caseEngine/__tests__/mutatingNoRetry.test.ts src/lib/apis/caseEngine/__tests__/p20_pre_06_correlation.test.ts src/lib/apis/caseEngine/__tests__/p31_02_notebookNoteErrors.test.ts src/lib/caseNotes/notebookIntegrityPayload.test.ts src/lib/utils/caseEngineUiState.test.ts src/lib/utils/isShortcutMatch.test.ts src/lib/socketOrigin.test.ts src/lib/socket.lifecycle.test.ts",
 		"pyodide:fetch": "node scripts/prepare-pyodide.js",
 		"check-ports": "node scripts/check-ports.js"
 	},

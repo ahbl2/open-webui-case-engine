@@ -21,7 +21,8 @@ describe('mutating routes — no retry helper / single-shot fetch', () => {
 				case_number: 'x',
 				title: 't',
 				unit: 'CID',
-				status: 'OPEN'
+				status: 'OPEN',
+				incident_date: '2026-01-01'
 			})
 		).rejects.toThrow();
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
