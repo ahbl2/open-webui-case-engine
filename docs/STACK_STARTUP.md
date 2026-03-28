@@ -150,3 +150,5 @@ The **Socket.IO server** (Engine.IO) runs on the **Open WebUI Python backend** (
 **Verify in the browser:** DevTools → **Network** → **WS**; you should see the socket to **`ws://<page-host>:3001/ws/socket.io`** (same host as the address bar), not to `:8080` unless you set `PUBLIC_WS_URL` to an `8080` origin. Console `[WS-DIAG] socket.io init` shows resolved `url` (`undefined (same-origin)` is correct for default dev).
 
 **Wrong vs right:** If the page is `http://192.168.1.194:3001` but the client tried `ws://192.168.1.194:8080/...`, that was **misrouting** (backend often only listens on `127.0.0.1:8080`, so LAN clients cannot reach it). Default same-origin + Vite proxy fixes that.
+
+**See also:** [DETECTIVE_SHORTCUT_SOCKET_DEV_HARDENING.md](./DETECTIVE_SHORTCUT_SOCKET_DEV_HARDENING.md) — dev console warning when `PUBLIC_WS_URL` ≠ page origin, plus keyboard shortcut matcher hardening.
