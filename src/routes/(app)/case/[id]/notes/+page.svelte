@@ -647,6 +647,18 @@
 	 *
 	 * P30-17.
 	 */
+	/**
+	 * P30-29: Context-aware coverage validation.
+	 *
+	 * Tiers (evaluated in order):
+	 *   1. Empty output — always reject.
+	 *   2. Short note bypass — orig < 300 chars OR < 2 paragraphs → accept without checks.
+	 *   3. Structured note — bullet/list content → line count parity only (±1 allowed).
+	 *   4. Long narrative — paragraph count parity + length ratio + key-term carry-forward
+	 *      (missing-token threshold raised to 50%, was 30%).
+	 *
+	 * Reasons: 'empty' | 'structure-mismatch' | 'length' | 'key-terms'
+	 */
 	function validateEnhanceCoverage(
 		original: string,
 		enhanced: string
@@ -654,22 +666,50 @@
 		const orig = original.trim();
 		const enh = enhanced.trim();
 
-		// Length ratio check — only meaningful for non-trivial notes.
-		if (orig.length > 150 && enh.length < orig.length * 0.55) {
+		if (!enh) {
+			return { ok: false, reason: 'empty' };
+		}
+
+		// P30-29 (1): Short note bypass — not enough content for meaningful validation.
+		const origParas = orig.split(/\n\n+/).filter((p) => p.trim().length > 0);
+		if (orig.length < 300 || origParas.length < 2) {
+			return { ok: true };
+		}
+
+		// P30-29 (2): Structured note detection — bullet or numbered list content.
+		const isStructured =
+			/^[\-\+•]\s/m.test(orig) || /^\s*\d+[\.\)]\s/m.test(orig);
+		if (isStructured) {
+			// Only enforce line count parity (±1 line); skip token checks.
+			const origLines = orig.split('\n').filter((l) => l.trim().length > 0).length;
+			const enhLines = enh.split('\n').filter((l) => l.trim().length > 0).length;
+			if (Math.abs(origLines - enhLines) > 1) {
+				return { ok: false, reason: 'structure-mismatch' };
+			}
+			return { ok: true };
+		}
+
+		// P30-29 (3): Paragraph count parity — long narrative notes must not
+		// collapse or expand paragraphs during enhancement.
+		const enhParas = enh.split(/\n\n+/).filter((p) => p.trim().length > 0);
+		if (enhParas.length !== origParas.length) {
+			return { ok: false, reason: 'structure-mismatch' };
+		}
+
+		// Length ratio check.
+		if (enh.length < orig.length * 0.55) {
 			return { ok: false, reason: 'length' };
 		}
 
-		// Extract significant tokens from the original to check carry-forward.
+		// P30-29 (4): Key-token carry-forward — threshold raised to 50% (was 30%)
+		// to reduce false positives from valid rephrasing.
 		const tokens = new Set<string>();
-		// Quoted phrases (2–60 chars within ASCII quotes).
 		for (const m of orig.matchAll(/["']([^"']{2,60})["']/g)) {
 			tokens.add(m[1].toLowerCase().trim());
 		}
-		// Numeric values and date-like strings (e.g. 14:30, 12/03/2024, 42).
 		for (const m of orig.matchAll(/\b\d+(?:[:.\/\-]\d+)*\b/g)) {
 			tokens.add(m[0]);
 		}
-		// Capitalized words of 3+ chars (likely proper names).
 		for (const m of orig.matchAll(/\b[A-Z][a-z]{2,}\b/g)) {
 			tokens.add(m[0].toLowerCase());
 		}
@@ -680,7 +720,7 @@
 			for (const t of tokens) {
 				if (!enhLower.includes(t)) missing++;
 			}
-			if (missing / tokens.size > 0.3) {
+			if (missing / tokens.size > 0.5) {
 				return { ok: false, reason: 'key-terms' };
 			}
 		}
@@ -867,16 +907,19 @@
 
 			const assembled = enhancedBlocks.join('\n\n');
 
-			// P30-17: Coverage validation — reject the enhancement if it appears to have
-			// dropped substantive content from the original note.
-			const coverage = validateEnhanceCoverage(draftText, assembled);
-			if (!coverage.ok) {
-				enhanceError =
-					'Enhanced suggestion was rejected because it may have omitted important content. ' +
-					'Please try again.';
-				enhanceState = 'error';
-				return;
-			}
+		// P30-17/P30-29: Coverage validation — context-aware; rejects if content or
+		// structure loss is detected. Short notes and structured notes have relaxed rules.
+		const coverage = validateEnhanceCoverage(draftText, assembled);
+		if (!coverage.ok) {
+			enhanceError =
+				coverage.reason === 'structure-mismatch'
+					? 'Enhancement rejected — structure mismatch. The enhanced output did not preserve the original structure. Please try again.'
+					: coverage.reason === 'length' || coverage.reason === 'empty'
+						? 'Enhancement rejected — incomplete output. The enhanced version is too short. Please try again.'
+						: 'Enhancement rejected — possible content loss. Important terms may have been dropped. Please try again.';
+			enhanceState = 'error';
+			return;
+		}
 
 			// P30-18: Directive preservation validation — reject the enhancement if
 			// action items, next steps, or investigative directives were dropped.
