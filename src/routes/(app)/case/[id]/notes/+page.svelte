@@ -567,6 +567,9 @@
 		'"establish", "review", "obtain", or "contact", those instructions must remain in the output. ' +
 		'Do NOT remove numbered task lists or operational directives. ' +
 		'Do NOT add new facts, names, dates, or details that are not already present. ' +
+		'Do NOT introduce any new people, names, locations, or events not explicitly present in the original. ' +
+		'Do NOT add examples, context, or assumptions not found in the original note. ' +
+		'Rewrite only what is explicitly present in the input text. ' +
 		'Do NOT convert rough notes into polished narrative that changes evidentiary meaning. ' +
 		'Use clear everyday language and avoid overly formal tone or unnecessarily big words. ' +
 		'Return ONLY the improved note body text. ' +
@@ -587,7 +590,8 @@
 		'If this paragraph contains instructions such as "follow up with", "interview", "confirm", "notify", ' +
 		'"establish", "review", "obtain", or "contact", those instructions must remain in the output. ' +
 		'Do NOT shorten, summarize, or drop anything from this paragraph. ' +
-		'Do NOT add new information. ' +
+		'Do NOT add new information, names, dates, or details not present in this paragraph. ' +
+		'Do NOT introduce people, locations, or events not explicitly mentioned in the input. ' +
 		'Do NOT merge this paragraph with other paragraphs or add surrounding context. ' +
 		'Return ONLY the improved paragraph text. ' +
 		'Do NOT include any preamble, label, intro sentence, or explanation. ' +
@@ -612,16 +616,18 @@
 		// Each pattern matches only at the very start of the trimmed string.
 		const wrapperPatterns: RegExp[] = [
 			/^here is the improved (text|version|note|content)[:\s]*/i,
-			/^here is an? (improved|enhanced|revised|updated|polished|cleaned.up) (text|version|note|content)[:\s]*/i,
-			/^here is the (cleaned|enhanced|revised|updated|polished|cleaned.up) (text|version|note|content)[:\s]*/i,
+			/^here is an? (improved|enhanced|revised|updated|polished|cleaned.up|rewritten) (text|version|note|paragraph|content)[:\s]*/i,
+			/^here is the (cleaned|enhanced|revised|updated|polished|cleaned.up|rewritten) (text|version|note|paragraph|content)[:\s]*/i,
+			/^here is the rewritten (text|version|note|paragraph|content)[:\s]*/i,
 			/^improved (text|version|note|content)[:\s]*/i,
-			/^improved note[:\s]*/i,
+			/^improved (note|paragraph)[:\s]*/i,
 			/^enhanced (text|version|note|content)[:\s]*/i,
-			/^enhanced note[:\s]*/i,
+			/^enhanced (note|paragraph)[:\s]*/i,
 			/^revised (text|version|note|content)[:\s]*/i,
+			/^rewritten (text|version|note|paragraph|content)[:\s]*/i,
 			/^cleaned.up (text|version|note|content)[:\s]*/i,
-			/^below is the (improved|enhanced|revised|updated|polished) (text|version|note|content)[:\s]*/i,
-			/^(sure|certainly|of course|absolutely)[,!.]?\s*(here is|here's|i've improved|i've enhanced|i have improved|i have enhanced)[^:\n]*[:\s]*/i,
+			/^below is the (improved|enhanced|revised|updated|polished|rewritten) (text|version|note|paragraph|content)[:\s]*/i,
+			/^(sure|certainly|of course|absolutely)[,!.]?\s*(here is|here's|i've improved|i've enhanced|i have improved|i have enhanced|i've rewritten|i have rewritten)[^:\n]*[:\s]*/i,
 			/^(sure|certainly|of course|absolutely)[,!.]?\s*/i,
 		];
 		let result = text.trim();
@@ -722,6 +728,64 @@
 			}
 			if (missing / tokens.size > 0.5) {
 				return { ok: false, reason: 'key-terms' };
+			}
+		}
+
+		return { ok: true };
+	}
+
+	/**
+	 * P30-30: Fabrication detection.
+	 *
+	 * Checks that the enhanced output does not introduce new named entities or
+	 * specific time values that are absent from the original note. Two checks:
+	 *
+	 *   1. Multi-word capitalized sequences (e.g. "Officer Martinez", "John Davis").
+	 *      These are the strongest signal for invented names. Role/title words
+	 *      (Officer, Detective, Dr., etc.) are excluded from the name check since
+	 *      they may be expanded from abbreviations in legitimate rewrites.
+	 *
+	 *   2. Time values in HH:MM format — specific times are high-value facts that
+	 *      must not be invented.
+	 *
+	 * Single capitalized words are intentionally NOT checked here to avoid false
+	 * positives from sentence-start capitalisation and transition words. The key-term
+	 * carry-forward check in validateEnhanceCoverage already guards against dropped
+	 * names from the ORIGINAL perspective; this check guards the ENHANCED perspective.
+	 */
+	function validateNoFabrication(
+		original: string,
+		enhanced: string
+	): { ok: boolean; reason?: string } {
+		const origLower = original.toLowerCase();
+
+		// Titles and role words that legitimately expand abbreviations in a rewrite.
+		// Not checked as "new content" in the multi-word name scan.
+		const roleTitles = new Set([
+			'officer', 'detective', 'sergeant', 'lieutenant', 'captain', 'constable',
+			'inspector', 'investigator', 'superintendent', 'deputy', 'agent', 'doctor',
+			'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'witness', 'suspect',
+			'defendant', 'plaintiff', 'victim', 'complainant'
+		]);
+
+		// 1. Multi-word capitalized sequences — check that non-title name words appear
+		//    in the original text. Pattern: two or more consecutive Title-Cased words.
+		for (const m of enhanced.matchAll(/\b([A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+)+)\b/g)) {
+			const phrase = m[1].trim();
+			const words = phrase.split(/\s+/);
+			// Only check the non-title words (the actual name part).
+			const nameWords = words.filter((w) => !roleTitles.has(w.toLowerCase()));
+			for (const nameWord of nameWords) {
+				if (nameWord.length >= 3 && !origLower.includes(nameWord.toLowerCase())) {
+					return { ok: false, reason: 'fabrication' };
+				}
+			}
+		}
+
+		// 2. Time values (HH:MM) in enhanced not present in original.
+		for (const m of enhanced.matchAll(/\b(\d{1,2}:\d{2})\b/g)) {
+			if (!origLower.includes(m[1])) {
+				return { ok: false, reason: 'fabrication' };
 			}
 		}
 
@@ -895,15 +959,39 @@
 					return;
 				}
 
-				// P30-14: strip wrapper phrases from each block before assembling.
-				const sanitized = sanitizeEnhanceOutput(raw);
-				if (!sanitized) {
-					enhanceError = 'AI returned an empty response after sanitization. Please try again.';
-					enhanceState = 'error';
-					return;
-				}
-				enhancedBlocks.push(sanitized);
+			// P30-14: strip wrapper phrases from each block before assembling.
+			const sanitized = sanitizeEnhanceOutput(raw);
+			if (!sanitized) {
+				enhanceError = 'AI returned an empty response after sanitization. Please try again.';
+				enhanceState = 'error';
+				return;
 			}
+
+			// P30-30: Per-block sentence drift check — detect if a paragraph was
+			// replaced with substantively different content rather than rewritten.
+			// Only runs for blocks with enough signal (≥ 80 chars, ≥ 3 key tokens).
+			if (block.length >= 80) {
+				const blockTokens = new Set<string>();
+				for (const bm of block.matchAll(/\b[A-Z][a-z]{2,}\b/g)) blockTokens.add(bm[0].toLowerCase());
+				for (const bm of block.matchAll(/\b\d+(?:[:.\/\-]\d+)*\b/g)) blockTokens.add(bm[0]);
+				for (const bm of block.matchAll(/["']([^"']{2,60})["']/g)) blockTokens.add(bm[1].toLowerCase().trim());
+				if (blockTokens.size >= 3) {
+					const sanitizedLower = sanitized.toLowerCase();
+					let blockMissing = 0;
+					for (const t of blockTokens) {
+						if (!sanitizedLower.includes(t)) blockMissing++;
+					}
+					if (blockMissing / blockTokens.size > 0.65) {
+						enhanceError =
+							'Enhancement rejected — possible content loss. A paragraph appears to have been replaced with different content. Please try again.';
+						enhanceState = 'error';
+						return;
+					}
+				}
+			}
+
+			enhancedBlocks.push(sanitized);
+		}
 
 			const assembled = enhancedBlocks.join('\n\n');
 
@@ -921,9 +1009,19 @@
 			return;
 		}
 
-			// P30-18: Directive preservation validation — reject the enhancement if
-			// action items, next steps, or investigative directives were dropped.
-			if (!validateDirectivePreservation(draftText, assembled)) {
+		// P30-30: Fabrication detection — reject if enhanced output introduces
+		// multi-word names or time values not present in the original note.
+		const fabrication = validateNoFabrication(draftText, assembled);
+		if (!fabrication.ok) {
+			enhanceError =
+				'Enhancement rejected — possible fabricated content. The enhanced version may have introduced new information not present in the original note. Please try again.';
+			enhanceState = 'error';
+			return;
+		}
+
+		// P30-18: Directive preservation validation — reject the enhancement if
+		// action items, next steps, or investigative directives were dropped.
+		if (!validateDirectivePreservation(draftText, assembled)) {
 				enhanceError =
 					'Enhanced suggestion was rejected because an action item or investigative directive may have been omitted. ' +
 					'Please try again.';
