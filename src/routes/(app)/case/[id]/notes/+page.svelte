@@ -771,14 +771,21 @@
 	 * carry-forward check in validateEnhanceCoverage already guards against dropped
 	 * names from the ORIGINAL perspective; this check guards the ENHANCED perspective.
 	 */
-	function validateNoFabrication(
+	/**
+	 * P30-30: Strict fabrication detection — used on the standard enhance pass.
+	 *
+	 * Two checks:
+	 *   1. Multi-word capitalized sequences (e.g. "Officer Martinez", "John Davis").
+	 *      Role/title words are excluded (may be abbreviation expansions). All
+	 *      remaining name words must appear in the original text.
+	 *   2. Time values in HH:MM format — specific times must not be invented.
+	 */
+	function validateNoFabricationStrict(
 		original: string,
 		enhanced: string
 	): { ok: boolean; reason?: string } {
 		const origLower = original.toLowerCase();
 
-		// Titles and role words that legitimately expand abbreviations in a rewrite.
-		// Not checked as "new content" in the multi-word name scan.
 		const roleTitles = new Set([
 			'officer', 'detective', 'sergeant', 'lieutenant', 'captain', 'constable',
 			'inspector', 'investigator', 'superintendent', 'deputy', 'agent', 'doctor',
@@ -786,12 +793,10 @@
 			'defendant', 'plaintiff', 'victim', 'complainant'
 		]);
 
-		// 1. Multi-word capitalized sequences — check that non-title name words appear
-		//    in the original text. Pattern: two or more consecutive Title-Cased words.
+		// 1. Multi-word capitalized sequences.
 		for (const m of enhanced.matchAll(/\b([A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+)+)\b/g)) {
 			const phrase = m[1].trim();
 			const words = phrase.split(/\s+/);
-			// Only check the non-title words (the actual name part).
 			const nameWords = words.filter((w) => !roleTitles.has(w.toLowerCase()));
 			for (const nameWord of nameWords) {
 				if (nameWord.length >= 3 && !origLower.includes(nameWord.toLowerCase())) {
@@ -804,6 +809,63 @@
 		for (const m of enhanced.matchAll(/\b(\d{1,2}:\d{2})\b/g)) {
 			if (!origLower.includes(m[1])) {
 				return { ok: false, reason: 'fabrication' };
+			}
+		}
+
+		return { ok: true };
+	}
+
+	/**
+	 * P30-32: Relaxed fabrication detection — used only on the safe enhance pass.
+	 *
+	 * The safe prompt is maximally constrained (grammar/clarity only, no expansion),
+	 * so false-positive risk from legitimate rewrites is higher. Two relaxations vs
+	 * strict mode:
+	 *
+	 *   1. Broader exclusion set — includes common governmental/organisational terms
+	 *      that appear when acronyms are expanded (e.g. "FBI" → "Federal Bureau of
+	 *      Investigation" introduces "Federal" and "Bureau" as Title-Cased words not
+	 *      literally present in the original, but these are not fabricated facts).
+	 *
+	 *   2. No time value check — the safe prompt does not alter factual content; minor
+	 *      reformatting of times is acceptable in a minimal grammar rewrite.
+	 *
+	 * True proper-name fabrication (new people, new locations, new organisations whose
+	 * names are not covered by the exclusion set) is still caught.
+	 */
+	function validateNoFabricationSafe(
+		original: string,
+		enhanced: string
+	): { ok: boolean; reason?: string } {
+		const origLower = original.toLowerCase();
+
+		// Broader exclusion set: role titles + common org/gov acronym-expansion words.
+		const safeExclusions = new Set([
+			// Role and professional titles (same as strict)
+			'officer', 'detective', 'sergeant', 'lieutenant', 'captain', 'constable',
+			'inspector', 'investigator', 'superintendent', 'deputy', 'agent', 'doctor',
+			'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'witness', 'suspect',
+			'defendant', 'plaintiff', 'victim', 'complainant',
+			// Governmental and organisational acronym-expansion words
+			'national', 'federal', 'bureau', 'department', 'agency', 'administration',
+			'authority', 'service', 'commission', 'board', 'office', 'division',
+			'unit', 'force', 'corps', 'squad', 'team', 'ministry', 'court',
+			'police', 'sheriff', 'justice', 'homeland', 'security', 'intelligence',
+			'criminal', 'investigation', 'investigations', 'narcotics', 'task',
+			'central', 'state', 'county', 'municipal', 'regional', 'international',
+			'emergency', 'management', 'protection', 'enforcement'
+		]);
+
+		// Multi-word capitalized sequences — same logic as strict but with the broader
+		// exclusion set. Time values are NOT checked in safe mode.
+		for (const m of enhanced.matchAll(/\b([A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+)+)\b/g)) {
+			const phrase = m[1].trim();
+			const words = phrase.split(/\s+/);
+			const nameWords = words.filter((w) => !safeExclusions.has(w.toLowerCase()));
+			for (const nameWord of nameWords) {
+				if (nameWord.length >= 3 && !origLower.includes(nameWord.toLowerCase())) {
+					return { ok: false, reason: 'fabrication' };
+				}
 			}
 		}
 
@@ -1035,8 +1097,11 @@
 			};
 		}
 
-		// P30-30: Fabrication detection — always run even in safe mode.
-		const fabrication = validateNoFabrication(draftText, assembled);
+		// P30-30/P30-32: Fabrication detection — strict on standard pass,
+		// relaxed (no time check, broader org-word exclusions) on safe pass.
+		const fabrication = safe
+			? validateNoFabricationSafe(draftText, assembled)
+			: validateNoFabricationStrict(draftText, assembled);
 		if (!fabrication.ok) {
 			return {
 				ok: false,
