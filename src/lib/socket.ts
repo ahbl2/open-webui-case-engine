@@ -4,6 +4,32 @@ import { getSocketIoOrigin } from '$lib/constants';
 import { SOCKET_IO_SERVER_PATH } from '$lib/socketOrigin';
 
 let singletonSocket: Socket | null = null;
+let devOriginMismatchWarned = false;
+
+/** Dev-only: misconfigured PUBLIC_WS_URL (wrong port/host vs the page) breaks Vite /ws proxying. */
+function warnDevIfPublicWsUrlMismatchesPage(): void {
+	if (!import.meta.env.DEV || devOriginMismatchWarned || typeof window === 'undefined') return;
+	const explicit = getSocketIoOrigin();
+	if (!explicit) return;
+	try {
+		const a = new URL(explicit);
+		const b = new URL(window.location.href);
+		const portA = a.port || (a.protocol === 'https:' ? '443' : '80');
+		const portB = b.port || (b.protocol === 'https:' ? '443' : '80');
+		if (a.protocol !== b.protocol || a.hostname !== b.hostname || portA !== portB) {
+			devOriginMismatchWarned = true;
+			console.warn(
+				'[socket] PUBLIC_WS_URL does not match this page’s origin. Socket.IO will bypass the Vite dev proxy and often breaks (wrong port, CORS, or 400 on Engine.IO POST).\n' +
+					'Fix: remove PUBLIC_WS_URL from .env (recommended), or set it to exactly the browser origin (e.g. https://192.168.x.x:3001 for Vite).\n' +
+					'Never point PUBLIC_WS_URL at the Python backend port (8080) in the standard Detective stack.',
+				{ PUBLIC_WS_URL: explicit, pageOrigin: b.origin }
+			);
+		}
+	} catch {
+		devOriginMismatchWarned = true;
+		console.warn('[socket] PUBLIC_WS_URL is not a valid URL:', explicit);
+	}
+}
 
 /** Marks that root layout lifecycle listeners were bound (prevents duplicate `.on` on remount / HMR). */
 const LAYOUT_LISTENERS_BOUND = Symbol.for('openwebui.layoutSocketListenersBound');
@@ -31,6 +57,7 @@ export function getSocket(): Socket {
 		throw new Error('getSocket() is only available in the browser');
 	}
 	if (!singletonSocket) {
+		warnDevIfPublicWsUrlMismatchesPage();
 		// Single `io()` per module load — all callers must use `getSocket()`.
 		singletonSocket = io(getSocketIoOrigin(), {
 			path: SOCKET_IO_SERVER_PATH,

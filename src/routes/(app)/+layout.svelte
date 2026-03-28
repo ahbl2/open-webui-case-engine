@@ -99,6 +99,7 @@
 	import AccountPending from '$lib/components/layout/Overlay/AccountPending.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { Shortcut, shortcuts } from '$lib/shortcuts';
+	import { isShortcutMatch } from '$lib/utils/isShortcutMatch';
 
 	const i18n = getContext('i18n');
 
@@ -465,37 +466,6 @@
 				]);
 			}).catch((e) => console.error('Failed to load user settings:', e))
 		]);
-
-		// Helper function to check if the pressed keys match the shortcut definition
-		const isShortcutMatch = (event: KeyboardEvent, shortcut): boolean => {
-			if (!shortcut || !Array.isArray(shortcut.keys)) return false;
-			const keys = shortcut.keys.filter(
-				(k): k is string => typeof k === 'string' && k.length > 0
-			);
-			if (!keys.length) return false;
-
-			const normalized = keys.map((k) => k.toLowerCase());
-			const needCtrl = normalized.includes('ctrl') || normalized.includes('mod');
-			const needShift = normalized.includes('shift');
-			const needAlt = normalized.includes('alt');
-
-			const mainKeys = normalized.filter((k) => !['ctrl', 'shift', 'alt', 'mod'].includes(k));
-
-			// Get the main key pressed
-			const keyPressed = (event.key ?? '').toLowerCase();
-
-			// Check modifiers
-			if (needShift && !event.shiftKey) return false;
-
-			if (needCtrl && !(event.ctrlKey || event.metaKey)) return false;
-			if (!needCtrl && (event.ctrlKey || event.metaKey)) return false;
-			if (needAlt && !event.altKey) return false;
-			if (!needAlt && event.altKey) return false;
-
-			if (mainKeys.length && !mainKeys.includes(keyPressed)) return false;
-
-			return true;
-		};
 
 		const setupKeyboardShortcuts = () => {
 			document.addEventListener('keydown', async (event) => {

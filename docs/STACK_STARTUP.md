@@ -143,7 +143,7 @@ The **Socket.IO server** (Engine.IO) runs on the **Open WebUI Python backend** (
 - **Default:** `undefined` origin in `resolveSocketIoOrigin` → the Socket.IO client uses the **same origin as the page** (e.g. `http://localhost:3001` or `http://192.168.1.194:3001`). The URL is therefore **`ws://<that-host>:3001/ws/socket.io?...`** (or `wss:` if the page is HTTPS).
 - **Vite** proxies **`/ws`** (including WebSocket upgrade) to **`http://127.0.0.1:<PUBLIC_WEBUI_BACKEND_PORT>`** (see `vite.config.ts`). So the Python process can keep listening on **localhost:8080**; you do **not** need port 8080 reachable from other machines on the LAN for Socket.IO — only port **3001** (Vite) must be reachable.
 
-**Optional override:** set **`PUBLIC_WS_URL`** to a full origin (no path) only if you deliberately bypass Vite for Socket.IO (unusual in local dev). Leave it **unset** for normal Detective stack dev.
+**Optional override:** set **`PUBLIC_WS_URL`** to a full origin (no path) only if you deliberately bypass Vite for Socket.IO (unusual in local dev). Leave it **unset** for normal Detective stack dev. If you set it to a **different host, port, or scheme** than the page (e.g. page on `:3001` but `PUBLIC_WS_URL` on `:3000` or `:8080`), realtime will misbehave — in **`import.meta.env.DEV`** the client logs a **`[socket] PUBLIC_WS_URL does not match`** warning with fix guidance (see `src/lib/socket.ts`).
 
 **Separate concern — Vite proxy target:** **`PUBLIC_WEBUI_BACKEND_PORT`** (or **`WEBUI_BACKEND_PORT`**) tells **Vite** which port to forward `/api`, `/ws`, etc. to. It does **not** set the browser’s Socket.IO origin when `PUBLIC_WS_URL` is unset. Typical value: `8080`.
 
