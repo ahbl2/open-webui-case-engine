@@ -468,7 +468,11 @@
 
 		// Helper function to check if the pressed keys match the shortcut definition
 		const isShortcutMatch = (event: KeyboardEvent, shortcut): boolean => {
-			const keys = shortcut?.keys || [];
+			if (!shortcut || !Array.isArray(shortcut.keys)) return false;
+			const keys = shortcut.keys.filter(
+				(k): k is string => typeof k === 'string' && k.length > 0
+			);
+			if (!keys.length) return false;
 
 			const normalized = keys.map((k) => k.toLowerCase());
 			const needCtrl = normalized.includes('ctrl') || normalized.includes('mod');
@@ -478,7 +482,7 @@
 			const mainKeys = normalized.filter((k) => !['ctrl', 'shift', 'alt', 'mod'].includes(k));
 
 			// Get the main key pressed
-			const keyPressed = event.key.toLowerCase();
+			const keyPressed = (event.key ?? '').toLowerCase();
 
 			// Check modifiers
 			if (needShift && !event.shiftKey) return false;
