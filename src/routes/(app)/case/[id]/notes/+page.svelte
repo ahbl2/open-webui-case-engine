@@ -550,6 +550,8 @@
 	let enhanceState: EnhanceState = 'idle';
 	let enhanceProposalText = '';
 	let enhanceError = '';
+	// P30-31: true when the standard pass failed and the safe fallback was used.
+	let enhanceFallbackUsed = false;
 	// P30-16: true when the model stopped early (finish_reason: 'length') and
 	// the response was rejected as an incomplete enhancement.
 	let enhanceTruncated = false;
@@ -599,11 +601,27 @@
 		'"Sure, here is...", or any similar framing. ' +
 		'Output only the improved paragraph text and nothing else.';
 
+	// P30-31: Ultra-conservative safe prompt used as fallback when standard enhancement
+	// fails validation. Restricts AI to grammar/clarity only — no content changes.
+	const ENHANCE_SAFE_PROMPT =
+		'You are a writing assistant for an investigator\'s case notes. ' +
+		'Make only minimal, conservative corrections to grammar, spelling, and punctuation. ' +
+		'Do NOT introduce any new facts, names, dates, locations, or events. ' +
+		'Do NOT add new people, events, details, context, or assumptions. ' +
+		'Do NOT expand, elaborate, or add content of any kind. ' +
+		'Do NOT change the meaning, structure, or wording more than necessary. ' +
+		'Preserve the original structure and wording as much as possible. ' +
+		'Only correct obvious errors or severely awkward phrasing. ' +
+		'Return ONLY the corrected note text. ' +
+		'Do NOT include any preamble, label, intro sentence, or explanation. ' +
+		'Output the corrected note content and nothing else.';
+
 	function resetEnhanceState(): void {
 		enhanceState = 'idle';
 		enhanceProposalText = '';
 		enhanceError = '';
 		enhanceTruncated = false;
+		enhanceFallbackUsed = false;
 	}
 
 	/**
@@ -876,9 +894,10 @@
 	async function enhanceBlock(
 		modelId: string,
 		block: string,
-		isMultiBlock: boolean
+		isMultiBlock: boolean,
+		promptOverride?: string
 	): Promise<{ text: string; truncated: boolean }> {
-		const systemPrompt = isMultiBlock ? ENHANCE_BLOCK_PROMPT : ENHANCE_SYSTEM_PROMPT;
+		const systemPrompt = promptOverride ?? (isMultiBlock ? ENHANCE_BLOCK_PROMPT : ENHANCE_SYSTEM_PROMPT);
 		const res = await generateOpenAIChatCompletion(
 			localStorage.token,
 			{
@@ -913,6 +932,133 @@
 		return visible.length > 0 ? visible[0].id : null;
 	}
 
+	/**
+	 * P30-31: Run one full enhance pass (blocks + all validation).
+	 *
+	 * When safe=true, uses ENHANCE_SAFE_PROMPT for every block and skips the
+	 * per-block drift check (the safe prompt is too constrained to drift).
+	 *
+	 * Returns:
+	 *   { ok: true, assembled }   — passed all validation
+	 *   { ok: false, kind: 'fatal', message }      — truncation / empty response
+	 *   { ok: false, kind: 'validation', message } — content/fabrication check failed
+	 */
+	async function tryEnhancePass(
+		modelId: string,
+		draftText: string,
+		safe: boolean
+	): Promise<
+		| { ok: true; assembled: string }
+		| { ok: false; kind: 'fatal' | 'validation'; message: string }
+	> {
+		const blocks = draftText.split(/\n\n+/).filter((b) => b.trim().length > 0);
+		const isMultiBlock = blocks.length > 1;
+		const enhancedBlocks: string[] = [];
+
+		for (const block of blocks) {
+			const { text: raw, truncated } = await enhanceBlock(
+				modelId,
+				block,
+				isMultiBlock,
+				safe ? ENHANCE_SAFE_PROMPT : undefined
+			);
+
+			if (truncated) {
+				return {
+					ok: false,
+					kind: 'fatal',
+					message:
+						'Enhanced suggestion is incomplete — the model stopped before finishing. ' +
+						'The note may be too long for the current model. ' +
+						'Try with a shorter note, or save manually without enhancement.'
+				};
+			}
+
+			if (!raw.trim()) {
+				return {
+					ok: false,
+					kind: 'fatal',
+					message: 'AI returned an empty response for part of the note. Please try again.'
+				};
+			}
+
+			const sanitized = sanitizeEnhanceOutput(raw);
+			if (!sanitized) {
+				return {
+					ok: false,
+					kind: 'fatal',
+					message: 'AI returned an empty response after sanitization. Please try again.'
+				};
+			}
+
+			// P30-30: Per-block drift check — skipped in safe mode since the safe
+			// prompt is too constrained to replace paragraph content wholesale.
+			if (!safe && block.length >= 80) {
+				const blockTokens = new Set<string>();
+				for (const bm of block.matchAll(/\b[A-Z][a-z]{2,}\b/g)) blockTokens.add(bm[0].toLowerCase());
+				for (const bm of block.matchAll(/\b\d+(?:[:.\/\-]\d+)*\b/g)) blockTokens.add(bm[0]);
+				for (const bm of block.matchAll(/["']([^"']{2,60})["']/g)) blockTokens.add(bm[1].toLowerCase().trim());
+				if (blockTokens.size >= 3) {
+					const sanitizedLower = sanitized.toLowerCase();
+					let blockMissing = 0;
+					for (const t of blockTokens) {
+						if (!sanitizedLower.includes(t)) blockMissing++;
+					}
+					if (blockMissing / blockTokens.size > 0.65) {
+						return {
+							ok: false,
+							kind: 'validation',
+							message:
+								'Enhancement rejected — possible content loss. A paragraph appears to have been replaced with different content. Please try again.'
+						};
+					}
+				}
+			}
+
+			enhancedBlocks.push(sanitized);
+		}
+
+		const assembled = enhancedBlocks.join('\n\n');
+
+		// P30-17/P30-29: Coverage validation.
+		const coverage = validateEnhanceCoverage(draftText, assembled);
+		if (!coverage.ok) {
+			return {
+				ok: false,
+				kind: 'validation',
+				message:
+					coverage.reason === 'structure-mismatch'
+						? 'Enhancement rejected — structure mismatch. The enhanced output did not preserve the original structure. Please try again.'
+						: coverage.reason === 'length' || coverage.reason === 'empty'
+							? 'Enhancement rejected — incomplete output. The enhanced version is too short. Please try again.'
+							: 'Enhancement rejected — possible content loss. Important terms may have been dropped. Please try again.'
+			};
+		}
+
+		// P30-30: Fabrication detection — always run even in safe mode.
+		const fabrication = validateNoFabrication(draftText, assembled);
+		if (!fabrication.ok) {
+			return {
+				ok: false,
+				kind: 'validation',
+				message:
+					'Enhancement rejected — possible fabricated content. The enhanced version may have introduced new information not present in the original note. Please try again.'
+			};
+		}
+
+		// P30-18: Directive preservation.
+		if (!validateDirectivePreservation(draftText, assembled)) {
+			return {
+				ok: false,
+				kind: 'validation',
+				message:
+					'Enhanced suggestion was rejected because an action item or investigative directive may have been omitted. Please try again.'
+			};
+		}
+
+		return { ok: true, assembled };
+	}
+
 	async function handleEnhance(): Promise<void> {
 		const draftText = mode === 'edit' ? editText.trim() : createText.trim();
 		if (!draftText) {
@@ -930,108 +1076,45 @@
 		enhanceProposalText = '';
 		enhanceError = '';
 		enhanceTruncated = false;
+		enhanceFallbackUsed = false;
 		try {
-			// P30-17: Split into paragraph blocks on double-newline boundaries.
-			// Notes with more than one block are enhanced paragraph-by-paragraph so
-			// the model cannot summarize away later content when rewriting the whole.
-			// Single-paragraph notes still use one completion call.
-			const blocks = draftText.split(/\n\n+/).filter((b) => b.trim().length > 0);
-			const isMultiBlock = blocks.length > 1;
-			const enhancedBlocks: string[] = [];
+			// Standard pass (full enhance prompts + all validation).
+			const result = await tryEnhancePass(modelId, draftText, false);
 
-			for (const block of blocks) {
-				const { text: raw, truncated } = await enhanceBlock(modelId, block, isMultiBlock);
+			if (result.ok) {
+				enhanceProposalText = result.assembled;
+				enhanceTruncated = false;
+				enhanceState = 'proposal';
+				return;
+			}
 
-				// P30-16: reject if model stopped early for any block.
-				if (truncated) {
-					enhanceTruncated = true;
-					enhanceError =
-						'Enhanced suggestion is incomplete — the model stopped before finishing. ' +
-						'The note may be too long for the current model. ' +
-						'Try with a shorter note, or save manually without enhancement.';
-					enhanceState = 'error';
-					return;
-				}
-
-				if (!raw.trim()) {
-					enhanceError = 'AI returned an empty response for part of the note. Please try again.';
-					enhanceState = 'error';
-					return;
-				}
-
-			// P30-14: strip wrapper phrases from each block before assembling.
-			const sanitized = sanitizeEnhanceOutput(raw);
-			if (!sanitized) {
-				enhanceError = 'AI returned an empty response after sanitization. Please try again.';
+			// Fatal failures (truncation, empty response) — model cannot produce output;
+			// a safe retry with a different prompt will not help.
+			if (result.kind === 'fatal') {
+				if (result.message.includes('stopped before finishing')) enhanceTruncated = true;
+				enhanceError = result.message;
 				enhanceState = 'error';
 				return;
 			}
 
-			// P30-30: Per-block sentence drift check — detect if a paragraph was
-			// replaced with substantively different content rather than rewritten.
-			// Only runs for blocks with enough signal (≥ 80 chars, ≥ 3 key tokens).
-			if (block.length >= 80) {
-				const blockTokens = new Set<string>();
-				for (const bm of block.matchAll(/\b[A-Z][a-z]{2,}\b/g)) blockTokens.add(bm[0].toLowerCase());
-				for (const bm of block.matchAll(/\b\d+(?:[:.\/\-]\d+)*\b/g)) blockTokens.add(bm[0]);
-				for (const bm of block.matchAll(/["']([^"']{2,60})["']/g)) blockTokens.add(bm[1].toLowerCase().trim());
-				if (blockTokens.size >= 3) {
-					const sanitizedLower = sanitized.toLowerCase();
-					let blockMissing = 0;
-					for (const t of blockTokens) {
-						if (!sanitizedLower.includes(t)) blockMissing++;
-					}
-					if (blockMissing / blockTokens.size > 0.65) {
-						enhanceError =
-							'Enhancement rejected — possible content loss. A paragraph appears to have been replaced with different content. Please try again.';
-						enhanceState = 'error';
-						return;
-					}
-				}
-			}
+			// P30-31: Validation failure — retry with safe constrained prompt to avoid
+			// a dead-end UX while still keeping all safety checks active.
+			const safeResult = await tryEnhancePass(modelId, draftText, true);
 
-			enhancedBlocks.push(sanitized);
-		}
-
-			const assembled = enhancedBlocks.join('\n\n');
-
-		// P30-17/P30-29: Coverage validation — context-aware; rejects if content or
-		// structure loss is detected. Short notes and structured notes have relaxed rules.
-		const coverage = validateEnhanceCoverage(draftText, assembled);
-		if (!coverage.ok) {
-			enhanceError =
-				coverage.reason === 'structure-mismatch'
-					? 'Enhancement rejected — structure mismatch. The enhanced output did not preserve the original structure. Please try again.'
-					: coverage.reason === 'length' || coverage.reason === 'empty'
-						? 'Enhancement rejected — incomplete output. The enhanced version is too short. Please try again.'
-						: 'Enhancement rejected — possible content loss. Important terms may have been dropped. Please try again.';
-			enhanceState = 'error';
-			return;
-		}
-
-		// P30-30: Fabrication detection — reject if enhanced output introduces
-		// multi-word names or time values not present in the original note.
-		const fabrication = validateNoFabrication(draftText, assembled);
-		if (!fabrication.ok) {
-			enhanceError =
-				'Enhancement rejected — possible fabricated content. The enhanced version may have introduced new information not present in the original note. Please try again.';
-			enhanceState = 'error';
-			return;
-		}
-
-		// P30-18: Directive preservation validation — reject the enhancement if
-		// action items, next steps, or investigative directives were dropped.
-		if (!validateDirectivePreservation(draftText, assembled)) {
-				enhanceError =
-					'Enhanced suggestion was rejected because an action item or investigative directive may have been omitted. ' +
-					'Please try again.';
-				enhanceState = 'error';
+			if (safeResult.ok) {
+				enhanceProposalText = safeResult.assembled;
+				enhanceFallbackUsed = true;
+				enhanceTruncated = false;
+				enhanceState = 'proposal';
 				return;
 			}
 
-			enhanceProposalText = assembled;
-			enhanceTruncated = false;
-			enhanceState = 'proposal';
+			// Both passes failed — show the original failure reason.
+			if (safeResult.kind === 'fatal' && safeResult.message.includes('stopped before finishing')) {
+				enhanceTruncated = true;
+			}
+			enhanceError = result.message;
+			enhanceState = 'error';
 		} catch (_e: unknown) {
 			enhanceError =
 				'Could not generate an enhanced version of this note. Please try again.';
@@ -2467,42 +2550,48 @@
 							content={createText}
 							editable={true}
 							showHeader={false}
-							on:change={(e) => (createText = e.detail)}
-						/>
-					{/key}
-				</div>
-				{#if enhanceState !== 'idle'}
-					<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
-						{#if enhanceState === 'loading'}
-							<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
-						{:else if enhanceState === 'error'}
-							<div class="px-3 py-2 text-red-700 dark:text-red-300">{enhanceError}</div>
-							<div class="flex items-center gap-2 px-3 pb-2">
-								{#if !enhanceTruncated}
-									<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
-								{/if}
-								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
-							</div>
-						{:else if enhanceState === 'proposal'}
-							<div class="border-b border-gray-200 px-3 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
-								Enhanced version (suggestion only)
-							</div>
-							<div class="px-3 py-2">
-								<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
-								     so long multi-paragraph proposals are fully visible and scrollable. -->
-								<textarea
-									bind:value={enhanceProposalText}
-									class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
-									data-testid="case-note-enhance-proposal-editor"
-								></textarea>
-							</div>
-							<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-								<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
-								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
+						on:change={(e) => (createText = e.detail)}
+					/>
+				{/key}
+			</div>
+			{#if enhanceState !== 'idle'}
+				<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
+					{#if enhanceState === 'loading'}
+						<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
+					{:else if enhanceState === 'error'}
+						<div class="px-3 py-2 text-red-700 dark:text-red-300">{enhanceError}</div>
+						<div class="flex items-center gap-2 px-3 pb-2">
+							{#if !enhanceTruncated}
+								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
+							{/if}
+							<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
+						</div>
+					{:else if enhanceState === 'proposal'}
+						<div class="border-b border-gray-200 px-3 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
+							Enhanced version (suggestion only)
+						</div>
+						<!-- P30-31: fallback notice when safe mode was used -->
+						{#if enhanceFallbackUsed}
+							<div class="px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800">
+								Full enhancement was restricted. Showing safe improvement instead.
 							</div>
 						{/if}
-					</div>
-				{/if}
+						<div class="px-3 py-2">
+							<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
+							     so long multi-paragraph proposals are fully visible and scrollable. -->
+							<textarea
+								bind:value={enhanceProposalText}
+								class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
+								data-testid="case-note-enhance-proposal-editor"
+							></textarea>
+						</div>
+						<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+							<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
+							<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
+						</div>
+					{/if}
+				</div>
+			{/if}
 				{#if dictationState !== 'idle'}
 					<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-dictation-panel">
 						{#if dictationState === 'recording'}
@@ -3131,42 +3220,48 @@
 								content={editText}
 								editable={true}
 								showHeader={false}
-								on:change={(e) => (editText = e.detail)}
-							/>
-						{/key}
-					</div>
-					{#if enhanceState !== 'idle'}
-						<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
-							{#if enhanceState === 'loading'}
-								<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
-							{:else if enhanceState === 'error'}
-								<div class="px-3 py-2 text-red-700 dark:text-red-300">{enhanceError}</div>
-								<div class="flex items-center gap-2 px-3 pb-2">
-									{#if !enhanceTruncated}
-										<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
-									{/if}
-									<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
-								</div>
-							{:else if enhanceState === 'proposal'}
-								<div class="border-b border-gray-200 px-3 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
-									Enhanced version (suggestion only)
-								</div>
-								<div class="px-3 py-2">
-									<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
-									     so long multi-paragraph proposals are fully visible and scrollable. -->
-									<textarea
-										bind:value={enhanceProposalText}
-										class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
-										data-testid="case-note-enhance-proposal-editor"
-									></textarea>
-								</div>
-								<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-									<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
-									<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
+							on:change={(e) => (editText = e.detail)}
+						/>
+					{/key}
+				</div>
+				{#if enhanceState !== 'idle'}
+					<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
+						{#if enhanceState === 'loading'}
+							<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
+						{:else if enhanceState === 'error'}
+							<div class="px-3 py-2 text-red-700 dark:text-red-300">{enhanceError}</div>
+							<div class="flex items-center gap-2 px-3 pb-2">
+								{#if !enhanceTruncated}
+									<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
+								{/if}
+								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
+							</div>
+						{:else if enhanceState === 'proposal'}
+							<div class="border-b border-gray-200 px-3 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
+								Enhanced version (suggestion only)
+							</div>
+							<!-- P30-31: fallback notice when safe mode was used -->
+							{#if enhanceFallbackUsed}
+								<div class="px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800">
+									Full enhancement was restricted. Showing safe improvement instead.
 								</div>
 							{/if}
-						</div>
-					{/if}
+							<div class="px-3 py-2">
+								<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
+								     so long multi-paragraph proposals are fully visible and scrollable. -->
+								<textarea
+									bind:value={enhanceProposalText}
+									class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
+									data-testid="case-note-enhance-proposal-editor"
+								></textarea>
+							</div>
+							<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+								<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
+								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
+							</div>
+						{/if}
+					</div>
+				{/if}
 					{#if dictationState !== 'idle'}
 						<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-dictation-panel">
 							{#if dictationState === 'recording'}
