@@ -107,6 +107,23 @@
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 	import { mergeNotebookWritePayload } from '$lib/caseNotes/notebookIntegrityPayload';
+	import {
+		type IntegrityExplainBlock,
+		type IntegrityFailureReason,
+		buildEnhanceRejectedExplain,
+		buildSaveBlockedExplain,
+		integrityReasonsFromInternalKeys
+	} from '$lib/caseNotes/noteIntegrityExplain';
+	import {
+		clearEnhanceObservabilityEvents,
+		enhanceObservabilityTick,
+		getEnhanceObservabilityEvents,
+		newEnhanceCorrelationId,
+		reasonCodesFromEnhanceReasons,
+		reasonCodesFromIntegrityFailureDetails,
+		recordEnhanceObservabilityEvent,
+		type EnhanceObservabilityNoteContext
+	} from '$lib/caseNotes/enhanceObservability';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -572,7 +589,11 @@
 	// P31-02: pre-enhance text for the active AI draft cycle; forwarded as integrity_baseline_text on save.
 	let integrityBaselineText: string | null = null;
 	let pendingIntegrityBaseline: string | null = null;
-	let saveIntegrityBlockedMessage = '';
+	let saveIntegrityExplain: IntegrityExplainBlock | null = null;
+	let enhanceIntegrityExplain: IntegrityExplainBlock | null = null;
+	// P31-17: correlates apply/dismiss with the last successful enhance pass (strict or safe).
+	let pendingEnhanceCorrelationId = '';
+	let showEnhanceObservabilityPanel = false;
 
 	// P30-17: Full-coverage rewrite prompt. Used for single-paragraph notes.
 	// P30-18: Added explicit directive/action-item preservation clause.
@@ -644,12 +665,23 @@
 		enhanceTruncated = false;
 		enhanceFallbackUsed = false;
 		pendingIntegrityBaseline = null;
+		enhanceIntegrityExplain = null;
+		pendingEnhanceCorrelationId = '';
 	}
+
+	function enhanceObservabilityNoteContext(): EnhanceObservabilityNoteContext {
+		if (mode === 'edit' && selectedNote) return { kind: 'edit', noteId: selectedNote.id };
+		return { kind: 'create' };
+	}
+
+	$: enhanceObsDevPanelEvents = ($enhanceObservabilityTick, [
+		...getEnhanceObservabilityEvents()
+	].reverse());
 
 	function resetNoteIntegrityDraftState(): void {
 		integrityBaselineText = null;
 		pendingIntegrityBaseline = null;
-		saveIntegrityBlockedMessage = '';
+		saveIntegrityExplain = null;
 	}
 
 	/**
@@ -693,7 +725,7 @@
 	 * Conservative checks — only rejects clearly lossy rewrites, not minor rephrasing.
 	 *
 	 * Checks:
-	 *   1. Length ratio — enhanced must be ≥ 55% of original (for notes > 150 chars).
+	 *   1. Length ratio — enhanced must be ≥ 60% of original (long narrative; P31-09 parity with CE).
 	 *   2. Key-token carry-forward — quoted text, numbers, capitalized names.
 	 *      If ≥ 4 key tokens found, at most 30% may be absent from the enhanced output.
 	 *
@@ -704,9 +736,10 @@
 	 *
 	 * Tiers (evaluated in order):
 	 *   1. Empty output — always reject.
-	 *   2. Short note bypass — orig < 300 chars OR < 2 paragraphs → accept without checks.
+	 *   2. Short note bypass — orig < 300 chars OR fewer than 2 substantive paragraphs
+	 *      (≥40 trimmed chars each) → accept without long-narrative checks. P31-07 tier boundary.
 	 *   3. Structured note — bullet/list content → line count parity only (±1 allowed).
-	 *   4. Long narrative — paragraph count parity + length ratio + key-term carry-forward
+	 *   4. Long narrative — paragraph count parity + length ratio (≥60% since P31-09) + key-term carry-forward
 	 *      (missing-token threshold raised to 50%, was 30%).
 	 *
 	 * Reasons: 'empty' | 'structure-mismatch' | 'length' | 'key-terms'
@@ -723,14 +756,20 @@
 		}
 
 		// P30-29 (1): Short note bypass — not enough content for meaningful validation.
+		const COVERAGE_SHORT_NOTE_MAX_CHARS = 300;
+		const COVERAGE_MIN_SUBSTANTIVE_PARAGRAPH_CHARS = 40;
+		const COVERAGE_LONG_NARRATIVE_MIN_LENGTH_RATIO = 0.6; // P31-09; parity: noteCommitIntegrityService
 		const origParas = orig.split(/\n\n+/).filter((p) => p.trim().length > 0);
-		if (orig.length < 300 || origParas.length < 2) {
+		const substantiveParas = origParas.filter(
+			(p) => p.trim().length >= COVERAGE_MIN_SUBSTANTIVE_PARAGRAPH_CHARS
+		);
+		if (orig.length < COVERAGE_SHORT_NOTE_MAX_CHARS || substantiveParas.length < 2) {
 			return { ok: true };
 		}
 
-		// P30-29 (2): Structured note detection — bullet or numbered list content.
+		// P30-29 (2) + P31-08: Structured note — markdown *, -, +, •, or numbered lines (leading ws ok).
 		const isStructured =
-			/^[\-\+•]\s/m.test(orig) || /^\s*\d+[\.\)]\s/m.test(orig);
+			/^\s*[\*\-\+•]\s/m.test(orig) || /^\s*\d+[\.\)]\s/m.test(orig);
 		if (isStructured) {
 			// Only enforce line count parity (±1 line); skip token checks.
 			const origLines = orig.split('\n').filter((l) => l.trim().length > 0).length;
@@ -749,7 +788,7 @@
 		}
 
 		// Length ratio check.
-		if (enh.length < orig.length * 0.55) {
+		if (enh.length < orig.length * COVERAGE_LONG_NARRATIVE_MIN_LENGTH_RATIO) {
 			return { ok: false, reason: 'length' };
 		}
 
@@ -777,6 +816,134 @@
 			}
 		}
 
+		return { ok: true };
+	}
+
+	/**
+	 * P31-12: Certainty-inflation / qualifier-loss guard (parity: noteCommitIntegrityService).
+	 * Narrow phrase families only — not general semantic equivalence.
+	 */
+	function validateCertaintyQualifierPreservation(
+		original: string,
+		enhanced: string
+	): { ok: boolean; reason?: string } {
+		const o = original.toLowerCase();
+		const e = enhanced.toLowerCase();
+
+		if (o.includes('no controlled buy was attempted')) {
+			const preservesNegatedBuy =
+				e.includes('no controlled buy was attempted') ||
+				e.includes('no controlled buy') ||
+				/\bnot\s+attempted\b/.test(e) ||
+				e.includes('was not attempted') ||
+				e.includes('were not attempted');
+			if (!preservesNegatedBuy) {
+				return { ok: false, reason: 'certainty-inflation' };
+			}
+		}
+
+		const exactLimitationSnippets = [
+			'was not confirmed',
+			'were not confirmed',
+			'cannot confirm',
+			'could not confirm',
+			'has not been confirmed',
+			'have not been confirmed'
+		];
+		for (const s of exactLimitationSnippets) {
+			if (o.includes(s) && !e.includes(s)) {
+				return { ok: false, reason: 'certainty-inflation' };
+			}
+		}
+
+		if (
+			(o.includes('may have') || o.includes('might have')) &&
+			!e.includes('may have') &&
+			!e.includes('might have')
+		) {
+			return { ok: false, reason: 'certainty-inflation' };
+		}
+
+		if (
+			(o.includes('may not have') || o.includes('might not have')) &&
+			!e.includes('may not have') &&
+			!e.includes('might not have')
+		) {
+			return { ok: false, reason: 'certainty-inflation' };
+		}
+
+		const appearVariants = ['appeared to', 'appears to', 'appear to'];
+		if (appearVariants.some((x) => o.includes(x)) && !appearVariants.some((x) => e.includes(x))) {
+			return { ok: false, reason: 'qualifier-loss' };
+		}
+
+		const seemVariants = ['seemed to', 'seems to', 'seem to'];
+		if (seemVariants.some((x) => o.includes(x)) && !seemVariants.some((x) => e.includes(x))) {
+			return { ok: false, reason: 'qualifier-loss' };
+		}
+
+		const believeVariants = ['believed to', 'believes to', 'believe to'];
+		if (believeVariants.some((x) => o.includes(x)) && !believeVariants.some((x) => e.includes(x))) {
+			return { ok: false, reason: 'qualifier-loss' };
+		}
+
+		const attributionHedges = ['reportedly', 'allegedly', 'according to'];
+		for (const s of attributionHedges) {
+			if (o.includes(s) && !e.includes(s)) {
+				return { ok: false, reason: 'qualifier-loss' };
+			}
+		}
+
+		if (/\bpossibly\b/.test(o) && !/\bpossibly\b/.test(e)) {
+			return { ok: false, reason: 'qualifier-loss' };
+		}
+
+		if (
+			(o.includes('possibly involved') || o.includes('possible involvement')) &&
+			!e.includes('possibly involved') &&
+			!e.includes('possible involvement') &&
+			!/\bpossibly\b/.test(e)
+		) {
+			return { ok: false, reason: 'qualifier-loss' };
+		}
+
+		if (o.includes('it is possible') && !e.includes('it is possible') && !e.includes('it was possible')) {
+			return { ok: false, reason: 'qualifier-loss' };
+		}
+
+		return { ok: true };
+	}
+
+	/**
+	 * P31-15: Explicit actor–recipient reversal in tight templates only (parity: noteCommitIntegrityService).
+	 */
+	const ENTITY_SWAP_SOLD_TO_RE =
+		/\b([A-Z][a-z]{2,})\s+sold(?:\s+[\w.]+){0,10}\s+to\s+([A-Z][a-z]{2,})\b/;
+	const ENTITY_SWAP_HAND_TO_RE =
+		/\b([A-Z][a-z]{2,})\s+hand(?:ed|ing)?\s+[^\n]{0,45}?\s+to\s+([A-Z][a-z]{2,})\b/;
+	const ENTITY_SWAP_MET_RE = /\b([A-Z][a-z]{2,})\s+met\s+([A-Z][a-z]{2,})\b/;
+
+	function entitySwapPairReversed(original: string, enhanced: string, pairRe: RegExp): boolean {
+		const o = pairRe.exec(original);
+		const e = pairRe.exec(enhanced);
+		if (!o || !e) return false;
+		if (o[1] === e[1] && o[2] === e[2]) return false;
+		return o[1] === e[2] && o[2] === e[1];
+	}
+
+	function validateExplicitActorRecipientSwap(
+		original: string,
+		enhanced: string
+	): { ok: boolean; reason?: string } {
+		if (entitySwapPairReversed(original, enhanced, ENTITY_SWAP_SOLD_TO_RE)) {
+			return { ok: false, reason: 'entity-role-swap' };
+		}
+		if (entitySwapPairReversed(original, enhanced, ENTITY_SWAP_HAND_TO_RE)) {
+			return { ok: false, reason: 'entity-role-swap' };
+		}
+		if (entitySwapPairReversed(original, enhanced, ENTITY_SWAP_MET_RE)) {
+			return { ok: false, reason: 'entity-role-swap' };
+		}
 		return { ok: true };
 	}
 
@@ -911,12 +1078,14 @@
 	 *
 	 *   2. Sentence count guard — enhanced sentence count must not exceed original
 	 *      count by more than one (one tolerance allows for minor punctuation splits).
+	 *      Skipped for structured list/numbered baselines (P31-10 — parity with CE).
 	 *
 	 *   3. Per-sentence alignment — for each enhanced sentence with ≥2 key tokens,
 	 *      at least 40% of its key tokens must appear in the best-matching original
 	 *      sentence. Key tokens: significant words (4+ chars, non-stopword) and
 	 *      numeric values. A 40% threshold accommodates valid synonym/word-order
 	 *      changes while blocking sentences invented from whole cloth.
+	 *      Skipped for structured list/numbered baselines (P31-10).
 	 *
 	 * Sentences shorter than 12 characters and those with fewer than 2 key tokens
 	 * are skipped (they cannot be reliably validated and carry little fabrication risk).
@@ -928,6 +1097,14 @@
 		// 1. Expansion guard.
 		if (enhanced.length > original.length * 1.25) {
 			return { ok: false, reason: 'expansion' };
+		}
+
+		// P31-10: Match CE `isStructuredCoverageNote` — list drafts do not sentence-split like narrative;
+		// grammar passes may add periods per line and inflate filtered sentence counts. Coverage tier
+		// already enforced line parity (±1); expansion guard above still applies.
+		const origTrimmed = original.trim();
+		if (/^\s*[\*\-\+•]\s/m.test(origTrimmed) || /^\s*\d+[\.\)]\s/m.test(origTrimmed)) {
+			return { ok: true };
 		}
 
 		// Sentence splitter: split on sentence-ending punctuation followed by whitespace
@@ -1133,7 +1310,7 @@
 	 * Returns:
 	 *   { ok: true, assembled }   — passed all validation
 	 *   { ok: false, kind: 'fatal', message }      — truncation / empty response
-	 *   { ok: false, kind: 'validation', message } — content/fabrication check failed
+	 *   { ok: false, kind: 'validation', message, reasons } — content/fabrication check failed (P31-03)
 	 */
 	async function tryEnhancePass(
 		modelId: string,
@@ -1141,7 +1318,8 @@
 		safe: boolean
 	): Promise<
 		| { ok: true; assembled: string }
-		| { ok: false; kind: 'fatal' | 'validation'; message: string }
+		| { ok: false; kind: 'fatal'; message: string }
+		| { ok: false; kind: 'validation'; message: string; reasons: IntegrityFailureReason[] }
 	> {
 		const blocks = draftText.split(/\n\n+/).filter((b) => b.trim().length > 0);
 		const isMultiBlock = blocks.length > 1;
@@ -1201,7 +1379,8 @@
 							ok: false,
 							kind: 'validation',
 							message:
-								'Enhancement rejected — possible content loss. A paragraph appears to have been replaced with different content. Please try again.'
+								'Enhancement rejected — possible content loss. A paragraph appears to have been replaced with different content. Please try again.',
+							reasons: integrityReasonsFromInternalKeys(['block-drift'])
 						};
 					}
 				}
@@ -1215,6 +1394,8 @@
 		// P30-17/P30-29: Coverage validation.
 		const coverage = validateEnhanceCoverage(draftText, assembled);
 		if (!coverage.ok) {
+			const cr = coverage.reason ?? 'key-terms';
+			const ikey = `coverage:${cr}`;
 			return {
 				ok: false,
 				kind: 'validation',
@@ -1223,7 +1404,35 @@
 						? 'Enhancement rejected — structure mismatch. The enhanced output did not preserve the original structure. Please try again.'
 						: coverage.reason === 'length' || coverage.reason === 'empty'
 							? 'Enhancement rejected — incomplete output. The enhanced version is too short. Please try again.'
-							: 'Enhancement rejected — possible content loss. Important terms may have been dropped. Please try again.'
+							: 'Enhancement rejected — possible content loss. Important terms may have been dropped. Please try again.',
+				reasons: integrityReasonsFromInternalKeys([ikey])
+			};
+		}
+
+		// P31-12: Certainty / qualifier preservation (strict + safe).
+		const certaintyQualifier = validateCertaintyQualifierPreservation(draftText, assembled);
+		if (!certaintyQualifier.ok) {
+			const cr = certaintyQualifier.reason ?? 'certainty-inflation';
+			return {
+				ok: false,
+				kind: 'validation',
+				message:
+					cr === 'qualifier-loss'
+						? 'Enhancement rejected — hedging or attribution in your original note may have been removed. Please try again.'
+						: 'Enhancement rejected — a stated limitation or uncertain wording may have been turned into a firm statement. Please try again.',
+				reasons: integrityReasonsFromInternalKeys([cr])
+			};
+		}
+
+		// P31-15: Explicit sold-to / hand-to / met actor–recipient swap (strict + safe).
+		const entityRole = validateExplicitActorRecipientSwap(draftText, assembled);
+		if (!entityRole.ok) {
+			return {
+				ok: false,
+				kind: 'validation',
+				message:
+					'Enhancement rejected — who sold, handed, or met whom may have been reversed in an explicit phrase. Please try again.',
+				reasons: integrityReasonsFromInternalKeys(['entity-role-swap'])
 			};
 		}
 
@@ -1237,7 +1446,8 @@
 				ok: false,
 				kind: 'validation',
 				message:
-					'Enhancement rejected — possible fabricated content. The enhanced version may have introduced new information not present in the original note. Please try again.'
+					'Enhancement rejected — possible fabricated content. The enhanced version may have introduced new information not present in the original note. Please try again.',
+				reasons: integrityReasonsFromInternalKeys(['fabrication'])
 			};
 		}
 
@@ -1248,6 +1458,7 @@
 		if (safe) {
 			const alignment = validateSentenceAlignment(draftText, assembled);
 			if (!alignment.ok) {
+				const ar = alignment.reason ?? 'alignment';
 				return {
 					ok: false,
 					kind: 'validation',
@@ -1256,7 +1467,8 @@
 							? 'Enhancement rejected — output is significantly longer than the original. Safe mode does not allow content expansion. Please try again.'
 							: alignment.reason === 'sentence-count'
 								? 'Enhancement rejected — safe mode introduced additional sentences not present in the original. Please try again.'
-								: 'Enhancement rejected — safe mode output contains content that cannot be traced to the original note. Please try again.'
+								: 'Enhancement rejected — safe mode output contains content that cannot be traced to the original note. Please try again.',
+					reasons: integrityReasonsFromInternalKeys([`alignment:${ar}`])
 				};
 			}
 		}
@@ -1267,7 +1479,8 @@
 				ok: false,
 				kind: 'validation',
 				message:
-					'Enhanced suggestion was rejected because an action item or investigative directive may have been omitted. Please try again.'
+					'Enhanced suggestion was rejected because an action item or investigative directive may have been omitted. Please try again.',
+				reasons: integrityReasonsFromInternalKeys(['directive-preservation'])
 			};
 		}
 
@@ -1276,72 +1489,221 @@
 
 	async function handleEnhance(): Promise<void> {
 		const draftText = mode === 'edit' ? editText.trim() : createText.trim();
+		const noteCtx = enhanceObservabilityNoteContext();
+		const paragraphBlockCount = draftText
+			? draftText.split(/\n\n+/).filter((b) => b.trim().length > 0).length
+			: 0;
 		if (!draftText) {
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId: newEnhanceCorrelationId(),
+				eventType: 'enhance_precondition_failed',
+				validationMode: null,
+				outcome: 'skipped_precondition',
+				reasonCodes: ['empty_draft'],
+				metadata: {
+					draftCharCount: 0,
+					paragraphBlockCount: 0,
+					integrityBaselinePresent: integrityBaselineText !== null
+				}
+			});
 			enhanceError = 'Write some note text before using Enhance.';
 			enhanceState = 'error';
 			return;
 		}
 		const modelId = getActiveModelId();
 		if (!modelId) {
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId: newEnhanceCorrelationId(),
+				eventType: 'enhance_precondition_failed',
+				validationMode: null,
+				outcome: 'skipped_precondition',
+				reasonCodes: ['no_model_available'],
+				metadata: {
+					draftCharCount: draftText.length,
+					paragraphBlockCount,
+					integrityBaselinePresent: integrityBaselineText !== null
+				}
+			});
 			enhanceError = 'No AI model is available. Check your model configuration.';
 			enhanceState = 'error';
 			return;
 		}
+		const correlationId = newEnhanceCorrelationId();
+		pendingEnhanceCorrelationId = '';
 		enhanceState = 'loading';
 		enhanceProposalText = '';
 		enhanceError = '';
 		enhanceTruncated = false;
 		enhanceFallbackUsed = false;
-		saveIntegrityBlockedMessage = '';
+		saveIntegrityExplain = null;
+		enhanceIntegrityExplain = null;
+
+		recordEnhanceObservabilityEvent({
+			caseId,
+			noteContext: noteCtx,
+			correlationId,
+			eventType: 'enhance_requested',
+			validationMode: null,
+			outcome: 'pipeline_started',
+			reasonCodes: [],
+			metadata: {
+				draftCharCount: draftText.length,
+				paragraphBlockCount,
+				integrityBaselinePresent: integrityBaselineText !== null,
+				modelId
+			}
+		});
+
 		try {
-			// Standard pass (full enhance prompts + all validation).
 			const result = await tryEnhancePass(modelId, draftText, false);
 
 			if (result.ok) {
+				recordEnhanceObservabilityEvent({
+					caseId,
+					noteContext: noteCtx,
+					correlationId,
+					eventType: 'enhance_validation_outcome',
+					validationMode: 'strict',
+					outcome: 'accepted',
+					reasonCodes: [],
+					metadata: { enhanceFallbackUsed: false }
+				});
 				pendingIntegrityBaseline = draftText;
 				enhanceProposalText = result.assembled;
 				enhanceTruncated = false;
 				enhanceState = 'proposal';
+				pendingEnhanceCorrelationId = correlationId;
 				return;
 			}
 
-			// Fatal failures (truncation, empty response) — model cannot produce output;
-			// a safe retry with a different prompt will not help.
 			if (result.kind === 'fatal') {
 				if (result.message.includes('stopped before finishing')) enhanceTruncated = true;
+				enhanceIntegrityExplain = null;
 				enhanceError = result.message;
 				enhanceState = 'error';
+				recordEnhanceObservabilityEvent({
+					caseId,
+					noteContext: noteCtx,
+					correlationId,
+					eventType: 'enhance_validation_outcome',
+					validationMode: 'strict',
+					outcome: 'fatal',
+					reasonCodes: [],
+					metadata: { modelTruncated: enhanceTruncated }
+				});
 				return;
 			}
 
-			// P30-31: Validation failure — retry with safe constrained prompt to avoid
-			// a dead-end UX while still keeping all safety checks active.
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_validation_outcome',
+				validationMode: 'strict',
+				outcome: 'rejected',
+				reasonCodes: reasonCodesFromEnhanceReasons(result.reasons),
+				metadata: {}
+			});
+
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_fallback_attempted',
+				validationMode: 'safe',
+				outcome: 'pipeline_started',
+				reasonCodes: [],
+				metadata: {}
+			});
+
 			const safeResult = await tryEnhancePass(modelId, draftText, true);
 
 			if (safeResult.ok) {
+				recordEnhanceObservabilityEvent({
+					caseId,
+					noteContext: noteCtx,
+					correlationId,
+					eventType: 'enhance_validation_outcome',
+					validationMode: 'safe',
+					outcome: 'accepted',
+					reasonCodes: [],
+					metadata: { enhanceFallbackUsed: true }
+				});
 				pendingIntegrityBaseline = draftText;
 				enhanceProposalText = safeResult.assembled;
 				enhanceFallbackUsed = true;
 				enhanceTruncated = false;
 				enhanceState = 'proposal';
+				pendingEnhanceCorrelationId = correlationId;
 				return;
 			}
 
-			// Both passes failed — show the original failure reason.
-			if (safeResult.kind === 'fatal' && safeResult.message.includes('stopped before finishing')) {
-				enhanceTruncated = true;
+			if (safeResult.kind === 'fatal') {
+				if (safeResult.message.includes('stopped before finishing')) enhanceTruncated = true;
+				enhanceIntegrityExplain = null;
+				enhanceError = safeResult.message;
+				recordEnhanceObservabilityEvent({
+					caseId,
+					noteContext: noteCtx,
+					correlationId,
+					eventType: 'enhance_validation_outcome',
+					validationMode: 'safe',
+					outcome: 'fatal',
+					reasonCodes: [],
+					metadata: { modelTruncated: enhanceTruncated }
+				});
+			} else {
+				enhanceIntegrityExplain = buildEnhanceRejectedExplain(safeResult.reasons);
+				enhanceError = '';
+				recordEnhanceObservabilityEvent({
+					caseId,
+					noteContext: noteCtx,
+					correlationId,
+					eventType: 'enhance_validation_outcome',
+					validationMode: 'safe',
+					outcome: 'rejected',
+					reasonCodes: reasonCodesFromEnhanceReasons(safeResult.reasons),
+					metadata: {}
+				});
 			}
-			enhanceError = result.message;
 			enhanceState = 'error';
 		} catch (_e: unknown) {
+			enhanceIntegrityExplain = null;
 			enhanceError =
 				'Could not generate an enhanced version of this note. Please try again.';
 			enhanceState = 'error';
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_validation_outcome',
+				validationMode: null,
+				outcome: 'error',
+				reasonCodes: ['client_enhance_exception'],
+				metadata: {}
+			});
 		}
 	}
 
 	function applyEnhanceProposal(): void {
 		if (!enhanceProposalText) return;
+		const cid = pendingEnhanceCorrelationId;
+		if (cid) {
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: enhanceObservabilityNoteContext(),
+				correlationId: cid,
+				eventType: 'enhance_applied',
+				validationMode: enhanceFallbackUsed ? 'safe' : 'strict',
+				outcome: 'applied',
+				reasonCodes: [],
+				metadata: { integrityBaselinePresent: pendingIntegrityBaseline !== null }
+			});
+		}
 		if (pendingIntegrityBaseline !== null) {
 			integrityBaselineText = pendingIntegrityBaseline;
 		}
@@ -1357,6 +1719,19 @@
 	}
 
 	function dismissEnhanceProposal(): void {
+		const cid = pendingEnhanceCorrelationId;
+		if (cid && enhanceProposalText) {
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: enhanceObservabilityNoteContext(),
+				correlationId: cid,
+				eventType: 'enhance_dismissed',
+				validationMode: enhanceFallbackUsed ? 'safe' : 'strict',
+				outcome: 'dismissed',
+				reasonCodes: [],
+				metadata: {}
+			});
+		}
 		resetEnhanceState();
 	}
 
@@ -2126,6 +2501,7 @@
 	// runs cleanly without a pending discard dialog from the old case.
 	$: if (caseId && $caseEngineToken && caseId !== prevLoadedCaseId) {
 		prevLoadedCaseId = caseId;
+		clearEnhanceObservabilityEvents();
 		notes = [];
 		loadError = '';
 		selectedNote = null;
@@ -2389,7 +2765,7 @@
 			return;
 		}
 		creating = true;
-		saveIntegrityBlockedMessage = '';
+		saveIntegrityExplain = null;
 		try {
 		const note = await createCaseNotebookNote(
 			activeCaseId,
@@ -2429,9 +2805,18 @@
 				e.httpStatus === 400 &&
 				e.errorCode === 'AI_VALIDATION_FAILED'
 			) {
-				saveIntegrityBlockedMessage =
-					e.message ||
-					'Save blocked: this note failed integrity validation. Adjust the text and try again.';
+				saveIntegrityExplain = buildSaveBlockedExplain(e.details, e.message);
+				recordEnhanceObservabilityEvent({
+					caseId: activeCaseId,
+					noteContext: { kind: 'create' },
+					correlationId: newEnhanceCorrelationId(),
+					eventType: 'save_integrity_blocked',
+					validationMode: null,
+					outcome: 'save_integrity_blocked',
+					reasonCodes: reasonCodesFromIntegrityFailureDetails(e.details),
+					requestId: e.requestId,
+					metadata: { integrityBaselinePresent: integrityBaselineText !== null }
+				});
 				return;
 			}
 			toast.error(e instanceof Error ? e.message : 'Failed to create note');
@@ -2450,7 +2835,7 @@
 			return;
 		}
 		editConflictMessage = '';
-		saveIntegrityBlockedMessage = '';
+		saveIntegrityExplain = null;
 		saving = true;
 		try {
 		const updated = await updateCaseNotebookNote(
@@ -2499,9 +2884,18 @@
 				e.httpStatus === 400 &&
 				e.errorCode === 'AI_VALIDATION_FAILED'
 			) {
-				saveIntegrityBlockedMessage =
-					e.message ||
-					'Save blocked: this note failed integrity validation. Adjust the text and try again.';
+				saveIntegrityExplain = buildSaveBlockedExplain(e.details, e.message);
+				recordEnhanceObservabilityEvent({
+					caseId: activeCaseId,
+					noteContext: { kind: 'edit', noteId: selectedNote.id },
+					correlationId: newEnhanceCorrelationId(),
+					eventType: 'save_integrity_blocked',
+					validationMode: null,
+					outcome: 'save_integrity_blocked',
+					reasonCodes: reasonCodesFromIntegrityFailureDetails(e.details),
+					requestId: e.requestId,
+					metadata: { integrityBaselinePresent: integrityBaselineText !== null }
+				});
 				return;
 			}
 			toast.error(e instanceof Error ? e.message : 'Failed to save note');
@@ -2818,7 +3212,29 @@
 					{#if enhanceState === 'loading'}
 						<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
 					{:else if enhanceState === 'error'}
-						<div class="px-3 py-2 text-red-700 dark:text-red-300">{enhanceError}</div>
+						<div
+							class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2"
+							data-testid="case-note-enhance-error-panel"
+						>
+							{#if enhanceIntegrityExplain}
+								<p class="font-semibold text-xs">{enhanceIntegrityExplain.heading}</p>
+								<ul class="list-disc pl-4 text-[11px] leading-snug space-y-1">
+									{#each enhanceIntegrityExplain.bullets as line}
+										<li>{line}</li>
+									{/each}
+								</ul>
+								<p class="text-[10px] font-semibold uppercase tracking-wide text-red-800 dark:text-red-300 mt-2">
+									Next steps
+								</p>
+								<ul class="list-disc pl-4 text-[10px] leading-snug text-red-900/90 dark:text-red-200/90 space-y-0.5">
+									{#each enhanceIntegrityExplain.guidance as g}
+										<li>{g}</li>
+									{/each}
+								</ul>
+							{:else}
+								<div>{enhanceError}</div>
+							{/if}
+						</div>
 						<div class="flex items-center gap-2 px-3 pb-2">
 							{#if !enhanceTruncated}
 								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
@@ -3075,12 +3491,23 @@
 				</p>
 				{/if}
 			</div>
-				{#if saveIntegrityBlockedMessage}
+				{#if saveIntegrityExplain}
 					<div
 						class="shrink-0 mx-5 mt-2 rounded-md border border-red-300/70 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-200"
 						data-testid="case-note-create-integrity-blocked-message"
 					>
-						{saveIntegrityBlockedMessage}
+						<p class="font-semibold">{saveIntegrityExplain.heading}</p>
+						<ul class="list-disc pl-4 mt-1.5 space-y-1">
+							{#each saveIntegrityExplain.bullets as line}
+								<li>{line}</li>
+							{/each}
+						</ul>
+						<p class="text-[10px] font-semibold uppercase tracking-wide mt-2 opacity-90">Next steps</p>
+						<ul class="list-disc pl-4 mt-1 text-[11px] space-y-0.5 opacity-95">
+							{#each saveIntegrityExplain.guidance as g}
+								<li>{g}</li>
+							{/each}
+						</ul>
 					</div>
 				{/if}
 				<!-- Footer actions -->
@@ -3480,12 +3907,23 @@
 							{editConflictMessage}
 						</div>
 					{/if}
-					{#if saveIntegrityBlockedMessage}
+					{#if saveIntegrityExplain}
 						<div
 							class="shrink-0 mx-5 mt-3 rounded-md border border-red-300/70 bg-red-50 px-3 py-2 text-xs text-red-900 dark:border-red-700/60 dark:bg-red-900/20 dark:text-red-200"
 							data-testid="case-note-save-integrity-blocked-message"
 						>
-							{saveIntegrityBlockedMessage}
+							<p class="font-semibold">{saveIntegrityExplain.heading}</p>
+							<ul class="list-disc pl-4 mt-1.5 space-y-1">
+								{#each saveIntegrityExplain.bullets as line}
+									<li>{line}</li>
+								{/each}
+							</ul>
+							<p class="text-[10px] font-semibold uppercase tracking-wide mt-2 opacity-90">Next steps</p>
+							<ul class="list-disc pl-4 mt-1 text-[11px] space-y-0.5 opacity-95">
+								{#each saveIntegrityExplain.guidance as g}
+									<li>{g}</li>
+								{/each}
+							</ul>
 						</div>
 					{/if}
 					<!-- Editable editor -->
@@ -3504,7 +3942,29 @@
 						{#if enhanceState === 'loading'}
 							<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
 						{:else if enhanceState === 'error'}
-							<div class="px-3 py-2 text-red-700 dark:text-red-300">{enhanceError}</div>
+							<div
+								class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2"
+								data-testid="case-note-enhance-error-panel"
+							>
+								{#if enhanceIntegrityExplain}
+									<p class="font-semibold text-xs">{enhanceIntegrityExplain.heading}</p>
+									<ul class="list-disc pl-4 text-[11px] leading-snug space-y-1">
+										{#each enhanceIntegrityExplain.bullets as line}
+											<li>{line}</li>
+										{/each}
+									</ul>
+									<p class="text-[10px] font-semibold uppercase tracking-wide text-red-800 dark:text-red-300 mt-2">
+										Next steps
+									</p>
+									<ul class="list-disc pl-4 text-[10px] leading-snug text-red-900/90 dark:text-red-200/90 space-y-0.5">
+										{#each enhanceIntegrityExplain.guidance as g}
+											<li>{g}</li>
+										{/each}
+									</ul>
+								{:else}
+									<div>{enhanceError}</div>
+								{/if}
+							</div>
 							<div class="flex items-center gap-2 px-3 pb-2">
 								{#if !enhanceTruncated}
 									<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
@@ -3891,6 +4351,52 @@
 		This note will be removed from your working notes. It can be restored if needed.
 	</div>
 </ConfirmDialog>
+
+{#if import.meta.env.DEV}
+	<div
+		class="fixed bottom-2 right-2 z-50 max-w-md text-[10px]"
+		data-testid="enhance-observability-panel"
+	>
+		<button
+			type="button"
+			class="rounded bg-gray-800 text-white px-2 py-1 opacity-70 hover:opacity-100"
+			on:click={() => (showEnhanceObservabilityPanel = !showEnhanceObservabilityPanel)}
+		>
+			Enhance trace (dev)
+		</button>
+		{#if showEnhanceObservabilityPanel}
+			<div
+				class="mt-1 max-h-56 overflow-y-auto rounded border border-gray-600 bg-gray-900/95 p-2 text-gray-100 font-mono shadow-lg"
+				data-testid="enhance-observability-panel-body"
+			>
+				<div class="flex justify-between gap-2 mb-1 text-gray-400">
+					<span data-testid="enhance-observability-count">{enhanceObsDevPanelEvents.length} events</span>
+					<button
+						type="button"
+						class="text-blue-400 hover:underline"
+						data-testid="enhance-observability-clear"
+						on:click={() => clearEnhanceObservabilityEvents()}
+					>
+						Clear
+					</button>
+				</div>
+				{#each enhanceObsDevPanelEvents as ev, i (String(ev.timestamp) + ev.eventType + ev.correlationId + i)}
+					<div class="border-b border-gray-700 py-1 last:border-0" data-testid="enhance-observability-row">
+						<div class="text-gray-300">
+							{ev.eventType} · {ev.outcome}{#if ev.validationMode} · {ev.validationMode}{/if}
+						</div>
+						{#if ev.reasonCodes.length}
+							<div class="text-amber-300/90">codes: {ev.reasonCodes.join(', ')}</div>
+						{/if}
+						{#if ev.requestId}
+							<div class="text-gray-500">req: {ev.requestId}</div>
+						{/if}
+					</div>
+				{/each}
+			</div>
+		{/if}
+	</div>
+{/if}
 
 <style>
 	/*

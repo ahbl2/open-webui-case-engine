@@ -14,7 +14,15 @@ describe('P31-02 notebook note mutations — error envelope', () => {
 					error: {
 						code: 'AI_VALIDATION_FAILED',
 						message: 'Note failed integrity validation.',
-						details: { reasons: ['fabrication'] }
+						details: {
+							reasons: [
+								{
+									code: 'fabrication_possible',
+									message:
+										'The enhanced version may introduce specific information (for example names or times) that was not in your original note.'
+								}
+							]
+						}
 					}
 				}),
 				{ status: 400 }
@@ -29,7 +37,15 @@ describe('P31-02 notebook note mutations — error envelope', () => {
 			const err = e as CaseEngineRequestError;
 			expect(err.httpStatus).toBe(400);
 			expect(err.errorCode).toBe('AI_VALIDATION_FAILED');
-			expect(err.details).toEqual({ reasons: ['fabrication'] });
+			expect(err.details).toEqual({
+				reasons: [
+					{
+						code: 'fabrication_possible',
+						message:
+							'The enhanced version may introduce specific information (for example names or times) that was not in your original note.'
+					}
+				]
+			});
 		}
 		expect(fetchSpy).toHaveBeenCalledTimes(1);
 	});
