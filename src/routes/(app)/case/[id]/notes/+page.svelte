@@ -603,17 +603,20 @@
 
 	// P30-31: Ultra-conservative safe prompt used as fallback when standard enhancement
 	// fails validation. Restricts AI to grammar/clarity only — no content changes.
+	// P30-31/P30-33: Safe enhance prompt — transform-only, no new content under any circumstances.
 	const ENHANCE_SAFE_PROMPT =
 		'You are a writing assistant for an investigator\'s case notes. ' +
-		'Make only minimal, conservative corrections to grammar, spelling, and punctuation. ' +
-		'Do NOT introduce any new facts, names, dates, locations, or events. ' +
-		'Do NOT add new people, events, details, context, or assumptions. ' +
-		'Do NOT expand, elaborate, or add content of any kind. ' +
-		'Do NOT change the meaning, structure, or wording more than necessary. ' +
-		'Preserve the original structure and wording as much as possible. ' +
-		'Only correct obvious errors or severely awkward phrasing. ' +
-		'Return ONLY the corrected note text. ' +
-		'Do NOT include any preamble, label, intro sentence, or explanation. ' +
+		'Your ONLY task is to fix grammar, spelling, and punctuation errors in the text you are given. ' +
+		'TRANSFORM ONLY — rewrite each sentence that exists in the input. ' +
+		'Do NOT add new sentences, clauses, or ideas that are not present in the input. ' +
+		'Do NOT introduce any new facts, names, dates, times, locations, events, or organisations. ' +
+		'Do NOT add new people, details, context, examples, or assumptions of any kind. ' +
+		'Do NOT expand, elaborate, extend, or add content of any kind. ' +
+		'Do NOT merge sentences, split sentences, or change paragraph structure. ' +
+		'If you are unsure how to correct a sentence without changing its meaning, return it UNCHANGED. ' +
+		'Preserve the original wording, structure, and order as closely as possible. ' +
+		'Return ONLY the corrected note text with the same number of sentences as the input. ' +
+		'Do NOT include any preamble, label, intro sentence, explanation, or closing remark. ' +
 		'Output the corrected note content and nothing else.';
 
 	function resetEnhanceState(): void {
@@ -873,6 +876,108 @@
 	}
 
 	/**
+	 * P30-33: Sentence-level alignment validation — used ONLY on the safe enhance pass.
+	 *
+	 * Safe mode must be transform-only: every enhanced sentence must be a rewrite of
+	 * some original sentence, not newly invented content. Three guards:
+	 *
+	 *   1. Expansion guard — enhanced text must not exceed 125% of original length.
+	 *      Prevents wholesale content inflation regardless of sentence count.
+	 *
+	 *   2. Sentence count guard — enhanced sentence count must not exceed original
+	 *      count by more than one (one tolerance allows for minor punctuation splits).
+	 *
+	 *   3. Per-sentence alignment — for each enhanced sentence with ≥2 key tokens,
+	 *      at least 40% of its key tokens must appear in the best-matching original
+	 *      sentence. Key tokens: significant words (4+ chars, non-stopword) and
+	 *      numeric values. A 40% threshold accommodates valid synonym/word-order
+	 *      changes while blocking sentences invented from whole cloth.
+	 *
+	 * Sentences shorter than 12 characters and those with fewer than 2 key tokens
+	 * are skipped (they cannot be reliably validated and carry little fabrication risk).
+	 */
+	function validateSentenceAlignment(
+		original: string,
+		enhanced: string
+	): { ok: boolean; reason?: string } {
+		// 1. Expansion guard.
+		if (enhanced.length > original.length * 1.25) {
+			return { ok: false, reason: 'expansion' };
+		}
+
+		// Sentence splitter: split on sentence-ending punctuation followed by whitespace
+		// or end of string. Collapse newlines to spaces first so paragraph breaks don't
+		// fragment sentence detection.
+		const toSentences = (text: string): string[] =>
+			text
+				.replace(/\n+/g, ' ')
+				.split(/(?<=[.!?…])\s+|(?<=[.!?…])$/)
+				.map((s) => s.trim())
+				.filter((s) => s.length >= 12);
+
+		const origSentences = toSentences(original);
+		const enhSentences = toSentences(enhanced);
+
+		// 2. Sentence count guard.
+		if (enhSentences.length > origSentences.length + 1) {
+			return { ok: false, reason: 'sentence-count' };
+		}
+
+		// No sentences to align against — cannot enforce, skip.
+		if (origSentences.length === 0 || enhSentences.length === 0) {
+			return { ok: true };
+		}
+
+		// Common English function words excluded from key-token extraction.
+		// Only words 4+ characters are candidates; this list trims the most
+		// frequent ones that carry no discriminating meaning.
+		const STOP = new Set([
+			'that', 'this', 'with', 'from', 'have', 'they', 'were', 'been',
+			'their', 'would', 'could', 'should', 'will', 'also', 'then',
+			'when', 'what', 'where', 'there', 'which', 'about', 'into',
+			'than', 'some', 'more', 'just', 'over', 'such', 'your', 'each',
+			'after', 'before', 'other', 'these', 'those', 'being', 'while',
+			'both', 'only', 'very', 'most', 'much', 'many', 'said', 'whom'
+		]);
+
+		const keyTokens = (sentence: string): Set<string> => {
+			const out = new Set<string>();
+			for (const m of sentence.matchAll(/\b([A-Za-z]{4,})\b/g)) {
+				const w = m[1].toLowerCase();
+				if (!STOP.has(w)) out.add(w);
+			}
+			for (const m of sentence.matchAll(/\b\d+\b/g)) out.add(m[0]);
+			return out;
+		};
+
+		// 3. Per-sentence alignment check.
+		for (const eSent of enhSentences) {
+			const eToks = keyTokens(eSent);
+			if (eToks.size < 2) continue; // too few tokens to validate reliably
+
+			let bestOverlap = 0;
+			for (const oSent of origSentences) {
+				const oToks = keyTokens(oSent);
+				if (oToks.size === 0) continue;
+				let shared = 0;
+				for (const t of eToks) {
+					if (oToks.has(t)) shared++;
+				}
+				const overlap = shared / eToks.size;
+				if (overlap > bestOverlap) bestOverlap = overlap;
+			}
+
+			// Require at least 40% of the enhanced sentence's key tokens to appear
+			// in the best-matching original sentence.
+			if (bestOverlap < 0.40) {
+				return { ok: false, reason: 'alignment' };
+			}
+		}
+
+		return { ok: true };
+	}
+
+	/**
 	 * Validate that investigative directives and action items from the original
 	 * note are preserved in the enhanced output.
 	 *
@@ -1109,6 +1214,26 @@
 				message:
 					'Enhancement rejected — possible fabricated content. The enhanced version may have introduced new information not present in the original note. Please try again.'
 			};
+		}
+
+		// P30-33: Sentence alignment — safe pass only. Enforces transform-only behaviour:
+		// expansion guard (≤125% length), sentence count guard (≤ original + 1), and
+		// per-sentence token overlap (≥40% of enhanced sentence tokens in best-matching
+		// original sentence). Prevents narrative fabrication in safe mode.
+		if (safe) {
+			const alignment = validateSentenceAlignment(draftText, assembled);
+			if (!alignment.ok) {
+				return {
+					ok: false,
+					kind: 'validation',
+					message:
+						alignment.reason === 'expansion'
+							? 'Enhancement rejected — output is significantly longer than the original. Safe mode does not allow content expansion. Please try again.'
+							: alignment.reason === 'sentence-count'
+								? 'Enhancement rejected — safe mode introduced additional sentences not present in the original. Please try again.'
+								: 'Enhancement rejected — safe mode output contains content that cannot be traced to the original note. Please try again.'
+				};
+			}
 		}
 
 		// P30-18: Directive preservation.
