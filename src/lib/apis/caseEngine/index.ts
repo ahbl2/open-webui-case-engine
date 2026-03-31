@@ -15,6 +15,10 @@ import {
 	parseStructuredNotesExtractionPreviewData,
 	type StructuredNotesExtractionPreviewData
 } from '$lib/types/structuredNotes/extractionPreview';
+import {
+	parseNarrativeIntegrityPayload,
+	type NarrativeIntegrityResult
+} from '$lib/caseNotes/narrativePreviewReviewUi';
 
 export type { AskFactItem, AskInferenceItem, AskIntegrityPresentation } from '$lib/utils/askIntegrityUi';
 export type { StructuredNotesExtractionPreviewData } from '$lib/types/structuredNotes/extractionPreview';
@@ -4148,6 +4152,275 @@ export async function previewStructuredNotesExtraction(
 		};
 	}
 	return { success: true, data: parsed, requestId: reqId };
+}
+
+/** P35-01 — Read-only narrative preview (no persistence). P35-08 — optional integrity (read-time). */
+export type NarrativePreviewPayload = {
+	narrative: string;
+	trace: Array<{ statementId: string; sourceText: string }>;
+	warnings: string[];
+	previewOnly: true;
+	integrity?: NarrativeIntegrityResult;
+};
+
+export async function postNarrativePreview(
+	caseId: string,
+	token: string,
+	body: { structuredNoteIds?: number[]; structuredStatementIds?: string[] }
+): Promise<
+	| { success: true; data: NarrativePreviewPayload; requestId?: string }
+	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
+> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-preview`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`,
+			'X-Request-Id': newCaseEngineRequestId()
+		},
+		body: JSON.stringify(body)
+	});
+	const reqId = responseRequestId(res);
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, `Narrative preview failed (${res.status})`),
+			requestId: reqId,
+			errorCode: extractApiErrorCode(data)
+		};
+	}
+	const narrative = data.narrative;
+	const trace = data.trace;
+	const warnings = data.warnings;
+	const previewOnly = data.previewOnly;
+	if (typeof narrative !== 'string' || !Array.isArray(trace) || !Array.isArray(warnings) || previewOnly !== true) {
+		return {
+			success: false,
+			errorMessage: 'Invalid narrative preview response.',
+			requestId: reqId
+		};
+	}
+	const integrityRaw = data.integrity;
+	const integrityParsed =
+		integrityRaw !== undefined ? parseNarrativeIntegrityPayload(integrityRaw) : null;
+	const payload: NarrativePreviewPayload = {
+		narrative,
+		trace: trace as NarrativePreviewPayload['trace'],
+		warnings: warnings as string[],
+		previewOnly: true
+	};
+	if (integrityParsed != null) {
+		payload.integrity = integrityParsed;
+	}
+	return {
+		success: true,
+		data: payload,
+		requestId: reqId
+	};
+}
+
+/** P35-04 — Append-only derived narrative snapshot (non-authoritative). */
+export type NarrativeRecordSaveBody = {
+	narrative: string;
+	trace: Array<{ statementId: string; sourceText: string }>;
+	structuredNoteIds: number[];
+	structuredStatementIds?: string[];
+};
+
+export async function postNarrativeRecord(
+	caseId: string,
+	token: string,
+	body: NarrativeRecordSaveBody
+): Promise<
+	| { success: true; narrativeRecordId: number; requestId?: string }
+	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
+> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`,
+			'X-Request-Id': newCaseEngineRequestId()
+		},
+		body: JSON.stringify(body)
+	});
+	const reqId = responseRequestId(res);
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, `Narrative save failed (${res.status})`),
+			requestId: reqId,
+			errorCode: extractApiErrorCode(data)
+		};
+	}
+	const success = data.success === true;
+	const narrativeRecordId = data.narrativeRecordId;
+	if (!success || typeof narrativeRecordId !== 'number' || !Number.isInteger(narrativeRecordId)) {
+		return {
+			success: false,
+			errorMessage: 'Invalid narrative save response.',
+			requestId: reqId
+		};
+	}
+	return { success: true, narrativeRecordId, requestId: reqId };
+}
+
+/** P35-05 — List/browse saved derived narratives (read-only). */
+export type NarrativeRecordListItemDto = {
+	id: number;
+	createdAt: string;
+	createdBy: string;
+	narrativeSnippet: string;
+	structuredNoteIds: number[];
+	structuredStatementIds?: string[];
+	traceRowCount: number;
+};
+
+export type NarrativeRecordDetailDto = {
+	id: number;
+	caseId: string;
+	narrative: string;
+	trace: Array<{ statementId: string; sourceText: string }>;
+	structuredNoteIds: number[];
+	structuredStatementIds?: string[];
+	createdAt: string;
+	createdBy: string;
+	derivedArtifact: true;
+	nonAuthoritative: true;
+};
+
+export async function getNarrativeRecordsList(
+	caseId: string,
+	token: string
+): Promise<
+	| { success: true; records: NarrativeRecordListItemDto[]; requestId?: string }
+	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
+> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records`,
+		{
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'X-Request-Id': newCaseEngineRequestId()
+			}
+		}
+	);
+	const reqId = responseRequestId(res);
+	const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(raw, `Narrative list failed (${res.status})`),
+			requestId: reqId,
+			errorCode: extractApiErrorCode(raw)
+		};
+	}
+	const data = raw.data;
+	if (raw.success !== true || data == null || typeof data !== 'object') {
+		return { success: false, errorMessage: 'Invalid narrative list response.', requestId: reqId };
+	}
+	const inner = data as Record<string, unknown>;
+	if (!Array.isArray(inner.records)) {
+		return { success: false, errorMessage: 'Invalid narrative list response.', requestId: reqId };
+	}
+	return { success: true, records: inner.records as NarrativeRecordListItemDto[], requestId: reqId };
+}
+
+export async function getNarrativeRecordDetail(
+	caseId: string,
+	recordId: number,
+	token: string
+): Promise<
+	| { success: true; record: NarrativeRecordDetailDto; integrity?: NarrativeIntegrityResult; requestId?: string }
+	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
+> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records/${encodeURIComponent(String(recordId))}`,
+		{
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'X-Request-Id': newCaseEngineRequestId()
+			}
+		}
+	);
+	const reqId = responseRequestId(res);
+	const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(raw, `Narrative record failed (${res.status})`),
+			requestId: reqId,
+			errorCode: extractApiErrorCode(raw)
+		};
+	}
+	const data = raw.data;
+	if (raw.success !== true || data == null || typeof data !== 'object') {
+		return { success: false, errorMessage: 'Invalid narrative record response.', requestId: reqId };
+	}
+	const inner = data as Record<string, unknown>;
+	const rec = inner.record;
+	if (rec == null || typeof rec !== 'object') {
+		return { success: false, errorMessage: 'Invalid narrative record response.', requestId: reqId };
+	}
+	const integrityParsed =
+		inner.integrity !== undefined ? parseNarrativeIntegrityPayload(inner.integrity) : null;
+	const out: {
+		success: true;
+		record: NarrativeRecordDetailDto;
+		integrity?: NarrativeIntegrityResult;
+		requestId?: string;
+	} = { success: true, record: rec as NarrativeRecordDetailDto, requestId: reqId };
+	if (integrityParsed != null) {
+		out.integrity = integrityParsed;
+	}
+	return out;
+}
+
+/** P35-07 — Download plain-text export of a saved derived narrative record (not live preview). */
+export async function downloadNarrativeRecordExport(
+	caseId: string,
+	recordId: number,
+	token: string
+): Promise<
+	| { success: true; blob: Blob; filename: string; requestId?: string }
+	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
+> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records/${encodeURIComponent(String(recordId))}/export`,
+		{
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'X-Request-Id': newCaseEngineRequestId()
+			}
+		}
+	);
+	const reqId = responseRequestId(res);
+	if (!res.ok) {
+		const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(raw, `Narrative export failed (${res.status})`),
+			requestId: reqId,
+			errorCode: extractApiErrorCode(raw)
+		};
+	}
+	const blob = await res.blob();
+	const cd = res.headers.get('Content-Disposition') ?? '';
+	let filename = `derived-narrative-record-${recordId}.txt`;
+	const star = /filename\*=UTF-8''([^;\s]+)/i.exec(cd);
+	const quoted = /filename="([^"]+)"/i.exec(cd);
+	if (star?.[1]) {
+		try {
+			filename = decodeURIComponent(star[1]);
+		} catch {
+			filename = star[1];
+		}
+	} else if (quoted?.[1]) {
+		filename = quoted[1];
+	}
+	return { success: true, blob, filename, requestId: reqId };
 }
 
 /** P34-19 — Minimal preview metadata replayed on accept/save-edited (proposal-origin only; not authoritative extraction storage). */

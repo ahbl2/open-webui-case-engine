@@ -4270,6 +4270,9 @@
 					onEditDraft={handleStructuredEditDraft}
 					onRejectPreview={handleStructuredRejectPreview}
 					onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+					caseId={caseId}
+					notebookNoteId={selectedNote?.id ?? null}
+					caseEngineToken={$caseEngineToken ?? ''}
 				/>
 			{/if}
 			{#if enhanceState !== 'idle'}
@@ -5017,6 +5020,9 @@
 							onEditDraft={handleStructuredEditDraft}
 							onRejectPreview={handleStructuredRejectPreview}
 							onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+							caseId={caseId}
+							notebookNoteId={selectedNote?.id ?? null}
+							caseEngineToken={$caseEngineToken ?? ''}
 						/>
 					{/if}
 
@@ -5181,6 +5187,9 @@
 						onEditDraft={handleStructuredEditDraft}
 						onRejectPreview={handleStructuredRejectPreview}
 						onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+						caseId={caseId}
+						notebookNoteId={selectedNote?.id ?? null}
+						caseEngineToken={$caseEngineToken ?? ''}
 					/>
 				{/if}
 				{#if enhanceState !== 'idle'}
