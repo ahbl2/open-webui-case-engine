@@ -14,7 +14,7 @@ export const ENHANCE_OBSERVABILITY_LOG_PREFIX = '[enhance:observability]';
 /** Max events retained in memory per browser tab (ring buffer). */
 export const ENHANCE_OBSERVABILITY_MAX_EVENTS = 120;
 
-export type EnhanceObservabilityValidationMode = 'strict' | 'safe' | null;
+export type EnhanceObservabilityValidationMode = 'strict' | 'safe' | 'safe_cleanup' | null;
 
 export type EnhanceObservabilityOutcome =
 	| 'pipeline_started'
@@ -34,7 +34,9 @@ export type EnhanceObservabilityEventType =
 	| 'enhance_applied'
 	| 'enhance_dismissed'
 	| 'enhance_precondition_failed'
-	| 'save_integrity_blocked';
+	| 'save_integrity_blocked'
+	| 'enhance_safe_cleanup_offered'
+	| 'enhance_safe_cleanup_applied';
 
 export type EnhanceObservabilityNoteContext =
 	| { kind: 'create' }

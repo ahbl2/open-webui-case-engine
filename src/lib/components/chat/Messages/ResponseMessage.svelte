@@ -63,9 +63,16 @@
 	import StatusHistory from './ResponseMessage/StatusHistory.svelte';
 	import FullHeightIframe from '$lib/components/common/FullHeightIframe.svelte';
 	import CaseChatIntakeProposalCard from './CaseChatIntakeProposalCard.svelte';
+	import CaseEngineAskIntegrityBanner from '$lib/components/case/CaseEngineAskIntegrityBanner.svelte';
+	import CaseEngineAskStructuredSections from '$lib/components/case/CaseEngineAskStructuredSections.svelte';
 	import BehaviorTracePanel from './ResponseMessage/BehaviorTracePanel.svelte';
 	import type { ProposalRecord } from '$lib/apis/caseEngine';
 	import type { BehaviorTrace } from '$lib/types/behaviorTrace';
+	import type {
+		AskFactItem,
+		AskInferenceItem,
+		AskIntegrityPresentation
+	} from '$lib/utils/askIntegrityUi';
 
 	interface MessageType {
 		id: string;
@@ -92,6 +99,11 @@
 		error?: boolean | { content: string };
 		sources?: string[];
 		caseEngineCitations?: Array<{ type: 'entry' | 'file'; id: string }>;
+		caseEngineUiState?: string;
+		caseEngineIntegrityPresentation?: AskIntegrityPresentation;
+		caseEngineFacts?: AskFactItem[];
+		caseEngineInferences?: AskInferenceItem[];
+		caseEngineIntegrityRefused?: boolean;
 		caseEngineChatIntake?: { caseId: string; proposal: ProposalRecord };
 		code_executions?: {
 			uuid: string;
@@ -823,6 +835,13 @@ const onCancelCreateCase = async () => {
 							id="response-content-container"
 							data-case-engine-ui-state={message.caseEngineUiState ?? ''}
 						>
+							{#if message.caseEngineIntegrityPresentation != null}
+								<div class="mb-2">
+									<CaseEngineAskIntegrityBanner
+										integrityPresentation={message.caseEngineIntegrityPresentation}
+									/>
+								</div>
+							{/if}
 							{#if message.content === '' && !message.error && ((model?.info?.meta?.capabilities?.status_updates ?? true) ? (message?.statusHistory ?? [...(message?.status ? [message?.status] : [])]).length === 0 || (message?.statusHistory?.at(-1)?.hidden ?? false) : true)}
 								<Skeleton />
 							{:else if message.content && message.error !== true}
@@ -869,7 +888,25 @@ const onCancelCreateCase = async () => {
 								/>
 							{/if}
 
-							{#if message?.error}
+							{#if (message.caseEngineFacts?.length ?? 0) > 0 || (message.caseEngineInferences?.length ?? 0) > 0}
+								<CaseEngineAskStructuredSections
+									facts={message.caseEngineFacts ?? []}
+									inferences={message.caseEngineInferences ?? []}
+								/>
+							{/if}
+
+							{#if message?.error === true && message.caseEngineIntegrityRefused === true}
+								<div
+									class="rounded-md border border-amber-300 dark:border-amber-700 bg-amber-50/95 dark:bg-amber-950/40 px-3 py-3 text-sm text-amber-950 dark:text-amber-50"
+									data-case-engine-integrity-refusal="true"
+									role="alert"
+								>
+									<p class="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+										Integrity refusal
+									</p>
+									<p class="mt-2 whitespace-pre-wrap">{message.content}</p>
+								</div>
+							{:else if message?.error}
 								<Error content={message?.error?.content ?? message.content} />
 							{/if}
 

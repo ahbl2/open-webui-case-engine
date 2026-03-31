@@ -3,10 +3,14 @@
 	import { toast } from 'svelte-sonner';
 	import {
 		askCrossCase,
+		CaseEngineRequestError,
 		downloadCaseFile,
 		type AskCrossCaseResponse,
 		type CrossCaseCitation
 	} from '$lib/apis/caseEngine';
+	import CaseEngineAskIntegrityBanner from '$lib/components/case/CaseEngineAskIntegrityBanner.svelte';
+	import CaseEngineAskStructuredSections from '$lib/components/case/CaseEngineAskStructuredSections.svelte';
+	import { normalizeAskFactInferenceArrays } from '$lib/utils/askIntegrityUi';
 	import { caseEngineAuthState, caseEngineUser } from '$lib/stores';
 	import { formatNonAdminScopeLabel, resolveAuthorizedUnits } from '$lib/utils/crossCaseScope';
 
@@ -19,6 +23,7 @@
 	let asking = false;
 	let result: AskCrossCaseResponse | null = null;
 	let errorMessage = '';
+	let integrityRefusalMessage = '';
 	let parseErrorCitations: CrossCaseCitation[] = [];
 	let citationModal: CrossCaseCitation | null = null;
 
@@ -59,6 +64,7 @@
 		}
 		asking = true;
 		errorMessage = '';
+		integrityRefusalMessage = '';
 		parseErrorCitations = [];
 		result = null;
 		try {
@@ -67,10 +73,17 @@
 				unitScope: isAdmin ? unitScope : undefined
 			});
 		} catch (e: unknown) {
-			const err = e as Error & { citations?: CrossCaseCitation[] };
-			errorMessage = err?.message ?? 'Ask failed';
-			if (err?.citations) parseErrorCitations = err.citations;
-			toast.error(errorMessage);
+			if (e instanceof CaseEngineRequestError && e.errorCode === 'ASK_INTEGRITY_REFUSED') {
+				integrityRefusalMessage = e.message;
+				errorMessage = '';
+				parseErrorCitations = [];
+				toast.error(integrityRefusalMessage);
+			} else {
+				const err = e as Error & { citations?: CrossCaseCitation[] };
+				errorMessage = err?.message ?? 'Ask failed';
+				if (err?.citations) parseErrorCitations = err.citations;
+				toast.error(errorMessage);
+			}
 		} finally {
 			asking = false;
 		}
@@ -141,6 +154,18 @@
 		</button>
 	</div>
 
+	{#if integrityRefusalMessage}
+		<div
+			class="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm text-amber-950 dark:text-amber-50"
+			data-ask-integrity-refusal=""
+			role="alert"
+		>
+			<p class="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+				Integrity refusal
+			</p>
+			<p class="mt-2 whitespace-pre-wrap">{integrityRefusalMessage}</p>
+		</div>
+	{/if}
 	{#if errorMessage}
 		<div class="rounded border border-red-200 dark:border-red-800 bg-red-50 dark:bg-red-900/20 p-2 text-sm text-red-700 dark:text-red-300">
 			{errorMessage}
@@ -162,8 +187,10 @@
 	{/if}
 
 	{#if result}
+		{@const normalized = normalizeAskFactInferenceArrays(result.facts, result.inferences)}
 		<div class="space-y-4">
-			<div class="rounded border border-gray-200 dark:border-gray-700 p-3 text-sm bg-gray-50 dark:bg-gray-800/50">
+			<div class="rounded border border-gray-200 dark:border-gray-700 p-3 text-sm bg-gray-50 dark:bg-gray-800/50 space-y-3">
+				<CaseEngineAskIntegrityBanner integrityPresentation={result.integrityPresentation} />
 				<div class="whitespace-pre-wrap">{result.answer}</div>
 				<div class="mt-2">
 					<span
@@ -173,6 +200,7 @@
 					</span>
 				</div>
 			</div>
+			<CaseEngineAskStructuredSections facts={normalized.facts} inferences={normalized.inferences} />
 
 			{#if result.used_citations.length > 0}
 				<div>

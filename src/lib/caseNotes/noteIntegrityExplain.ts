@@ -55,9 +55,30 @@ const BY_INTERNAL_KEY: Record<string, IntegrityFailureReason> = {
 		message:
 			'The enhanced version may introduce specific information (for example names or times) that was not in your original note.'
 	},
+	'enhance:assistant_voice_detected': {
+		code: 'enhance_output_assistant_voice',
+		message:
+			'The enhanced text reads like a chat assistant instead of a cleaned note. Remove meta-replies and try again, or edit manually.'
+	},
+	'enhance:placeholder_detected': {
+		code: 'enhance_output_placeholder',
+		message:
+			'The enhanced text contains bracketed placeholders (for example a date or name you still need to fill in). Replace them with your actual note content or edit manually.'
+	},
+	'enhance:speculative_language_added': {
+		code: 'enhance_output_speculative_language',
+		message:
+			'The enhanced text adds speculative wording that was not in your original note. Keep only what your draft supports, or edit manually.'
+	},
+	'enhance:new_entity_detected': {
+		code: 'enhance_output_new_entity',
+		message:
+			'The enhanced text appears to introduce a new name or label that was not in your original note. Remove additions or edit manually.'
+	},
 	'alignment:expansion': {
 		code: 'alignment_expansion',
-		message: 'In safe mode the output is not allowed to grow beyond your original length.'
+		message:
+			'In safe mode the enhancement exceeded safe expansion limits for your note size. This is a coarse length check only; other integrity rules may also apply.'
 	},
 	'alignment:sentence-count': {
 		code: 'alignment_sentence_count',

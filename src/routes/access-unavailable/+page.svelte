@@ -3,10 +3,14 @@
 	import { user, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
 	import { resolveBrowserAuthOnce, BrowserResolveFailure } from '$lib/apis/caseEngine';
 	import { userSignOut } from '$lib/apis/auths';
+	import { accessUnavailableBanner } from '$lib/utils/accessUnavailableBanner';
 	import { get } from 'svelte/store';
 
 	let retrying = false;
 	let retryMessage = '';
+
+	/** P19.75-02: Same route as true outages (P20-PRE-01); copy must match actual `caseEngineAuthState`. */
+	$: banner = accessUnavailableBanner($caseEngineAuthState?.state ?? null);
 
 	async function signOut() {
 		await userSignOut().catch(() => {});
@@ -83,14 +87,14 @@
 		</div>
 
 		<h1 class="text-xl font-semibold text-gray-900 dark:text-gray-100 mb-2">
-			Service Unavailable
+			{banner.title}
 		</h1>
 
 		<p class="text-sm text-gray-500 dark:text-gray-400 mb-1">
-			The Case Engine authorization service could not be reached.
+			{banner.lead}
 		</p>
 		<p class="text-sm text-gray-500 dark:text-gray-400 mb-6">
-			Workspace access requires a successful authorization check. Please try again or contact your administrator.
+			{banner.hint}
 		</p>
 
 		{#if $user?.email || $user?.name}

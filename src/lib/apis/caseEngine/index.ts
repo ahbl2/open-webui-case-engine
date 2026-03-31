@@ -4,7 +4,20 @@
  */
 import { v4 as uuidv4 } from 'uuid';
 import { CASE_ENGINE_BASE_URL } from '$lib/constants';
+import type {
+	AskFactItem,
+	AskInferenceItem,
+	AskIntegrityPresentation
+} from '$lib/utils/askIntegrityUi';
+import { normalizeAskFactInferenceArrays } from '$lib/utils/askIntegrityUi';
 import { isTransportFailure, safeReadFetch } from './retryPolicy';
+import {
+	parseStructuredNotesExtractionPreviewData,
+	type StructuredNotesExtractionPreviewData
+} from '$lib/types/structuredNotes/extractionPreview';
+
+export type { AskFactItem, AskInferenceItem, AskIntegrityPresentation } from '$lib/utils/askIntegrityUi';
+export type { StructuredNotesExtractionPreviewData } from '$lib/types/structuredNotes/extractionPreview';
 
 /** P20-PRE-06: one `request_id` per logical client operation; `safeReadFetch` retries reuse the same `X-Request-Id` (no attempt-level id in Pre-20). Echoed by Case Engine. */
 function newCaseEngineRequestId(): string {
@@ -982,14 +995,24 @@ export async function askCase(
 	_scope: CaseEngineScope,
 	token: string,
 	threadId: string
-): Promise<{ answer: string; citations: CaseEngineCitation[] }> {
+): Promise<{
+	answer: string;
+	citations: CaseEngineCitation[];
+	integrityPresentation?: AskIntegrityPresentation;
+	facts: AskFactItem[];
+	inferences: AskInferenceItem[];
+}> {
 	const res = await askCaseQuestion(caseId, question, token, 8, undefined, threadId);
+	const { facts, inferences } = normalizeAskFactInferenceArrays(res.facts, res.inferences);
 	return {
 		answer: res.answer,
 		citations: res.citations.map((c) => ({
 			type: c.type,
 			id: c.id
-		}))
+		})),
+		integrityPresentation: res.integrityPresentation,
+		facts,
+		inferences
 	};
 }
 
@@ -1023,6 +1046,10 @@ export interface AskCaseQuestionResponse {
 	confidence: 'LOW' | 'MEDIUM' | 'HIGH';
 	evidence_citations: AskCitation[];
 	used_citations: AskCitation[];
+	/** P33-04 — Present on HTTP 200 when the Case Engine runs read-time integrity. */
+	integrityPresentation?: AskIntegrityPresentation;
+	facts?: AskFactItem[];
+	inferences?: AskInferenceItem[];
 }
 
 export async function askCaseQuestion(
@@ -1417,6 +1444,9 @@ export interface AskCrossCaseResponse {
 	confidence: 'LOW' | 'MEDIUM' | 'HIGH';
 	evidence_citations: CrossCaseCitation[];
 	used_citations: CrossCaseCitation[];
+	integrityPresentation?: AskIntegrityPresentation;
+	facts?: AskFactItem[];
+	inferences?: AskInferenceItem[];
 }
 
 export async function askCrossCase(
@@ -3993,6 +4023,361 @@ export async function restoreCaseNotebookNote(
 	return data as NotebookNote;
 }
 
+/** P34-09 — Minimal prototype: rule-based extract + deterministic render (no DB, no AI). */
+export type P34PrototypeStatement = {
+	id: string;
+	text: string;
+	source: 'ci' | 'officer' | 'neighbor' | 'unknown';
+	certainty: 'certain' | 'uncertain';
+};
+
+export type P34PrototypePreviewData = {
+	draft: string;
+	statements: P34PrototypeStatement[];
+	meta: { rawLength: number; statementCount: number; uncertainCount: number };
+};
+
+export async function previewP34Prototype(
+	caseId: string,
+	token: string,
+	rawText: string
+): Promise<{ success: true; data: P34PrototypePreviewData } | { success: false; errorMessage: string }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/p34-prototype-preview`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({ rawText })
+	});
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, `P34 prototype preview failed (${res.status})`)
+		};
+	}
+	if (data.success !== true || data.data == null || typeof data.data !== 'object') {
+		return { success: false, errorMessage: 'Invalid P34 prototype preview response.' };
+	}
+	const inner = data.data as Record<string, unknown>;
+	if (typeof inner.draft !== 'string' || !Array.isArray(inner.statements) || inner.meta == null) {
+		return { success: false, errorMessage: 'Invalid P34 prototype preview payload.' };
+	}
+	const meta = inner.meta as Record<string, unknown>;
+	if (
+		typeof meta.rawLength !== 'number' ||
+		typeof meta.statementCount !== 'number' ||
+		typeof meta.uncertainCount !== 'number'
+	) {
+		return { success: false, errorMessage: 'Invalid P34 prototype meta.' };
+	}
+	const statementsRaw = inner.statements as unknown[];
+	if (!statementsRaw.every(isP34PrototypeStatementRow)) {
+		return { success: false, errorMessage: 'Invalid P34 prototype statements.' };
+	}
+	return {
+		success: true,
+		data: {
+			draft: inner.draft,
+			statements: statementsRaw as P34PrototypeStatement[],
+			meta: {
+				rawLength: meta.rawLength,
+				statementCount: meta.statementCount,
+				uncertainCount: meta.uncertainCount
+			}
+		}
+	};
+}
+
+function isP34PrototypeStatementRow(row: unknown): row is P34PrototypeStatement {
+	if (row == null || typeof row !== 'object') return false;
+	const s = row as Record<string, unknown>;
+	return (
+		typeof s.id === 'string' &&
+		typeof s.text === 'string' &&
+		(s.source === 'ci' ||
+			s.source === 'officer' ||
+			s.source === 'neighbor' ||
+			s.source === 'unknown') &&
+		(s.certainty === 'certain' || s.certainty === 'uncertain')
+	);
+}
+
+/**
+ * P34-18 — Request structured draft extraction from Case Engine (`extraction-preview` — proposal + validation + render + meta).
+ * UI label: "Generate Structured Draft". Not the P34 prototype route.
+ */
+export async function previewStructuredNotesExtraction(
+	caseId: string,
+	token: string,
+	rawText: string
+): Promise<
+	| { success: true; data: StructuredNotesExtractionPreviewData; requestId?: string }
+	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
+> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/structured-notes/extraction-preview`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({ rawText })
+		}
+	);
+	const reqId = responseRequestId(res);
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, `Structured notes preview failed (${res.status})`),
+			requestId: reqId,
+			errorCode: extractApiErrorCode(data)
+		};
+	}
+	if (data.success !== true || data.data == null || typeof data.data !== 'object') {
+		return {
+			success: false,
+			errorMessage: 'Invalid structured draft response.',
+			requestId: reqId,
+			errorCode: extractApiErrorCode(data)
+		};
+	}
+	const parsed = parseStructuredNotesExtractionPreviewData(data.data);
+	if (parsed == null) {
+		return {
+			success: false,
+			errorMessage: 'Structured notes preview payload did not match the expected contract.',
+			requestId: reqId
+		};
+	}
+	return { success: true, data: parsed, requestId: reqId };
+}
+
+/** P34-19 — Minimal preview metadata replayed on accept/save-edited (proposal-origin only; not authoritative extraction storage). */
+export type StructuredNotesSourcePreviewPayload = {
+	schemaVersion: string;
+	extractionStatus: string;
+	rendererVersion?: string | null;
+};
+
+export type StructuredNotesReviewCommitResult = {
+	note: NotebookNote;
+	current_version_number: number;
+	action: string;
+};
+
+function parseStructuredNotesReviewSuccessPayload(data: unknown): StructuredNotesReviewCommitResult | null {
+	if (data == null || typeof data !== 'object') return null;
+	const d = data as Record<string, unknown>;
+	const note = d.note;
+	const vn = d.current_version_number;
+	const action = d.action;
+	if (note == null || typeof note !== 'object') return null;
+	if (typeof vn !== 'number' || !Number.isInteger(vn)) return null;
+	if (typeof action !== 'string') return null;
+	return { note: note as NotebookNote, current_version_number: vn, action };
+}
+
+type StructuredNotesReviewMutationFailure = {
+	success: false;
+	errorMessage: string;
+	httpStatus?: number;
+	errorCode?: string;
+	requestId?: string | null;
+};
+
+/**
+ * P34-19 — ACCEPT_STRUCTURED_DRAFT: saves rendered draft as a new note or new version (mutating).
+ */
+export async function acceptStructuredNotesDraft(
+	caseId: string,
+	token: string,
+	body: {
+		draftText: string;
+		noteId?: number;
+		title?: string | null;
+		expected_updated_at?: string;
+		sourcePreview: StructuredNotesSourcePreviewPayload;
+	}
+): Promise<{ success: true; data: StructuredNotesReviewCommitResult } | StructuredNotesReviewMutationFailure> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/structured-notes/accept`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(body)
+	});
+	const reqId = responseRequestId(res);
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, `Structured accept failed (${res.status})`),
+			httpStatus: res.status,
+			errorCode: extractApiErrorCode(data),
+			requestId: reqId
+		};
+	}
+	if (data.success !== true) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, 'Structured accept failed.'),
+			requestId: reqId
+		};
+	}
+	const parsed = parseStructuredNotesReviewSuccessPayload(data.data);
+	if (parsed == null) {
+		return { success: false, errorMessage: 'Invalid structured accept response.', requestId: reqId };
+	}
+	return { success: true, data: parsed };
+}
+
+/**
+ * P34-19 — EDIT_STRUCTURED_DRAFT save path: user-edited text from structured review (mutating).
+ */
+export async function saveStructuredNotesEditedDraft(
+	caseId: string,
+	token: string,
+	body: {
+		editedText: string;
+		noteId?: number;
+		title?: string | null;
+		expected_updated_at?: string;
+		sourcePreview: StructuredNotesSourcePreviewPayload;
+	}
+): Promise<{ success: true; data: StructuredNotesReviewCommitResult } | StructuredNotesReviewMutationFailure> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/structured-notes/save-edited`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(body)
+	});
+	const reqId = responseRequestId(res);
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, `Structured save-edited failed (${res.status})`),
+			httpStatus: res.status,
+			errorCode: extractApiErrorCode(data),
+			requestId: reqId
+		};
+	}
+	if (data.success !== true) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, 'Structured save-edited failed.'),
+			requestId: reqId
+		};
+	}
+	const parsed = parseStructuredNotesReviewSuccessPayload(data.data);
+	if (parsed == null) {
+		return { success: false, errorMessage: 'Invalid structured save-edited response.', requestId: reqId };
+	}
+	return { success: true, data: parsed };
+}
+
+/**
+ * P34-19 — REJECT_STRUCTURED_PREVIEW: server acknowledges dismiss; does not change note text.
+ */
+export async function rejectStructuredNotesPreview(
+	caseId: string,
+	token: string,
+	body: { noteId?: number } = {}
+): Promise<
+	{ success: true; requestId?: string } | { success: false; errorMessage: string; requestId?: string }
+> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/structured-notes/reject`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(body)
+	});
+	const reqId = responseRequestId(res);
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, `Structured reject failed (${res.status})`),
+			requestId: reqId
+		};
+	}
+	if (data.success !== true) {
+		return { success: false, errorMessage: 'Structured reject failed.', requestId: reqId };
+	}
+	return { success: true, requestId: reqId };
+}
+
+/** P32-01 — Preview deterministic safe surface cleanup (server-validated). */
+export type SafeSurfaceCleanupPreviewResponse = {
+	success: true;
+	mode: 'safe_cleanup';
+	cleanedText: string;
+	changesSummary: string[];
+	valid: boolean;
+	invalidReason?: string;
+	/** P32-05: Case Engine includes in non-production when preview is invalid. */
+	failedChecks?: string[];
+};
+
+export async function previewCaseNotebookSafeSurfaceCleanup(
+	caseId: string,
+	token: string,
+	text: string
+): Promise<SafeSurfaceCleanupPreviewResponse | { success: false; errorMessage: string }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/safe-surface-cleanup-preview`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify({ text })
+	});
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, `Safe cleanup preview failed (${res.status})`)
+		};
+	}
+	if (data.success !== true || typeof data.cleanedText !== 'string' || !Array.isArray(data.changesSummary)) {
+		return { success: false, errorMessage: 'Invalid safe cleanup preview response.' };
+	}
+	const failedChecksRaw = data.failedChecks;
+	const failedChecks =
+		Array.isArray(failedChecksRaw) && failedChecksRaw.every((x) => typeof x === 'string')
+			? (failedChecksRaw as string[])
+			: undefined;
+	return {
+		success: true,
+		mode: 'safe_cleanup',
+		cleanedText: data.cleanedText,
+		changesSummary: data.changesSummary as string[],
+		valid: data.valid === true,
+		...(typeof data.invalidReason === 'string' ? { invalidReason: data.invalidReason } : {}),
+		...(failedChecks != null && failedChecks.length > 0 ? { failedChecks } : {})
+	};
+}
+
+/** P32-01 — Persist audit row when investigator applies safe cleanup to the draft. */
+export async function auditCaseNotebookSafeSurfaceCleanupApplied(
+	caseId: string,
+	token: string,
+	payload: {
+		original_text: string;
+		cleaned_text: string;
+		changes_summary: string[];
+		note_id?: number | null;
+	}
+): Promise<{ success: true } | { success: false; errorMessage: string }> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/notebook/safe-surface-cleanup-audit`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(payload)
+	});
+	const data = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(data, `Safe cleanup audit failed (${res.status})`)
+		};
+	}
+	if (data.success !== true) {
+		return { success: false, errorMessage: 'Invalid safe cleanup audit response.' };
+	}
+	return { success: true };
+}
+
 // ── P30-02: Note Attachments ─────────────────────────────────────────────────
 
 export interface NoteAttachment {
@@ -4147,11 +4532,13 @@ export interface ExtractionRecord {
 	id: string;
 	attachment_id: string;
 	case_id: string;
-	method: 'plain_text' | 'pdf_text' | 'unsupported';
+	method: 'plain_text' | 'pdf_text' | 'docx_mammoth_raw_text' | 'unsupported';
 	status: 'extracted' | 'unsupported' | 'failed' | 'no_text_found';
 	extracted_text: string | null;
 	text_length: number;
 	error_message: string | null;
+	/** Parser advisories (e.g. Mammoth); not used for failure text — see error_message when status is failed. */
+	extraction_warnings: string | null;
 	created_at: string;
 	created_by: string;
 	updated_at: string;

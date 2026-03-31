@@ -4,6 +4,7 @@
 	import { activeCaseMeta, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
 	import {
 		askCrossCase,
+		CaseEngineRequestError,
 		getTimelineIntelligence,
 		listCaseTimelineEntries,
 		listCaseIntelligenceAlerts,
@@ -15,6 +16,10 @@
 		type IntelligenceAlert,
 		type SearchResultItem
 	} from '$lib/apis/caseEngine';
+	import CaseEngineAskIntegrityBanner from '$lib/components/case/CaseEngineAskIntegrityBanner.svelte';
+	import CaseEngineAskStructuredSections from '$lib/components/case/CaseEngineAskStructuredSections.svelte';
+	import type { AskFactItem, AskInferenceItem, AskIntegrityPresentation } from '$lib/utils/askIntegrityUi';
+	import { normalizeAskFactInferenceArrays } from '$lib/utils/askIntegrityUi';
 	import {
 		buildEvidenceCaseGroups,
 		groupEntityEvidenceByType,
@@ -192,6 +197,10 @@
 		error = '';
 		groundedAnswer = '';
 		askCitations = [];
+		askIntegrityPresentation = undefined;
+		askFacts = [];
+		askInferences = [];
+		askCrossIntegrityRefusal = '';
 		caseResults = [];
 		intelResults = [];
 		intelScopeApplied = '';
@@ -247,6 +256,10 @@
 
 	let groundedAnswer = '';
 	let askCitations: CrossCaseCitation[] = [];
+	let askIntegrityPresentation: AskIntegrityPresentation | undefined = undefined;
+	let askFacts: AskFactItem[] = [];
+	let askInferences: AskInferenceItem[] = [];
+	let askCrossIntegrityRefusal = '';
 	let caseResults: SearchResultItem[] = [];
 	let intelResults: IntelSearchResult[] = [];
 	let intelScopeApplied = '';
@@ -383,6 +396,10 @@
 		lastExecutedQuery = q;
 		groundedAnswer = '';
 		askCitations = [];
+		askIntegrityPresentation = undefined;
+		askFacts = [];
+		askInferences = [];
+		askCrossIntegrityRefusal = '';
 		caseResults = [];
 		intelResults = [];
 		intelScopeApplied = '';
@@ -415,11 +432,24 @@
 			if (caseId !== queryCaseId) return;
 			groundedAnswer = askRes.answer ?? '';
 			askCitations = askRes.used_citations ?? [];
+			const norm = normalizeAskFactInferenceArrays(askRes.facts, askRes.inferences);
+			askFacts = norm.facts;
+			askInferences = norm.inferences;
+			askIntegrityPresentation = askRes.integrityPresentation;
 			intelResults = Array.isArray(intelRes.results) ? intelRes.results : [];
 			intelScopeApplied = intelRes.scope_applied ?? '';
 		} catch (err) {
 			if (caseId !== queryCaseId) return;
-			error = err instanceof Error ? err.message : 'Failed to load intelligence results.';
+			askCrossIntegrityRefusal = '';
+			askIntegrityPresentation = undefined;
+			askFacts = [];
+			askInferences = [];
+			if (err instanceof CaseEngineRequestError && err.errorCode === 'ASK_INTEGRITY_REFUSED') {
+				error = '';
+				askCrossIntegrityRefusal = err.message;
+			} else {
+				error = err instanceof Error ? err.message : 'Failed to load intelligence results.';
+			}
 		} finally {
 			if (caseId === queryCaseId) loading = false;
 		}
@@ -709,6 +739,18 @@
 						Scope changed. Run Intelligence to refresh results for {selectedScopeLabel}.
 					</p>
 				{/if}
+				{#if askCrossIntegrityRefusal}
+					<div
+						class="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm text-amber-950 dark:text-amber-50"
+						data-ask-integrity-refusal=""
+						role="alert"
+					>
+						<p class="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
+							Integrity refusal
+						</p>
+						<p class="mt-2 whitespace-pre-wrap">{askCrossIntegrityRefusal}</p>
+					</div>
+				{/if}
 				{#if error}
 					<p class="text-xs text-red-600 dark:text-red-400">{error}</p>
 				{/if}
@@ -822,7 +864,11 @@
 					</p>
 				{:else}
 					{#if groundedAnswer}
-						<div class="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap">{groundedAnswer}</div>
+						<div class="space-y-3">
+							<CaseEngineAskIntegrityBanner integrityPresentation={askIntegrityPresentation} />
+							<div class="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap">{groundedAnswer}</div>
+							<CaseEngineAskStructuredSections facts={askFacts} inferences={askInferences} />
+						</div>
 						{#if evidenceItems.length === 0}
 							<p class="text-[11px] text-gray-500 dark:text-gray-400">
 								No supporting evidence rows were returned for this analysis text.

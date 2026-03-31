@@ -10,12 +10,14 @@ export type CaseEngineUiState =
 	| 'loading'
 	| 'success'
 	| 'validation_error'
+	| 'integrity_refused'
 	| 'dependency_unavailable'
 	| 'timeout'
 	| 'unknown_error';
 
 const LABEL: Record<Exclude<CaseEngineUiState, 'loading' | 'success'>, string> = {
 	validation_error: 'Validation',
+	integrity_refused: 'Integrity refusal',
 	dependency_unavailable: 'Unavailable',
 	timeout: 'Timeout',
 	unknown_error: 'Error'
@@ -63,6 +65,9 @@ export function classifyCaseEngineFailure(err: unknown): { state: CaseEngineUiSt
 		const st = err.httpStatus;
 		const code = err.errorCode ?? '';
 		const m = err.message;
+		if (code === 'ASK_INTEGRITY_REFUSED') {
+			return { state: 'integrity_refused', userMessage: m };
+		}
 		if (
 			code === 'INVALID_ENVELOPE' ||
 			/invalid envelope|invalid response body/i.test(m)

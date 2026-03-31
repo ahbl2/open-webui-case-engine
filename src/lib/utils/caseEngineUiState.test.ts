@@ -14,6 +14,14 @@ import {
 } from './caseEngineUiState';
 
 describe('classifyCaseEngineFailure (P20-PRE-04)', () => {
+	it('maps ASK_INTEGRITY_REFUSED to integrity_refused (distinct from generic 422 validation)', () => {
+		const e = new CaseEngineRequestError('public refusal text', 422, 'ASK_INTEGRITY_REFUSED');
+		expect(classifyCaseEngineFailure(e)).toEqual({
+			state: 'integrity_refused',
+			userMessage: 'public refusal text'
+		});
+	});
+
 	it('maps 422 CaseEngineRequestError to validation_error', () => {
 		const e = new CaseEngineRequestError('bad ask', 422, 'ASK_VALIDATION_FAILED');
 		expect(classifyCaseEngineFailure(e)).toEqual({
@@ -79,6 +87,14 @@ describe('formatCaseEngineUiMessage', () => {
 	it('prefixes non-success states', () => {
 		expect(formatCaseEngineUiMessage('validation_error', 'Details')).toContain('Validation');
 		expect(formatCaseEngineUiMessage('validation_error', 'Details')).toContain('Details');
+	});
+
+	it('prefixes integrity_refused distinctly from validation_error', () => {
+		const v = formatCaseEngineUiMessage('validation_error', 'x');
+		const i = formatCaseEngineUiMessage('integrity_refused', 'x');
+		expect(i).toContain('Integrity refusal');
+		expect(v).toContain('Validation');
+		expect(i).not.toEqual(v);
 	});
 });
 

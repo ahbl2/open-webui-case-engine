@@ -62,4 +62,11 @@ describe('P31-03 noteIntegrityExplain', () => {
 		const r = integrityReasonsFromInternalKeys(['fabrication', 'fabrication']);
 		expect(r).toHaveLength(1);
 	});
+
+	it('alignment:expansion explains safe expansion limits without numeric thresholds', () => {
+		const r = integrityReasonsFromInternalKeys(['alignment:expansion']);
+		expect(r[0]?.code).toBe('alignment_expansion');
+		expect(r[0]?.message.toLowerCase()).toContain('safe expansion');
+		expect(r[0]?.message).toMatch(/^[^0-9]*$/);
+	});
 });

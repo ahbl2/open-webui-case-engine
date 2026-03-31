@@ -1823,8 +1823,10 @@ let warrantToolsRequestInFlight = false;
 		replaceMessageId?: string
 	) => {
 		const { state, userMessage } = classifyCaseEngineFailure(e);
-		const line = formatCaseEngineUiMessage(state, userMessage);
-		toast.error(line);
+		const toastLine = formatCaseEngineUiMessage(state, userMessage);
+		toast.error(toastLine);
+		const integrityRefused = state === 'integrity_refused';
+		const contentForMessage = integrityRefused ? userMessage : toastLine;
 		const msgId = replaceMessageId ?? uuidv4();
 		const modelId = selectedModels[0] || ($models[0]?.id ?? 'case-engine');
 		const model = $models.find((m) => m.id === modelId);
@@ -1834,7 +1836,7 @@ let warrantToolsRequestInFlight = false;
 			id: msgId,
 			childrenIds: prev?.childrenIds ?? [],
 			role: 'assistant',
-			content: line,
+			content: contentForMessage,
 			model: modelId,
 			modelName: model?.name ?? 'Case Engine',
 			modelIdx: 0,
@@ -1842,6 +1844,7 @@ let warrantToolsRequestInFlight = false;
 			done: true,
 			error: true,
 			caseEngineUiState: state,
+			caseEngineIntegrityRefused: integrityRefused,
 			caseEngineCitations: [] as Array<{ type: 'entry' | 'file'; id: string }>
 		};
 		if (!replaceMessageId) {
@@ -2759,7 +2762,7 @@ let warrantToolsRequestInFlight = false;
 					threadId: activeCaseThreadId,
 					question: resolvedPrompt
 				});
-				const { answer, citations } = await askCase(
+				const { answer, citations, integrityPresentation, facts, inferences } = await askCase(
 					$activeCaseId,
 					resolvedPrompt,
 					'case',
@@ -2824,6 +2827,9 @@ let warrantToolsRequestInFlight = false;
 					timestamp: Math.floor(Date.now() / 1000),
 					...P20_CASE_ENGINE_ASK_UI.success,
 					caseEngineCitations: citations ?? [],
+					caseEngineIntegrityPresentation: integrityPresentation,
+					caseEngineFacts: facts,
+					caseEngineInferences: inferences,
 					followUps: answerFollowUps,
 					topSuggestionLabel: answerFollowUps[0]
 						? getTopSuggestionLabel(answerFollowUps[0])

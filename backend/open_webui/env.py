@@ -35,9 +35,12 @@ BACKEND_DIR = OPEN_WEBUI_DIR.parent
 BASE_DIR = BACKEND_DIR.parent
 
 try:
-    from dotenv import find_dotenv, load_dotenv
+    from dotenv import load_dotenv
 
-    load_dotenv(find_dotenv(str(BASE_DIR / ".env")))
+    # Explicit repo-root .env (do not rely on find_dotenv cwd heuristics for a full path).
+    _root_env = BASE_DIR / ".env"
+    if _root_env.is_file():
+        load_dotenv(_root_env)
 except ImportError:
     print("dotenv not installed, skipping...")
 

@@ -56,6 +56,7 @@
 	 *   out of the browser list — no auto-reselection. Clear filter to see it.
 	 *   Search is cleared after create/delete so the resulting note is visible.
 	 */
+	import { env } from '$env/dynamic/public';
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { beforeNavigate, goto } from '$app/navigation';
@@ -82,6 +83,8 @@
 		updateCaseNotebookNote,
 		deleteCaseNotebookNote,
 		restoreCaseNotebookNote,
+		previewCaseNotebookSafeSurfaceCleanup,
+		auditCaseNotebookSafeSurfaceCleanupApplied,
 		listNoteAttachments,
 		uploadNoteAttachment,
 		listDraftNoteAttachments,
@@ -93,17 +96,26 @@
 		listNoteAttachmentOcrResults,
 		deleteNoteAttachment,
 		downloadNoteAttachment,
+		fetchCaseEngineHealth,
+		previewP34Prototype,
+		previewStructuredNotesExtraction,
+		saveStructuredNotesEditedDraft,
+		rejectStructuredNotesPreview,
 		CaseEngineRequestError,
 		type NotebookNote,
 		type NotebookNoteVersion,
 		type NoteAttachment,
 		type ExtractionRecord,
-		type OcrRecord
+		type OcrRecord,
+		type P34PrototypePreviewData,
+		type StructuredNotesExtractionPreviewData,
+		type StructuredNotesSourcePreviewPayload
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import CaseNoteEditor from '$lib/components/case/CaseNoteEditor.svelte';
+	import CaseStructuredNotesReviewPanel from '$lib/components/case/CaseStructuredNotesReviewPanel.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 	import { mergeNotebookWritePayload } from '$lib/caseNotes/notebookIntegrityPayload';
@@ -114,6 +126,8 @@
 		buildSaveBlockedExplain,
 		integrityReasonsFromInternalKeys
 	} from '$lib/caseNotes/noteIntegrityExplain';
+	import { safeModeCoarseLengthAllowanceChars } from '$lib/caseNotes/noteEnhanceConstants';
+	import { validateEnhanceOutputDisallowedPatterns } from '$lib/caseNotes/noteEnhanceOutputGuardrails';
 	import {
 		clearEnhanceObservabilityEvents,
 		enhanceObservabilityTick,
@@ -124,6 +138,30 @@
 		recordEnhanceObservabilityEvent,
 		type EnhanceObservabilityNoteContext
 	} from '$lib/caseNotes/enhanceObservability';
+	import {
+		beginEnhancePipelineAudit,
+		clearEnhancePipelineAuditHistory,
+		commitEnhancePipelineAuditPatch,
+		computeEnhanceAuditDiffStats,
+		enhancePipelineAuditHistory,
+		enhancePipelineAuditLast,
+		enhancePipelineAuditTick,
+		finalizeEnhancePipelineAudit,
+		getEnhancePipelineAuditActiveCorrelation,
+		type EnhancePipelineAuditRecord
+	} from '$lib/caseNotes/enhancePipelineAudit';
+	import {
+		clearStructuredNotesObservabilityEvents,
+		getStructuredNotesObservabilityEvents,
+		newStructuredNotesCorrelationId,
+		recordStructuredNotesObservabilityEvent,
+		structuredNotesObservabilityTick
+	} from '$lib/caseNotes/structuredNotesObservability';
+	import {
+		computeStructuredNotesUiOffered,
+		readStructuredNotesServerEnabledFromHealth
+	} from '$lib/caseNotes/structuredNotesFeatureCapability';
+	import { computeStructuredDraftHydration } from '$lib/caseNotes/structuredNotesDraftEditorHydration';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -283,9 +321,18 @@
 			const updated = new Map(extractionsByAttachmentId);
 			updated.set(attachmentId, record);
 			extractionsByAttachmentId = updated;
-			// Auto-expand on first successful extraction
+			// Auto-expand when there is extracted text to preview
 			if (record.status === 'extracted') {
 				expandedExtractionIds = new Set([...expandedExtractionIds, attachmentId]);
+			}
+			if (record.status === 'unsupported') {
+				toast.info(
+					'This file type is not supported for automatic text extraction. Use .txt, .md, .docx, or a PDF with a text layer, or copy text in manually.'
+				);
+			} else if (record.status === 'no_text_found') {
+				toast.info('No machine-readable text was found in this file.');
+			} else if (record.status === 'failed') {
+				toast.error(record.error_message ?? 'Extraction failed.');
 			}
 		} catch (e) {
 			const msg = (e as Error)?.message ?? 'Extraction failed';
@@ -325,21 +372,10 @@
 		);
 	}
 
-	/** Returns true for file types that support deterministic text extraction. */
-	function isExtractionEligible(att: NoteAttachment): boolean {
-		const mime = att.mime_type ?? '';
-		const ext = att.original_filename.split('.').pop()?.toLowerCase() ?? '';
-		return (
-			ext === 'txt' || ext === 'md' || ext === 'pdf' ||
-			mime === 'text/plain' || mime === 'text/markdown' || mime === 'application/pdf'
-		);
-	}
-
 	/**
 	 * Unified "Process attachment" action.
-	 * Routes to OCR for images, deterministic extraction for text/PDF, and shows
-	 * a truthful message for unsupported types — without exposing implementation
-	 * details to the investigator.
+	 * Routes to OCR for images; otherwise calls extraction (Case Engine marks
+	 * unsupported types and we surface a toast so Word etc. never feel like a no-op).
 	 */
 	async function processAttachment(att: NoteAttachment): Promise<void> {
 		if (isOcrEligible(att)) {
@@ -576,7 +612,7 @@
 	}
 
 	// ── AI Enhance state (P29-Notes-08) ───────────────────────────────────────
-	type EnhanceState = 'idle' | 'loading' | 'proposal' | 'error';
+	type EnhanceState = 'idle' | 'loading' | 'proposal' | 'error' | 'safe_cleanup';
 	let enhanceState: EnhanceState = 'idle';
 	let enhanceProposalText = '';
 	let enhanceError = '';
@@ -585,6 +621,17 @@
 	// P30-16: true when the model stopped early (finish_reason: 'length') and
 	// the response was rejected as an incomplete enhancement.
 	let enhanceTruncated = false;
+	// P32-01: bounded surface cleanup when strict + safe enhance both fail (or strict/safe fatal with valid cleanup).
+	let safeCleanupOffer: {
+		originalText: string;
+		cleanedText: string;
+		changesSummary: string[];
+	} | null = null;
+	let safeCleanupCorrelationId = '';
+	let safeCleanupApplying = false;
+	/** P32-03: dev-only pipeline stage while enhanceState === 'loading' (strict → safe → cleanup preview). */
+	type EnhancePipelineDevStage = 'idle' | 'strict' | 'safe' | 'cleanup_preview';
+	let enhancePipelineDevStage: EnhancePipelineDevStage = 'idle';
 
 	// P31-02: pre-enhance text for the active AI draft cycle; forwarded as integrity_baseline_text on save.
 	let integrityBaselineText: string | null = null;
@@ -594,6 +641,45 @@
 	// P31-17: correlates apply/dismiss with the last successful enhance pass (strict or safe).
 	let pendingEnhanceCorrelationId = '';
 	let showEnhanceObservabilityPanel = false;
+	let showEnhancePipelineAuditPanel = false;
+	let showStructuredNotesObsPanel = false;
+
+	/** P34-08: dev-only structured preview (no persistence). */
+	let p34PrototypeResult: P34PrototypePreviewData | null = null;
+	let p34PrototypeLoading = false;
+
+	/** P34-18: real structured-notes preview (Case Engine contract); separate from prototype. */
+	let structuredNotesLoading = false;
+	let structuredNotesError = '';
+	let structuredNotesResult: StructuredNotesExtractionPreviewData | null = null;
+	let structuredNotesVisible = false;
+	let structuredNotesPreviewSourceText = '';
+	/** P34-19: accept / reject / save-edited in flight */
+	let structuredNotesActionBusy = false;
+	/** P34-19: user chose Edit Draft — Save uses structured save-edited endpoint */
+	let structuredNotesEditedCommitPending = false;
+	/** P34-20: correlates preview + trace + review actions in session obs buffer */
+	let structuredNotesObsCorrelationId = '';
+	/** P34-21: wait for health before offering structured-notes actions (server flag is authoritative). */
+	let structuredNotesHealthLoading = true;
+	let structuredNotesServerEnabled = false;
+	$: publicStructuredNotesSuppressed = env.PUBLIC_STRUCTURED_NOTES_ENABLED === '0';
+	$: structuredNotesUiOffered = computeStructuredNotesUiOffered(
+		!structuredNotesHealthLoading,
+		structuredNotesServerEnabled,
+		publicStructuredNotesSuppressed
+	);
+
+	$: structuredNotesCanCommitDraft =
+		structuredNotesResult != null &&
+		!structuredNotesResult.validation.blockedRender &&
+		structuredNotesResult.render.status !== 'blocked' &&
+		structuredNotesResult.render.renderedText.trim() !== '';
+
+	function enhanceAuditPatch(cid: string, patch: Partial<EnhancePipelineAuditRecord>): void {
+		if (getEnhancePipelineAuditActiveCorrelation() !== cid) return;
+		commitEnhancePipelineAuditPatch({ correlationId: cid, ...patch });
+	}
 
 	// P30-17: Full-coverage rewrite prompt. Used for single-paragraph notes.
 	// P30-18: Added explicit directive/action-item preservation clause.
@@ -667,6 +753,299 @@
 		pendingIntegrityBaseline = null;
 		enhanceIntegrityExplain = null;
 		pendingEnhanceCorrelationId = '';
+		safeCleanupOffer = null;
+		safeCleanupCorrelationId = '';
+		safeCleanupApplying = false;
+		enhancePipelineDevStage = 'idle';
+	}
+
+	function resetStructuredNotesPreview(): void {
+		structuredNotesLoading = false;
+		structuredNotesError = '';
+		structuredNotesResult = null;
+		structuredNotesVisible = false;
+		structuredNotesPreviewSourceText = '';
+		structuredNotesActionBusy = false;
+		structuredNotesEditedCommitPending = false;
+	}
+
+	$: {
+		if (!structuredNotesUiOffered && structuredNotesVisible) {
+			resetStructuredNotesPreview();
+		}
+	}
+
+	function resetP34PrototypePreviewOnly(): void {
+		p34PrototypeResult = null;
+		p34PrototypeLoading = false;
+	}
+
+	function resetP34PrototypePreview(): void {
+		resetP34PrototypePreviewOnly();
+		resetStructuredNotesPreview();
+	}
+
+	function getCurrentNotePlainTextForStructuredPreview(): string {
+		if (mode === 'create') return createText.trim();
+		if (mode === 'edit') return editText.trim();
+		if (mode === 'view' && selectedNote) return (selectedNote.current_text ?? '').trim();
+		return '';
+	}
+
+	function structuredNotesObsNoteId(): string | null {
+		if ((mode === 'edit' || mode === 'view') && selectedNote) return String(selectedNote.id);
+		return null;
+	}
+
+	function handleStructuredNotesTraceabilityInteraction(detail: {
+		kind: 'statement_row' | 'render_block';
+	}): void {
+		const cid = structuredNotesObsCorrelationId || newStructuredNotesCorrelationId();
+		recordStructuredNotesObservabilityEvent({
+			correlationId: cid,
+			caseId,
+			eventType: 'structured_notes_traceability_used',
+			noteId: structuredNotesObsNoteId(),
+			traceabilityInteractionType: detail.kind
+		});
+	}
+
+	async function runStructuredNotesPreview(): Promise<void> {
+		if (!structuredNotesUiOffered) {
+			toast.error(
+				'Structured notes are not available here. Enable them on Case Engine (STRUCTURED_NOTES_ENABLED=1), ensure this UI is not suppressing them (PUBLIC_STRUCTURED_NOTES_ENABLED), then refresh.'
+			);
+			return;
+		}
+		const draftText = getCurrentNotePlainTextForStructuredPreview();
+		if (!draftText) {
+			toast.info('Add note text before generating a draft');
+			return;
+		}
+		const token = $caseEngineToken;
+		if (!token) {
+			toast.error('Case Engine session required.');
+			return;
+		}
+		structuredNotesObsCorrelationId = newStructuredNotesCorrelationId();
+		recordStructuredNotesObservabilityEvent({
+			correlationId: structuredNotesObsCorrelationId,
+			caseId,
+			eventType: 'structured_notes_preview_requested',
+			noteId: structuredNotesObsNoteId(),
+			success: true
+		});
+		structuredNotesVisible = true;
+		structuredNotesLoading = true;
+		structuredNotesError = '';
+		structuredNotesResult = null;
+		structuredNotesPreviewSourceText = draftText;
+		structuredNotesEditedCommitPending = false;
+		try {
+			const res = await previewStructuredNotesExtraction(caseId, token, draftText);
+			if (res.success) {
+				structuredNotesResult = res.data;
+				const d = res.data;
+				recordStructuredNotesObservabilityEvent({
+					correlationId: structuredNotesObsCorrelationId,
+					caseId,
+					eventType: 'structured_notes_preview_loaded',
+					noteId: structuredNotesObsNoteId(),
+					success: true,
+					requestId: res.requestId ?? null,
+					validationStatus: d.validation.status,
+					renderStatus: d.render.status,
+					blockedRender: d.validation.blockedRender,
+					statementCount: d.meta.statementCount,
+					warningCount: d.validation.warnings.length,
+					errorCount: d.validation.errors.length
+				});
+			} else {
+				if (res.errorCode === 'STRUCTURED_NOTES_DISABLED') {
+					structuredNotesError =
+						'Structured notes are turned off on Case Engine. Set STRUCTURED_NOTES_ENABLED=1 and refresh, or close this panel.';
+				} else {
+					structuredNotesError = res.errorMessage;
+				}
+				recordStructuredNotesObservabilityEvent({
+					correlationId: structuredNotesObsCorrelationId,
+					caseId,
+					eventType: 'structured_notes_preview_failed',
+					noteId: structuredNotesObsNoteId(),
+					success: false,
+					requestId: res.requestId ?? null,
+					errorHint: res.errorCode ?? res.errorMessage.slice(0, 120)
+				});
+			}
+		} catch (e) {
+			console.error(e);
+			structuredNotesError = 'Structured preview unavailable.';
+			recordStructuredNotesObservabilityEvent({
+				correlationId: structuredNotesObsCorrelationId,
+				caseId,
+				eventType: 'structured_notes_preview_failed',
+				noteId: structuredNotesObsNoteId(),
+				success: false,
+				errorHint: 'network_or_parse'
+			});
+		} finally {
+			structuredNotesLoading = false;
+		}
+	}
+
+	function structuredSourcePreviewPayload(): StructuredNotesSourcePreviewPayload | null {
+		if (!structuredNotesResult) return null;
+		return {
+			schemaVersion: structuredNotesResult.proposal.schemaVersion,
+			extractionStatus: structuredNotesResult.proposal.extractionStatus,
+			rendererVersion: structuredNotesResult.render.rendererVersion ?? null
+		};
+	}
+
+	/**
+	 * P34-29: Load rendered structured draft into the note editor only.
+	 * Persistence happens exclusively via Save note / handleCreate / handleSave (structured or normal paths).
+	 */
+	function applyStructuredDraftToEditor(
+		renderedText: string,
+		observabilityEvent: 'structured_notes_accept_clicked' | 'structured_notes_edit_started'
+	): boolean {
+		const plan = computeStructuredDraftHydration(mode, renderedText, selectedNote);
+		if (!plan.ok) {
+			if (plan.reason === 'empty') {
+				if (observabilityEvent === 'structured_notes_accept_clicked') {
+					toast.error('No rendered draft to accept.');
+				}
+			} else if (observabilityEvent === 'structured_notes_accept_clicked') {
+				toast.error('Cannot load structured draft in this workspace state.');
+			}
+			return false;
+		}
+		resetP34PrototypePreviewOnly();
+		resetEnhanceState();
+		resetNoteIntegrityDraftState();
+		integrityBaselineText = null;
+		pendingIntegrityBaseline = null;
+		structuredNotesEditedCommitPending = true;
+		recordStructuredNotesObservabilityEvent({
+			correlationId: structuredNotesObsCorrelationId || newStructuredNotesCorrelationId(),
+			caseId,
+			eventType: observabilityEvent,
+			noteId: structuredNotesObsNoteId(),
+			success: true
+		});
+		if (plan.branch === 'create') {
+			createText = plan.createText;
+			createEditorRenderKey += 1;
+		} else if (plan.branch === 'edit_existing') {
+			editText = plan.editText;
+			editEditorRenderKey += 1;
+		} else {
+			showVersionHistory = false;
+			resetDictationState();
+			editTitle = plan.editTitle;
+			editText = plan.editText;
+			editExpectedUpdatedAt = plan.editExpectedUpdatedAt;
+			editConflictMessage = '';
+			editEditorRenderKey += 1;
+			mode = 'edit';
+			void loadNoteAttachments(plan.noteId);
+		}
+		structuredNotesVisible = false;
+		return true;
+	}
+
+	function handleStructuredAcceptDraft(): void {
+		if (!structuredNotesResult) return;
+		const t = structuredNotesResult.render.renderedText;
+		if (!applyStructuredDraftToEditor(t, 'structured_notes_accept_clicked')) return;
+		toast.success('Draft loaded into the editor. Use Save note when you are ready to persist.');
+	}
+
+	function handleStructuredEditDraft(): void {
+		if (!structuredNotesResult) return;
+		const t = structuredNotesResult.render.renderedText;
+		applyStructuredDraftToEditor(t, 'structured_notes_edit_started');
+	}
+
+	async function handleStructuredRejectPreview(): Promise<void> {
+		if (!$caseEngineToken) return;
+		const activeCaseId = caseId;
+		const obsCid = structuredNotesObsCorrelationId || newStructuredNotesCorrelationId();
+		recordStructuredNotesObservabilityEvent({
+			correlationId: obsCid,
+			caseId: activeCaseId,
+			eventType: 'structured_notes_reject_clicked',
+			noteId: structuredNotesObsNoteId(),
+			success: true
+		});
+		structuredNotesActionBusy = true;
+		try {
+			const noteId =
+				(mode === 'view' || mode === 'edit') && selectedNote ? selectedNote.id : undefined;
+			const res = await rejectStructuredNotesPreview(
+				activeCaseId,
+				$caseEngineToken,
+				noteId != null ? { noteId } : {}
+			);
+			if (caseId !== activeCaseId) return;
+			if (res.success) {
+				toast.success('Kept your original note.');
+				resetStructuredNotesPreview();
+			} else {
+				recordStructuredNotesObservabilityEvent({
+					correlationId: obsCid,
+					caseId: activeCaseId,
+					eventType: 'structured_notes_reject_failed',
+					noteId: structuredNotesObsNoteId(),
+					success: false,
+					requestId: res.requestId ?? null,
+					errorHint: res.errorMessage.slice(0, 120)
+				});
+				toast.error(res.errorMessage);
+			}
+		} catch (e) {
+			if (caseId === activeCaseId) {
+				recordStructuredNotesObservabilityEvent({
+					correlationId: obsCid,
+					caseId: activeCaseId,
+					eventType: 'structured_notes_reject_failed',
+					noteId: structuredNotesObsNoteId(),
+					success: false,
+					errorHint: 'network_or_exception'
+				});
+				toast.error(e instanceof Error ? e.message : 'Structured reject failed.');
+			}
+		} finally {
+			if (caseId === activeCaseId) structuredNotesActionBusy = false;
+		}
+	}
+
+	async function runP34Prototype(): Promise<void> {
+		const draftText = mode === 'edit' ? editText.trim() : createText.trim();
+		if (!draftText) {
+			toast.error('Write some note text before using P34 Prototype.');
+			return;
+		}
+		const token = $caseEngineToken;
+		if (!token) {
+			toast.error('Case Engine session required.');
+			return;
+		}
+		p34PrototypeLoading = true;
+		try {
+			const res = await previewP34Prototype(caseId, token, draftText);
+			if (res.success) {
+				p34PrototypeResult = res.data;
+			} else {
+				toast.error(res.errorMessage);
+			}
+		} catch (e) {
+			console.error(e);
+			toast.error('P34 prototype preview failed.');
+		} finally {
+			p34PrototypeLoading = false;
+		}
 	}
 
 	function enhanceObservabilityNoteContext(): EnhanceObservabilityNoteContext {
@@ -677,6 +1056,13 @@
 	$: enhanceObsDevPanelEvents = ($enhanceObservabilityTick, [
 		...getEnhanceObservabilityEvents()
 	].reverse());
+
+	$: structuredNotesObsDevPanelEvents = ($structuredNotesObservabilityTick, [
+		...getStructuredNotesObservabilityEvents()
+	].reverse());
+
+	$: enhanceAuditLastView = ($enhancePipelineAuditTick, $enhancePipelineAuditLast);
+	$: enhanceAuditHistView = ($enhancePipelineAuditTick, [...$enhancePipelineAuditHistory].slice(-12).reverse());
 
 	function resetNoteIntegrityDraftState(): void {
 		integrityBaselineText = null;
@@ -1068,19 +1454,14 @@
 	}
 
 	/**
-	 * P30-33: Sentence-level alignment validation — used ONLY on the safe enhance pass.
+	 * P30-33 / P33: Sentence-level alignment (safe pass) — length expansion is checked separately
+	 * after other validators (`validateSafeModeLengthExpansion`), matching Case Engine order.
 	 *
-	 * Safe mode must be transform-only: every enhanced sentence must be a rewrite of
-	 * some original sentence, not newly invented content. Three guards:
-	 *
-	 *   1. Expansion guard — enhanced text must not exceed 125% of original length.
-	 *      Prevents wholesale content inflation regardless of sentence count.
-	 *
-	 *   2. Sentence count guard — enhanced sentence count must not exceed original
+	 *   1. Sentence count guard — enhanced sentence count must not exceed original
 	 *      count by more than one (one tolerance allows for minor punctuation splits).
 	 *      Skipped for structured list/numbered baselines (P31-10 — parity with CE).
 	 *
-	 *   3. Per-sentence alignment — for each enhanced sentence with ≥2 key tokens,
+	 *   2. Per-sentence alignment — for each enhanced sentence with ≥2 key tokens,
 	 *      at least 40% of its key tokens must appear in the best-matching original
 	 *      sentence. Key tokens: significant words (4+ chars, non-stopword) and
 	 *      numeric values. A 40% threshold accommodates valid synonym/word-order
@@ -1090,18 +1471,23 @@
 	 * Sentences shorter than 12 characters and those with fewer than 2 key tokens
 	 * are skipped (they cannot be reliably validated and carry little fabrication risk).
 	 */
-	function validateSentenceAlignment(
+	function validateSafeModeLengthExpansion(original: string, enhanced: string): { ok: boolean; reason?: string } {
+		const origLen = original.trim().length;
+		const enhLen = enhanced.trim().length;
+		const allowedLen = safeModeCoarseLengthAllowanceChars(origLen);
+		if (origLen > 0 && enhLen > allowedLen) {
+			return { ok: false, reason: 'expansion' };
+		}
+		return { ok: true };
+	}
+
+	function validateSentenceAlignmentContent(
 		original: string,
 		enhanced: string
 	): { ok: boolean; reason?: string } {
-		// 1. Expansion guard.
-		if (enhanced.length > original.length * 1.25) {
-			return { ok: false, reason: 'expansion' };
-		}
-
 		// P31-10: Match CE `isStructuredCoverageNote` — list drafts do not sentence-split like narrative;
 		// grammar passes may add periods per line and inflate filtered sentence counts. Coverage tier
-		// already enforced line parity (±1); expansion guard above still applies.
+		// already enforced line parity (±1); coarse length is enforced later via `validateSafeModeLengthExpansion`.
 		const origTrimmed = original.trim();
 		if (/^\s*[\*\-\+•]\s/m.test(origTrimmed) || /^\s*\d+[\.\)]\s/m.test(origTrimmed)) {
 			return { ok: true };
@@ -1391,6 +1777,17 @@
 
 		const assembled = enhancedBlocks.join('\n\n');
 
+		const disallowed = validateEnhanceOutputDisallowedPatterns(assembled, draftText);
+		if (disallowed) {
+			return {
+				ok: false,
+				kind: 'validation',
+				message:
+					'Enhancement rejected — the AI added assistant-style wording, placeholders, or speculative content not present in your note. Please try again.',
+				reasons: integrityReasonsFromInternalKeys([disallowed])
+			};
+		}
+
 		// P30-17/P30-29: Coverage validation.
 		const coverage = validateEnhanceCoverage(draftText, assembled);
 		if (!coverage.ok) {
@@ -1451,23 +1848,18 @@
 			};
 		}
 
-		// P30-33: Sentence alignment — safe pass only. Enforces transform-only behaviour:
-		// expansion guard (≤125% length), sentence count guard (≤ original + 1), and
-		// per-sentence token overlap (≥40% of enhanced sentence tokens in best-matching
-		// original sentence). Prevents narrative fabrication in safe mode.
+		// P30-33: Sentence alignment content — safe pass only (length checked after directive preservation).
 		if (safe) {
-			const alignment = validateSentenceAlignment(draftText, assembled);
+			const alignment = validateSentenceAlignmentContent(draftText, assembled);
 			if (!alignment.ok) {
 				const ar = alignment.reason ?? 'alignment';
 				return {
 					ok: false,
 					kind: 'validation',
 					message:
-						alignment.reason === 'expansion'
-							? 'Enhancement rejected — output is significantly longer than the original. Safe mode does not allow content expansion. Please try again.'
-							: alignment.reason === 'sentence-count'
-								? 'Enhancement rejected — safe mode introduced additional sentences not present in the original. Please try again.'
-								: 'Enhancement rejected — safe mode output contains content that cannot be traced to the original note. Please try again.',
+						ar === 'sentence-count'
+							? 'Enhancement rejected — safe mode introduced additional sentences not present in the original. Please try again.'
+							: 'Enhancement rejected — safe mode output contains content that cannot be traced to the original note. Please try again.',
 					reasons: integrityReasonsFromInternalKeys([`alignment:${ar}`])
 				};
 			}
@@ -1484,7 +1876,380 @@
 			};
 		}
 
+		if (safe) {
+			const lenCk = validateSafeModeLengthExpansion(draftText, assembled);
+			if (!lenCk.ok) {
+				return {
+					ok: false,
+					kind: 'validation',
+					message:
+						'Enhancement rejected — in safe mode the enhancement exceeded safe expansion limits. Try shortening the model output, tightening your draft, or editing manually. Please try again.',
+					reasons: integrityReasonsFromInternalKeys(['alignment:expansion'])
+				};
+			}
+		}
+
 		return { ok: true, assembled };
+	}
+
+	/** P32-02 / P32-03: temporary dev-only logs for safe-cleanup integration (skipped in Vitest). */
+	function enhanceSafeCleanupDebugEnabled(): boolean {
+		return (
+			typeof import.meta !== 'undefined' &&
+			import.meta.env?.DEV === true &&
+			import.meta.env?.MODE !== 'test'
+		);
+	}
+
+	type SafeFallbackPipelineResult = 'proposal_accepted' | 'safe_cleanup_offered' | 'terminal_error';
+
+	/** P32-04: log terminal enhance UI state from the safe-fallback pipeline only (dev / non-test). */
+	function debugEnhancePipelineFinalMode(result: SafeFallbackPipelineResult): void {
+		if (!enhanceSafeCleanupDebugEnabled()) return;
+		// eslint-disable-next-line no-console
+		console.debug('PIPELINE → final mode', enhanceState, result);
+	}
+
+	/**
+	 * P32-03 / P32-04: Shared strict-rejection tail — safe AI pass, then cleanup preview on safe failure.
+	 * Owns final enhanceState for proposal / safe_cleanup / error on this path.
+	 * Used after strict **validation** rejection or after strict pass **throws** (still run safe before cleanup-only).
+	 */
+	async function executeEnhanceSafeFallbackPipeline(
+		modelId: string,
+		draftText: string,
+		noteCtx: EnhanceObservabilityNoteContext,
+		correlationId: string,
+		strictEntry: 'validation_rejected' | 'strict_threw',
+		strictRejectionReasons: IntegrityFailureReason[] | undefined
+	): Promise<SafeFallbackPipelineResult> {
+		enhanceAuditPatch(correlationId, { safeResult: 'pending' });
+		enhancePipelineDevStage = 'safe';
+		if (enhanceSafeCleanupDebugEnabled()) {
+			// eslint-disable-next-line no-console
+			console.debug('PIPELINE → safe start', { correlationId, strictEntry });
+			// eslint-disable-next-line no-console
+			console.debug('safe_pass_started', { correlationId, strictEntry });
+		}
+
+		if (strictEntry === 'validation_rejected') {
+			const strictCodes = strictRejectionReasons?.length
+				? reasonCodesFromEnhanceReasons(strictRejectionReasons)
+				: [];
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_validation_outcome',
+				validationMode: 'strict',
+				outcome: 'rejected',
+				reasonCodes: strictCodes,
+				metadata: {}
+			});
+			enhanceAuditPatch(correlationId, {
+				strictResult: 'rejected',
+				reasonCodes: strictCodes
+			});
+		} else if (strictEntry === 'strict_threw') {
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_validation_outcome',
+				validationMode: 'strict',
+				outcome: 'error',
+				reasonCodes: ['strict_pass_exception'],
+				metadata: {}
+			});
+			enhanceAuditPatch(correlationId, {
+				strictResult: 'error',
+				reasonCodes: ['strict_pass_exception']
+			});
+		}
+
+		recordEnhanceObservabilityEvent({
+			caseId,
+			noteContext: noteCtx,
+			correlationId,
+			eventType: 'enhance_fallback_attempted',
+			validationMode: 'safe',
+			outcome: 'pipeline_started',
+			reasonCodes: [],
+			metadata: {}
+		});
+
+		let safeResult: Awaited<ReturnType<typeof tryEnhancePass>>;
+		try {
+			safeResult = await tryEnhancePass(modelId, draftText, true);
+		} catch (safeErr: unknown) {
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('safe_pass_result', { correlationId, ok: false, threw: true, safeErr });
+				// eslint-disable-next-line no-console
+				console.debug('safe_pass_failed_triggering_cleanup', {
+					correlationId,
+					safeKind: 'threw'
+				});
+			}
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_validation_outcome',
+				validationMode: 'safe',
+				outcome: 'error',
+				reasonCodes: ['safe_pass_exception'],
+				metadata: {}
+			});
+			enhanceAuditPatch(correlationId, {
+				safeResult: 'error',
+				reasonCodes: ['safe_pass_exception']
+			});
+			enhanceIntegrityExplain = null;
+			enhanceError =
+				'Could not generate an enhanced version of this note. Please try again.';
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('PIPELINE → cleanup start', { correlationId, strictEntry, after: 'safe_threw' });
+			}
+			if (await tryOfferSafeCleanup(draftText, noteCtx, correlationId, 'after_safe_pass')) {
+				enhancePipelineDevStage = 'idle';
+				debugEnhancePipelineFinalMode('safe_cleanup_offered');
+				return 'safe_cleanup_offered';
+			}
+			enhanceState = 'error';
+			enhancePipelineDevStage = 'idle';
+			debugEnhancePipelineFinalMode('terminal_error');
+			return 'terminal_error';
+		}
+
+		if (enhanceSafeCleanupDebugEnabled()) {
+			// eslint-disable-next-line no-console
+			console.debug('safe_pass_result', {
+				correlationId,
+				ok: safeResult.ok,
+				kind: safeResult.ok ? undefined : safeResult.kind
+			});
+		}
+
+		if (safeResult.ok) {
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_validation_outcome',
+				validationMode: 'safe',
+				outcome: 'accepted',
+				reasonCodes: [],
+				metadata: { enhanceFallbackUsed: true }
+			});
+			enhanceAuditPatch(correlationId, {
+				safeResult: 'accepted',
+				cleanupResult: 'skipped',
+				outputLength: safeResult.assembled.length,
+				diffStats: computeEnhanceAuditDiffStats(draftText, safeResult.assembled)
+			});
+			pendingIntegrityBaseline = draftText;
+			enhanceProposalText = safeResult.assembled;
+			enhanceFallbackUsed = true;
+			enhanceTruncated = false;
+			enhanceState = 'proposal';
+			pendingEnhanceCorrelationId = correlationId;
+			enhancePipelineDevStage = 'idle';
+			debugEnhancePipelineFinalMode('proposal_accepted');
+			return 'proposal_accepted';
+		}
+
+		if (safeResult.kind === 'fatal') {
+			if (safeResult.message.includes('stopped before finishing')) enhanceTruncated = true;
+			enhanceIntegrityExplain = null;
+			enhanceError = safeResult.message;
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_validation_outcome',
+				validationMode: 'safe',
+				outcome: 'fatal',
+				reasonCodes: [],
+				metadata: { modelTruncated: enhanceTruncated }
+			});
+			enhanceAuditPatch(correlationId, {
+				safeResult: 'error',
+				reasonCodes: enhanceTruncated ? ['model_truncated'] : ['safe_fatal']
+			});
+		} else {
+			enhanceIntegrityExplain = buildEnhanceRejectedExplain(safeResult.reasons);
+			enhanceError = '';
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_validation_outcome',
+				validationMode: 'safe',
+				outcome: 'rejected',
+				reasonCodes: reasonCodesFromEnhanceReasons(safeResult.reasons),
+				metadata: {}
+			});
+			enhanceAuditPatch(correlationId, {
+				safeResult: 'rejected',
+				reasonCodes: reasonCodesFromEnhanceReasons(safeResult.reasons)
+			});
+		}
+
+		if (enhanceSafeCleanupDebugEnabled()) {
+			// eslint-disable-next-line no-console
+			console.debug('safe_pass_failed_triggering_cleanup', {
+				correlationId,
+				safeKind: safeResult.kind
+			});
+		}
+		if (enhanceSafeCleanupDebugEnabled()) {
+			// eslint-disable-next-line no-console
+			console.debug('PIPELINE → cleanup start', { correlationId, strictEntry, after: 'safe_failed' });
+		}
+		if (await tryOfferSafeCleanup(draftText, noteCtx, correlationId, 'after_safe_pass')) {
+			enhancePipelineDevStage = 'idle';
+			debugEnhancePipelineFinalMode('safe_cleanup_offered');
+			return 'safe_cleanup_offered';
+		}
+		enhanceState = 'error';
+		enhancePipelineDevStage = 'idle';
+		debugEnhancePipelineFinalMode('terminal_error');
+		return 'terminal_error';
+	}
+
+	/** P32-01 / P32-02: Ask Case Engine for validated deterministic cleanup; on success shows safe_cleanup panel. */
+	async function tryOfferSafeCleanup(
+		draftText: string,
+		noteCtx: EnhanceObservabilityNoteContext,
+		correlationId: string,
+		rejectPhase: string
+	): Promise<boolean> {
+		const token = $caseEngineToken;
+		if (!token || !caseId) {
+			enhancePipelineDevStage = 'idle';
+			enhanceAuditPatch(correlationId, {
+				cleanupResult: 'invalid',
+				reasonCodes: ['cleanup_no_token_or_case']
+			});
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('safe_cleanup_preview_invalid', { reason: 'no_token_or_case_id', rejectPhase });
+			}
+			return false;
+		}
+		enhancePipelineDevStage = 'cleanup_preview';
+		if (enhanceSafeCleanupDebugEnabled()) {
+			// eslint-disable-next-line no-console
+			console.debug('cleanup_preview_request_fired', { rejectPhase, correlationId, caseId });
+		}
+		try {
+			const res = await previewCaseNotebookSafeSurfaceCleanup(caseId, token, draftText);
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('safe_cleanup_preview_result', {
+					rejectPhase,
+					success: res.success,
+					...('success' in res && res.success
+						? {
+								valid: res.valid,
+								invalidReason: res.invalidReason,
+								changesCount: res.changesSummary?.length,
+								cleanedLen: res.cleanedText?.length
+							}
+						: { errorMessage: (res as { errorMessage?: string }).errorMessage })
+				});
+			}
+			if (!res.success) {
+				enhancePipelineDevStage = 'idle';
+				enhanceAuditPatch(correlationId, {
+					cleanupResult: 'invalid',
+					reasonCodes: ['cleanup_preview_request_failed']
+				});
+				if (enhanceSafeCleanupDebugEnabled()) {
+					// eslint-disable-next-line no-console
+					console.debug('safe_cleanup_preview_invalid', {
+						reason: 'preview_request_failed',
+						errorMessage: res.errorMessage,
+						rejectPhase
+					});
+				}
+				return false;
+			}
+			if (!res.valid) {
+				enhancePipelineDevStage = 'idle';
+				const inv = res.invalidReason ?? 'cleanup_invalid';
+				const fc = Array.isArray(res.failedChecks) ? res.failedChecks : [];
+				enhanceAuditPatch(correlationId, {
+					cleanupResult: 'invalid',
+					reasonCodes: [inv],
+					failedChecks: fc.length ? [...fc] : inv.includes('token') ? ['token-count'] : []
+				});
+				if (enhanceSafeCleanupDebugEnabled()) {
+					// eslint-disable-next-line no-console
+					console.debug('safe_cleanup_invalid_reason', res.invalidReason ?? 'invalid', {
+						failedChecks: res.failedChecks,
+						rejectPhase
+					});
+					// eslint-disable-next-line no-console
+					console.debug('safe_cleanup_preview_invalid', {
+						reason: res.invalidReason ?? 'invalid',
+						failedChecks: res.failedChecks,
+						rejectPhase
+					});
+				}
+				return false;
+			}
+			if (res.cleanedText === draftText) {
+				enhancePipelineDevStage = 'idle';
+				enhanceAuditPatch(correlationId, { cleanupResult: 'no_op', reasonCodes: ['cleanup_no_op_unchanged'] });
+				if (enhanceSafeCleanupDebugEnabled()) {
+					// eslint-disable-next-line no-console
+					console.debug('safe_cleanup_preview_invalid', { reason: 'no_op_unchanged', rejectPhase });
+				}
+				return false;
+			}
+			safeCleanupOffer = {
+				originalText: draftText,
+				cleanedText: res.cleanedText,
+				changesSummary: res.changesSummary
+			};
+			safeCleanupCorrelationId = correlationId;
+			enhanceState = 'safe_cleanup';
+			enhancePipelineDevStage = 'idle';
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('safe_cleanup_rendered', { rejectPhase, correlationId, valid: true });
+			}
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: noteCtx,
+				correlationId,
+				eventType: 'enhance_safe_cleanup_offered',
+				validationMode: 'safe_cleanup',
+				outcome: 'pipeline_started',
+				reasonCodes: [],
+				metadata: { draftCharCount: draftText.length }
+			});
+			enhanceAuditPatch(correlationId, {
+				cleanupResult: 'applied',
+				outputLength: res.cleanedText.length,
+				diffStats: computeEnhanceAuditDiffStats(draftText, res.cleanedText)
+			});
+			return true;
+		} catch (err) {
+			enhancePipelineDevStage = 'idle';
+			enhanceAuditPatch(correlationId, {
+				cleanupResult: 'invalid',
+				reasonCodes: ['cleanup_preview_exception']
+			});
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('safe_cleanup_preview_invalid', { reason: 'exception', rejectPhase, err });
+			}
+			return false;
+		}
 	}
 
 	async function handleEnhance(): Promise<void> {
@@ -1558,8 +2323,44 @@
 			}
 		});
 
+		beginEnhancePipelineAudit({ correlationId, caseId, inputLength: draftText.length });
 		try {
-			const result = await tryEnhancePass(modelId, draftText, false);
+			enhancePipelineDevStage = 'strict';
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('enhance_pipeline_stage', { stage: 'strict', correlationId });
+			}
+
+			let result: Awaited<ReturnType<typeof tryEnhancePass>>;
+			try {
+				result = await tryEnhancePass(modelId, draftText, false);
+			} catch (strictErr: unknown) {
+				if (enhanceSafeCleanupDebugEnabled()) {
+					// eslint-disable-next-line no-console
+					console.debug('strict_pass_threw', { correlationId, strictErr });
+					// eslint-disable-next-line no-console
+					console.debug('STRICT → entering pipeline', { correlationId, entry: 'strict_threw' });
+				}
+				const out = await executeEnhanceSafeFallbackPipeline(
+					modelId,
+					draftText,
+					noteCtx,
+					correlationId,
+					'strict_threw',
+					undefined
+				);
+				if (out === 'proposal_accepted' || out === 'safe_cleanup_offered') return;
+				return;
+			}
+
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('strict_pass_result', {
+					correlationId,
+					ok: result.ok,
+					kind: result.ok ? undefined : result.kind
+				});
+			}
 
 			if (result.ok) {
 				recordEnhanceObservabilityEvent({
@@ -1572,11 +2373,19 @@
 					reasonCodes: [],
 					metadata: { enhanceFallbackUsed: false }
 				});
+				enhanceAuditPatch(correlationId, {
+					strictResult: 'accepted',
+					safeResult: 'skipped',
+					cleanupResult: 'skipped',
+					outputLength: result.assembled.length,
+					diffStats: computeEnhanceAuditDiffStats(draftText, result.assembled)
+				});
 				pendingIntegrityBaseline = draftText;
 				enhanceProposalText = result.assembled;
 				enhanceTruncated = false;
 				enhanceState = 'proposal';
 				pendingEnhanceCorrelationId = correlationId;
+				enhancePipelineDevStage = 'idle';
 				return;
 			}
 
@@ -1584,7 +2393,6 @@
 				if (result.message.includes('stopped before finishing')) enhanceTruncated = true;
 				enhanceIntegrityExplain = null;
 				enhanceError = result.message;
-				enhanceState = 'error';
 				recordEnhanceObservabilityEvent({
 					caseId,
 					noteContext: noteCtx,
@@ -1595,87 +2403,47 @@
 					reasonCodes: [],
 					metadata: { modelTruncated: enhanceTruncated }
 				});
+				enhanceAuditPatch(correlationId, {
+					strictResult: 'error',
+					reasonCodes: enhanceTruncated ? ['model_truncated'] : ['strict_fatal']
+				});
+				if (enhanceSafeCleanupDebugEnabled()) {
+					// eslint-disable-next-line no-console
+					console.debug('enhance_rejected_triggering_cleanup', { phase: 'strict_fatal', correlationId });
+				}
+				enhancePipelineDevStage = 'idle';
+				if (await tryOfferSafeCleanup(draftText, noteCtx, correlationId, 'strict_fatal')) {
+					return;
+				}
+				if (enhanceState !== 'proposal' && enhanceState !== 'safe_cleanup') {
+					enhanceState = 'error';
+				}
 				return;
 			}
 
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_validation_outcome',
-				validationMode: 'strict',
-				outcome: 'rejected',
-				reasonCodes: reasonCodesFromEnhanceReasons(result.reasons),
-				metadata: {}
-			});
-
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_fallback_attempted',
-				validationMode: 'safe',
-				outcome: 'pipeline_started',
-				reasonCodes: [],
-				metadata: {}
-			});
-
-			const safeResult = await tryEnhancePass(modelId, draftText, true);
-
-			if (safeResult.ok) {
-				recordEnhanceObservabilityEvent({
-					caseId,
-					noteContext: noteCtx,
-					correlationId,
-					eventType: 'enhance_validation_outcome',
-					validationMode: 'safe',
-					outcome: 'accepted',
-					reasonCodes: [],
-					metadata: { enhanceFallbackUsed: true }
-				});
-				pendingIntegrityBaseline = draftText;
-				enhanceProposalText = safeResult.assembled;
-				enhanceFallbackUsed = true;
-				enhanceTruncated = false;
-				enhanceState = 'proposal';
-				pendingEnhanceCorrelationId = correlationId;
-				return;
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('STRICT → entering pipeline', { correlationId, entry: 'validation_rejected' });
 			}
-
-			if (safeResult.kind === 'fatal') {
-				if (safeResult.message.includes('stopped before finishing')) enhanceTruncated = true;
-				enhanceIntegrityExplain = null;
-				enhanceError = safeResult.message;
-				recordEnhanceObservabilityEvent({
-					caseId,
-					noteContext: noteCtx,
-					correlationId,
-					eventType: 'enhance_validation_outcome',
-					validationMode: 'safe',
-					outcome: 'fatal',
-					reasonCodes: [],
-					metadata: { modelTruncated: enhanceTruncated }
-				});
-			} else {
-				enhanceIntegrityExplain = buildEnhanceRejectedExplain(safeResult.reasons);
-				enhanceError = '';
-				recordEnhanceObservabilityEvent({
-					caseId,
-					noteContext: noteCtx,
-					correlationId,
-					eventType: 'enhance_validation_outcome',
-					validationMode: 'safe',
-					outcome: 'rejected',
-					reasonCodes: reasonCodesFromEnhanceReasons(safeResult.reasons),
-					metadata: {}
-				});
-			}
-			enhanceState = 'error';
+			const out = await executeEnhanceSafeFallbackPipeline(
+				modelId,
+				draftText,
+				noteCtx,
+				correlationId,
+				'validation_rejected',
+				result.reasons
+			);
+			if (out === 'proposal_accepted' || out === 'safe_cleanup_offered') return;
+			return;
 		} catch (_e: unknown) {
+			enhanceAuditPatch(correlationId, {
+				strictResult: 'error',
+				safeResult: 'skipped',
+				reasonCodes: ['client_enhance_exception']
+			});
 			enhanceIntegrityExplain = null;
 			enhanceError =
 				'Could not generate an enhanced version of this note. Please try again.';
-			enhanceState = 'error';
 			recordEnhanceObservabilityEvent({
 				caseId,
 				noteContext: noteCtx,
@@ -1686,6 +2454,19 @@
 				reasonCodes: ['client_enhance_exception'],
 				metadata: {}
 			});
+			if (enhanceSafeCleanupDebugEnabled()) {
+				// eslint-disable-next-line no-console
+				console.debug('enhance_rejected_triggering_cleanup', { phase: 'client_exception', correlationId });
+			}
+			enhancePipelineDevStage = 'idle';
+			if (await tryOfferSafeCleanup(draftText, noteCtx, correlationId, 'client_exception')) {
+				return;
+			}
+			if (enhanceState !== 'proposal' && enhanceState !== 'safe_cleanup') {
+				enhanceState = 'error';
+			}
+		} finally {
+			finalizeEnhancePipelineAudit();
 		}
 	}
 
@@ -1718,7 +2499,69 @@
 		resetEnhanceState();
 	}
 
+	async function applySafeCleanup(): Promise<void> {
+		if (safeCleanupApplying || !safeCleanupOffer) return;
+		const token = $caseEngineToken;
+		if (!token) {
+			toast.error('Case Engine session required to apply safe cleanup.');
+			return;
+		}
+		safeCleanupApplying = true;
+		try {
+			const noteIdForAudit = mode === 'edit' && selectedNote != null ? selectedNote.id : null;
+			const audit = await auditCaseNotebookSafeSurfaceCleanupApplied(caseId, token, {
+				original_text: safeCleanupOffer.originalText,
+				cleaned_text: safeCleanupOffer.cleanedText,
+				changes_summary: safeCleanupOffer.changesSummary,
+				note_id: noteIdForAudit
+			});
+			if (!audit.success) {
+				toast.error(audit.errorMessage);
+				return;
+			}
+			const cid = safeCleanupCorrelationId || newEnhanceCorrelationId();
+			recordEnhanceObservabilityEvent({
+				caseId,
+				noteContext: enhanceObservabilityNoteContext(),
+				correlationId: cid,
+				eventType: 'enhance_safe_cleanup_applied',
+				validationMode: 'safe_cleanup',
+				outcome: 'applied',
+				reasonCodes: ['enhance.safe_cleanup_used'],
+				metadata: { integrityBaselinePresent: true }
+			});
+			integrityBaselineText = safeCleanupOffer.originalText;
+			if (mode === 'edit') {
+				editText = safeCleanupOffer.cleanedText;
+				editEditorRenderKey += 1;
+			} else if (mode === 'create') {
+				createText = safeCleanupOffer.cleanedText;
+				createEditorRenderKey += 1;
+			}
+			resetEnhanceState();
+		} finally {
+			safeCleanupApplying = false;
+		}
+	}
+
 	function dismissEnhanceProposal(): void {
+		if (enhanceState === 'safe_cleanup') {
+			const cid = safeCleanupCorrelationId;
+			if (cid) {
+				recordEnhanceObservabilityEvent({
+					caseId,
+					noteContext: enhanceObservabilityNoteContext(),
+					correlationId: cid,
+					eventType: 'enhance_dismissed',
+					validationMode: 'safe_cleanup',
+					outcome: 'dismissed',
+					reasonCodes: [],
+					metadata: {}
+				});
+			}
+			resetEnhanceState();
+			return;
+		}
 		const cid = pendingEnhanceCorrelationId;
 		if (cid && enhanceProposalText) {
 			recordEnhanceObservabilityEvent({
@@ -2592,6 +3435,17 @@
 
 	onMount(() => {
 		loadNotes();
+		void (async () => {
+			structuredNotesHealthLoading = true;
+			try {
+				const h = await fetchCaseEngineHealth();
+				structuredNotesServerEnabled = readStructuredNotesServerEnabledFromHealth(h);
+			} catch {
+				structuredNotesServerEnabled = false;
+			} finally {
+				structuredNotesHealthLoading = false;
+			}
+		})();
 	});
 
 	// ── Selection + mode transitions ───────────────────────────────────────────
@@ -2614,6 +3468,7 @@
 			clearAttachmentState();
 			selectedNote = note;
 			mode = 'view';
+			resetP34PrototypePreview();
 			void loadNoteAttachments(note.id);
 		});
 	}
@@ -2631,6 +3486,7 @@
 			editEditorRenderKey = 0;
 			resetVersionHistoryState();
 			resetEnhanceState();
+			resetP34PrototypePreview();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			// Fresh draft session for this create attempt
@@ -2659,6 +3515,7 @@
 			editEditorRenderKey = 0;
 			resetVersionHistoryState();
 			resetEnhanceState();
+			resetP34PrototypePreview();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			// Keep selectedNote for context; create mode remains an unsaved, independent draft.
@@ -2671,6 +3528,7 @@
 		if (!selectedNote) return;
 		showVersionHistory = false;
 		resetEnhanceState();
+		resetP34PrototypePreviewOnly();
 		resetDictationState();
 		resetNoteIntegrityDraftState();
 		editTitle = selectedNote.title ?? '';
@@ -2704,6 +3562,7 @@
 	 */
 	function cancelEdit(): void {
 		guardedContextSwitch(() => {
+			resetStructuredNotesPreview();
 			editTitle = '';
 			editText = '';
 			editExpectedUpdatedAt = '';
@@ -2715,6 +3574,7 @@
 			// P30-20: clear transient workflow state so proposal panel, source
 			// selection, and expansion state do not leak into view mode.
 			resetAttachmentWorkflowState();
+			resetP34PrototypePreview();
 			mode = selectedNote ? 'view' : 'idle';
 		});
 	}
@@ -2722,10 +3582,12 @@
 	/** Cancel create mode. Guarded: prompts if any content has been typed. */
 	function cancelCreate(): void {
 		guardedContextSwitch(() => {
+			resetStructuredNotesPreview();
 			createTitle = '';
 			createText = '';
 			createEditorRenderKey = 0;
 			resetEnhanceState();
+			resetP34PrototypePreview();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			// P30-20: clear transient workflow state on cancel.
@@ -2762,6 +3624,81 @@
 		const text = createText.trim();
 		if (!text) {
 			toast.error('Note text is required');
+			return;
+		}
+		if (structuredNotesEditedCommitPending) {
+			const sp = structuredSourcePreviewPayload();
+			if (!sp || !structuredNotesResult) {
+				toast.error('Structured preview context missing. Run preview again or close the panel.');
+				structuredNotesEditedCommitPending = false;
+				return;
+			}
+			const obsCid = structuredNotesObsCorrelationId || newStructuredNotesCorrelationId();
+			creating = true;
+			saveIntegrityExplain = null;
+			try {
+				const res = await saveStructuredNotesEditedDraft(activeCaseId, $caseEngineToken, {
+					editedText: text,
+					title: createTitle.trim() || null,
+					sourcePreview: sp
+				});
+				if (caseId !== activeCaseId) return;
+				if (!res.success) {
+					recordStructuredNotesObservabilityEvent({
+						correlationId: obsCid,
+						caseId: activeCaseId,
+						eventType: 'structured_notes_edit_save_failed',
+						noteId: null,
+						success: false,
+						requestId: res.requestId ?? null,
+						errorHint: res.errorMessage.slice(0, 120)
+					});
+					toast.error(res.errorMessage);
+					return;
+				}
+				const note = res.data.note;
+				notes = [note, ...notes];
+				createTitle = '';
+				createText = '';
+				createEditorRenderKey = 0;
+				resetDictationState();
+				browserSearch = '';
+				selectedNote = note;
+				mode = 'view';
+				if (draftSessionId && draftAttachments.length > 0) {
+					try {
+						await claimDraftNoteAttachments(activeCaseId, note.id, draftSessionId, $caseEngineToken!);
+					} catch {
+						/* non-fatal */
+					}
+					draftSessionId = '';
+					draftAttachments = [];
+				}
+				void loadNoteAttachments(note.id);
+				resetNoteIntegrityDraftState();
+				resetStructuredNotesPreview();
+				recordStructuredNotesObservabilityEvent({
+					correlationId: obsCid,
+					caseId: activeCaseId,
+					eventType: 'structured_notes_edit_saved',
+					noteId: String(note.id),
+					success: true
+				});
+				toast.success('Note saved (structured edit path — text is your version, not verified fact).');
+			} catch (e: unknown) {
+				if (caseId !== activeCaseId) return;
+				recordStructuredNotesObservabilityEvent({
+					correlationId: obsCid,
+					caseId: activeCaseId,
+					eventType: 'structured_notes_edit_save_failed',
+					noteId: null,
+					success: false,
+					errorHint: 'network_or_exception'
+				});
+				toast.error(e instanceof Error ? e.message : 'Failed to save note');
+			} finally {
+				if (caseId === activeCaseId) creating = false;
+			}
 			return;
 		}
 		creating = true;
@@ -2832,6 +3769,82 @@
 		const text = editText.trim();
 		if (!text) {
 			toast.error('Note text is required');
+			return;
+		}
+		if (structuredNotesEditedCommitPending) {
+			const sp = structuredSourcePreviewPayload();
+			if (!sp || !structuredNotesResult) {
+				toast.error('Structured preview context missing. Run preview again or close the panel.');
+				structuredNotesEditedCommitPending = false;
+				return;
+			}
+			const obsCid = structuredNotesObsCorrelationId || newStructuredNotesCorrelationId();
+			editConflictMessage = '';
+			saveIntegrityExplain = null;
+			saving = true;
+			try {
+				const res = await saveStructuredNotesEditedDraft(activeCaseId, $caseEngineToken, {
+					noteId: selectedNote.id,
+					editedText: text,
+					title: editTitle.trim() || null,
+					expected_updated_at: editExpectedUpdatedAt,
+					sourcePreview: sp
+				});
+				if (caseId !== activeCaseId) return;
+				if (!res.success) {
+					recordStructuredNotesObservabilityEvent({
+						correlationId: obsCid,
+						caseId: activeCaseId,
+						eventType: 'structured_notes_edit_save_failed',
+						noteId: String(selectedNote.id),
+						success: false,
+						requestId: res.requestId ?? null,
+						errorHint: res.errorMessage.slice(0, 120)
+					});
+					if (res.httpStatus === 409) {
+						editConflictMessage =
+							'This note was updated by someone else before your changes were saved. Review the latest version and re-apply your changes if needed.';
+						return;
+					}
+					toast.error(res.errorMessage);
+					return;
+				}
+				const updated = res.data.note;
+				notes = notes.map((n) => (n.id === updated.id ? updated : n));
+				selectedNote = updated;
+				editTitle = '';
+				editText = '';
+				editExpectedUpdatedAt = '';
+				editConflictMessage = '';
+				editEditorRenderKey = 0;
+				resetEnhanceState();
+				resetDictationState();
+				resetNoteIntegrityDraftState();
+				mode = 'view';
+				void loadNoteAttachments(updated.id);
+				resetStructuredNotesPreview();
+				recordStructuredNotesObservabilityEvent({
+					correlationId: obsCid,
+					caseId: activeCaseId,
+					eventType: 'structured_notes_edit_saved',
+					noteId: String(updated.id),
+					success: true
+				});
+				toast.success('Note saved (structured edit path — text is your version, not verified fact).');
+			} catch (e: unknown) {
+				if (caseId !== activeCaseId) return;
+				recordStructuredNotesObservabilityEvent({
+					correlationId: obsCid,
+					caseId: activeCaseId,
+					eventType: 'structured_notes_edit_save_failed',
+					noteId: String(selectedNote.id),
+					success: false,
+					errorHint: 'network_or_exception'
+				});
+				toast.error(e instanceof Error ? e.message : 'Failed to save note');
+			} finally {
+				if (caseId === activeCaseId) saving = false;
+			}
 			return;
 		}
 		editConflictMessage = '';
@@ -3198,6 +4211,15 @@
 				</div>
 				<!-- Editor -->
 				<div class="flex-1 overflow-y-auto">
+					{#if structuredNotesEditedCommitPending}
+						<div
+							class="mx-5 mt-2 mb-1 rounded-md border border-teal-200 bg-teal-50/90 px-3 py-2 text-xs text-teal-950 dark:border-teal-800 dark:bg-teal-950/35 dark:text-teal-100"
+							data-testid="case-note-structured-edit-banner-create"
+						>
+							You are editing the structured draft in the editor — use <span class="font-semibold">Save note</span> when
+							ready.
+						</div>
+					{/if}
 					{#key createEditorRenderKey}
 						<CaseNoteEditor
 							content={createText}
@@ -3207,10 +4229,149 @@
 					/>
 				{/key}
 			</div>
+			{#if p34PrototypeResult}
+				<div
+					class="shrink-0 mx-5 mt-2 mb-1 rounded border border-dashed border-violet-300/80 dark:border-violet-700/60 bg-violet-50/80 dark:bg-violet-950/25 px-3 py-2 text-xs"
+					data-testid="case-note-p34-prototype-panel"
+				>
+					<p class="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200 mb-2">
+						— P34 prototype draft —
+					</p>
+					<p class="text-[10px] text-violet-700/90 dark:text-violet-300/90 mb-1.5 font-mono">
+						Statements: {p34PrototypeResult.meta.statementCount} | Uncertain: {p34PrototypeResult.meta.uncertainCount}
+					</p>
+					<textarea
+						readonly
+						class="w-full rounded border border-violet-200 dark:border-violet-800 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 min-h-[6rem] max-h-[20rem] overflow-y-auto resize-y font-sans"
+						data-testid="case-note-p34-prototype-draft"
+					>{p34PrototypeResult.draft}</textarea>
+					<p class="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200 mt-3 mb-1">
+						— statements —
+					</p>
+					<ul class="list-disc pl-4 text-[11px] text-gray-700 dark:text-gray-300 space-y-0.5 max-h-40 overflow-y-auto">
+						{#each p34PrototypeResult.statements as s}
+							<li><b>{s.source}</b> | {s.certainty} — {s.text}</li>
+						{/each}
+					</ul>
+				</div>
+			{/if}
+			{#if structuredNotesUiOffered && structuredNotesVisible && (structuredNotesLoading || structuredNotesError !== '' || structuredNotesResult != null)}
+				<CaseStructuredNotesReviewPanel
+					originalNoteText={structuredNotesPreviewSourceText}
+					loading={structuredNotesLoading}
+					errorMessage={structuredNotesError}
+					data={structuredNotesResult}
+					testIdPrefix="case-note-structured-create"
+					onClosePanel={resetStructuredNotesPreview}
+					canCommitDraft={structuredNotesCanCommitDraft}
+					editedCommitPending={structuredNotesEditedCommitPending}
+					actionBusy={structuredNotesActionBusy}
+					onAcceptDraft={handleStructuredAcceptDraft}
+					onEditDraft={handleStructuredEditDraft}
+					onRejectPreview={handleStructuredRejectPreview}
+					onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+				/>
+			{/if}
 			{#if enhanceState !== 'idle'}
 				<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
 					{#if enhanceState === 'loading'}
 						<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
+						{#if enhanceSafeCleanupDebugEnabled() && enhancePipelineDevStage !== 'idle'}
+							<div
+								class="px-3 pb-2 text-[10px] font-mono text-amber-700 dark:text-amber-300/95"
+								data-testid="case-note-enhance-pipeline-dev"
+							>
+								pipeline: {enhancePipelineDevStage}
+							</div>
+						{/if}
+					{:else if enhanceState === 'safe_cleanup'}
+						<!-- P32-02: safe_cleanup before error/proposal so sky panel always wins when state is set -->
+						<div
+							class="px-3 py-2 space-y-1.5 border-b border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/35"
+							data-testid="case-note-safe-cleanup-banner"
+						>
+							<p class="text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
+								Surface cleanup (deterministic)
+							</p>
+							<p class="text-[11px] text-sky-950 dark:text-sky-100/95 leading-snug">
+								Spelling, spacing, and punctuation only — <span class="font-semibold">no AI rewrite</span>. Full enhance
+								(and any safe AI pass) did not produce an accepted suggestion; you can apply these fixed strings or retry.
+							</p>
+						</div>
+						{#if enhanceIntegrityExplain}
+							<div class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2" data-testid="case-note-safe-cleanup-prior-error">
+								<p class="font-semibold text-xs">{enhanceIntegrityExplain.heading}</p>
+								<ul class="list-disc pl-4 text-[11px] leading-snug space-y-1">
+									{#each enhanceIntegrityExplain.bullets as line}
+										<li>{line}</li>
+									{/each}
+								</ul>
+							</div>
+						{:else if enhanceError}
+							<div class="px-3 py-2 text-sm text-red-700 dark:text-red-300">{enhanceError}</div>
+						{/if}
+						{#if safeCleanupOffer}
+							{#if safeCleanupOffer.changesSummary.length > 0}
+								<div class="px-3 pt-2">
+									<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Changes</p>
+									<ul class="list-disc pl-4 mt-1 text-[11px] text-gray-700 dark:text-gray-300 space-y-0.5">
+										{#each safeCleanupOffer.changesSummary as line}
+											<li>{line}</li>
+										{/each}
+									</ul>
+								</div>
+							{/if}
+							<div class="px-3 py-2">
+								<textarea
+									readonly
+									class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 min-h-[8rem] max-h-[24rem] overflow-y-auto resize-y"
+									data-testid="case-note-safe-cleanup-preview"
+								>{safeCleanupOffer.cleanedText}</textarea>
+							</div>
+							<div class="flex flex-wrap items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+								<button
+									type="button"
+									class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition disabled:opacity-50"
+									on:click={applySafeCleanup}
+									disabled={safeCleanupApplying}
+									data-testid="case-note-safe-cleanup-apply"
+								>
+									{safeCleanupApplying ? 'Applying…' : 'Apply Safe Cleanup'}
+								</button>
+								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-safe-cleanup-dismiss">Dismiss</button>
+								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-auto" on:click={handleEnhance}>Retry full enhance</button>
+							</div>
+						{/if}
+					{:else if enhanceState === 'proposal'}
+						<div class="border-b border-gray-200 px-3 py-2 dark:border-gray-700">
+							<div class="font-medium text-gray-700 dark:text-gray-200">Enhanced version (suggestion only)</div>
+							{#if enhanceFallbackUsed}
+								<p class="text-[10px] mt-1 text-amber-900 dark:text-amber-200/90 leading-snug">
+									<span class="font-semibold">Safe AI rewrite</span> — standard enhance failed checks first; this is still a
+									<span class="font-semibold">full AI suggestion</span>, not deterministic spell-check.
+								</p>
+								<div class="mt-2 px-2 py-1.5 rounded text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+									Full enhancement was restricted. Showing safe improvement instead.
+								</div>
+							{:else}
+								<p class="text-[10px] mt-1 text-gray-500 dark:text-gray-400 leading-snug">
+									<span class="font-semibold">Standard enhance</span> — full AI rewrite accepted on the first pass.
+								</p>
+							{/if}
+						</div>
+						<div class="px-3 py-2">
+							<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
+							     so long multi-paragraph proposals are fully visible and scrollable. -->
+							<textarea
+								bind:value={enhanceProposalText}
+								class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
+								data-testid="case-note-enhance-proposal-editor"
+							></textarea>
+						</div>
+						<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+							<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
+							<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
+						</div>
 					{:else if enhanceState === 'error'}
 						<div
 							class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2"
@@ -3240,29 +4401,6 @@
 								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
 							{/if}
 							<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
-						</div>
-					{:else if enhanceState === 'proposal'}
-						<div class="border-b border-gray-200 px-3 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
-							Enhanced version (suggestion only)
-						</div>
-						<!-- P30-31: fallback notice when safe mode was used -->
-						{#if enhanceFallbackUsed}
-							<div class="px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800">
-								Full enhancement was restricted. Showing safe improvement instead.
-							</div>
-						{/if}
-						<div class="px-3 py-2">
-							<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
-							     so long multi-paragraph proposals are fully visible and scrollable. -->
-							<textarea
-								bind:value={enhanceProposalText}
-								class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
-								data-testid="case-note-enhance-proposal-editor"
-							></textarea>
-						</div>
-						<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-							<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
-							<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
 						</div>
 					{/if}
 				</div>
@@ -3388,10 +4526,7 @@
 									class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
 									title={isOcrEligible(att)
 										? 'Run OCR to extract text from this image for use in a note draft or proposal'
-										: isExtractionEligible(att)
-											? 'Extract text from this file for use in a note draft or proposal'
-											: 'This file type is not supported for text extraction'}
-									disabled={!isOcrEligible(att) && !isExtractionEligible(att)}
+										: 'Extract text for .txt, .md, .docx, and PDF; other types are recorded as unsupported with a short notice'}
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'extracted'}
@@ -3424,6 +4559,9 @@
 							{:else if extraction?.status === 'no_text_found'}
 								<!-- PDF or text file with no machine-readable text -->
 								<span class="text-[11px] text-gray-500 dark:text-gray-400 italic">No machine-readable text found.</span>
+								{#if extraction?.extraction_warnings}
+									<span class="block mt-0.5 text-[10px] text-amber-700 dark:text-amber-300 whitespace-pre-wrap max-w-full">{extraction.extraction_warnings}</span>
+								{/if}
 								{#if !ocrEligible}
 									<span class="text-[10px] text-gray-400 dark:text-gray-500">PDF OCR is not supported yet.</span>
 								{/if}
@@ -3460,6 +4598,9 @@
 										<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
 										<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
 									</div>
+									{#if extraction.extraction_warnings}
+										<p class="mb-1 text-[10px] text-amber-700 dark:text-amber-300 whitespace-pre-wrap leading-snug">Parser notes: {extraction.extraction_warnings}</p>
+									{/if}
 									<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
 									<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">Derived text — not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
 								</div>
@@ -3532,19 +4673,43 @@
 				>
 					Cancel
 				</button>
-			<!-- P30-25: professional AI affordance — gray base, purple accent, faint diagonal sheen -->
+			<div class="inline-flex items-center gap-1.5 shrink-0">
+				<!-- P30-25: professional AI affordance — gray base, purple accent, faint diagonal sheen -->
+				<button
+					type="button"
+					disabled={enhanceState === 'loading'}
+					class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium border-gray-300 dark:border-gray-700 text-purple-700 dark:text-purple-300 bg-white/60 dark:bg-gray-800/60 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition"
+					on:click={handleEnhance}
+					data-testid="case-note-enhance-action"
+					title="Enhance note"
+					aria-label={enhanceState === 'loading' ? 'Enhancing note…' : 'Enhance note'}
+				>
+					<Sparkles className="size-4 shrink-0" strokeWidth="2" />
+					<span>{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}</span>
+					<span class="enhance-shimmer" aria-hidden="true"></span>
+				</button>
+				{#if structuredNotesUiOffered}
+					<button
+						type="button"
+						disabled={structuredNotesLoading || structuredNotesActionBusy}
+						class="h-8 px-2.5 rounded-md border text-xs font-medium border-teal-300 dark:border-teal-700 text-teal-800 dark:text-teal-200 bg-white/60 dark:bg-gray-800/60 hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+						on:click={() => void runStructuredNotesPreview()}
+						title="Generate a structured draft from your note (separate from Enhance)."
+						data-testid="case-note-structured-preview-action"
+					>
+						{structuredNotesLoading ? 'Generating…' : '👉 Generate Structured Draft'}
+					</button>
+				{/if}
+			</div>
 			<button
 				type="button"
-				disabled={enhanceState === 'loading'}
-				class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium border-gray-300 dark:border-gray-700 text-purple-700 dark:text-purple-300 bg-white/60 dark:bg-gray-800/60 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition"
-				on:click={handleEnhance}
-				data-testid="case-note-enhance-action"
-				title="Enhance note"
-				aria-label={enhanceState === 'loading' ? 'Enhancing note…' : 'Enhance note'}
+				disabled={p34PrototypeLoading}
+				class="h-8 px-2.5 rounded-md border text-xs font-medium border-violet-300 dark:border-violet-700 text-violet-800 dark:text-violet-200 bg-white/60 dark:bg-gray-800/60 hover:bg-violet-50 dark:hover:bg-violet-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+				on:click={() => void runP34Prototype()}
+				title="P34 structured preview (dev prototype, no save)"
+				data-testid="case-note-p34-prototype-action"
 			>
-				<Sparkles className="size-4 shrink-0" strokeWidth="2" />
-				<span>{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}</span>
-				<span class="enhance-shimmer" aria-hidden="true"></span>
+				{p34PrototypeLoading ? 'P34…' : 'P34 Prototype'}
 			</button>
 			<!-- P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
 			<label
@@ -3662,6 +4827,18 @@
 						>
 							Edit
 						</button>
+						{#if structuredNotesUiOffered}
+							<button
+								type="button"
+								disabled={structuredNotesLoading || structuredNotesActionBusy}
+								class="text-xs px-2.5 py-1 rounded-md border border-teal-300 dark:border-teal-700 text-teal-800 dark:text-teal-200 bg-white/70 dark:bg-gray-800/70 hover:bg-teal-50 dark:hover:bg-teal-900/25 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
+								on:click={() => void runStructuredNotesPreview()}
+								title="Generate a structured draft from your note (separate from Enhance)."
+								data-testid="case-note-structured-preview-action-view"
+							>
+								{structuredNotesLoading ? 'Generating…' : '👉 Generate Structured Draft'}
+							</button>
+						{/if}
 
 						<!-- Kebab menu: secondary actions -->
 						<DropdownMenu.Root
@@ -3825,6 +5002,23 @@
 					<div class="flex-1 overflow-y-auto">
 						<CaseNoteEditor content={selectedNote.current_text} showHeader={false} />
 					</div>
+					{#if structuredNotesUiOffered && structuredNotesVisible && (structuredNotesLoading || structuredNotesError !== '' || structuredNotesResult != null)}
+						<CaseStructuredNotesReviewPanel
+							originalNoteText={structuredNotesPreviewSourceText}
+							loading={structuredNotesLoading}
+							errorMessage={structuredNotesError}
+							data={structuredNotesResult}
+							testIdPrefix="case-note-structured-view"
+							onClosePanel={resetStructuredNotesPreview}
+							canCommitDraft={structuredNotesCanCommitDraft}
+							editedCommitPending={structuredNotesEditedCommitPending}
+							actionBusy={structuredNotesActionBusy}
+							onAcceptDraft={handleStructuredAcceptDraft}
+							onEditDraft={handleStructuredEditDraft}
+							onRejectPreview={handleStructuredRejectPreview}
+							onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+						/>
+					{/if}
 
 			<!-- Attachments panel (view mode, P30-02 + P30-03) -->
 			<!-- P30-20 hardening: "Add file" removed from view mode — available in edit mode only. -->
@@ -3928,6 +5122,15 @@
 					{/if}
 					<!-- Editable editor -->
 					<div class="flex-1 overflow-y-auto">
+						{#if structuredNotesEditedCommitPending}
+							<div
+								class="mx-5 mt-2 mb-1 rounded-md border border-teal-200 bg-teal-50/90 px-3 py-2 text-xs text-teal-950 dark:border-teal-800 dark:bg-teal-950/35 dark:text-teal-100"
+								data-testid="case-note-structured-edit-banner-edit"
+							>
+								You are editing the structured draft in the editor — use <span class="font-semibold">Save</span> when
+								ready.
+							</div>
+						{/if}
 						{#key editEditorRenderKey}
 							<CaseNoteEditor
 								content={editText}
@@ -3937,10 +5140,149 @@
 						/>
 					{/key}
 				</div>
+				{#if p34PrototypeResult}
+					<div
+						class="shrink-0 mx-5 mt-2 mb-1 rounded border border-dashed border-violet-300/80 dark:border-violet-700/60 bg-violet-50/80 dark:bg-violet-950/25 px-3 py-2 text-xs"
+						data-testid="case-note-p34-prototype-panel-edit"
+					>
+						<p class="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200 mb-2">
+							— P34 prototype draft —
+						</p>
+						<p class="text-[10px] text-violet-700/90 dark:text-violet-300/90 mb-1.5 font-mono">
+							Statements: {p34PrototypeResult.meta.statementCount} | Uncertain: {p34PrototypeResult.meta.uncertainCount}
+						</p>
+						<textarea
+							readonly
+							class="w-full rounded border border-violet-200 dark:border-violet-800 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 min-h-[6rem] max-h-[20rem] overflow-y-auto resize-y font-sans"
+							data-testid="case-note-p34-prototype-draft-edit"
+						>{p34PrototypeResult.draft}</textarea>
+						<p class="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200 mt-3 mb-1">
+							— statements —
+						</p>
+						<ul class="list-disc pl-4 text-[11px] text-gray-700 dark:text-gray-300 space-y-0.5 max-h-40 overflow-y-auto">
+							{#each p34PrototypeResult.statements as s}
+								<li><b>{s.source}</b> | {s.certainty} — {s.text}</li>
+							{/each}
+						</ul>
+					</div>
+				{/if}
+				{#if structuredNotesUiOffered && structuredNotesVisible && (structuredNotesLoading || structuredNotesError !== '' || structuredNotesResult != null)}
+					<CaseStructuredNotesReviewPanel
+						originalNoteText={structuredNotesPreviewSourceText}
+						loading={structuredNotesLoading}
+						errorMessage={structuredNotesError}
+						data={structuredNotesResult}
+						testIdPrefix="case-note-structured-edit"
+						onClosePanel={resetStructuredNotesPreview}
+						canCommitDraft={structuredNotesCanCommitDraft}
+						editedCommitPending={structuredNotesEditedCommitPending}
+						actionBusy={structuredNotesActionBusy}
+						onAcceptDraft={handleStructuredAcceptDraft}
+						onEditDraft={handleStructuredEditDraft}
+						onRejectPreview={handleStructuredRejectPreview}
+						onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+					/>
+				{/if}
 				{#if enhanceState !== 'idle'}
 					<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
 						{#if enhanceState === 'loading'}
 							<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
+							{#if enhanceSafeCleanupDebugEnabled() && enhancePipelineDevStage !== 'idle'}
+								<div
+									class="px-3 pb-2 text-[10px] font-mono text-amber-700 dark:text-amber-300/95"
+									data-testid="case-note-enhance-pipeline-dev"
+								>
+									pipeline: {enhancePipelineDevStage}
+								</div>
+							{/if}
+						{:else if enhanceState === 'safe_cleanup'}
+							<!-- P32-02: safe_cleanup before error/proposal -->
+							<div
+								class="px-3 py-2 space-y-1.5 border-b border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/35"
+								data-testid="case-note-safe-cleanup-banner"
+							>
+								<p class="text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
+									Surface cleanup (deterministic)
+								</p>
+								<p class="text-[11px] text-sky-950 dark:text-sky-100/95 leading-snug">
+									Spelling, spacing, and punctuation only — <span class="font-semibold">no AI rewrite</span>. Full enhance
+									(and any safe AI pass) did not produce an accepted suggestion; you can apply these fixed strings or retry.
+								</p>
+							</div>
+							{#if enhanceIntegrityExplain}
+								<div class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2" data-testid="case-note-safe-cleanup-prior-error">
+									<p class="font-semibold text-xs">{enhanceIntegrityExplain.heading}</p>
+									<ul class="list-disc pl-4 text-[11px] leading-snug space-y-1">
+										{#each enhanceIntegrityExplain.bullets as line}
+											<li>{line}</li>
+										{/each}
+									</ul>
+								</div>
+							{:else if enhanceError}
+								<div class="px-3 py-2 text-sm text-red-700 dark:text-red-300">{enhanceError}</div>
+							{/if}
+							{#if safeCleanupOffer}
+								{#if safeCleanupOffer.changesSummary.length > 0}
+									<div class="px-3 pt-2">
+										<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Changes</p>
+										<ul class="list-disc pl-4 mt-1 text-[11px] text-gray-700 dark:text-gray-300 space-y-0.5">
+											{#each safeCleanupOffer.changesSummary as line}
+												<li>{line}</li>
+											{/each}
+										</ul>
+									</div>
+								{/if}
+								<div class="px-3 py-2">
+									<textarea
+										readonly
+										class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 min-h-[8rem] max-h-[24rem] overflow-y-auto resize-y"
+										data-testid="case-note-safe-cleanup-preview"
+									>{safeCleanupOffer.cleanedText}</textarea>
+								</div>
+								<div class="flex flex-wrap items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+									<button
+										type="button"
+										class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition disabled:opacity-50"
+										on:click={applySafeCleanup}
+										disabled={safeCleanupApplying}
+										data-testid="case-note-safe-cleanup-apply"
+									>
+										{safeCleanupApplying ? 'Applying…' : 'Apply Safe Cleanup'}
+									</button>
+									<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-safe-cleanup-dismiss">Dismiss</button>
+									<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-auto" on:click={handleEnhance}>Retry full enhance</button>
+								</div>
+							{/if}
+						{:else if enhanceState === 'proposal'}
+							<div class="border-b border-gray-200 px-3 py-2 dark:border-gray-700">
+								<div class="font-medium text-gray-700 dark:text-gray-200">Enhanced version (suggestion only)</div>
+								{#if enhanceFallbackUsed}
+									<p class="text-[10px] mt-1 text-amber-900 dark:text-amber-200/90 leading-snug">
+										<span class="font-semibold">Safe AI rewrite</span> — standard enhance failed checks first; this is still a
+										<span class="font-semibold">full AI suggestion</span>, not deterministic spell-check.
+									</p>
+									<div class="mt-2 px-2 py-1.5 rounded text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
+										Full enhancement was restricted. Showing safe improvement instead.
+									</div>
+								{:else}
+									<p class="text-[10px] mt-1 text-gray-500 dark:text-gray-400 leading-snug">
+										<span class="font-semibold">Standard enhance</span> — full AI rewrite accepted on the first pass.
+									</p>
+								{/if}
+							</div>
+							<div class="px-3 py-2">
+								<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
+								     so long multi-paragraph proposals are fully visible and scrollable. -->
+								<textarea
+									bind:value={enhanceProposalText}
+									class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
+									data-testid="case-note-enhance-proposal-editor"
+								></textarea>
+							</div>
+							<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
+								<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
+								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
+							</div>
 						{:else if enhanceState === 'error'}
 							<div
 								class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2"
@@ -3970,29 +5312,6 @@
 									<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
 								{/if}
 								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
-							</div>
-						{:else if enhanceState === 'proposal'}
-							<div class="border-b border-gray-200 px-3 py-2 font-medium text-gray-700 dark:border-gray-700 dark:text-gray-200">
-								Enhanced version (suggestion only)
-							</div>
-							<!-- P30-31: fallback notice when safe mode was used -->
-							{#if enhanceFallbackUsed}
-								<div class="px-3 py-1.5 text-[11px] text-amber-700 dark:text-amber-400 bg-amber-50 dark:bg-amber-950/30 border-b border-amber-200 dark:border-amber-800">
-									Full enhancement was restricted. Showing safe improvement instead.
-								</div>
-							{/if}
-							<div class="px-3 py-2">
-								<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
-								     so long multi-paragraph proposals are fully visible and scrollable. -->
-								<textarea
-									bind:value={enhanceProposalText}
-									class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
-									data-testid="case-note-enhance-proposal-editor"
-								></textarea>
-							</div>
-							<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-								<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
-								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
 							</div>
 						{/if}
 					</div>
@@ -4126,10 +5445,7 @@
 									class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
 									title={isOcrEligible(att)
 										? 'Run OCR to extract text from this image'
-										: isExtractionEligible(att)
-											? 'Extract text from this file'
-											: 'This file type is not supported for text extraction'}
-									disabled={!isOcrEligible(att) && !isExtractionEligible(att)}
+										: 'Extract text for .txt, .md, .docx, and PDF; other types are recorded as unsupported with a short notice'}
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'extracted'}
@@ -4159,6 +5475,9 @@
 								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
 							{:else if extraction?.status === 'no_text_found'}
 								<span class="text-[11px] text-gray-500 dark:text-gray-400 italic">No machine-readable text found.</span>
+								{#if extraction?.extraction_warnings}
+									<span class="block mt-0.5 text-[10px] text-amber-700 dark:text-amber-300 whitespace-pre-wrap max-w-full">{extraction.extraction_warnings}</span>
+								{/if}
 								{#if !ocrEligible}
 									<span class="text-[10px] text-gray-400 dark:text-gray-500">PDF OCR is not supported yet.</span>
 								{/if}
@@ -4191,6 +5510,9 @@
 									<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
 									<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
 								</div>
+								{#if extraction.extraction_warnings}
+									<p class="mb-1 text-[10px] text-amber-700 dark:text-amber-300 whitespace-pre-wrap leading-snug">Parser notes: {extraction.extraction_warnings}</p>
+								{/if}
 								<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
 								<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">Derived text — not the note body. Insert into draft or generate a proposal below, then Save to commit the revision.</p>
 							</div>
@@ -4239,19 +5561,43 @@
 						>
 							Cancel
 						</button>
-				<!-- P30-25: professional AI affordance — gray base, purple accent, faint diagonal sheen -->
+				<div class="inline-flex items-center gap-1.5 shrink-0">
+					<!-- P30-25: professional AI affordance — gray base, purple accent, faint diagonal sheen -->
+					<button
+						type="button"
+						disabled={enhanceState === 'loading'}
+						class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium border-gray-300 dark:border-gray-700 text-purple-700 dark:text-purple-300 bg-white/60 dark:bg-gray-800/60 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition"
+						on:click={handleEnhance}
+						data-testid="case-note-enhance-action"
+						title="Enhance note"
+						aria-label={enhanceState === 'loading' ? 'Enhancing note…' : 'Enhance note'}
+					>
+						<Sparkles className="size-4 shrink-0" strokeWidth="2" />
+						<span>{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}</span>
+						<span class="enhance-shimmer" aria-hidden="true"></span>
+					</button>
+					{#if structuredNotesUiOffered}
+						<button
+							type="button"
+							disabled={structuredNotesLoading || structuredNotesActionBusy}
+							class="h-8 px-2.5 rounded-md border text-xs font-medium border-teal-300 dark:border-teal-700 text-teal-800 dark:text-teal-200 bg-white/60 dark:bg-gray-800/60 hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+							on:click={() => void runStructuredNotesPreview()}
+							title="Generate a structured draft from your note (separate from Enhance)."
+							data-testid="case-note-structured-preview-action-edit"
+						>
+							{structuredNotesLoading ? 'Generating…' : '👉 Generate Structured Draft'}
+						</button>
+					{/if}
+				</div>
 				<button
 					type="button"
-					disabled={enhanceState === 'loading'}
-					class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium border-gray-300 dark:border-gray-700 text-purple-700 dark:text-purple-300 bg-white/60 dark:bg-gray-800/60 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition"
-					on:click={handleEnhance}
-					data-testid="case-note-enhance-action"
-					title="Enhance note"
-					aria-label={enhanceState === 'loading' ? 'Enhancing note…' : 'Enhance note'}
+					disabled={p34PrototypeLoading}
+					class="h-8 px-2.5 rounded-md border text-xs font-medium border-violet-300 dark:border-violet-700 text-violet-800 dark:text-violet-200 bg-white/60 dark:bg-gray-800/60 hover:bg-violet-50 dark:hover:bg-violet-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
+					on:click={() => void runP34Prototype()}
+					title="P34 structured preview (dev prototype, no save)"
+					data-testid="case-note-p34-prototype-action-edit"
 				>
-					<Sparkles className="size-4 shrink-0" strokeWidth="2" />
-					<span>{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}</span>
-					<span class="enhance-shimmer" aria-hidden="true"></span>
+					{p34PrototypeLoading ? 'P34…' : 'P34 Prototype'}
 				</button>
 				<!-- P30-23/P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
 					<label
@@ -4354,46 +5700,180 @@
 
 {#if import.meta.env.DEV}
 	<div
-		class="fixed bottom-2 right-2 z-50 max-w-md text-[10px]"
-		data-testid="enhance-observability-panel"
+		class="fixed bottom-2 right-2 z-50 flex max-w-md flex-col items-end gap-1 text-[10px]"
+		data-testid="enhance-dev-panels"
 	>
-		<button
-			type="button"
-			class="rounded bg-gray-800 text-white px-2 py-1 opacity-70 hover:opacity-100"
-			on:click={() => (showEnhanceObservabilityPanel = !showEnhanceObservabilityPanel)}
-		>
-			Enhance trace (dev)
-		</button>
-		{#if showEnhanceObservabilityPanel}
-			<div
-				class="mt-1 max-h-56 overflow-y-auto rounded border border-gray-600 bg-gray-900/95 p-2 text-gray-100 font-mono shadow-lg"
-				data-testid="enhance-observability-panel-body"
+		<div class="flex flex-col items-end gap-1">
+			<button
+				type="button"
+				class="rounded bg-gray-800 text-white px-2 py-1 opacity-70 hover:opacity-100"
+				data-testid="enhance-pipeline-audit-toggle"
+				on:click={() => (showEnhancePipelineAuditPanel = !showEnhancePipelineAuditPanel)}
 			>
-				<div class="flex justify-between gap-2 mb-1 text-gray-400">
-					<span data-testid="enhance-observability-count">{enhanceObsDevPanelEvents.length} events</span>
-					<button
-						type="button"
-						class="text-blue-400 hover:underline"
-						data-testid="enhance-observability-clear"
-						on:click={() => clearEnhanceObservabilityEvents()}
-					>
-						Clear
-					</button>
-				</div>
-				{#each enhanceObsDevPanelEvents as ev, i (String(ev.timestamp) + ev.eventType + ev.correlationId + i)}
-					<div class="border-b border-gray-700 py-1 last:border-0" data-testid="enhance-observability-row">
-						<div class="text-gray-300">
-							{ev.eventType} · {ev.outcome}{#if ev.validationMode} · {ev.validationMode}{/if}
-						</div>
-						{#if ev.reasonCodes.length}
-							<div class="text-amber-300/90">codes: {ev.reasonCodes.join(', ')}</div>
-						{/if}
-						{#if ev.requestId}
-							<div class="text-gray-500">req: {ev.requestId}</div>
-						{/if}
+				Enhance Audit (dev)
+			</button>
+			{#if showEnhancePipelineAuditPanel}
+				<div
+					class="max-h-48 w-full max-w-md overflow-y-auto rounded border border-violet-700/80 bg-gray-900/95 p-2 font-mono text-gray-100 shadow-lg"
+					data-testid="enhance-pipeline-audit-body"
+				>
+					<div class="mb-1 flex justify-between gap-2 text-gray-400">
+						<span>Pipeline outcomes (no note text)</span>
+						<button
+							type="button"
+							class="text-violet-300 hover:underline"
+							data-testid="enhance-pipeline-audit-clear"
+							on:click={() => clearEnhancePipelineAuditHistory()}
+						>
+							Clear
+						</button>
 					</div>
-				{/each}
-			</div>
+					{#if enhanceAuditLastView}
+						<div class="border-b border-gray-700 pb-2 text-gray-200" data-testid="enhance-pipeline-audit-last">
+							<div>strict: {enhanceAuditLastView.strictResult}</div>
+							<div>safe: {enhanceAuditLastView.safeResult}</div>
+							<div>cleanup: {enhanceAuditLastView.cleanupResult}</div>
+							<div class="text-gray-400">
+								in {enhanceAuditLastView.inputLength} · out {enhanceAuditLastView.outputLength ?? '—'}
+							</div>
+							{#if enhanceAuditLastView.reasonCodes.length}
+								<div class="text-amber-300/90">
+									reasons: {enhanceAuditLastView.reasonCodes.join(', ')}
+								</div>
+							{/if}
+							{#if enhanceAuditLastView.failedChecks.length}
+								<div class="text-orange-300/90">
+									failedChecks: {enhanceAuditLastView.failedChecks.join(', ')}
+								</div>
+							{/if}
+							{#if enhanceAuditLastView.diffStats}
+								<div class="text-gray-400">
+									diff: Δwords {enhanceAuditLastView.diffStats.wordDelta} · Δsent{' '}
+									{enhanceAuditLastView.diffStats.sentenceDelta} · +tok{' '}
+									{enhanceAuditLastView.diffStats.addedTokens} · −tok{' '}
+									{enhanceAuditLastView.diffStats.removedTokens} · pctLen{' '}
+									{enhanceAuditLastView.diffStats.pctChange}%
+								</div>
+							{/if}
+						</div>
+					{:else}
+						<div class="text-gray-500">No enhance runs recorded this session.</div>
+					{/if}
+					{#if enhanceAuditHistView.length > 1}
+						<div class="mt-2 text-gray-500">Recent</div>
+						{#each enhanceAuditHistView.slice(1) as run (run.correlationId + run.timestamp)}
+							<div class="border-b border-gray-800 py-0.5 text-[9px] text-gray-400">
+								{run.strictResult}/{run.safeResult}/{run.cleanupResult}
+								{#if run.reasonCodes.length}
+									· {run.reasonCodes.slice(0, 3).join(',')}{run.reasonCodes.length > 3 ? '…' : ''}
+								{/if}
+							</div>
+						{/each}
+					{/if}
+				</div>
+			{/if}
+		</div>
+		<div
+			class="flex flex-col items-end gap-1"
+			data-testid="enhance-observability-panel"
+		>
+			<button
+				type="button"
+				class="rounded bg-gray-800 text-white px-2 py-1 opacity-70 hover:opacity-100"
+				on:click={() => (showEnhanceObservabilityPanel = !showEnhanceObservabilityPanel)}
+			>
+				Enhance trace (dev)
+			</button>
+			{#if showEnhanceObservabilityPanel}
+				<div
+					class="mt-1 max-h-56 overflow-y-auto rounded border border-gray-600 bg-gray-900/95 p-2 text-gray-100 font-mono shadow-lg"
+					data-testid="enhance-observability-panel-body"
+				>
+					<div class="flex justify-between gap-2 mb-1 text-gray-400">
+						<span data-testid="enhance-observability-count">{enhanceObsDevPanelEvents.length} events</span>
+						<button
+							type="button"
+							class="text-blue-400 hover:underline"
+							data-testid="enhance-observability-clear"
+							on:click={() => clearEnhanceObservabilityEvents()}
+						>
+							Clear
+						</button>
+					</div>
+					{#each enhanceObsDevPanelEvents as ev, i (String(ev.timestamp) + ev.eventType + ev.correlationId + i)}
+						<div class="border-b border-gray-700 py-1 last:border-0" data-testid="enhance-observability-row">
+							<div class="text-gray-300">
+								{ev.eventType} · {ev.outcome}{#if ev.validationMode} · {ev.validationMode}{/if}
+							</div>
+							{#if ev.reasonCodes.length}
+								<div class="text-amber-300/90">codes: {ev.reasonCodes.join(', ')}</div>
+							{/if}
+							{#if ev.requestId}
+								<div class="text-gray-500">req: {ev.requestId}</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
+		{#if structuredNotesUiOffered}
+		<div
+			class="flex flex-col items-end gap-1"
+			data-testid="structured-notes-observability-panel"
+		>
+			<button
+				type="button"
+				class="rounded bg-gray-800 text-white px-2 py-1 opacity-70 hover:opacity-100"
+				on:click={() => (showStructuredNotesObsPanel = !showStructuredNotesObsPanel)}
+			>
+				Structured draft trace (dev)
+			</button>
+			{#if showStructuredNotesObsPanel}
+				<div
+					class="mt-1 max-h-56 overflow-y-auto rounded border border-teal-800/80 bg-gray-900/95 p-2 text-gray-100 font-mono shadow-lg"
+					data-testid="structured-notes-observability-panel-body"
+				>
+					<div class="flex justify-between gap-2 mb-1 text-gray-400">
+						<span data-testid="structured-notes-observability-count"
+							>{structuredNotesObsDevPanelEvents.length} events</span
+						>
+						<button
+							type="button"
+							class="text-teal-300 hover:underline"
+							data-testid="structured-notes-observability-clear"
+							on:click={() => clearStructuredNotesObservabilityEvents()}
+						>
+							Clear
+						</button>
+					</div>
+					{#each structuredNotesObsDevPanelEvents as ev, i (String(ev.timestamp) + ev.eventType + ev.correlationId + i)}
+						<div class="border-b border-gray-700 py-1 last:border-0" data-testid="structured-notes-observability-row">
+							<div class="text-gray-300">{ev.eventType}</div>
+							{#if ev.validationStatus != null || ev.renderStatus != null}
+								<div class="text-gray-500 text-[9px]">
+									{#if ev.validationStatus}val: {ev.validationStatus}{/if}
+									{#if ev.renderStatus} · rend: {ev.renderStatus}{/if}
+								</div>
+							{/if}
+							{#if ev.statementCount != null || ev.warningCount != null}
+								<div class="text-gray-500 text-[9px]">
+									stmt {ev.statementCount ?? '—'} · warn {ev.warningCount ?? '—'}
+								</div>
+							{/if}
+							{#if ev.traceabilityInteractionType}
+								<div class="text-teal-400/90 text-[9px]">trace: {ev.traceabilityInteractionType}</div>
+							{/if}
+							{#if ev.requestId}
+								<div class="text-gray-500 text-[9px]">req: {ev.requestId}</div>
+							{/if}
+							{#if ev.errorHint}
+								<div class="text-amber-300/90 text-[9px]">{ev.errorHint}</div>
+							{/if}
+						</div>
+					{/each}
+				</div>
+			{/if}
+		</div>
 		{/if}
 	</div>
 {/if}

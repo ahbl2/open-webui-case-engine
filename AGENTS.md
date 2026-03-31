@@ -52,6 +52,12 @@ The same `Chat.svelte` mounts on:
 - With a Case Engine token on **`/c/...`**, do **not** silently rely on generic OWUI completion for eligible prompts — cross-case routing must stay wired.
 - Cross-case retrieval must remain **server-authorized** only; the UI only supplies `unitScope` where the backend allows (non–ADMIN roles are constrained in Case Engine).
 
+**Ask read-time integrity (Phase 33):** Case Engine Ask success payloads may include **`integrityPresentation`** (`SUPPORTED` \| `DEGRADED` \| `NOT_APPLICABLE`), optional structured **`facts`** / **`inferences`**, and **`422`** with **`error.code === 'ASK_INTEGRITY_REFUSED'`** (public message only; model answer withheld from the envelope). The UI must render those states distinctly (**`CaseEngineAskIntegrityBanner`**, **`CaseEngineAskStructuredSections`**, **`integrity_refused`** / `data-case-engine-integrity-refusal`) and must not reconstruct a refused answer from fragments. Implementation closure (Case Engine repo): [PHASE_33_COMPLETION.md](../DetectiveCaseEngine/docs/phases/phase_33/PHASE_33_COMPLETION.md); UI closure: [P33-07-ui-ask-integrity-rendering.md](../DetectiveCaseEngine/docs/phases/phase_33/P33-07-ui-ask-integrity-rendering.md).
+
+## Structured notes draft (P34)
+
+- **Accept Draft** and **Edit Draft** load the structured **rendered** text into the note editor only (unsaved until the user saves). **Save note** is the persistence boundary (`saveStructuredNotesEditedDraft` / normal notebook create when applicable). See [P34-29-structured-draft-accept-flow-correction.md](../DetectiveCaseEngine/docs/phases/phase_34/P34-29-structured-draft-accept-flow-correction.md).
+
 ## Intake and official records (P19) — non-negotiables
 
 These rules prevent architectural drift in the OWUI fork. The companion Case Engine repo documents the same alignment in its root `AGENTS.md`.
@@ -87,7 +93,7 @@ When reviewing changes, look specifically for:
 
 ## Pre-20 regression (companion to Detective Case Engine)
 
-- `npm run test:p20-pre` — deterministic Vitest subset locking P20-PRE-02…06 client behavior (envelope unwrap, retry policy, UI failure classification, request-id correlation). Matrix and Case Engine commands: `DetectiveCaseEngine/docs/api/P20_PRE_07_REGRESSION_COVERAGE.md` (in the Case Engine repo).
+- `npm run test:p20-pre` — deterministic Vitest subset locking P20-PRE-02…06 client behavior (envelope unwrap, retry policy, UI failure classification, request-id correlation) plus **Phase 33** Ask integrity UI metadata (`askIntegrityUi.test.ts`, extended `caseEngineUiState.test.ts`). Matrix and Case Engine commands: `DetectiveCaseEngine/docs/api/P20_PRE_07_REGRESSION_COVERAGE.md` (in the Case Engine repo).
 
 ## Socket.IO (dev)
 
