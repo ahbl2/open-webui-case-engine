@@ -201,7 +201,7 @@
 			{#each splitTextForSearchHighlight(entry.text_original ?? '', searchHighlightNeedle) as seg, hIdx (hIdx)}
 				{#if seg.highlight}
 					<mark
-						class="timeline-search-match bg-amber-100/80 dark:bg-amber-900/40 rounded px-0.5 text-inherit"
+						class="timeline-search-match bg-amber-100/40 dark:bg-amber-900/20 rounded px-0.5 text-inherit"
 					>{seg.text}</mark>
 				{:else}{seg.text}{/if}
 			{/each}
@@ -286,7 +286,7 @@
 					at {#each splitTextForSearchHighlight(entry.location_text, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
 						{#if locSeg.highlight}
 							<mark
-								class="timeline-search-match bg-amber-100/80 dark:bg-amber-900/40 rounded px-0.5 text-inherit"
+								class="timeline-search-match bg-amber-100/40 dark:bg-amber-900/20 rounded px-0.5 text-inherit"
 							>{locSeg.text}</mark>
 						{:else}{locSeg.text}{/if}
 					{/each}
@@ -327,7 +327,7 @@
 			{#each bodyHighlightSegments as seg, bIdx (bIdx)}
 				{#if seg.highlight}
 					<mark
-						class="timeline-search-match bg-amber-100/80 dark:bg-amber-900/40 rounded px-0.5 text-inherit"
+						class="timeline-search-match bg-amber-100 text-gray-900 dark:bg-amber-900/55 dark:text-amber-100 rounded px-0.5"
 					>{seg.text}</mark>
 				{:else}{seg.text}{/if}
 			{/each}
