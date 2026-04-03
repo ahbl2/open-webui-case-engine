@@ -9,7 +9,7 @@
  * so they run in the Vitest Node environment.
  *
  * What is covered:
- *   1. Post-P19-20 nav state: all 5 sections are implemented
+ *   1. Case workspace nav state: primary tabs match +layout.svelte (incl. P38-02 Proposals)
  *   2. Each migrated section has a deterministic route path
  *   3. resolveActiveCaseSection correctly identifies each migrated section
  *   4. Notes doctrine: notes are working drafts, not official records
@@ -17,7 +17,7 @@
  *   6. Activity data must come from backend (getCaseAudit), not frontend state
  *   7. Files section is case-scoped and uses backend APIs
  *   8. All migrated routes are distinct from /chat (no silent redirect)
- *   9. Shell nav: all sections are enabled after P19-20
+ *   9. Shell nav: implemented flags align with layout
  *  10. Access gating still applies to all sections
  */
 import { describe, it, expect } from 'vitest';
@@ -28,12 +28,13 @@ import { resolveAuthStateDecision, blockedRedirectPath } from './authStateDecisi
 // 1. Post-P19-20 nav state
 // ─────────────────────────────────────────────────────────────────────────────
 describe('P19-20 — nav state after Timeline migration', () => {
-	// Nav items from +layout.svelte: chat, timeline, files, notes, summary, workflow, warrants, intelligence, activity, graph.
+	// Nav items from +layout.svelte: chat, timeline, files, notes, proposals, summary, workflow, warrants, intelligence, activity, graph.
 	const caseWorkspaceNavItems = [
 		{ id: 'chat',      implemented: true  },
 		{ id: 'timeline',  implemented: true  },
 		{ id: 'files',     implemented: true  },
 		{ id: 'notes',     implemented: true  },
+		{ id: 'proposals', implemented: true  },
 		{ id: 'summary',   implemented: true  },
 		{ id: 'workflow',  implemented: true  },
 		{ id: 'warrants',  implemented: true  },
@@ -54,6 +55,7 @@ describe('P19-20 — nav state after Timeline migration', () => {
 		expect(implemented).toContain('activity');
 		expect(implemented).toContain('intelligence');
 		expect(implemented).toContain('graph');
+		expect(implemented).toContain('proposals');
 	});
 
 	it('no sections are pending', () => {
@@ -61,9 +63,9 @@ describe('P19-20 — nav state after Timeline migration', () => {
 		expect(notImplemented).toEqual([]);
 	});
 
-	it('ten primary sections under /case/[id]', () => {
+	it('eleven primary sections under /case/[id]', () => {
 		const count = caseWorkspaceNavItems.filter((x) => x.implemented).length;
-		expect(count).toBe(10);
+		expect(count).toBe(11);
 	});
 
 	it('the case workspace nav order is deterministic', () => {
@@ -72,6 +74,7 @@ describe('P19-20 — nav state after Timeline migration', () => {
 			{ id: 'timeline',  implemented: true  },
 			{ id: 'files',     implemented: true  },
 			{ id: 'notes',     implemented: true  },
+			{ id: 'proposals', implemented: true  },
 			{ id: 'summary',   implemented: true  },
 			{ id: 'workflow',  implemented: true  },
 			{ id: 'warrants',  implemented: true  },

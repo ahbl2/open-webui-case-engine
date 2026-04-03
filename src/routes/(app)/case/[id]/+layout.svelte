@@ -123,12 +123,13 @@
 	// P19-08: Chat migrated.
 	// P19-14: Files, Notes, Activity migrated to dedicated routes.
 	// P19-20: Timeline migrated — backed by official timeline_entries.
-	// Proposals remain available by direct route when needed; not shown in primary tab strip.
+	// P38-02: Proposals in primary tab strip (governed review queue; same route as /case/[id]/proposals).
 	const caseNavItems: Array<{ id: string; label: string; implemented: boolean }> = [
 		{ id: 'chat',      label: 'Chat',      implemented: true  },
 		{ id: 'timeline',  label: 'Timeline',  implemented: true  },
 		{ id: 'files',     label: 'Files',     implemented: true  },
 		{ id: 'notes',     label: 'Notes',     implemented: true  },
+		{ id: 'proposals', label: 'Proposals', implemented: true  },
 		{ id: 'summary',   label: 'Summary',   implemented: true  },
 		{ id: 'workflow',  label: 'Workflow',  implemented: true  },
 		{ id: 'warrants',  label: 'Warrants',  implemented: true  },
