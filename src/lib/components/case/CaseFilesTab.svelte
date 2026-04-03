@@ -13,6 +13,7 @@
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
+	import { dataTransferHasFiles } from '$lib/components/case/caseFilesDrop';
 
 	export let caseId: string;
 	export let token: string;
@@ -28,6 +29,9 @@
 	let fileInput: HTMLInputElement;
 	let addingTagFileId: string | null = null;
 	let newTagInput = '';
+
+	/** P38-04: nested dragenter/dragleave depth so highlight survives child boundaries */
+	let fileDragDepth = 0;
 
 	// ── Route-reuse case-switch guard (P28-45) ─────────────────────────────────
 	// Seeded to the initial prop value so the reactive block is a no-op on first
@@ -47,6 +51,7 @@
 		extractingId = null;
 		addingTagFileId = null;
 		newTagInput = '';
+		fileDragDepth = 0;
 		loadFiles();
 	}
 
@@ -87,6 +92,67 @@
 		} finally {
 			uploading = false;
 		}
+	}
+
+	/** Same API path as handleUpload — one or more dropped files (P38-04). */
+	async function handleDroppedFiles(dropped: File[]): Promise<void> {
+		if (!dropped.length) return;
+		uploading = true;
+		try {
+			let ok = 0;
+			for (const file of dropped) {
+				try {
+					await uploadCaseFile(caseId, file, token);
+					ok += 1;
+				} catch (e: any) {
+					toast.error(e?.message ?? `Upload failed: ${file.name}`);
+				}
+			}
+			if (ok > 0) {
+				if (dropped.length === 1) {
+					toast.success('File uploaded');
+				} else if (ok === dropped.length) {
+					toast.success(`${ok} files uploaded`);
+				} else {
+					toast.success(`${ok} of ${dropped.length} files uploaded`);
+				}
+				await loadFiles();
+			}
+		} finally {
+			uploading = false;
+		}
+	}
+
+	function onFilesZoneDragEnter(e: DragEvent) {
+		if (!dataTransferHasFiles(e.dataTransfer)) return;
+		e.preventDefault();
+		e.stopPropagation();
+		fileDragDepth += 1;
+	}
+
+	function onFilesZoneDragOver(e: DragEvent) {
+		if (!dataTransferHasFiles(e.dataTransfer)) return;
+		e.preventDefault();
+		e.stopPropagation();
+		e.dataTransfer!.dropEffect = 'copy';
+	}
+
+	function onFilesZoneDragLeave(e: DragEvent) {
+		if (!dataTransferHasFiles(e.dataTransfer)) return;
+		e.preventDefault();
+		e.stopPropagation();
+		fileDragDepth -= 1;
+		if (fileDragDepth < 0) fileDragDepth = 0;
+	}
+
+	async function onFilesZoneDrop(e: DragEvent) {
+		if (!dataTransferHasFiles(e.dataTransfer)) return;
+		e.preventDefault();
+		e.stopPropagation();
+		fileDragDepth = 0;
+		const list = e.dataTransfer?.files;
+		if (!list?.length) return;
+		await handleDroppedFiles(Array.from(list));
 	}
 
 	async function handleExtract(f: CaseFile) {
@@ -206,24 +272,44 @@
 </script>
 
 <div class="flex flex-col gap-4 p-4">
-	<!-- Upload form -->
-	<form
-		class="flex flex-col gap-2 sm:flex-row sm:items-center"
-		on:submit|preventDefault={() => handleUpload()}
+	<!-- P38-04: drop target shares uploadCaseFile path with picker (Notes-style entry parity) -->
+	<div
+		class="rounded-lg border-2 border-dashed transition-colors p-3 -mx-1
+		       {fileDragDepth > 0
+			? 'border-blue-500 dark:border-blue-400 bg-blue-50/80 dark:bg-blue-950/40'
+			: 'border-gray-200 dark:border-gray-700'}"
+		role="region"
+		aria-label="Case file upload"
+		data-testid="case-files-upload-dropzone"
+		on:dragenter={onFilesZoneDragEnter}
+		on:dragover={onFilesZoneDragOver}
+		on:dragleave={onFilesZoneDragLeave}
+		on:drop={onFilesZoneDrop}
 	>
-		<input
-			type="file"
-			bind:this={fileInput}
-			class="flex-1 rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-sm file:mr-2 file:rounded file:border-0 file:bg-gray-100 dark:file:bg-gray-700 file:px-3 file:py-1 file:text-sm"
-		/>
-		<button
-			type="submit"
-			disabled={uploading}
-			class="rounded bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 px-3 py-1.5 text-sm font-medium hover:bg-gray-700 dark:hover:bg-gray-300 disabled:opacity-50"
+		{#if fileDragDepth > 0}
+			<p class="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2" aria-live="polite">
+				Drop files to upload to this case
+			</p>
+		{/if}
+		<!-- Upload form -->
+		<form
+			class="flex flex-col gap-2 sm:flex-row sm:items-center"
+			on:submit|preventDefault={() => handleUpload()}
 		>
-			{uploading ? 'Uploading...' : 'Upload'}
-		</button>
-	</form>
+			<input
+				type="file"
+				bind:this={fileInput}
+				class="flex-1 rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-sm file:mr-2 file:rounded file:border-0 file:bg-gray-100 dark:file:bg-gray-700 file:px-3 file:py-1 file:text-sm"
+			/>
+			<button
+				type="submit"
+				disabled={uploading}
+				class="rounded bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 px-3 py-1.5 text-sm font-medium hover:bg-gray-700 dark:hover:bg-gray-300 disabled:opacity-50"
+			>
+				{uploading ? 'Uploading...' : 'Upload'}
+			</button>
+		</form>
+	</div>
 
 	<!-- Files list -->
 	<div class="text-xs text-gray-500 dark:text-gray-400">
@@ -235,7 +321,10 @@
 	{:else if loadError}
 		<CaseErrorState title="Failed to load files" message={loadError} onRetry={loadFiles} />
 	{:else if files.length === 0}
-		<CaseEmptyState title="No files yet." description="Upload a file above." />
+		<CaseEmptyState
+			title="No files yet."
+			description="Choose a file or drag files into the upload area above."
+		/>
 	{:else}
 		<div class="flex flex-col gap-2">
 			{#each files as f (f.id)}
