@@ -15,6 +15,7 @@
 	 * P39-02 — deterministic search + occurred date range + type (client-side; P39-01 §6)
 	 * P39-02A — invalid date hint, search match highlight, large-list hint
 	 * P39-03 — bottom composer shell for create entry (separate date + time; P39-01 §3–§5)
+	 * P39-04 — speech dictation into the bottom composer (raw transcript → editable text; P39-01 §5)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -34,7 +35,7 @@
 	 *     triggers the shared ConfirmDialog before discarding
 	 *   - No change_reason required for create (contrast with P28-34 edit)
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, onDestroy } from 'svelte';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { caseEngineToken, caseEngineUser } from '$lib/stores';
@@ -76,6 +77,15 @@
 		isTimelineFilterDateRangeInverted,
 		shouldShowLargeTimelineFilterHint
 	} from '$lib/caseTimeline/timelineSearchUx';
+	import {
+		appendTranscriptToComposerText,
+		getTimelineDictationSpeechRecognitionCtor,
+		isSecureContextForTimelineDictation,
+		timelineInsecureContextDictationMessage,
+		timelineSpeechErrorToMessage,
+		type TimelineDictationState
+	} from '$lib/caseTimeline/timelineDictation';
+	import MicSolid from '$lib/components/icons/MicSolid.svelte';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -130,6 +140,7 @@
 		composerDraft = null;
 		composerSaving = false;
 		composerError = '';
+		resetTimelineDictation();
 		editingEntryId = null;
 		editDraft = null;
 		editSaving = false;
@@ -304,6 +315,7 @@
 	}
 
 	function cancelComposer(): void {
+		resetTimelineDictation();
 		composerOpen = false;
 		composerDraft = null;
 		composerError = '';
@@ -346,6 +358,143 @@
 			composerSaving = false;
 		}
 	}
+
+	// ── P39-04 Bottom composer dictation (speech → editable text) ────────────────
+	// Lifecycle: idle → listening → idle (transcript appended) or error.
+	// No processing or review state — raw transcript goes directly into
+	// composerDraft.text_original as visible, editable text before save.
+	// Reuses notesDictationSpeech helpers for browser API / error mapping.
+
+	let dictationState: TimelineDictationState = 'idle';
+	let dictationError = '';
+	let dictationRecognition: { stop: () => void } | null = null;
+	let dictationStopRequested = false;
+	let dictationTranscriptBuffer = '';
+	let dictationSessionCancelled = false;
+
+	function resetTimelineDictation(): void {
+		dictationSessionCancelled = true;
+		if (dictationRecognition) {
+			try {
+				dictationRecognition.stop();
+			} catch {
+				// Ignore stop errors during teardown.
+			}
+		}
+		dictationState = 'idle';
+		dictationError = '';
+		dictationRecognition = null;
+		dictationStopRequested = false;
+		dictationTranscriptBuffer = '';
+	}
+
+	async function startTimelineDictation(): Promise<void> {
+		resetTimelineDictation();
+		dictationSessionCancelled = false;
+
+		if (!isSecureContextForTimelineDictation()) {
+			dictationState = 'error';
+			dictationError = timelineInsecureContextDictationMessage();
+			return;
+		}
+
+		try {
+			if (navigator.permissions?.query) {
+				const perm = await navigator.permissions.query({ name: 'microphone' as PermissionName });
+				if (perm.state === 'denied') {
+					dictationState = 'error';
+					dictationError = 'Microphone access is blocked. Allow microphone permission and try again.';
+					return;
+				}
+			}
+		} catch {
+			// Non-fatal: some browsers do not support microphone permission query.
+		}
+
+		const SpeechRecognitionCtor = getTimelineDictationSpeechRecognitionCtor();
+		if (!SpeechRecognitionCtor) {
+			dictationState = 'error';
+			dictationError = 'Speech recognition is not available in this browser. Use Chrome or Edge.';
+			return;
+		}
+
+		const recognition = new SpeechRecognitionCtor();
+		dictationRecognition = recognition as { stop: () => void };
+		dictationStopRequested = false;
+		dictationTranscriptBuffer = '';
+
+		recognition.lang = (typeof navigator !== 'undefined' ? navigator.language : null) || 'en-US';
+		recognition.interimResults = true;
+		recognition.continuous = true;
+
+		recognition.onresult = (event: { results: { length: number; [i: number]: { 0: { transcript: string } } }; resultIndex: number }) => {
+			const parts: string[] = [];
+			for (let i = 0; i < event.results.length; i++) {
+				parts.push(event.results[i][0]?.transcript ?? '');
+			}
+			dictationTranscriptBuffer = parts.join(' ').trim();
+		};
+
+		recognition.onerror = (event: { error?: string }) => {
+			if (dictationSessionCancelled) return;
+			if (event?.error === 'aborted' && dictationStopRequested) return;
+			dictationState = 'error';
+			dictationError = timelineSpeechErrorToMessage(event?.error);
+			dictationRecognition = null;
+		};
+
+		recognition.onend = () => {
+			if (dictationSessionCancelled) return;
+			if (dictationState === 'error') return;
+			dictationRecognition = null;
+
+			const captured = dictationTranscriptBuffer;
+			dictationTranscriptBuffer = '';
+
+			if (!captured) {
+				if (!dictationStopRequested) {
+					dictationState = 'error';
+					dictationError = 'Recording stopped unexpectedly. Please try again.';
+				} else {
+					// User stopped before speaking — return to idle without error.
+					dictationState = 'idle';
+				}
+				return;
+			}
+
+			// Append transcript to the composer text field as visible, editable text.
+			if (composerDraft) {
+				composerDraft = {
+					...composerDraft,
+					text_original: appendTranscriptToComposerText(composerDraft.text_original, captured)
+				};
+			}
+			dictationState = 'idle';
+		};
+
+		dictationState = 'listening';
+		try {
+			recognition.start();
+		} catch (e: unknown) {
+			dictationState = 'error';
+			dictationError =
+				e instanceof Error && e.message
+					? `Dictation could not start: ${e.message}`
+					: 'Dictation could not start in this browser context.';
+			dictationRecognition = null;
+		}
+	}
+
+	function stopTimelineDictation(): void {
+		if (dictationRecognition && dictationState === 'listening') {
+			dictationStopRequested = true;
+			dictationRecognition.stop();
+		}
+	}
+
+	onDestroy(() => {
+		resetTimelineDictation();
+	});
 
 	// ── Inline edit state (P28-34) ──────────────────────────────────────────────
 	// Only one entry can be in edit mode at a time.
@@ -1197,6 +1346,75 @@
 						       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
 						data-testid="composer-text-input"
 					></textarea>
+				</div>
+
+				<!-- P39-04: Dictation control (speech → composer text) -->
+				<div class="flex flex-col gap-1">
+					{#if dictationState === 'error'}
+						<div class="flex items-start gap-2">
+							<p
+								class="text-xs text-red-500 dark:text-red-400 flex-1"
+								aria-live="assertive"
+								data-testid="timeline-dictation-error"
+							>
+								{dictationError}
+							</p>
+							<button
+								type="button"
+								on:click={() => { dictationState = 'idle'; dictationError = ''; }}
+								class="shrink-0 text-xs text-gray-500 dark:text-gray-400
+								       hover:text-gray-700 dark:hover:text-gray-200
+								       px-1.5 py-0.5 rounded transition"
+								aria-label="Dismiss dictation error"
+								data-testid="timeline-dictation-error-dismiss"
+							>
+								Dismiss
+							</button>
+						</div>
+					{/if}
+					<div class="flex items-center gap-2 min-h-[1.75rem]">
+						{#if dictationState === 'listening'}
+							<span
+								class="inline-flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400 font-medium"
+								aria-live="polite"
+								data-testid="timeline-dictation-listening"
+							>
+								<span
+									class="size-2 rounded-full bg-red-500 animate-pulse inline-block"
+									aria-hidden="true"
+								></span>
+								Listening…
+							</span>
+							<button
+								type="button"
+								on:click={stopTimelineDictation}
+								class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600
+								       text-gray-600 dark:text-gray-300
+								       hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+								aria-label="Stop dictation and insert text"
+								title="Stop dictation and insert recognized text"
+								data-testid="timeline-dictate-stop"
+							>
+								Stop
+							</button>
+						{:else}
+							<button
+								type="button"
+								on:click={() => void startTimelineDictation()}
+								class="inline-flex items-center gap-1.5 text-xs
+								       text-blue-600 dark:text-blue-400
+								       hover:text-blue-700 dark:hover:text-blue-300
+								       px-2 py-1 rounded border border-blue-200 dark:border-blue-800
+								       hover:bg-blue-50 dark:hover:bg-blue-900/20 transition"
+								title="Dictate into the entry text field (speech to text)"
+								aria-label="Dictate into entry text"
+								data-testid="timeline-dictate-start"
+							>
+								<MicSolid className="size-3.5" />
+								<span>Dictate</span>
+							</button>
+						{/if}
+					</div>
 				</div>
 
 				<!-- Optional: location -->
