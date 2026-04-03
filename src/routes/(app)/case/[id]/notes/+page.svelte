@@ -61,7 +61,7 @@
 	import { page } from '$app/stores';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
-	import { caseEngineToken, models, settings, config } from '$lib/stores';
+	import { caseEngineToken, caseEngineUser, models, settings, config } from '$lib/stores';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { DropdownMenu } from 'bits-ui';
@@ -74,8 +74,6 @@
 	// P30-24: upgraded action icons for desktop clarity
 	import Clip from '$lib/components/icons/Clip.svelte';
 	import MicSolid from '$lib/components/icons/MicSolid.svelte';
-	// P30-25: sparkles icon for Enhance AI-action styling
-	import Sparkles from '$lib/components/icons/Sparkles.svelte';
 	import {
 		listCaseNotebookNotes,
 		listCaseNotebookNoteVersions,
@@ -97,7 +95,6 @@
 		deleteNoteAttachment,
 		downloadNoteAttachment,
 		fetchCaseEngineHealth,
-		previewP34Prototype,
 		previewStructuredNotesExtraction,
 		saveStructuredNotesEditedDraft,
 		rejectStructuredNotesPreview,
@@ -107,7 +104,6 @@
 		type NoteAttachment,
 		type ExtractionRecord,
 		type OcrRecord,
-		type P34PrototypePreviewData,
 		type StructuredNotesExtractionPreviewData,
 		type StructuredNotesSourcePreviewPayload
 	} from '$lib/apis/caseEngine';
@@ -119,6 +115,7 @@
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 	import { mergeNotebookWritePayload } from '$lib/caseNotes/notebookIntegrityPayload';
+	import { buildAutoNoteTitle } from '$lib/caseNotes/buildAutoNoteTitle';
 	import {
 		type IntegrityExplainBlock,
 		type IntegrityFailureReason,
@@ -130,8 +127,6 @@
 	import { validateEnhanceOutputDisallowedPatterns } from '$lib/caseNotes/noteEnhanceOutputGuardrails';
 	import {
 		clearEnhanceObservabilityEvents,
-		enhanceObservabilityTick,
-		getEnhanceObservabilityEvents,
 		newEnhanceCorrelationId,
 		reasonCodesFromEnhanceReasons,
 		reasonCodesFromIntegrityFailureDetails,
@@ -140,29 +135,21 @@
 	} from '$lib/caseNotes/enhanceObservability';
 	import {
 		beginEnhancePipelineAudit,
-		clearEnhancePipelineAuditHistory,
 		commitEnhancePipelineAuditPatch,
 		computeEnhanceAuditDiffStats,
-		enhancePipelineAuditHistory,
-		enhancePipelineAuditLast,
-		enhancePipelineAuditTick,
 		finalizeEnhancePipelineAudit,
 		getEnhancePipelineAuditActiveCorrelation,
 		type EnhancePipelineAuditRecord
 	} from '$lib/caseNotes/enhancePipelineAudit';
 	import {
-		clearStructuredNotesObservabilityEvents,
-		getStructuredNotesObservabilityEvents,
 		newStructuredNotesCorrelationId,
-		recordStructuredNotesObservabilityEvent,
-		structuredNotesObservabilityTick
+		recordStructuredNotesObservabilityEvent
 	} from '$lib/caseNotes/structuredNotesObservability';
 	import {
 		computeStructuredNotesUiOffered,
 		readStructuredNotesServerEnabledFromHealth
 	} from '$lib/caseNotes/structuredNotesFeatureCapability';
 	import { computeStructuredDraftHydration } from '$lib/caseNotes/structuredNotesDraftEditorHydration';
-
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
 	// this component for a different case. prevLoadedCaseId is seeded to the
@@ -179,6 +166,8 @@
 	let loadError = '';
 	// P30-19: kebab menu open state for the note view action menu.
 	let noteMenuOpen = false;
+	/** Overflow menu on a note row in the left list (three-dot). */
+	let listRowMenuOpenForId: number | null = null;
 	let showVersionHistory = false;
 	let versionHistoryLoading = false;
 	let versionHistoryError = '';
@@ -321,10 +310,6 @@
 			const updated = new Map(extractionsByAttachmentId);
 			updated.set(attachmentId, record);
 			extractionsByAttachmentId = updated;
-			// Auto-expand when there is extracted text to preview
-			if (record.status === 'extracted') {
-				expandedExtractionIds = new Set([...expandedExtractionIds, attachmentId]);
-			}
 			if (record.status === 'unsupported') {
 				toast.info(
 					'This file type is not supported for automatic text extraction. Use .txt, .md, .docx, or a PDF with a text layer, or copy text in manually.'
@@ -427,9 +412,6 @@
 			const updated = new Map(ocrByAttachmentId);
 			updated.set(attachmentId, record);
 			ocrByAttachmentId = updated;
-		if (record.status === 'extracted' || record.status === 'low_confidence') {
-			expandedOcrIds = new Set([...expandedOcrIds, attachmentId]);
-		}
 		} catch (e) {
 			toast.error((e as Error)?.message ?? 'OCR failed');
 		} finally {
@@ -640,24 +622,31 @@
 	let enhanceIntegrityExplain: IntegrityExplainBlock | null = null;
 	// P31-17: correlates apply/dismiss with the last successful enhance pass (strict or safe).
 	let pendingEnhanceCorrelationId = '';
-	let showEnhanceObservabilityPanel = false;
-	let showEnhancePipelineAuditPanel = false;
-	let showStructuredNotesObsPanel = false;
 
-	/** P34-08: dev-only structured preview (no persistence). */
-	let p34PrototypeResult: P34PrototypePreviewData | null = null;
-	let p34PrototypeLoading = false;
-
-	/** P34-18: real structured-notes preview (Case Engine contract); separate from prototype. */
+	/** P34-18: real structured-notes preview (Case Engine contract). */
 	let structuredNotesLoading = false;
 	let structuredNotesError = '';
 	let structuredNotesResult: StructuredNotesExtractionPreviewData | null = null;
 	let structuredNotesVisible = false;
+	/** P37 — hide duplicate note editor while narrative preview is the primary full-pane surface. */
+	let notesNarrativeReviewFullPane = false;
 	let structuredNotesPreviewSourceText = '';
 	/** P34-19: accept / reject / save-edited in flight */
 	let structuredNotesActionBusy = false;
 	/** P34-19: user chose Edit Draft — Save uses structured save-edited endpoint */
 	let structuredNotesEditedCommitPending = false;
+	/** P37 Option B — Same text sent to structured preview; drives transient narrative preview without a saved note id. */
+	let structuredNotesTransientNarrativeSource: string | null = null;
+	/** P37 Option B — Parent increments after Structure Note succeeds so the panel runs narrative preview. */
+	let structuredNotesNarrativePipelineNonce = 0;
+	type NotesWorkflowSnapshot = {
+		mode: 'idle' | 'create' | 'edit' | 'view';
+		createText: string;
+		editText: string;
+		createTitle: string;
+		editTitle: string;
+	};
+	let notesWorkflowSnapshotBeforeStructure: NotesWorkflowSnapshot | null = null;
 	/** P34-20: correlates preview + trace + review actions in session obs buffer */
 	let structuredNotesObsCorrelationId = '';
 	/** P34-21: wait for health before offering structured-notes actions (server flag is authoritative). */
@@ -669,6 +658,20 @@
 		structuredNotesServerEnabled,
 		publicStructuredNotesSuppressed
 	);
+
+	$: if (!structuredNotesVisible) notesNarrativeReviewFullPane = false;
+
+	$: structuredNotesReviewPanelMounted =
+		structuredNotesUiOffered &&
+		structuredNotesVisible &&
+		(structuredNotesLoading || structuredNotesError !== '' || structuredNotesResult != null);
+	$: notesNarrativeFullWorkspaceActive =
+		notesNarrativeReviewFullPane && structuredNotesReviewPanelMounted;
+
+	/** P37 — narrative preview panel signals when it occupies the notes workspace (hides duplicate editor). */
+	function handleNarrativePreviewFullPane(detail: { active: boolean }): void {
+		notesNarrativeReviewFullPane = detail.active;
+	}
 
 	$: structuredNotesCanCommitDraft =
 		structuredNotesResult != null &&
@@ -767,22 +770,15 @@
 		structuredNotesPreviewSourceText = '';
 		structuredNotesActionBusy = false;
 		structuredNotesEditedCommitPending = false;
+		structuredNotesTransientNarrativeSource = null;
+		structuredNotesNarrativePipelineNonce = 0;
+		notesWorkflowSnapshotBeforeStructure = null;
 	}
 
 	$: {
 		if (!structuredNotesUiOffered && structuredNotesVisible) {
 			resetStructuredNotesPreview();
 		}
-	}
-
-	function resetP34PrototypePreviewOnly(): void {
-		p34PrototypeResult = null;
-		p34PrototypeLoading = false;
-	}
-
-	function resetP34PrototypePreview(): void {
-		resetP34PrototypePreviewOnly();
-		resetStructuredNotesPreview();
 	}
 
 	function getCurrentNotePlainTextForStructuredPreview(): string {
@@ -810,6 +806,52 @@
 		});
 	}
 
+	function captureNotesWorkflowSnapshot(): void {
+		if (mode !== 'create' && mode !== 'edit') return;
+		notesWorkflowSnapshotBeforeStructure = {
+			mode,
+			createText,
+			editText,
+			createTitle,
+			editTitle
+		};
+	}
+
+	function restoreNotesWorkflowSnapshot(): void {
+		const s = notesWorkflowSnapshotBeforeStructure;
+		if (!s || (s.mode !== 'create' && s.mode !== 'edit')) return;
+		mode = s.mode;
+		createText = s.createText;
+		editText = s.editText;
+		createTitle = s.createTitle;
+		editTitle = s.editTitle;
+		createEditorRenderKey += 1;
+		editEditorRenderKey += 1;
+	}
+
+	function handleNarrativeAcceptFromWorkflow(text: string): void {
+		if (mode === 'view' && selectedNote) {
+			startEdit();
+			editText = text;
+			editEditorRenderKey += 1;
+		} else if (mode === 'create') {
+			createText = text;
+			createEditorRenderKey += 1;
+		} else if (mode === 'edit') {
+			editText = text;
+			editEditorRenderKey += 1;
+		}
+		resetStructuredNotesPreview();
+		notesWorkflowSnapshotBeforeStructure = null;
+		toast.success('Narrative loaded into the editor. Use Save note when you are ready to persist.');
+	}
+
+	function handleNarrativeRejectFromWorkflow(): void {
+		restoreNotesWorkflowSnapshot();
+		resetStructuredNotesPreview();
+		notesWorkflowSnapshotBeforeStructure = null;
+	}
+
 	async function runStructuredNotesPreview(): Promise<void> {
 		if (!structuredNotesUiOffered) {
 			toast.error(
@@ -827,6 +869,7 @@
 			toast.error('Case Engine session required.');
 			return;
 		}
+		captureNotesWorkflowSnapshot();
 		structuredNotesObsCorrelationId = newStructuredNotesCorrelationId();
 		recordStructuredNotesObservabilityEvent({
 			correlationId: structuredNotesObsCorrelationId,
@@ -840,11 +883,14 @@
 		structuredNotesError = '';
 		structuredNotesResult = null;
 		structuredNotesPreviewSourceText = draftText;
+		structuredNotesTransientNarrativeSource = draftText;
 		structuredNotesEditedCommitPending = false;
 		try {
 			const res = await previewStructuredNotesExtraction(caseId, token, draftText);
 			if (res.success) {
 				structuredNotesResult = res.data;
+				structuredNotesTransientNarrativeSource = draftText;
+				structuredNotesNarrativePipelineNonce += 1;
 				const d = res.data;
 				recordStructuredNotesObservabilityEvent({
 					correlationId: structuredNotesObsCorrelationId,
@@ -921,7 +967,6 @@
 			}
 			return false;
 		}
-		resetP34PrototypePreviewOnly();
 		resetEnhanceState();
 		resetNoteIntegrityDraftState();
 		integrityBaselineText = null;
@@ -1021,48 +1066,10 @@
 		}
 	}
 
-	async function runP34Prototype(): Promise<void> {
-		const draftText = mode === 'edit' ? editText.trim() : createText.trim();
-		if (!draftText) {
-			toast.error('Write some note text before using P34 Prototype.');
-			return;
-		}
-		const token = $caseEngineToken;
-		if (!token) {
-			toast.error('Case Engine session required.');
-			return;
-		}
-		p34PrototypeLoading = true;
-		try {
-			const res = await previewP34Prototype(caseId, token, draftText);
-			if (res.success) {
-				p34PrototypeResult = res.data;
-			} else {
-				toast.error(res.errorMessage);
-			}
-		} catch (e) {
-			console.error(e);
-			toast.error('P34 prototype preview failed.');
-		} finally {
-			p34PrototypeLoading = false;
-		}
-	}
-
 	function enhanceObservabilityNoteContext(): EnhanceObservabilityNoteContext {
 		if (mode === 'edit' && selectedNote) return { kind: 'edit', noteId: selectedNote.id };
 		return { kind: 'create' };
 	}
-
-	$: enhanceObsDevPanelEvents = ($enhanceObservabilityTick, [
-		...getEnhanceObservabilityEvents()
-	].reverse());
-
-	$: structuredNotesObsDevPanelEvents = ($structuredNotesObservabilityTick, [
-		...getStructuredNotesObservabilityEvents()
-	].reverse());
-
-	$: enhanceAuditLastView = ($enhancePipelineAuditTick, $enhancePipelineAuditLast);
-	$: enhanceAuditHistView = ($enhancePipelineAuditTick, [...$enhancePipelineAuditHistory].slice(-12).reverse());
 
 	function resetNoteIntegrityDraftState(): void {
 		integrityBaselineText = null;
@@ -2252,6 +2259,10 @@
 		}
 	}
 
+	/**
+	 * Note-level AI enhance (strict / safe / cleanup pipeline on raw note text).
+	 * Distinct from Structure Note + narrative preview; used from in-flow Retry / safe-cleanup actions when offered.
+	 */
 	async function handleEnhance(): Promise<void> {
 		const draftText = mode === 'edit' ? editText.trim() : createText.trim();
 		const noteCtx = enhanceObservabilityNoteContext();
@@ -3137,10 +3148,15 @@
 	let showDeleteConfirm = false;
 	let pendingDeleteAction: (() => void) | null = null;
 
-	/** Open the delete confirmation dialog for the currently selected note. */
-	function requestDelete(): void {
-		if (!selectedNote || deletingId !== null) return;
-		pendingDeleteAction = handleDelete;
+	const NOTE_BODY_REQUIRED_MSG = 'Add note content before saving.';
+
+	/** Open the delete confirmation dialog for a list-row action or the header kebab (uses selected note). */
+	function requestDelete(note?: NotebookNote): void {
+		const target = note ?? selectedNote;
+		if (!target || deletingId !== null) return;
+		pendingDeleteAction = () => {
+			void handleDelete(target);
+		};
 		showDeleteConfirm = true;
 	}
 
@@ -3372,6 +3388,8 @@
 		pendingDiscardAction = null;
 		showDeleteConfirm = false;
 		pendingDeleteAction = null;
+		noteMenuOpen = false;
+		listRowMenuOpenForId = null;
 		resetNoteIntegrityDraftState();
 		loadNotes();
 	}
@@ -3468,7 +3486,7 @@
 			clearAttachmentState();
 			selectedNote = note;
 			mode = 'view';
-			resetP34PrototypePreview();
+			resetStructuredNotesPreview();
 			void loadNoteAttachments(note.id);
 		});
 	}
@@ -3486,7 +3504,7 @@
 			editEditorRenderKey = 0;
 			resetVersionHistoryState();
 			resetEnhanceState();
-			resetP34PrototypePreview();
+			resetStructuredNotesPreview();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			// Fresh draft session for this create attempt
@@ -3515,7 +3533,7 @@
 			editEditorRenderKey = 0;
 			resetVersionHistoryState();
 			resetEnhanceState();
-			resetP34PrototypePreview();
+			resetStructuredNotesPreview();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			// Keep selectedNote for context; create mode remains an unsaved, independent draft.
@@ -3528,7 +3546,6 @@
 		if (!selectedNote) return;
 		showVersionHistory = false;
 		resetEnhanceState();
-		resetP34PrototypePreviewOnly();
 		resetDictationState();
 		resetNoteIntegrityDraftState();
 		editTitle = selectedNote.title ?? '';
@@ -3574,7 +3591,6 @@
 			// P30-20: clear transient workflow state so proposal panel, source
 			// selection, and expansion state do not leak into view mode.
 			resetAttachmentWorkflowState();
-			resetP34PrototypePreview();
 			mode = selectedNote ? 'view' : 'idle';
 		});
 	}
@@ -3587,7 +3603,6 @@
 			createText = '';
 			createEditorRenderKey = 0;
 			resetEnhanceState();
-			resetP34PrototypePreview();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			// P30-20: clear transient workflow state on cancel.
@@ -3598,32 +3613,13 @@
 
 	// ── CE API handlers ────────────────────────────────────────────────────────
 
-	/**
-	 * Derive a concise title from note body text.
-	 * Used only when the investigator leaves the title field blank.
-	 * Takes the first non-empty, non-separator line and trims it to 60 chars.
-	 * Never called when the user has supplied a title.
-	 */
-	function generateTitle(text: string): string {
-		const lines = text.split('\n').map((l) => l.trim());
-		for (const line of lines) {
-			// Skip blank lines and markdown separator lines (---)
-			if (!line || /^-{3,}$/.test(line)) continue;
-			// Strip leading markdown heading markers if present
-			const clean = line.replace(/^#+\s*/, '').trim();
-			if (!clean) continue;
-			return clean.length > 60 ? clean.slice(0, 57) + '…' : clean;
-		}
-		return 'Untitled Note';
-	}
-
 	async function handleCreate(): Promise<void> {
 		if (!$caseEngineToken) return;
 		// Capture caseId at call time; discard result if case switches during request.
 		const activeCaseId = caseId;
 		const text = createText.trim();
 		if (!text) {
-			toast.error('Note text is required');
+			toast.error(NOTE_BODY_REQUIRED_MSG);
 			return;
 		}
 		if (structuredNotesEditedCommitPending) {
@@ -3707,7 +3703,7 @@
 		const note = await createCaseNotebookNote(
 			activeCaseId,
 			mergeNotebookWritePayload(
-				{ title: createTitle.trim() || generateTitle(text), text },
+				{ title: createTitle.trim() || buildAutoNoteTitle(text), text },
 				integrityBaselineText
 			),
 			$caseEngineToken
@@ -3768,7 +3764,7 @@
 		const activeCaseId = caseId;
 		const text = editText.trim();
 		if (!text) {
-			toast.error('Note text is required');
+			toast.error(NOTE_BODY_REQUIRED_MSG);
 			return;
 		}
 		if (structuredNotesEditedCommitPending) {
@@ -3856,7 +3852,7 @@
 			selectedNote.id,
 			mergeNotebookWritePayload(
 				{
-					title: editTitle.trim() || generateTitle(text),
+					title: editTitle.trim() || buildAutoNoteTitle(text),
 					text,
 					expected_updated_at: editExpectedUpdatedAt
 				},
@@ -3917,21 +3913,22 @@
 		}
 	}
 
-	async function handleDelete(): Promise<void> {
-		if (!$caseEngineToken || !selectedNote) return;
-		// Capture caseId at call time; discard result if case switches during request.
+	async function handleDelete(noteToDelete: NotebookNote): Promise<void> {
+		if (!$caseEngineToken) return;
 		const activeCaseId = caseId;
-		const noteToDelete = selectedNote;
 		deletingId = noteToDelete.id;
 		try {
 			await deleteCaseNotebookNote(activeCaseId, noteToDelete.id, $caseEngineToken);
 			if (caseId !== activeCaseId) return;
 			notes = notes.filter((n) => n.id !== noteToDelete.id);
 			browserSearch = '';
-			resetDictationState();
-			resetVersionHistoryState();
-			selectedNote = notes.length > 0 ? notes[0] : null;
-			mode = selectedNote ? 'view' : 'idle';
+			const wasSelected = selectedNote?.id === noteToDelete.id;
+			if (wasSelected) {
+				resetDictationState();
+				resetVersionHistoryState();
+				selectedNote = notes.length > 0 ? notes[0] : null;
+				mode = selectedNote ? 'view' : 'idle';
+			}
 			recentlyDeletedNote = { id: noteToDelete.id, title: noteToDelete.title };
 			restoreFeedback = null;
 			toast.success('Note deleted');
@@ -3973,13 +3970,13 @@
 	Two-panel layout: left browser + right focused editor.
 	Renders inside the P19-06 case shell (+layout.svelte).
 -->
-<div class="flex h-full overflow-hidden" data-testid="case-notes-page">
+<div class="flex flex-1 min-w-0 min-h-0 overflow-hidden" data-testid="case-notes-page">
 
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
 	<!-- LEFT PANEL — Note Browser                                             -->
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
 	<div
-		class="w-56 shrink-0 flex flex-col border-r border-gray-200 dark:border-gray-800 overflow-hidden"
+		class="w-56 shrink-0 flex flex-col min-h-0 border-r border-gray-200 dark:border-gray-800 overflow-hidden"
 	>
 		<!-- Browser header -->
 		<div class="shrink-0 px-3 py-2 border-b border-gray-200 dark:border-gray-800">
@@ -3988,13 +3985,6 @@
 					<h2 class="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
 						Case Notes
 					</h2>
-					<!-- Compact doctrine signal — not dismissible -->
-					<p
-						class="text-[10px] text-amber-600 dark:text-amber-500 mt-0.5"
-						data-testid="case-notes-disclaimer"
-					>
-						Working drafts only
-					</p>
 				</div>
 				<button
 					type="button"
@@ -4047,16 +4037,18 @@
 			{#if browserSearch.trim()}
 				<!-- Search active: flat filtered results with match badges + snippets -->
 				{#each filteredNotes as { note, reason } (note.id)}
-					<button
-						type="button"
-						class="w-full text-left px-2.5 py-1.5 mb-0.5 rounded-md transition
-						       border-l-2
+					<div
+						class="w-full flex items-stretch mb-0.5 rounded-md transition border-l-2
 						       {selectedNote?.id === note.id
 							       ? 'bg-gray-100 dark:bg-gray-800 border-gray-500 dark:border-gray-400'
 							       : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-850'}"
-						on:click={() => selectNote(note)}
 						data-testid="case-note-item"
 						data-note-id={note.id}
+					>
+					<button
+						type="button"
+						class="flex-1 min-w-0 text-left px-2.5 py-1.5 rounded-l-md transition"
+						on:click={() => selectNote(note)}
 					>
 					<div class="flex items-baseline gap-1.5 min-w-0">
 						{#if note.title}
@@ -4098,7 +4090,51 @@
 							{attributionLabel(note.updated_by_name, note.updated_by)}
 						</p>
 					{/if}
-				</button>
+					</button>
+					<DropdownMenu.Root
+						open={listRowMenuOpenForId === note.id}
+						onOpenChange={(o) => {
+							if (o) listRowMenuOpenForId = note.id;
+							else if (listRowMenuOpenForId === note.id) listRowMenuOpenForId = null;
+						}}
+					>
+						<DropdownMenu.Trigger asChild let:builder>
+							<button
+								type="button"
+								{...builder}
+								use:builder.action
+								class="shrink-0 self-stretch inline-flex items-center justify-center min-h-[2.25rem] min-w-[2.25rem] px-1 rounded-r-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition relative z-10"
+								aria-label="Note list actions"
+								title="Note actions"
+								data-testid="case-note-list-overflow-trigger"
+								on:click|stopPropagation
+								on:pointerdown|stopPropagation
+							>
+								<EllipsisVertical className="w-4 h-4 shrink-0 pointer-events-none" />
+							</button>
+						</DropdownMenu.Trigger>
+						<DropdownMenu.Content
+							class="w-full max-w-[190px] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+							sideOffset={4}
+							side="bottom"
+							align="end"
+							transition={flyAndScale}
+						>
+							<DropdownMenu.Item
+								class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 rounded-lg disabled:opacity-50"
+								on:click={() => {
+									listRowMenuOpenForId = null;
+									requestDelete(note);
+								}}
+								disabled={deletingId === note.id}
+								data-testid="case-note-delete-from-list"
+							>
+								<GarbageBin className="w-4 h-4 shrink-0" />
+								<span>{deletingId === note.id ? 'Deleting…' : 'Delete note'}</span>
+							</DropdownMenu.Item>
+						</DropdownMenu.Content>
+					</DropdownMenu.Root>
+					</div>
 			{/each}
 		{:else}
 			<!-- No search: grouped relative-time layout (P30-26) -->
@@ -4107,16 +4143,18 @@
 						{group.label}
 					</p>
 					{#each group.notes as note (note.id)}
-						<button
-							type="button"
-							class="w-full text-left px-2.5 py-1.5 mb-0.5 rounded-md transition
-							       border-l-2
+						<div
+							class="w-full flex items-stretch mb-0.5 rounded-md transition border-l-2
 							       {selectedNote?.id === note.id
 								       ? 'bg-gray-100 dark:bg-gray-800 border-gray-500 dark:border-gray-400'
 								       : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-850'}"
-							on:click={() => selectNote(note)}
 							data-testid="case-note-item"
 							data-note-id={note.id}
+						>
+						<button
+							type="button"
+							class="flex-1 min-w-0 text-left px-2.5 py-1.5 rounded-l-md transition"
+							on:click={() => selectNote(note)}
 						>
 						<div class="flex items-baseline gap-1.5 min-w-0">
 							{#if note.title}
@@ -4139,7 +4177,51 @@
 								{attributionLabel(note.updated_by_name, note.updated_by)}
 							</p>
 						{/if}
-					</button>
+						</button>
+						<DropdownMenu.Root
+							open={listRowMenuOpenForId === note.id}
+							onOpenChange={(o) => {
+								if (o) listRowMenuOpenForId = note.id;
+								else if (listRowMenuOpenForId === note.id) listRowMenuOpenForId = null;
+							}}
+						>
+							<DropdownMenu.Trigger asChild let:builder>
+								<button
+									type="button"
+									{...builder}
+									use:builder.action
+									class="shrink-0 self-stretch inline-flex items-center justify-center min-h-[2.25rem] min-w-[2.25rem] px-1 rounded-r-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition relative z-10"
+									aria-label="Note list actions"
+									title="Note actions"
+									data-testid="case-note-list-overflow-trigger"
+									on:click|stopPropagation
+									on:pointerdown|stopPropagation
+								>
+									<EllipsisVertical className="w-4 h-4 shrink-0 pointer-events-none" />
+								</button>
+							</DropdownMenu.Trigger>
+							<DropdownMenu.Content
+								class="w-full max-w-[190px] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+								sideOffset={4}
+								side="bottom"
+								align="end"
+								transition={flyAndScale}
+							>
+								<DropdownMenu.Item
+									class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 rounded-lg disabled:opacity-50"
+									on:click={() => {
+										listRowMenuOpenForId = null;
+										requestDelete(note);
+									}}
+									disabled={deletingId === note.id}
+									data-testid="case-note-delete-from-list"
+								>
+									<GarbageBin className="w-4 h-4 shrink-0" />
+									<span>{deletingId === note.id ? 'Deleting…' : 'Delete note'}</span>
+								</DropdownMenu.Item>
+							</DropdownMenu.Content>
+						</DropdownMenu.Root>
+						</div>
 				{/each}
 			{/each}
 		{/if}
@@ -4150,8 +4232,8 @@
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
 	<!-- RIGHT PANEL — Focused Workspace                                       -->
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
-	<div class="flex-1 flex flex-col min-w-0 overflow-hidden">
-		{#if recentlyDeletedNote}
+	<div class="flex flex-1 flex-col min-w-0 min-h-0 overflow-hidden">
+		{#if recentlyDeletedNote && !notesNarrativeFullWorkspaceActive}
 			<div
 				class="mx-5 mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
 				data-testid="case-note-restore-banner"
@@ -4172,7 +4254,7 @@
 				</div>
 			</div>
 		{/if}
-		{#if restoreFeedback}
+		{#if restoreFeedback && !notesNarrativeFullWorkspaceActive}
 			<div
 				class="mx-5 mt-3 rounded-md border px-3 py-2 text-xs {restoreFeedback.kind === 'success'
 					? 'border-emerald-300/70 bg-emerald-50 text-emerald-900 dark:border-emerald-700/60 dark:bg-emerald-900/20 dark:text-emerald-200'
@@ -4195,7 +4277,39 @@
 
 		{:else if mode === 'create'}
 			<!-- ── Create mode ─────────────────────────────────────────────── -->
-			<div class="flex flex-col h-full" data-testid="case-notes-create-form">
+			<div class="flex flex-col flex-1 min-h-0" data-testid="case-notes-create-form">
+				{#if notesNarrativeFullWorkspaceActive}
+					<div class="flex flex-1 min-h-0 flex-col min-w-0 overflow-hidden">
+						<div class="flex flex-1 min-h-0 flex-col min-w-0">
+							<CaseStructuredNotesReviewPanel
+								originalNoteText={structuredNotesPreviewSourceText}
+								loading={structuredNotesLoading}
+								errorMessage={structuredNotesError}
+								data={structuredNotesResult}
+								testIdPrefix="case-note-structured-create"
+								onClosePanel={resetStructuredNotesPreview}
+								canCommitDraft={structuredNotesCanCommitDraft}
+								editedCommitPending={structuredNotesEditedCommitPending}
+								actionBusy={structuredNotesActionBusy}
+								onAcceptDraft={handleStructuredAcceptDraft}
+								onEditDraft={handleStructuredEditDraft}
+								onRejectPreview={handleStructuredRejectPreview}
+								onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+								caseId={caseId}
+								notebookNoteId={selectedNote?.id ?? null}
+								caseEngineToken={$caseEngineToken ?? ''}
+								narrativeRestoreAdminEnabled={$caseEngineUser?.role === 'ADMIN'}
+								narrativePrimaryWorkflow={true}
+								transientNarrativeSourceText={structuredNotesTransientNarrativeSource}
+								narrativePipelineNonce={structuredNotesNarrativePipelineNonce}
+								onNarrativeAcceptToEditor={handleNarrativeAcceptFromWorkflow}
+								onNarrativeRejectWorkflow={handleNarrativeRejectFromWorkflow}
+								onNarrativePreviewFullPane={handleNarrativePreviewFullPane}
+								fillNotesWorkspace={true}
+							/>
+						</div>
+					</div>
+				{:else}
 				<!-- Title input -->
 				<div
 					class="shrink-0 px-5 pt-4 pb-3 border-b border-gray-200 dark:border-gray-800"
@@ -4209,8 +4323,12 @@
 						       text-gray-800 dark:text-gray-100 focus:outline-none"
 					/>
 				</div>
-				<!-- Editor -->
-				<div class="flex-1 overflow-y-auto">
+				<!-- Editor + structured review (P37 — narrative full-pane hides duplicate editor) -->
+				<div
+					class="flex flex-1 min-h-0 flex-col overflow-y-auto"
+					data-testid="case-notes-create-scroll"
+					data-notes-narrative-full-pane={notesNarrativeReviewFullPane ? '1' : '0'}
+				>
 					{#if structuredNotesEditedCommitPending}
 						<div
 							class="mx-5 mt-2 mb-1 rounded-md border border-teal-200 bg-teal-50/90 px-3 py-2 text-xs text-teal-950 dark:border-teal-800 dark:bg-teal-950/35 dark:text-teal-100"
@@ -4220,65 +4338,50 @@
 							ready.
 						</div>
 					{/if}
-					{#key createEditorRenderKey}
-						<CaseNoteEditor
-							content={createText}
-							editable={true}
-							showHeader={false}
-						on:change={(e) => (createText = e.detail)}
-					/>
-				{/key}
-			</div>
-			{#if p34PrototypeResult}
-				<div
-					class="shrink-0 mx-5 mt-2 mb-1 rounded border border-dashed border-violet-300/80 dark:border-violet-700/60 bg-violet-50/80 dark:bg-violet-950/25 px-3 py-2 text-xs"
-					data-testid="case-note-p34-prototype-panel"
-				>
-					<p class="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200 mb-2">
-						— P34 prototype draft —
-					</p>
-					<p class="text-[10px] text-violet-700/90 dark:text-violet-300/90 mb-1.5 font-mono">
-						Statements: {p34PrototypeResult.meta.statementCount} | Uncertain: {p34PrototypeResult.meta.uncertainCount}
-					</p>
-					<textarea
-						readonly
-						class="w-full rounded border border-violet-200 dark:border-violet-800 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 min-h-[6rem] max-h-[20rem] overflow-y-auto resize-y font-sans"
-						data-testid="case-note-p34-prototype-draft"
-					>{p34PrototypeResult.draft}</textarea>
-					<p class="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200 mt-3 mb-1">
-						— statements —
-					</p>
-					<ul class="list-disc pl-4 text-[11px] text-gray-700 dark:text-gray-300 space-y-0.5 max-h-40 overflow-y-auto">
-						{#each p34PrototypeResult.statements as s}
-							<li><b>{s.source}</b> | {s.certainty} — {s.text}</li>
-						{/each}
-					</ul>
+					{#if !notesNarrativeReviewFullPane}
+						{#key createEditorRenderKey}
+							<CaseNoteEditor
+								content={createText}
+								editable={true}
+								showHeader={false}
+								on:change={(e) => (createText = e.detail)}
+							/>
+						{/key}
+					{/if}
+					{#if structuredNotesUiOffered && structuredNotesVisible && (structuredNotesLoading || structuredNotesError !== '' || structuredNotesResult != null)}
+						<div class="flex min-h-0 flex-1 flex-col">
+							<CaseStructuredNotesReviewPanel
+								originalNoteText={structuredNotesPreviewSourceText}
+								loading={structuredNotesLoading}
+								errorMessage={structuredNotesError}
+								data={structuredNotesResult}
+								testIdPrefix="case-note-structured-create"
+								onClosePanel={resetStructuredNotesPreview}
+								canCommitDraft={structuredNotesCanCommitDraft}
+								editedCommitPending={structuredNotesEditedCommitPending}
+								actionBusy={structuredNotesActionBusy}
+								onAcceptDraft={handleStructuredAcceptDraft}
+								onEditDraft={handleStructuredEditDraft}
+								onRejectPreview={handleStructuredRejectPreview}
+								onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+								caseId={caseId}
+								notebookNoteId={selectedNote?.id ?? null}
+								caseEngineToken={$caseEngineToken ?? ''}
+								narrativeRestoreAdminEnabled={$caseEngineUser?.role === 'ADMIN'}
+								narrativePrimaryWorkflow={true}
+								transientNarrativeSourceText={structuredNotesTransientNarrativeSource}
+								narrativePipelineNonce={structuredNotesNarrativePipelineNonce}
+								onNarrativeAcceptToEditor={handleNarrativeAcceptFromWorkflow}
+								onNarrativeRejectWorkflow={handleNarrativeRejectFromWorkflow}
+								onNarrativePreviewFullPane={handleNarrativePreviewFullPane}
+							/>
+						</div>
+					{/if}
 				</div>
-			{/if}
-			{#if structuredNotesUiOffered && structuredNotesVisible && (structuredNotesLoading || structuredNotesError !== '' || structuredNotesResult != null)}
-				<CaseStructuredNotesReviewPanel
-					originalNoteText={structuredNotesPreviewSourceText}
-					loading={structuredNotesLoading}
-					errorMessage={structuredNotesError}
-					data={structuredNotesResult}
-					testIdPrefix="case-note-structured-create"
-					onClosePanel={resetStructuredNotesPreview}
-					canCommitDraft={structuredNotesCanCommitDraft}
-					editedCommitPending={structuredNotesEditedCommitPending}
-					actionBusy={structuredNotesActionBusy}
-					onAcceptDraft={handleStructuredAcceptDraft}
-					onEditDraft={handleStructuredEditDraft}
-					onRejectPreview={handleStructuredRejectPreview}
-					onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
-					caseId={caseId}
-					notebookNoteId={selectedNote?.id ?? null}
-					caseEngineToken={$caseEngineToken ?? ''}
-				/>
-			{/if}
 			{#if enhanceState !== 'idle'}
-				<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
+				<div class="mx-5 mt-3 mb-1 shrink-0 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
 					{#if enhanceState === 'loading'}
-						<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
+						<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Polishing wording…</div>
 						{#if enhanceSafeCleanupDebugEnabled() && enhancePipelineDevStage !== 'idle'}
 							<div
 								class="px-3 pb-2 text-[10px] font-mono text-amber-700 dark:text-amber-300/95"
@@ -4464,14 +4567,10 @@
 					<div class="mb-1 text-xs text-red-600 dark:text-red-400">{attachmentUploadError}</div>
 				{/if}
 				{#if draftAttachments.length > 0}
-					<!-- Header -->
-					<div class="flex items-center justify-between mb-1.5">
-						<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-							Attachments <span class="font-normal normal-case text-gray-400 dark:text-gray-500">(unsaved draft)</span>
-						</span>
+					<div class="flex items-center justify-between mb-2">
+						<span class="text-xs font-semibold text-gray-700 dark:text-gray-200">Attachments</span>
 					</div>
-					<!-- Full extraction / OCR list — identical rendering to saved-note view mode -->
-					<ul class="space-y-2" data-testid="note-draft-attachment-list">
+					<ul class="space-y-3" data-testid="note-draft-attachment-list">
 					{#each draftAttachments as att (att.id)}
 						{@const extraction = extractionsByAttachmentId.get(att.id) ?? null}
 						{@const isExtracting = extractingIds.has(att.id)}
@@ -4481,34 +4580,36 @@
 						{@const isOcrExpanded = expandedOcrIds.has(att.id)}
 						{@const ocrEligible = isOcrEligible(att)}
 					{@const attachmentStatusInfo = (() => {
-						if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
+						if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200' };
 						const extDone = extraction?.status === 'extracted';
 						const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
-						if (extDone && ocrDone) return { label: '✓ Text + OCR', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-						if (extDone) return { label: '✓ Text extracted', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-						if (ocrDone) return { label: '✓ OCR complete', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
-						if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
-						// Only show Unsupported when OCR is also not an option; image files with
-						// unsupported text extraction still have OCR available.
-						if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-						if (ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-						if (extraction?.status === 'no_text_found' && !ocrEligible) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-						return { label: 'Ready to process', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+						const ocrLow = ocr?.status === 'low_confidence';
+						if (extDone && ocrDone) return { label: 'Extracted · OCR', cls: 'bg-emerald-100 dark:bg-emerald-900/25 text-emerald-900 dark:text-emerald-200' };
+						if (extDone) return { label: 'Extracted', cls: 'bg-emerald-100 dark:bg-emerald-900/25 text-emerald-900 dark:text-emerald-200' };
+						if (ocrDone && ocrLow) return { label: 'OCR (low confidence)', cls: 'bg-orange-100 dark:bg-orange-900/35 text-orange-900 dark:text-orange-200' };
+						if (ocrDone) return { label: 'OCR complete', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200' };
+						if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200' };
+						if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
+						if (ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
+						if (extraction?.status === 'no_text_found' && !ocrEligible) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
+						return { label: 'Ready', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
 					})()}
-					<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
-						<!-- Row 1: file info + explicit status badge + remove -->
-						<div class="flex items-center gap-2 px-2.5 py-1.5">
-							<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
-							<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
-							<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
-							<!-- Explicit processing status badge — always visible, updates immediately -->
-							<span class="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
-							<!-- Remove draft attachment — no confirmation needed for unsaved drafts -->
+					<li class="rounded-lg border border-gray-200/90 dark:border-gray-700/90 bg-gray-50/90 dark:bg-gray-900/50 text-xs text-gray-700 dark:text-gray-300 p-3 shadow-sm">
+						<div class="flex items-start justify-between gap-2 border-b border-gray-200/70 dark:border-gray-700/60 pb-2.5 mb-2.5">
+							<div class="min-w-0 flex items-start gap-2 flex-1">
+								<span class="shrink-0 mt-0.5">{mimeTypeIcon(att.mime_type)}</span>
+								<div class="min-w-0">
+									<div class="font-medium text-gray-800 dark:text-gray-100 truncate" title={att.original_filename}>{att.original_filename}</div>
+									<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{formatBytes(att.file_size_bytes)}</div>
+								</div>
+							</div>
+							<div class="flex items-center gap-2 shrink-0">
+								<span class="text-[10px] font-medium px-2 py-0.5 rounded-md {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
 								{#if removingAttachmentIds.has(att.id)}
-									<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 italic">Removing…</span>
+									<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">Removing…</span>
 								{:else}
 									<button
-										class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
+										class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded px-1"
 										title="Remove attachment"
 										on:click={async () => {
 											removingAttachmentIds = new Set([...removingAttachmentIds, att.id]);
@@ -4518,47 +4619,58 @@
 									>×</button>
 								{/if}
 							</div>
-						<!-- Row 2: unified processing actions -->
-						<div class="px-2.5 pb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+						</div>
+						<div class="flex flex-col gap-2">
 							{#if isExtracting || isOcrRunning}
-								<!-- Processing in progress -->
-								<span class="text-[11px] text-blue-500 dark:text-blue-400 italic">Processing…</span>
+								<span class="text-[11px] text-blue-600 dark:text-blue-400 italic">Processing…</span>
 							{:else if extraction === null && ocr === null}
-								<!-- Not yet processed — show single unified action -->
 								<button
-									class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+									type="button"
+									class="self-start rounded-md px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
 									title={isOcrEligible(att)
 										? 'Run OCR to extract text from this image for use in a note draft or proposal'
 										: 'Extract text for .txt, .md, .docx, and PDF; other types are recorded as unsupported with a short notice'}
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'extracted'}
-								<!-- Extraction succeeded: show/hide + insert + re-process -->
-								<button
-									class="text-[11px] text-green-700 dark:text-green-400 hover:underline"
-									on:click={() => toggleExtractionExpanded(att.id)}
-								>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
-								<button
-									class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white"
-									title="Insert extracted text into the active draft editor (appends if draft already has content)"
-									on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename, att.id)}
-								>Insert into draft</button>
-								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
+								<div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+									<button
+										type="button"
+										class="rounded-md px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
+										title="Insert extracted text into the active draft editor (appends if draft already has content)"
+										on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename, att.id)}
+									>Insert into draft</button>
+									<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+										<button
+											type="button"
+											class="rounded px-2 py-1 text-[11px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200/80 dark:hover:bg-gray-800/80 transition"
+											on:click={() => toggleExtractionExpanded(att.id)}
+										>{isExtractExpanded ? '▼ Hide extracted text' : '▼ View extracted text'}</button>
+										<button type="button" class="rounded px-2 py-1 text-[11px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200/80 dark:hover:bg-gray-800/80 transition" on:click={() => void processAttachment(att)}>Re-process</button>
+										<span class="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">Ready for proposal</span>
+									</div>
+								</div>
 							{:else if ocr?.status === 'extracted' || ocr?.status === 'low_confidence'}
-								<!-- OCR succeeded: show/hide + confidence + insert + re-process -->
-								<button
-									class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
-									on:click={() => toggleOcrExpanded(att.id)}
-								>{isOcrExpanded ? 'Hide OCR text' : 'Show OCR text'}</button>
-								{#if ocr.confidence_pct !== null}
-									<span class="text-[10px] text-gray-400 dark:text-gray-500">{ocr.confidence_pct}% confidence</span>
-								{/if}
-								<button
-									class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white"
-									title="Insert OCR text into the active draft editor (appends if draft already has content)"
-									on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename, att.id)}
-								>Insert into draft</button>
-								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
+								<div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+									<button
+										type="button"
+										class="rounded-md px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
+										title="Insert OCR text into the active draft editor (appends if draft already has content)"
+										on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename, att.id)}
+									>Insert into draft</button>
+									<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+										<button
+											type="button"
+											class="rounded px-2 py-1 text-[11px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200/80 dark:hover:bg-gray-800/80 transition"
+											on:click={() => toggleOcrExpanded(att.id)}
+										>{isOcrExpanded ? '▼ Hide OCR text' : '▼ View OCR text'}</button>
+										{#if ocr.confidence_pct !== null}
+											<span class="text-[10px] text-gray-500 dark:text-gray-400">{ocr.confidence_pct}% confidence</span>
+										{/if}
+										<button type="button" class="rounded px-2 py-1 text-[11px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200/80 dark:hover:bg-gray-800/80 transition" on:click={() => void processAttachment(att)}>Re-process</button>
+										<span class="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">Ready for proposal</span>
+									</div>
+								</div>
 							{:else if extraction?.status === 'no_text_found'}
 								<!-- PDF or text file with no machine-readable text -->
 								<span class="text-[11px] text-gray-500 dark:text-gray-400 italic">No machine-readable text found.</span>
@@ -4582,46 +4694,42 @@
 							{:else if extraction?.status === 'unsupported' && ocrEligible && ocr === null}
 								<!-- Image file where Extract was tried but is unsupported — OCR still available -->
 								<button
-									class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+									type="button"
+									class="self-start rounded-md px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'unsupported'}
 								<!-- Genuinely unsupported file type -->
 								<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">File type not supported for text extraction.</span>
 							{/if}
-							<!-- Proposal readiness hint (separate from insert path) -->
-							{#if extraction?.status === 'extracted' || ocr?.status === 'extracted' || ocr?.status === 'low_confidence'}
-								<span class="text-[10px] text-indigo-500 dark:text-indigo-400">· ready for proposal</span>
-							{/if}
 						</div>
-							<!-- Extracted text panel — green, distinct from draft editor -->
 							{#if extraction?.status === 'extracted' && isExtractExpanded}
-								<div class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2">
-									<div class="mb-1 flex items-center gap-1.5">
-										<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
-										<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
+								<div class="mt-2 rounded-md border border-green-200/80 dark:border-green-800/60 bg-green-50/80 dark:bg-green-950/25 px-2.5 py-2">
+									<div class="mb-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+										<span class="text-[10px] font-semibold text-green-800 dark:text-green-300">Extracted text</span>
+										<span class="text-[10px] text-gray-500 dark:text-gray-400">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
 									</div>
 									{#if extraction.extraction_warnings}
 										<p class="mb-1 text-[10px] text-amber-700 dark:text-amber-300 whitespace-pre-wrap leading-snug">Parser notes: {extraction.extraction_warnings}</p>
 									{/if}
-									<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
-									<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">Derived text — not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
+									<pre class="whitespace-pre-wrap text-[11px] leading-snug text-gray-700 dark:text-gray-300 font-sans">{extraction.extracted_text}</pre>
+									<p class="mt-1.5 text-[10px] text-gray-500 dark:text-gray-400 italic">Derived text — not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
 								</div>
 							{/if}
-							<!-- OCR text panel — amber, distinct from extracted text and draft editor -->
 							{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
-								<div class="mx-2.5 mb-2 rounded border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2">
-									<div class="mb-1 flex items-center gap-1.5">
-										<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">OCR-derived text</span>
-										{#if ocr?.confidence_pct !== null}
-											<span class="text-[10px] text-gray-400 dark:text-gray-500">· {ocr?.confidence_pct}% confidence</span>
-										{/if}
+								<div class="mt-2 rounded-md border border-gray-200/90 dark:border-gray-700/80 bg-gray-100/70 dark:bg-gray-800/40 px-2.5 py-2">
+									<p class="text-[10px] font-medium text-gray-600 dark:text-gray-400 mb-1">
 										{#if ocr?.status === 'low_confidence'}
-											<span class="text-[10px] text-amber-700 dark:text-amber-500 font-medium">· Low confidence</span>
+											Low-confidence OCR (may contain noise)
+										{:else}
+											OCR text
 										{/if}
-									</div>
-									<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{ocr?.derived_text}</pre>
-									<p class="mt-1.5 text-[10px] text-amber-700 dark:text-amber-500 italic">OCR text may be imperfect — especially for handwriting or low-quality images. Not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
+									</p>
+									{#if ocr?.confidence_pct !== null}
+										<p class="text-[9px] text-gray-500 dark:text-gray-500 mb-1">{ocr.confidence_pct}% model confidence</p>
+									{/if}
+									<pre class="whitespace-pre-wrap text-[10px] leading-snug text-gray-600 dark:text-gray-400 font-sans">{ocr?.derived_text}</pre>
+									<p class="mt-1.5 text-[9px] text-gray-500 dark:text-gray-500 italic">Not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
 								</div>
 							{/if}
 						</li>
@@ -4654,9 +4762,10 @@
 						</ul>
 					</div>
 				{/if}
+				{/if}
 				<!-- Footer actions -->
 				<div
-					class="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800"
+					class="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800"
 				>
 					<button
 						type="button"
@@ -4676,44 +4785,19 @@
 				>
 					Cancel
 				</button>
-			<div class="inline-flex items-center gap-1.5 shrink-0">
-				<!-- P30-25: professional AI affordance — gray base, purple accent, faint diagonal sheen -->
+			{#if structuredNotesUiOffered}
 				<button
 					type="button"
-					disabled={enhanceState === 'loading'}
-					class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium border-gray-300 dark:border-gray-700 text-purple-700 dark:text-purple-300 bg-white/60 dark:bg-gray-800/60 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition"
-					on:click={handleEnhance}
-					data-testid="case-note-enhance-action"
-					title="Enhance note"
-					aria-label={enhanceState === 'loading' ? 'Enhancing note…' : 'Enhance note'}
+					disabled={structuredNotesLoading || structuredNotesActionBusy}
+					class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium overflow-hidden border-teal-400/90 dark:border-teal-600 text-teal-900 dark:text-teal-100 bg-white/70 dark:bg-gray-800/70 hover:bg-teal-50/95 dark:hover:bg-teal-900/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+					on:click={() => void runStructuredNotesPreview()}
+					title="Run structured extraction and narrative preview from your current draft. Nothing is saved until you use Save note."
+					data-testid="case-note-structure-note-action"
 				>
-					<Sparkles className="size-4 shrink-0" strokeWidth="2" />
-					<span>{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}</span>
-					<span class="enhance-shimmer" aria-hidden="true"></span>
+					<span>{structuredNotesLoading ? 'Structuring…' : 'Structure Note'}</span>
+					<span class="notes-workflow-shimmer" aria-hidden="true"></span>
 				</button>
-				{#if structuredNotesUiOffered}
-					<button
-						type="button"
-						disabled={structuredNotesLoading || structuredNotesActionBusy}
-						class="h-8 px-2.5 rounded-md border text-xs font-medium border-teal-300 dark:border-teal-700 text-teal-800 dark:text-teal-200 bg-white/60 dark:bg-gray-800/60 hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-						on:click={() => void runStructuredNotesPreview()}
-						title="Generate a structured draft from your note (separate from Enhance)."
-						data-testid="case-note-structured-preview-action"
-					>
-						{structuredNotesLoading ? 'Generating…' : '👉 Generate Structured Draft'}
-					</button>
-				{/if}
-			</div>
-			<button
-				type="button"
-				disabled={p34PrototypeLoading}
-				class="h-8 px-2.5 rounded-md border text-xs font-medium border-violet-300 dark:border-violet-700 text-violet-800 dark:text-violet-200 bg-white/60 dark:bg-gray-800/60 hover:bg-violet-50 dark:hover:bg-violet-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-				on:click={() => void runP34Prototype()}
-				title="P34 structured preview (dev prototype, no save)"
-				data-testid="case-note-p34-prototype-action"
-			>
-				{p34PrototypeLoading ? 'P34…' : 'P34 Prototype'}
-			</button>
+			{/if}
 			<!-- P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
 			<label
 				class="cursor-pointer h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}"
@@ -4771,9 +4855,41 @@
 
 {:else if selectedNote}
 			<!-- ── View or Edit mode ───────────────────────────────────────── -->
-			<div class="flex flex-col h-full">
+			<div class="flex flex-col flex-1 min-h-0">
 
 				{#if mode === 'view'}
+					{#if notesNarrativeFullWorkspaceActive}
+					<div class="flex flex-1 min-h-0 flex-col min-w-0 overflow-hidden">
+						<div class="flex flex-1 min-h-0 flex-col min-w-0">
+							<CaseStructuredNotesReviewPanel
+								originalNoteText={structuredNotesPreviewSourceText}
+								loading={structuredNotesLoading}
+								errorMessage={structuredNotesError}
+								data={structuredNotesResult}
+								testIdPrefix="case-note-structured-view"
+								onClosePanel={resetStructuredNotesPreview}
+								canCommitDraft={structuredNotesCanCommitDraft}
+								editedCommitPending={structuredNotesEditedCommitPending}
+								actionBusy={structuredNotesActionBusy}
+								onAcceptDraft={handleStructuredAcceptDraft}
+								onEditDraft={handleStructuredEditDraft}
+								onRejectPreview={handleStructuredRejectPreview}
+								onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+								caseId={caseId}
+								notebookNoteId={selectedNote?.id ?? null}
+								caseEngineToken={$caseEngineToken ?? ''}
+								narrativeRestoreAdminEnabled={$caseEngineUser?.role === 'ADMIN'}
+								narrativePrimaryWorkflow={true}
+								transientNarrativeSourceText={structuredNotesTransientNarrativeSource}
+								narrativePipelineNonce={structuredNotesNarrativePipelineNonce}
+								onNarrativeAcceptToEditor={handleNarrativeAcceptFromWorkflow}
+								onNarrativeRejectWorkflow={handleNarrativeRejectFromWorkflow}
+								onNarrativePreviewFullPane={handleNarrativePreviewFullPane}
+								fillNotesWorkspace={true}
+							/>
+						</div>
+					</div>
+					{:else}
 					<!-- View: header with title + actions -->
 					<div
 						class="shrink-0 flex items-start justify-between gap-3 px-5 pt-4 pb-3
@@ -4830,18 +4946,6 @@
 						>
 							Edit
 						</button>
-						{#if structuredNotesUiOffered}
-							<button
-								type="button"
-								disabled={structuredNotesLoading || structuredNotesActionBusy}
-								class="text-xs px-2.5 py-1 rounded-md border border-teal-300 dark:border-teal-700 text-teal-800 dark:text-teal-200 bg-white/70 dark:bg-gray-800/70 hover:bg-teal-50 dark:hover:bg-teal-900/25 transition font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-								on:click={() => void runStructuredNotesPreview()}
-								title="Generate a structured draft from your note (separate from Enhance)."
-								data-testid="case-note-structured-preview-action-view"
-							>
-								{structuredNotesLoading ? 'Generating…' : '👉 Generate Structured Draft'}
-							</button>
-						{/if}
 
 						<!-- Kebab menu: secondary actions -->
 						<DropdownMenu.Root
@@ -5001,11 +5105,19 @@
 							</div>
 						</div>
 					{/if}
-					<!-- Read-only editor -->
-					<div class="flex-1 overflow-y-auto">
-						<CaseNoteEditor content={selectedNote.current_text} showHeader={false} />
-					</div>
+					<!-- Read-only editor + structured review + attachments: one scroll region (P37 — reach narrative/debug) -->
+					<div
+						class="flex flex-1 min-h-0 flex-col overflow-y-auto"
+						data-testid="case-notes-view-scroll"
+						data-notes-narrative-full-pane={notesNarrativeReviewFullPane ? '1' : '0'}
+					>
+						{#if !notesNarrativeReviewFullPane}
+							<div class="shrink-0">
+								<CaseNoteEditor content={selectedNote.current_text} showHeader={false} />
+							</div>
+						{/if}
 					{#if structuredNotesUiOffered && structuredNotesVisible && (structuredNotesLoading || structuredNotesError !== '' || structuredNotesResult != null)}
+						<div class="flex min-h-0 flex-1 flex-col">
 						<CaseStructuredNotesReviewPanel
 							originalNoteText={structuredNotesPreviewSourceText}
 							loading={structuredNotesLoading}
@@ -5023,56 +5135,69 @@
 							caseId={caseId}
 							notebookNoteId={selectedNote?.id ?? null}
 							caseEngineToken={$caseEngineToken ?? ''}
+							narrativeRestoreAdminEnabled={$caseEngineUser?.role === 'ADMIN'}
+							narrativePrimaryWorkflow={true}
+							transientNarrativeSourceText={structuredNotesTransientNarrativeSource}
+							narrativePipelineNonce={structuredNotesNarrativePipelineNonce}
+							onNarrativeAcceptToEditor={handleNarrativeAcceptFromWorkflow}
+							onNarrativeRejectWorkflow={handleNarrativeRejectFromWorkflow}
+							onNarrativePreviewFullPane={handleNarrativePreviewFullPane}
 						/>
+						</div>
 					{/if}
 
 			<!-- Attachments panel (view mode, P30-02 + P30-03) -->
 			<!-- P30-20 hardening: "Add file" removed from view mode — available in edit mode only. -->
 			<!-- P30-27: id="note-view-attachments" used by the jump-to-attachments chip in the header. -->
-			<div id="note-view-attachments" class="shrink-0 mx-5 mb-3 mt-2">
-					<div class="mb-1.5 flex items-center justify-between">
-						<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-							Attachments
-						</span>
+			<div id="note-view-attachments" class="mx-5 mb-3 mt-2 shrink-0">
+					<div class="mb-2 flex items-center justify-between">
+						<span class="text-xs font-semibold text-gray-700 dark:text-gray-200">Attachments</span>
 					</div>
 					{#if attachmentsLoading}
 						<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
 					{:else if noteAttachments.length === 0}
 						<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Enter edit mode to add files.</div>
 						{:else}
-							<ul class="space-y-2" data-testid="note-attachment-list">
+							<ul class="space-y-3" data-testid="note-attachment-list">
 							{#each noteAttachments as att (att.id)}
 								{@const extraction = extractionsByAttachmentId.get(att.id) ?? null}
 								{@const isExtracting = extractingIds.has(att.id)}
-								{@const isExtractExpanded = expandedExtractionIds.has(att.id)}
 								{@const ocr = ocrByAttachmentId.get(att.id) ?? null}
 								{@const isOcrRunning = ocrRunningIds.has(att.id)}
-								{@const isOcrExpanded = expandedOcrIds.has(att.id)}
 								{@const ocrEligible = isOcrEligible(att)}
 						{@const attachmentStatusInfo = (() => {
+							if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200' };
 							const extDone = extraction?.status === 'extracted';
 							const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
-							if (extDone && ocrDone) return { label: '✓ Text + OCR', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-							if (extDone) return { label: '✓ Text extracted', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-							if (ocrDone) return { label: '✓ OCR complete', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
-							if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
-							if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-							if (ocr?.status === 'no_text_found' || (extraction?.status === 'no_text_found' && !ocrEligible)) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-							return { label: 'Ready to process', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+							const ocrLow = ocr?.status === 'low_confidence';
+							if (extDone && ocrDone) return { label: 'Extracted · OCR', cls: 'bg-emerald-100 dark:bg-emerald-900/25 text-emerald-900 dark:text-emerald-200' };
+							if (extDone) return { label: 'Extracted', cls: 'bg-emerald-100 dark:bg-emerald-900/25 text-emerald-900 dark:text-emerald-200' };
+							if (ocrDone && ocrLow) return { label: 'OCR (low confidence)', cls: 'bg-orange-100 dark:bg-orange-900/35 text-orange-900 dark:text-orange-200' };
+							if (ocrDone) return { label: 'OCR complete', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200' };
+							if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200' };
+							if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
+							if (ocr?.status === 'no_text_found' || (extraction?.status === 'no_text_found' && !ocrEligible)) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
+							return { label: 'Ready', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
 						})()}
-						<!-- P30-28: view mode is read-only — filename + size + status + download only -->
-						<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
-							<div class="flex items-center gap-2 px-2.5 py-1.5">
-								<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
-								<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
-								<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
-								<span class="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
-								<button
-									class="shrink-0 text-[11px] text-blue-600 dark:text-blue-400 hover:underline"
-									title="Download {att.original_filename}"
-									aria-label="Download {att.original_filename}"
-									on:click={() => void downloadNoteAttachment(caseId, att.id, att.original_filename, $caseEngineToken ?? '')}
-								>Download</button>
+						<li class="rounded-lg border border-gray-200/90 dark:border-gray-700/90 bg-gray-50/90 dark:bg-gray-900/50 text-xs text-gray-700 dark:text-gray-300 p-3 shadow-sm">
+							<div class="flex items-start justify-between gap-2">
+								<div class="min-w-0 flex items-start gap-2 flex-1">
+									<span class="shrink-0 mt-0.5">{mimeTypeIcon(att.mime_type)}</span>
+									<div class="min-w-0">
+										<div class="font-medium text-gray-800 dark:text-gray-100 truncate" title={att.original_filename}>{att.original_filename}</div>
+										<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{formatBytes(att.file_size_bytes)}</div>
+									</div>
+								</div>
+								<div class="flex flex-col items-end gap-1.5 shrink-0 sm:flex-row sm:items-center">
+									<span class="text-[10px] font-medium px-2 py-0.5 rounded-md {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
+									<button
+										type="button"
+										class="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-300 bg-blue-50/90 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
+										title="Download {att.original_filename}"
+										aria-label="Download {att.original_filename}"
+										on:click={() => void downloadNoteAttachment(caseId, att.id, att.original_filename, $caseEngineToken ?? '')}
+									>Download</button>
+								</div>
 							</div>
 						</li>
 							{/each}
@@ -5084,8 +5209,11 @@
 			Enter <span class="font-medium not-italic">Edit</span> mode to add files or process attachment text into the note.
 		</p>
 				</div>
+					</div>
+					{/if}
 
 				{:else if mode === 'edit'}
+					{#if !notesNarrativeFullWorkspaceActive}
 					<!-- Edit: title input header -->
 					<div
 						class="shrink-0 px-5 pt-4 pb-3 border-b border-gray-200 dark:border-gray-800"
@@ -5126,8 +5254,45 @@
 							</ul>
 						</div>
 					{/if}
-					<!-- Editable editor -->
-					<div class="flex-1 overflow-y-auto">
+					{/if}
+					{#if notesNarrativeFullWorkspaceActive}
+					<div class="flex flex-1 min-h-0 flex-col min-w-0 overflow-hidden">
+						<div class="flex flex-1 min-h-0 flex-col min-w-0">
+							<CaseStructuredNotesReviewPanel
+								originalNoteText={structuredNotesPreviewSourceText}
+								loading={structuredNotesLoading}
+								errorMessage={structuredNotesError}
+								data={structuredNotesResult}
+								testIdPrefix="case-note-structured-edit"
+								onClosePanel={resetStructuredNotesPreview}
+								canCommitDraft={structuredNotesCanCommitDraft}
+								editedCommitPending={structuredNotesEditedCommitPending}
+								actionBusy={structuredNotesActionBusy}
+								onAcceptDraft={handleStructuredAcceptDraft}
+								onEditDraft={handleStructuredEditDraft}
+								onRejectPreview={handleStructuredRejectPreview}
+								onTraceabilityInteraction={handleStructuredNotesTraceabilityInteraction}
+								caseId={caseId}
+								notebookNoteId={selectedNote?.id ?? null}
+								caseEngineToken={$caseEngineToken ?? ''}
+								narrativeRestoreAdminEnabled={$caseEngineUser?.role === 'ADMIN'}
+								narrativePrimaryWorkflow={true}
+								transientNarrativeSourceText={structuredNotesTransientNarrativeSource}
+								narrativePipelineNonce={structuredNotesNarrativePipelineNonce}
+								onNarrativeAcceptToEditor={handleNarrativeAcceptFromWorkflow}
+								onNarrativeRejectWorkflow={handleNarrativeRejectFromWorkflow}
+								onNarrativePreviewFullPane={handleNarrativePreviewFullPane}
+								fillNotesWorkspace={true}
+							/>
+						</div>
+					</div>
+					{:else}
+					<!-- Editor + structured review + side panels + attachments: one scroll region (P37 — reach narrative/debug) -->
+					<div
+						class="flex flex-1 min-h-0 flex-col overflow-y-auto"
+						data-testid="case-notes-edit-scroll"
+						data-notes-narrative-full-pane={notesNarrativeReviewFullPane ? '1' : '0'}
+					>
 						{#if structuredNotesEditedCommitPending}
 							<div
 								class="mx-5 mt-2 mb-1 rounded-md border border-teal-200 bg-teal-50/90 px-3 py-2 text-xs text-teal-950 dark:border-teal-800 dark:bg-teal-950/35 dark:text-teal-100"
@@ -5137,42 +5302,20 @@
 								ready.
 							</div>
 						{/if}
-						{#key editEditorRenderKey}
-							<CaseNoteEditor
-								content={editText}
-								editable={true}
-								showHeader={false}
-							on:change={(e) => (editText = e.detail)}
-						/>
-					{/key}
-				</div>
-				{#if p34PrototypeResult}
-					<div
-						class="shrink-0 mx-5 mt-2 mb-1 rounded border border-dashed border-violet-300/80 dark:border-violet-700/60 bg-violet-50/80 dark:bg-violet-950/25 px-3 py-2 text-xs"
-						data-testid="case-note-p34-prototype-panel-edit"
-					>
-						<p class="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200 mb-2">
-							— P34 prototype draft —
-						</p>
-						<p class="text-[10px] text-violet-700/90 dark:text-violet-300/90 mb-1.5 font-mono">
-							Statements: {p34PrototypeResult.meta.statementCount} | Uncertain: {p34PrototypeResult.meta.uncertainCount}
-						</p>
-						<textarea
-							readonly
-							class="w-full rounded border border-violet-200 dark:border-violet-800 bg-white dark:bg-gray-900 px-2 py-1.5 text-xs text-gray-800 dark:text-gray-200 min-h-[6rem] max-h-[20rem] overflow-y-auto resize-y font-sans"
-							data-testid="case-note-p34-prototype-draft-edit"
-						>{p34PrototypeResult.draft}</textarea>
-						<p class="text-[10px] font-semibold uppercase tracking-wide text-violet-800 dark:text-violet-200 mt-3 mb-1">
-							— statements —
-						</p>
-						<ul class="list-disc pl-4 text-[11px] text-gray-700 dark:text-gray-300 space-y-0.5 max-h-40 overflow-y-auto">
-							{#each p34PrototypeResult.statements as s}
-								<li><b>{s.source}</b> | {s.certainty} — {s.text}</li>
-							{/each}
-						</ul>
-					</div>
-				{/if}
+						{#if !notesNarrativeReviewFullPane}
+							<div class="shrink-0">
+								{#key editEditorRenderKey}
+									<CaseNoteEditor
+										content={editText}
+										editable={true}
+										showHeader={false}
+										on:change={(e) => (editText = e.detail)}
+									/>
+								{/key}
+							</div>
+						{/if}
 				{#if structuredNotesUiOffered && structuredNotesVisible && (structuredNotesLoading || structuredNotesError !== '' || structuredNotesResult != null)}
+					<div class="flex min-h-0 flex-1 flex-col">
 					<CaseStructuredNotesReviewPanel
 						originalNoteText={structuredNotesPreviewSourceText}
 						loading={structuredNotesLoading}
@@ -5190,12 +5333,20 @@
 						caseId={caseId}
 						notebookNoteId={selectedNote?.id ?? null}
 						caseEngineToken={$caseEngineToken ?? ''}
+						narrativeRestoreAdminEnabled={$caseEngineUser?.role === 'ADMIN'}
+						narrativePrimaryWorkflow={true}
+						transientNarrativeSourceText={structuredNotesTransientNarrativeSource}
+						narrativePipelineNonce={structuredNotesNarrativePipelineNonce}
+						onNarrativeAcceptToEditor={handleNarrativeAcceptFromWorkflow}
+						onNarrativeRejectWorkflow={handleNarrativeRejectFromWorkflow}
+						onNarrativePreviewFullPane={handleNarrativePreviewFullPane}
 					/>
+					</div>
 				{/if}
 				{#if enhanceState !== 'idle'}
-					<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
+					<div class="mx-5 mt-3 mb-1 shrink-0 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
 						{#if enhanceState === 'loading'}
-							<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Enhancing…</div>
+							<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Polishing wording…</div>
 							{#if enhanceSafeCleanupDebugEnabled() && enhancePipelineDevStage !== 'idle'}
 								<div
 									class="px-3 pb-2 text-[10px] font-mono text-amber-700 dark:text-amber-300/95"
@@ -5378,11 +5529,9 @@
 		     Extracted/OCR text goes into editText only; the note body is not changed until
 		     the investigator explicitly clicks Save.
 		     P30-23: "Add file" text button removed from header — use the 📎 in the footer. -->
-		<div class="shrink-0 mx-5 mb-2 mt-2">
-			<div class="mb-1.5 flex items-center justify-between">
-				<span class="text-[11px] font-semibold uppercase tracking-wide text-gray-400 dark:text-gray-500">
-					Attachments
-				</span>
+		<div class="mx-5 mb-2 mt-2">
+			<div class="mb-2 flex items-center justify-between">
+				<span class="text-xs font-semibold text-gray-700 dark:text-gray-200">Attachments</span>
 			</div>
 			{#if attachmentUploadError}
 				<div class="mb-1.5 text-xs text-red-600 dark:text-red-400">{attachmentUploadError}</div>
@@ -5392,7 +5541,7 @@
 			{:else if noteAttachments.length === 0}
 				<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Use 📎 below to attach files.</div>
 				{:else}
-					<ul class="space-y-2" data-testid="note-edit-attachment-list">
+					<ul class="space-y-3" data-testid="note-edit-attachment-list">
 					{#each noteAttachments as att (att.id)}
 						{@const extraction = extractionsByAttachmentId.get(att.id) ?? null}
 						{@const isExtracting = extractingIds.has(att.id)}
@@ -5402,86 +5551,110 @@
 						{@const isOcrExpanded = expandedOcrIds.has(att.id)}
 						{@const ocrEligible = isOcrEligible(att)}
 					{@const attachmentStatusInfo = (() => {
-						if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300' };
+						if (isExtracting || isOcrRunning) return { label: 'Processing…', cls: 'bg-blue-100 dark:bg-blue-900/30 text-blue-800 dark:text-blue-200' };
 						const extDone = extraction?.status === 'extracted';
 						const ocrDone = ocr?.status === 'extracted' || ocr?.status === 'low_confidence';
-						if (extDone && ocrDone) return { label: '✓ Text + OCR', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-						if (extDone) return { label: '✓ Text extracted', cls: 'bg-green-100 dark:bg-green-900/30 text-green-700 dark:text-green-400' };
-						if (ocrDone) return { label: '✓ OCR complete', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400' };
-						if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-700 dark:text-red-400' };
-						if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-						if (ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-						if (extraction?.status === 'no_text_found' && !ocrEligible) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
-						return { label: 'Ready to process', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400' };
+						const ocrLow = ocr?.status === 'low_confidence';
+						if (extDone && ocrDone) return { label: 'Extracted · OCR', cls: 'bg-emerald-100 dark:bg-emerald-900/25 text-emerald-900 dark:text-emerald-200' };
+						if (extDone) return { label: 'Extracted', cls: 'bg-emerald-100 dark:bg-emerald-900/25 text-emerald-900 dark:text-emerald-200' };
+						if (ocrDone && ocrLow) return { label: 'OCR (low confidence)', cls: 'bg-orange-100 dark:bg-orange-900/35 text-orange-900 dark:text-orange-200' };
+						if (ocrDone) return { label: 'OCR complete', cls: 'bg-amber-100 dark:bg-amber-900/30 text-amber-900 dark:text-amber-200' };
+						if (extraction?.status === 'failed' || ocr?.status === 'failed') return { label: 'Failed', cls: 'bg-red-100 dark:bg-red-900/30 text-red-800 dark:text-red-200' };
+						if (extraction?.status === 'unsupported' && !ocrEligible) return { label: 'Unsupported', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
+						if (ocr?.status === 'no_text_found') return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
+						if (extraction?.status === 'no_text_found' && !ocrEligible) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
+						return { label: 'Ready', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
 					})()}
-					<li class="rounded border border-gray-200 dark:border-gray-700 text-xs text-gray-700 dark:text-gray-300">
-						<!-- Row 1: file info + status badge + remove -->
-						<div class="flex items-center gap-2 px-2.5 py-1.5">
-							<span class="shrink-0">{mimeTypeIcon(att.mime_type)}</span>
-							<span class="min-w-0 flex-1 truncate" title={att.original_filename}>{att.original_filename}</span>
-							<span class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500">{formatBytes(att.file_size_bytes)}</span>
-							<span class="shrink-0 text-[10px] font-medium px-1.5 py-0.5 rounded {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
-							<!-- Remove — confirmation required (saved-note attachment, soft delete) -->
-							{#if confirmRemoveAttachmentId === att.id}
-								<span class="shrink-0 flex items-center gap-1 text-[11px] text-red-600 dark:text-red-400">
-									Remove?
+					<li class="rounded-lg border border-gray-200/90 dark:border-gray-700/90 bg-gray-50/90 dark:bg-gray-900/50 text-xs text-gray-700 dark:text-gray-300 p-3 shadow-sm">
+						<div class="flex items-start justify-between gap-2 border-b border-gray-200/70 dark:border-gray-700/60 pb-2.5 mb-2.5">
+							<div class="min-w-0 flex items-start gap-2 flex-1">
+								<span class="shrink-0 mt-0.5">{mimeTypeIcon(att.mime_type)}</span>
+								<div class="min-w-0">
+									<div class="font-medium text-gray-800 dark:text-gray-100 truncate" title={att.original_filename}>{att.original_filename}</div>
+									<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{formatBytes(att.file_size_bytes)}</div>
+								</div>
+							</div>
+							<div class="flex items-center gap-2 shrink-0">
+								<span class="text-[10px] font-medium px-2 py-0.5 rounded-md {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
+								{#if confirmRemoveAttachmentId === att.id}
+									<span class="flex flex-col items-end gap-0.5 text-[11px] text-red-600 dark:text-red-400 sm:flex-row sm:items-center sm:gap-1">
+										<span>Remove?</span>
+										<span class="flex items-center gap-1">
+											<button
+												type="button"
+												class="hover:underline font-medium"
+												disabled={removingAttachmentIds.has(att.id)}
+												on:click={async () => {
+													removingAttachmentIds = new Set([...removingAttachmentIds, att.id]);
+													confirmRemoveAttachmentId = null;
+													await removeAttachment(att.id, false);
+													removingAttachmentIds = new Set([...removingAttachmentIds].filter(id => id !== att.id));
+												}}
+											>{removingAttachmentIds.has(att.id) ? 'Removing…' : 'Yes'}</button>
+											<button type="button" class="hover:underline" on:click={() => { confirmRemoveAttachmentId = null; }}>Cancel</button>
+										</span>
+									</span>
+								{:else}
 									<button
-										class="hover:underline font-medium"
-										disabled={removingAttachmentIds.has(att.id)}
-										on:click={async () => {
-											removingAttachmentIds = new Set([...removingAttachmentIds, att.id]);
-											confirmRemoveAttachmentId = null;
-											await removeAttachment(att.id, false);
-											removingAttachmentIds = new Set([...removingAttachmentIds].filter(id => id !== att.id));
-										}}
-									>{removingAttachmentIds.has(att.id) ? 'Removing…' : 'Yes'}</button>
-									<button class="hover:underline" on:click={() => { confirmRemoveAttachmentId = null; }}>Cancel</button>
-								</span>
-							{:else}
-								<button
-									class="shrink-0 text-[11px] text-gray-400 dark:text-gray-500 hover:text-red-500 dark:hover:text-red-400"
-									title="Remove attachment"
-									on:click={() => { confirmRemoveAttachmentId = att.id; }}
-								>×</button>
-							{/if}
+										type="button"
+										class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded px-1"
+										title="Remove attachment"
+										on:click={() => { confirmRemoveAttachmentId = att.id; }}
+									>×</button>
+								{/if}
+							</div>
 						</div>
-						<!-- Row 2: unified processing actions — Insert into draft is always active in edit mode -->
-						<div class="px-2.5 pb-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
+						<div class="flex flex-col gap-2">
 							{#if isExtracting || isOcrRunning}
-								<span class="text-[11px] text-blue-500 dark:text-blue-400 italic">Processing…</span>
+								<span class="text-[11px] text-blue-600 dark:text-blue-400 italic">Processing…</span>
 							{:else if extraction === null && ocr === null}
 								<button
-									class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+									type="button"
+									class="self-start rounded-md px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
 									title={isOcrEligible(att)
 										? 'Run OCR to extract text from this image'
 										: 'Extract text for .txt, .md, .docx, and PDF; other types are recorded as unsupported with a short notice'}
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'extracted'}
-								<button
-									class="text-[11px] text-green-700 dark:text-green-400 hover:underline"
-									on:click={() => toggleExtractionExpanded(att.id)}
-								>{isExtractExpanded ? 'Hide text' : 'Show text'}</button>
-								<button
-									class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-green-600 hover:bg-green-700 text-white"
-									title="Insert extracted text into the edit draft"
-									on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename, att.id)}
-								>Insert into draft</button>
-								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
+								<div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+									<button
+										type="button"
+										class="rounded-md px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
+										title="Insert extracted text into the edit draft"
+										on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename, att.id)}
+									>Insert into note</button>
+									<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+										<button
+											type="button"
+											class="rounded px-2 py-1 text-[11px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200/80 dark:hover:bg-gray-800/80 transition"
+											on:click={() => toggleExtractionExpanded(att.id)}
+										>{isExtractExpanded ? '▼ Hide extracted text' : '▼ View extracted text'}</button>
+										<button type="button" class="rounded px-2 py-1 text-[11px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200/80 dark:hover:bg-gray-800/80 transition" on:click={() => void processAttachment(att)}>Re-process</button>
+										<span class="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">Ready for proposal</span>
+									</div>
+								</div>
 							{:else if ocr?.status === 'extracted' || ocr?.status === 'low_confidence'}
-								<button
-									class="text-[11px] text-amber-700 dark:text-amber-400 hover:underline"
-									on:click={() => toggleOcrExpanded(att.id)}
-								>{isOcrExpanded ? 'Hide OCR text' : 'Show OCR text'}</button>
-								{#if ocr.confidence_pct !== null}
-									<span class="text-[10px] text-gray-400 dark:text-gray-500">{ocr.confidence_pct}% confidence</span>
-								{/if}
-								<button
-									class="shrink-0 text-[10px] font-medium px-2 py-0.5 rounded bg-amber-600 hover:bg-amber-700 text-white"
-									title="Insert OCR text into the edit draft"
-									on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename, att.id)}
-								>Insert into draft</button>
-								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Re-process</button>
+								<div class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-center">
+									<button
+										type="button"
+										class="rounded-md px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
+										title="Insert OCR text into the edit draft"
+										on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename, att.id)}
+									>Insert into note</button>
+									<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+										<button
+											type="button"
+											class="rounded px-2 py-1 text-[11px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200/80 dark:hover:bg-gray-800/80 transition"
+											on:click={() => toggleOcrExpanded(att.id)}
+										>{isOcrExpanded ? '▼ Hide OCR text' : '▼ View OCR text'}</button>
+										{#if ocr.confidence_pct !== null}
+											<span class="text-[10px] text-gray-500 dark:text-gray-400">{ocr.confidence_pct}% confidence</span>
+										{/if}
+										<button type="button" class="rounded px-2 py-1 text-[11px] font-medium text-gray-600 dark:text-gray-400 hover:bg-gray-200/80 dark:hover:bg-gray-800/80 transition" on:click={() => void processAttachment(att)}>Re-process</button>
+										<span class="text-[10px] text-indigo-600 dark:text-indigo-400 font-medium">Ready for proposal</span>
+									</div>
+								</div>
 							{:else if extraction?.status === 'no_text_found'}
 								<span class="text-[11px] text-gray-500 dark:text-gray-400 italic">No machine-readable text found.</span>
 								{#if extraction?.extraction_warnings}
@@ -5490,56 +5663,53 @@
 								{#if !ocrEligible}
 									<span class="text-[10px] text-gray-400 dark:text-gray-500">PDF OCR is not supported yet.</span>
 								{/if}
-								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Retry</button>
+								<button type="button" class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Retry</button>
 							{:else if ocr?.status === 'no_text_found'}
 								<span class="text-[11px] text-gray-500 dark:text-gray-400 italic">No text found in image.</span>
-								<button class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Retry</button>
+								<button type="button" class="text-[11px] text-gray-400 dark:text-gray-500 hover:underline" on:click={() => void processAttachment(att)}>Retry</button>
 							{:else if extraction?.status === 'failed' || ocr?.status === 'failed'}
 								<span
 									class="text-[11px] text-red-500 italic"
 									title={extraction?.error_message ?? ocr?.error_message ?? ''}
 								>Processing failed{extraction?.error_message ?? ocr?.error_message ? ' — hover for details' : ''}.</span>
-								<button class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline" on:click={() => void processAttachment(att)}>Retry</button>
+								<button type="button" class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline" on:click={() => void processAttachment(att)}>Retry</button>
 							{:else if extraction?.status === 'unsupported' && ocrEligible && ocr === null}
 								<button
-									class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline font-medium"
+									type="button"
+									class="self-start rounded-md px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'unsupported'}
 								<span class="text-[11px] text-gray-400 dark:text-gray-500 italic">File type not supported for text extraction.</span>
 							{/if}
-							{#if extraction?.status === 'extracted' || ocr?.status === 'extracted' || ocr?.status === 'low_confidence'}
-								<span class="text-[10px] text-indigo-500 dark:text-indigo-400">· ready for proposal</span>
-							{/if}
 						</div>
-						<!-- Extracted text panel — green, distinct from note body -->
 						{#if extraction?.status === 'extracted' && isExtractExpanded}
-							<div class="mx-2.5 mb-2 rounded border border-dashed border-green-300 dark:border-green-700 bg-green-50 dark:bg-green-950/30 px-3 py-2">
-								<div class="mb-1 flex items-center gap-1.5">
-									<span class="text-[10px] font-semibold uppercase tracking-wide text-green-700 dark:text-green-400">Extracted text</span>
-									<span class="text-[10px] text-gray-400 dark:text-gray-500">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
+							<div class="mt-2 rounded-md border border-green-200/80 dark:border-green-800/60 bg-green-50/80 dark:bg-green-950/25 px-2.5 py-2">
+								<div class="mb-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5">
+									<span class="text-[10px] font-semibold text-green-800 dark:text-green-300">Extracted text</span>
+									<span class="text-[10px] text-gray-500 dark:text-gray-400">· {extraction.text_length.toLocaleString()} chars · {extraction.method.replace('_', ' ')}</span>
 								</div>
 								{#if extraction.extraction_warnings}
 									<p class="mb-1 text-[10px] text-amber-700 dark:text-amber-300 whitespace-pre-wrap leading-snug">Parser notes: {extraction.extraction_warnings}</p>
 								{/if}
-								<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{extraction.extracted_text}</pre>
-								<p class="mt-1.5 text-[10px] text-gray-400 dark:text-gray-500 italic">Derived text — not the note body. Insert into draft or generate a proposal below, then Save to commit the revision.</p>
+								<pre class="whitespace-pre-wrap text-[11px] leading-snug text-gray-700 dark:text-gray-300 font-sans">{extraction.extracted_text}</pre>
+								<p class="mt-1.5 text-[10px] text-gray-500 dark:text-gray-400 italic">Derived text — not the note body. Insert into the editor or generate a proposal below, then Save to commit the revision.</p>
 							</div>
 						{/if}
-						<!-- OCR text panel — amber, distinct from extracted text and note body -->
 						{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
-							<div class="mx-2.5 mb-2 rounded border border-dashed border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/30 px-3 py-2">
-								<div class="mb-1 flex items-center gap-1.5">
-									<span class="text-[10px] font-semibold uppercase tracking-wide text-amber-700 dark:text-amber-400">OCR-derived text</span>
-									{#if ocr?.confidence_pct !== null}
-										<span class="text-[10px] text-gray-400 dark:text-gray-500">· {ocr?.confidence_pct}% confidence</span>
-									{/if}
+							<div class="mt-2 rounded-md border border-gray-200/90 dark:border-gray-700/80 bg-gray-100/70 dark:bg-gray-800/40 px-2.5 py-2">
+								<p class="text-[10px] font-medium text-gray-600 dark:text-gray-400 mb-1">
 									{#if ocr?.status === 'low_confidence'}
-										<span class="text-[10px] text-amber-700 dark:text-amber-500 font-medium">· Low confidence</span>
+										Low-confidence OCR (may contain noise)
+									{:else}
+										OCR text
 									{/if}
-								</div>
-								<pre class="whitespace-pre-wrap text-[11px] leading-relaxed text-gray-700 dark:text-gray-300 max-h-48 overflow-y-auto font-sans">{ocr?.derived_text}</pre>
-								<p class="mt-1.5 text-[10px] text-amber-700 dark:text-amber-500 italic">OCR text may be imperfect — especially for handwriting or low-quality images. Not the note body. Insert into draft or generate a proposal below, then Save to commit the revision.</p>
+								</p>
+								{#if ocr?.confidence_pct !== null}
+									<p class="text-[9px] text-gray-500 dark:text-gray-500 mb-1">{ocr.confidence_pct}% model confidence</p>
+								{/if}
+								<pre class="whitespace-pre-wrap text-[10px] leading-snug text-gray-600 dark:text-gray-400 font-sans">{ocr?.derived_text}</pre>
+								<p class="mt-1.5 text-[9px] text-gray-500 dark:text-gray-500 italic">Not the note body. Insert into the editor or generate a proposal below, then Save to commit the revision.</p>
 							</div>
 						{/if}
 					</li>
@@ -5547,10 +5717,12 @@
 					</ul>
 				{/if}
 		</div>
+					</div>
+					{/if}
 
 			<!-- Footer actions -->
 				<div
-					class="shrink-0 flex items-center gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800"
+					class="shrink-0 flex flex-wrap items-center gap-2 px-5 py-3 border-t border-gray-200 dark:border-gray-800"
 				>
 					<button
 						type="button"
@@ -5570,44 +5742,19 @@
 						>
 							Cancel
 						</button>
-				<div class="inline-flex items-center gap-1.5 shrink-0">
-					<!-- P30-25: professional AI affordance — gray base, purple accent, faint diagonal sheen -->
+				{#if structuredNotesUiOffered}
 					<button
 						type="button"
-						disabled={enhanceState === 'loading'}
-						class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium border-gray-300 dark:border-gray-700 text-purple-700 dark:text-purple-300 bg-white/60 dark:bg-gray-800/60 hover:bg-purple-50 dark:hover:bg-purple-900/20 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-purple-500 overflow-hidden disabled:opacity-50 disabled:cursor-not-allowed transition"
-						on:click={handleEnhance}
-						data-testid="case-note-enhance-action"
-						title="Enhance note"
-						aria-label={enhanceState === 'loading' ? 'Enhancing note…' : 'Enhance note'}
+						disabled={structuredNotesLoading || structuredNotesActionBusy}
+						class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium overflow-hidden border-teal-400/90 dark:border-teal-600 text-teal-900 dark:text-teal-100 bg-white/70 dark:bg-gray-800/70 hover:bg-teal-50/95 dark:hover:bg-teal-900/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
+						on:click={() => void runStructuredNotesPreview()}
+						title="Run structured extraction and narrative preview from your current draft. Nothing is saved until you use Save note."
+						data-testid="case-note-structure-note-action-edit"
 					>
-						<Sparkles className="size-4 shrink-0" strokeWidth="2" />
-						<span>{enhanceState === 'loading' ? 'Enhancing…' : 'Enhance'}</span>
-						<span class="enhance-shimmer" aria-hidden="true"></span>
+						<span>{structuredNotesLoading ? 'Structuring…' : 'Structure Note'}</span>
+						<span class="notes-workflow-shimmer" aria-hidden="true"></span>
 					</button>
-					{#if structuredNotesUiOffered}
-						<button
-							type="button"
-							disabled={structuredNotesLoading || structuredNotesActionBusy}
-							class="h-8 px-2.5 rounded-md border text-xs font-medium border-teal-300 dark:border-teal-700 text-teal-800 dark:text-teal-200 bg-white/60 dark:bg-gray-800/60 hover:bg-teal-50 dark:hover:bg-teal-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-							on:click={() => void runStructuredNotesPreview()}
-							title="Generate a structured draft from your note (separate from Enhance)."
-							data-testid="case-note-structured-preview-action-edit"
-						>
-							{structuredNotesLoading ? 'Generating…' : '👉 Generate Structured Draft'}
-						</button>
-					{/if}
-				</div>
-				<button
-					type="button"
-					disabled={p34PrototypeLoading}
-					class="h-8 px-2.5 rounded-md border text-xs font-medium border-violet-300 dark:border-violet-700 text-violet-800 dark:text-violet-200 bg-white/60 dark:bg-gray-800/60 hover:bg-violet-50 dark:hover:bg-violet-900/20 disabled:opacity-50 disabled:cursor-not-allowed transition"
-					on:click={() => void runP34Prototype()}
-					title="P34 structured preview (dev prototype, no save)"
-					data-testid="case-note-p34-prototype-action-edit"
-				>
-					{p34PrototypeLoading ? 'P34…' : 'P34 Prototype'}
-				</button>
+				{/if}
 				<!-- P30-23/P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
 					<label
 						class="cursor-pointer h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}"
@@ -5707,186 +5854,6 @@
 	</div>
 </ConfirmDialog>
 
-{#if import.meta.env.DEV}
-	<div
-		class="fixed bottom-2 right-2 z-50 flex max-w-md flex-col items-end gap-1 text-[10px]"
-		data-testid="enhance-dev-panels"
-	>
-		<div class="flex flex-col items-end gap-1">
-			<button
-				type="button"
-				class="rounded bg-gray-800 text-white px-2 py-1 opacity-70 hover:opacity-100"
-				data-testid="enhance-pipeline-audit-toggle"
-				on:click={() => (showEnhancePipelineAuditPanel = !showEnhancePipelineAuditPanel)}
-			>
-				Enhance Audit (dev)
-			</button>
-			{#if showEnhancePipelineAuditPanel}
-				<div
-					class="max-h-48 w-full max-w-md overflow-y-auto rounded border border-violet-700/80 bg-gray-900/95 p-2 font-mono text-gray-100 shadow-lg"
-					data-testid="enhance-pipeline-audit-body"
-				>
-					<div class="mb-1 flex justify-between gap-2 text-gray-400">
-						<span>Pipeline outcomes (no note text)</span>
-						<button
-							type="button"
-							class="text-violet-300 hover:underline"
-							data-testid="enhance-pipeline-audit-clear"
-							on:click={() => clearEnhancePipelineAuditHistory()}
-						>
-							Clear
-						</button>
-					</div>
-					{#if enhanceAuditLastView}
-						<div class="border-b border-gray-700 pb-2 text-gray-200" data-testid="enhance-pipeline-audit-last">
-							<div>strict: {enhanceAuditLastView.strictResult}</div>
-							<div>safe: {enhanceAuditLastView.safeResult}</div>
-							<div>cleanup: {enhanceAuditLastView.cleanupResult}</div>
-							<div class="text-gray-400">
-								in {enhanceAuditLastView.inputLength} · out {enhanceAuditLastView.outputLength ?? '—'}
-							</div>
-							{#if enhanceAuditLastView.reasonCodes.length}
-								<div class="text-amber-300/90">
-									reasons: {enhanceAuditLastView.reasonCodes.join(', ')}
-								</div>
-							{/if}
-							{#if enhanceAuditLastView.failedChecks.length}
-								<div class="text-orange-300/90">
-									failedChecks: {enhanceAuditLastView.failedChecks.join(', ')}
-								</div>
-							{/if}
-							{#if enhanceAuditLastView.diffStats}
-								<div class="text-gray-400">
-									diff: Δwords {enhanceAuditLastView.diffStats.wordDelta} · Δsent{' '}
-									{enhanceAuditLastView.diffStats.sentenceDelta} · +tok{' '}
-									{enhanceAuditLastView.diffStats.addedTokens} · −tok{' '}
-									{enhanceAuditLastView.diffStats.removedTokens} · pctLen{' '}
-									{enhanceAuditLastView.diffStats.pctChange}%
-								</div>
-							{/if}
-						</div>
-					{:else}
-						<div class="text-gray-500">No enhance runs recorded this session.</div>
-					{/if}
-					{#if enhanceAuditHistView.length > 1}
-						<div class="mt-2 text-gray-500">Recent</div>
-						{#each enhanceAuditHistView.slice(1) as run (run.correlationId + run.timestamp)}
-							<div class="border-b border-gray-800 py-0.5 text-[9px] text-gray-400">
-								{run.strictResult}/{run.safeResult}/{run.cleanupResult}
-								{#if run.reasonCodes.length}
-									· {run.reasonCodes.slice(0, 3).join(',')}{run.reasonCodes.length > 3 ? '…' : ''}
-								{/if}
-							</div>
-						{/each}
-					{/if}
-				</div>
-			{/if}
-		</div>
-		<div
-			class="flex flex-col items-end gap-1"
-			data-testid="enhance-observability-panel"
-		>
-			<button
-				type="button"
-				class="rounded bg-gray-800 text-white px-2 py-1 opacity-70 hover:opacity-100"
-				on:click={() => (showEnhanceObservabilityPanel = !showEnhanceObservabilityPanel)}
-			>
-				Enhance trace (dev)
-			</button>
-			{#if showEnhanceObservabilityPanel}
-				<div
-					class="mt-1 max-h-56 overflow-y-auto rounded border border-gray-600 bg-gray-900/95 p-2 text-gray-100 font-mono shadow-lg"
-					data-testid="enhance-observability-panel-body"
-				>
-					<div class="flex justify-between gap-2 mb-1 text-gray-400">
-						<span data-testid="enhance-observability-count">{enhanceObsDevPanelEvents.length} events</span>
-						<button
-							type="button"
-							class="text-blue-400 hover:underline"
-							data-testid="enhance-observability-clear"
-							on:click={() => clearEnhanceObservabilityEvents()}
-						>
-							Clear
-						</button>
-					</div>
-					{#each enhanceObsDevPanelEvents as ev, i (String(ev.timestamp) + ev.eventType + ev.correlationId + i)}
-						<div class="border-b border-gray-700 py-1 last:border-0" data-testid="enhance-observability-row">
-							<div class="text-gray-300">
-								{ev.eventType} · {ev.outcome}{#if ev.validationMode} · {ev.validationMode}{/if}
-							</div>
-							{#if ev.reasonCodes.length}
-								<div class="text-amber-300/90">codes: {ev.reasonCodes.join(', ')}</div>
-							{/if}
-							{#if ev.requestId}
-								<div class="text-gray-500">req: {ev.requestId}</div>
-							{/if}
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</div>
-		{#if structuredNotesUiOffered}
-		<div
-			class="flex flex-col items-end gap-1"
-			data-testid="structured-notes-observability-panel"
-		>
-			<button
-				type="button"
-				class="rounded bg-gray-800 text-white px-2 py-1 opacity-70 hover:opacity-100"
-				on:click={() => (showStructuredNotesObsPanel = !showStructuredNotesObsPanel)}
-			>
-				Structured draft trace (dev)
-			</button>
-			{#if showStructuredNotesObsPanel}
-				<div
-					class="mt-1 max-h-56 overflow-y-auto rounded border border-teal-800/80 bg-gray-900/95 p-2 text-gray-100 font-mono shadow-lg"
-					data-testid="structured-notes-observability-panel-body"
-				>
-					<div class="flex justify-between gap-2 mb-1 text-gray-400">
-						<span data-testid="structured-notes-observability-count"
-							>{structuredNotesObsDevPanelEvents.length} events</span
-						>
-						<button
-							type="button"
-							class="text-teal-300 hover:underline"
-							data-testid="structured-notes-observability-clear"
-							on:click={() => clearStructuredNotesObservabilityEvents()}
-						>
-							Clear
-						</button>
-					</div>
-					{#each structuredNotesObsDevPanelEvents as ev, i (String(ev.timestamp) + ev.eventType + ev.correlationId + i)}
-						<div class="border-b border-gray-700 py-1 last:border-0" data-testid="structured-notes-observability-row">
-							<div class="text-gray-300">{ev.eventType}</div>
-							{#if ev.validationStatus != null || ev.renderStatus != null}
-								<div class="text-gray-500 text-[9px]">
-									{#if ev.validationStatus}val: {ev.validationStatus}{/if}
-									{#if ev.renderStatus} · rend: {ev.renderStatus}{/if}
-								</div>
-							{/if}
-							{#if ev.statementCount != null || ev.warningCount != null}
-								<div class="text-gray-500 text-[9px]">
-									stmt {ev.statementCount ?? '—'} · warn {ev.warningCount ?? '—'}
-								</div>
-							{/if}
-							{#if ev.traceabilityInteractionType}
-								<div class="text-teal-400/90 text-[9px]">trace: {ev.traceabilityInteractionType}</div>
-							{/if}
-							{#if ev.requestId}
-								<div class="text-gray-500 text-[9px]">req: {ev.requestId}</div>
-							{/if}
-							{#if ev.errorHint}
-								<div class="text-amber-300/90 text-[9px]">{ev.errorHint}</div>
-							{/if}
-						</div>
-					{/each}
-				</div>
-			{/if}
-		</div>
-		{/if}
-	</div>
-{/if}
-
 <style>
 	/*
 	 * P30-25 — Notes Enhance button: faint diagonal sheen.
@@ -5922,6 +5889,50 @@
 
 	@media (prefers-reduced-motion: reduce) {
 		.enhance-shimmer {
+			animation: none;
+			background: transparent;
+		}
+	}
+
+	/* Teal sheen for Structure Note (same motion cadence as enhance-shimmer). */
+	.notes-workflow-shimmer {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(
+			75deg,
+			transparent 35%,
+			rgba(45, 212, 191, 0.16) 50%,
+			transparent 65%
+		);
+		background-size: 300% 100%;
+		background-position: 200% center;
+		animation: notes-workflow-sheen 6s ease-in-out 1s infinite;
+		pointer-events: none;
+	}
+
+	@keyframes notes-workflow-sheen {
+		0% {
+			background-position: 200% center;
+			opacity: 0;
+		}
+		8% {
+			opacity: 1;
+		}
+		42% {
+			background-position: -100% center;
+			opacity: 1;
+		}
+		50% {
+			opacity: 0;
+		}
+		100% {
+			background-position: -100% center;
+			opacity: 0;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.notes-workflow-shimmer {
 			animation: none;
 			background: transparent;
 		}
