@@ -11,6 +11,7 @@
 	 * P28-38 — Timeline Usability Polish Pass
 	 * P38-06 — beforeNavigate guard for unsaved create/edit (parity with Notes P28-29)
 	 * P38-07 — operator microcopy: direct + Log entry vs Proposals review/commit (copy only)
+	 * P38-08 — timeline type “note” vs Notes tab (labels/tooltips only; value stays `note`)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -58,6 +59,10 @@
 		TIMELINE_LOG_ENTRY_BUTTON_TITLE,
 		TIMELINE_OFFICIAL_RECORD_BADGE_TITLE
 	} from './timelineOperatorMicrocopy';
+	import {
+		TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
+		TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP
+	} from '$lib/caseTimeline/timelineTypeNoteClarity';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -154,7 +159,7 @@
 	// 'all' is a sentinel — never stored in the database.
 	const FILTER_TYPES = [
 		{ value: 'all',         label: 'All'          },
-		{ value: 'note',        label: 'Note'         },
+		{ value: 'note',        label: TIMELINE_TYPE_NOTE_DISPLAY_LABEL },
 		{ value: 'surveillance',label: 'Surveillance' },
 		{ value: 'interview',   label: 'Interview'    },
 		{ value: 'evidence',    label: 'Evidence'     }
@@ -343,6 +348,12 @@
 	}
 
 	const ENTRY_TYPES = ['note', 'surveillance', 'interview', 'evidence'] as const;
+
+	function timelineEntryTypeOptionLabel(t: (typeof ENTRY_TYPES)[number]): string {
+		return t === 'note'
+			? TIMELINE_TYPE_NOTE_DISPLAY_LABEL
+			: `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
+	}
 
 	let editingEntryId: string | null = null;
 	let editDraft: EditDraft | null = null;
@@ -727,9 +738,10 @@
 							       px-2 py-1.5
 							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
 							data-testid="create-type-select"
+							title={TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP}
 						>
 							{#each ENTRY_TYPES as t}
-								<option value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+								<option value={t}>{timelineEntryTypeOptionLabel(t)}</option>
 							{/each}
 						</select>
 					</div>
@@ -928,9 +940,10 @@
 									       px-2 py-1.5
 									       focus:outline-none focus:ring-1 focus:ring-amber-400 dark:focus:ring-amber-600"
 									data-testid="edit-type-select"
+									title={TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP}
 								>
 									{#each ENTRY_TYPES as t}
-										<option value={t}>{t.charAt(0).toUpperCase() + t.slice(1)}</option>
+										<option value={t}>{timelineEntryTypeOptionLabel(t)}</option>
 									{/each}
 								</select>
 							</div>

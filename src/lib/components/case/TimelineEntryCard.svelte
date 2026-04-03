@@ -3,6 +3,7 @@
 	 * TimelineEntryCard — P28-31 Truth Visibility Pass, P28-33 Version History Indicator,
 	 *                     P28-34 Edit Surface, P28-35 Soft-Delete + Restore UI,
 	 *                     P28-38 Usability Polish Pass
+	 *                     P38-08 — type “note” vs Notes tab (labels/tooltips only)
 	 *
 	 * Truth signals (P28-31):
 	 *   1. AI-cleaned transparency — badge + show/hide original toggle
@@ -23,6 +24,10 @@
 	 */
 	import type { TimelineEntry, TimelineEntryVersion } from '$lib/apis/caseEngine';
 	import { listTimelineEntryVersions } from '$lib/apis/caseEngine';
+	import {
+		TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
+		TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP
+	} from '$lib/caseTimeline/timelineTypeNoteClarity';
 	import { formatCaseDateTimeWithSeconds, formatCaseDateTime } from '$lib/utils/formatDateTime';
 
 	export let entry: TimelineEntry;
@@ -41,7 +46,7 @@
 	export let onRestoreRequest: (() => void) | null = null;
 
 	const TYPE_LABELS: Record<string, string> = {
-		note:         'Note',
+		note:         TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
 		surveillance: 'Surveillance',
 		interview:    'Interview',
 		evidence:     'Evidence'
@@ -60,6 +65,10 @@
 
 	function typeColor(type: string): string {
 		return TYPE_COLORS[type] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300';
+	}
+
+	function typeBadgeTitle(type: string): string | undefined {
+		return type === 'note' ? TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP : undefined;
 	}
 
 	function parseTags(raw: string | string[] | null | undefined): string[] {
@@ -138,7 +147,10 @@
 	>
 		<!-- Meta row: type + time + Removed badge + Restore -->
 		<div class="flex items-center gap-2 flex-wrap">
-			<span class="text-xs font-medium px-1.5 py-0.5 rounded opacity-50 {typeColor(entry.type)}">
+			<span
+				class="text-xs font-medium px-1.5 py-0.5 rounded opacity-50 {typeColor(entry.type)}"
+				title={typeBadgeTitle(entry.type)}
+			>
 				{typeLabel(entry.type)}
 			</span>
 			<time
@@ -206,7 +218,10 @@
 		<!-- ── Meta row: type · occurred_at (with seconds) · edited · location ── -->
 		<div class="flex items-center gap-2 flex-wrap">
 			<!-- Type badge -->
-			<span class="text-xs font-medium px-1.5 py-0.5 rounded {typeColor(entry.type)}">
+			<span
+				class="text-xs font-medium px-1.5 py-0.5 rounded {typeColor(entry.type)}"
+				title={typeBadgeTitle(entry.type)}
+			>
 				{typeLabel(entry.type)}
 			</span>
 
