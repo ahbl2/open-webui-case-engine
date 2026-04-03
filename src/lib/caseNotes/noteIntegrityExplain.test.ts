@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-	buildEnhanceRejectedExplain,
 	buildSaveBlockedExplain,
 	integrityReasonsFromInternalKeys,
 	parseIntegrityFailureDetails
@@ -43,19 +42,6 @@ describe('P31-03 noteIntegrityExplain', () => {
 	it('buildSaveBlockedExplain uses API message as single bullet when reasons absent', () => {
 		const b = buildSaveBlockedExplain({}, 'Note failed integrity validation.');
 		expect(b.bullets).toEqual(['Note failed integrity validation.']);
-	});
-
-	it('buildEnhanceRejectedExplain falls back to generic message when reasons empty', () => {
-		const b = buildEnhanceRejectedExplain([]);
-		expect(b.heading).toBe('Enhancement rejected');
-		expect(b.bullets.length).toBe(1);
-		expect(b.bullets[0].length).toBeGreaterThan(20);
-	});
-
-	it('buildEnhanceRejectedExplain lists reason messages', () => {
-		const b = buildEnhanceRejectedExplain(integrityReasonsFromInternalKeys(['fabrication']));
-		expect(b.heading).toBe('Enhancement rejected');
-		expect(b.bullets[0]).toContain('enhanced version');
 	});
 
 	it('integrityReasonsFromInternalKeys dedupes by code', () => {

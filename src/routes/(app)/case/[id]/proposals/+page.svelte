@@ -11,7 +11,7 @@
 </script>
 
 <div
-	class="flex flex-col h-full min-h-0 overflow-hidden bg-white dark:bg-gray-950"
+	class="flex flex-col flex-1 min-h-0 overflow-hidden bg-white dark:bg-gray-950"
 	data-testid="case-proposals-page"
 >
 	<div class="shrink-0 px-4 py-3 border-b border-gray-200 dark:border-gray-800">

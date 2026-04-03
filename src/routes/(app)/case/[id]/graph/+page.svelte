@@ -126,7 +126,7 @@
 	}
 </script>
 
-<div class="h-full min-h-0 overflow-auto p-4 md:p-6">
+<div class="flex-1 min-h-0 overflow-auto p-4 md:p-6">
 	<div class="mx-auto max-w-6xl space-y-4">
 		<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
 			<h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Graph</h1>

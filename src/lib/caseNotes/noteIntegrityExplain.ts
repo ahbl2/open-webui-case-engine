@@ -145,14 +145,9 @@ const FALLBACK_SAVE =
 	'This save was blocked because the AI-edited text did not pass integrity checks against your original draft.';
 
 export const NOTE_INTEGRITY_GUIDANCE_SAVE: string[] = [
-	'Review the draft against your original note (or the pre-enhance baseline you started from).',
+	'Review the draft against your original note.',
 	'Remove unsupported additions, or edit the text manually so it matches what you can support, then save again.',
-	'If you need to commit without this AI pass, restore your original wording so it matches the baseline, or save a version without forwarding the integrity baseline.'
-];
-
-export const NOTE_INTEGRITY_GUIDANCE_ENHANCE: string[] = [
-	'Review your draft against the original note text.',
-	'Try a shorter section, edit manually, or save without applying enhancement if you need to proceed.'
+	'If the server still blocks save, shorten the change or save a plainer version of the text.'
 ];
 
 export function buildSaveBlockedExplain(details: unknown, apiMessage: string): IntegrityExplainBlock {
@@ -165,13 +160,5 @@ export function buildSaveBlockedExplain(details: unknown, apiMessage: string): I
 		heading: 'Save blocked by integrity checks',
 		bullets,
 		guidance: NOTE_INTEGRITY_GUIDANCE_SAVE
-	};
-}
-
-export function buildEnhanceRejectedExplain(reasons: IntegrityFailureReason[]): IntegrityExplainBlock {
-	return {
-		heading: 'Enhancement rejected',
-		bullets: reasons.length > 0 ? reasons.map((r) => r.message) : [GENERIC_REASON.message],
-		guidance: NOTE_INTEGRITY_GUIDANCE_ENHANCE
 	};
 }

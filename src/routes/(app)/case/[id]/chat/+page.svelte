@@ -280,7 +280,7 @@
 
 </script>
 
-<div class="flex flex-col h-full overflow-hidden" data-testid="case-chat-page">
+<div class="flex flex-col flex-1 min-h-0 overflow-hidden" data-testid="case-chat-page">
 
 	<!-- ── MAIN CHAT AREA ──────────────────────────────────────────────────── -->
 	<div class="flex flex-1 min-h-0 overflow-hidden">

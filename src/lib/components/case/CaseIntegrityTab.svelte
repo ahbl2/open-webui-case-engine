@@ -163,6 +163,13 @@
 	<!-- 1) Audit Log Viewer -->
 	<section class="flex flex-col gap-2">
 		<h3 class="text-xs font-medium text-gray-600 dark:text-gray-400">Audit Log</h3>
+		<p
+			class="text-xs text-gray-500 dark:text-gray-400"
+			data-testid="case-audit-narrative-governance-hint"
+		>
+			Narrative lifecycle actions (saved, exported, soft-deleted) appear here when recorded — read-only,
+			with case and record ids only; narrative text is not included.
+		</p>
 		<div class="flex flex-wrap gap-2 items-center">
 			<select
 				bind:value={actionFilter}

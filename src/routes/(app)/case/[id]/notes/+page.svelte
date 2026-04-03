@@ -81,8 +81,6 @@
 		updateCaseNotebookNote,
 		deleteCaseNotebookNote,
 		restoreCaseNotebookNote,
-		previewCaseNotebookSafeSurfaceCleanup,
-		auditCaseNotebookSafeSurfaceCleanupApplied,
 		listNoteAttachments,
 		uploadNoteAttachment,
 		listDraftNoteAttachments,
@@ -116,31 +114,7 @@
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 	import { mergeNotebookWritePayload } from '$lib/caseNotes/notebookIntegrityPayload';
 	import { buildAutoNoteTitle } from '$lib/caseNotes/buildAutoNoteTitle';
-	import {
-		type IntegrityExplainBlock,
-		type IntegrityFailureReason,
-		buildEnhanceRejectedExplain,
-		buildSaveBlockedExplain,
-		integrityReasonsFromInternalKeys
-	} from '$lib/caseNotes/noteIntegrityExplain';
-	import { safeModeCoarseLengthAllowanceChars } from '$lib/caseNotes/noteEnhanceConstants';
-	import { validateEnhanceOutputDisallowedPatterns } from '$lib/caseNotes/noteEnhanceOutputGuardrails';
-	import {
-		clearEnhanceObservabilityEvents,
-		newEnhanceCorrelationId,
-		reasonCodesFromEnhanceReasons,
-		reasonCodesFromIntegrityFailureDetails,
-		recordEnhanceObservabilityEvent,
-		type EnhanceObservabilityNoteContext
-	} from '$lib/caseNotes/enhanceObservability';
-	import {
-		beginEnhancePipelineAudit,
-		commitEnhancePipelineAuditPatch,
-		computeEnhanceAuditDiffStats,
-		finalizeEnhancePipelineAudit,
-		getEnhancePipelineAuditActiveCorrelation,
-		type EnhancePipelineAuditRecord
-	} from '$lib/caseNotes/enhancePipelineAudit';
+	import { type IntegrityExplainBlock, buildSaveBlockedExplain } from '$lib/caseNotes/noteIntegrityExplain';
 	import {
 		newStructuredNotesCorrelationId,
 		recordStructuredNotesObservabilityEvent
@@ -214,17 +188,6 @@
 	// Derived note reference for saved-note contexts (view + edit modes).
 	$: viewingNote = (mode === 'view' || mode === 'edit') ? selectedNote : null;
 
-	// P31-02: if the investigator restores the draft to exactly the pre-enhance baseline, omit baseline on save.
-	$: {
-		const draft =
-			mode === 'edit' ? editText.trim() : mode === 'create' ? createText.trim() : '';
-		if (
-			integrityBaselineText !== null &&
-			draft === integrityBaselineText.trim()
-		) {
-			integrityBaselineText = null;
-		}
-	}
 	// True only in active edit mode.
 	$: isEditing = mode === 'edit';
 
@@ -593,36 +556,6 @@
 		confirmRemoveAttachmentId = null;
 	}
 
-	// ── AI Enhance state (P29-Notes-08) ───────────────────────────────────────
-	type EnhanceState = 'idle' | 'loading' | 'proposal' | 'error' | 'safe_cleanup';
-	let enhanceState: EnhanceState = 'idle';
-	let enhanceProposalText = '';
-	let enhanceError = '';
-	// P30-31: true when the standard pass failed and the safe fallback was used.
-	let enhanceFallbackUsed = false;
-	// P30-16: true when the model stopped early (finish_reason: 'length') and
-	// the response was rejected as an incomplete enhancement.
-	let enhanceTruncated = false;
-	// P32-01: bounded surface cleanup when strict + safe enhance both fail (or strict/safe fatal with valid cleanup).
-	let safeCleanupOffer: {
-		originalText: string;
-		cleanedText: string;
-		changesSummary: string[];
-	} | null = null;
-	let safeCleanupCorrelationId = '';
-	let safeCleanupApplying = false;
-	/** P32-03: dev-only pipeline stage while enhanceState === 'loading' (strict → safe → cleanup preview). */
-	type EnhancePipelineDevStage = 'idle' | 'strict' | 'safe' | 'cleanup_preview';
-	let enhancePipelineDevStage: EnhancePipelineDevStage = 'idle';
-
-	// P31-02: pre-enhance text for the active AI draft cycle; forwarded as integrity_baseline_text on save.
-	let integrityBaselineText: string | null = null;
-	let pendingIntegrityBaseline: string | null = null;
-	let saveIntegrityExplain: IntegrityExplainBlock | null = null;
-	let enhanceIntegrityExplain: IntegrityExplainBlock | null = null;
-	// P31-17: correlates apply/dismiss with the last successful enhance pass (strict or safe).
-	let pendingEnhanceCorrelationId = '';
-
 	/** P34-18: real structured-notes preview (Case Engine contract). */
 	let structuredNotesLoading = false;
 	let structuredNotesError = '';
@@ -652,6 +585,8 @@
 	/** P34-21: wait for health before offering structured-notes actions (server flag is authoritative). */
 	let structuredNotesHealthLoading = true;
 	let structuredNotesServerEnabled = false;
+	/** Save blocked by Case Engine AI validation (not Structure Note). */
+	let saveIntegrityExplain: IntegrityExplainBlock | null = null;
 	$: publicStructuredNotesSuppressed = env.PUBLIC_STRUCTURED_NOTES_ENABLED === '0';
 	$: structuredNotesUiOffered = computeStructuredNotesUiOffered(
 		!structuredNotesHealthLoading,
@@ -678,89 +613,6 @@
 		!structuredNotesResult.validation.blockedRender &&
 		structuredNotesResult.render.status !== 'blocked' &&
 		structuredNotesResult.render.renderedText.trim() !== '';
-
-	function enhanceAuditPatch(cid: string, patch: Partial<EnhancePipelineAuditRecord>): void {
-		if (getEnhancePipelineAuditActiveCorrelation() !== cid) return;
-		commitEnhancePipelineAuditPatch({ correlationId: cid, ...patch });
-	}
-
-	// P30-17: Full-coverage rewrite prompt. Used for single-paragraph notes.
-	// P30-18: Added explicit directive/action-item preservation clause.
-	const ENHANCE_SYSTEM_PROMPT =
-		'You are a writing assistant for an investigator\'s case notes. ' +
-		'Rewrite the note for clarity, grammar, and readability. ' +
-		'You MUST preserve every paragraph, topic, name, date, quote, number, and detail from the original. ' +
-		'Do NOT summarize. Do NOT shorten for brevity. Do NOT drop any paragraph, topic, or detail. ' +
-		'Every section of the original must appear in the output. ' +
-		'You MUST preserve all action items, next steps, follow-up instructions, and investigative directives. ' +
-		'If the original contains instructions such as "follow up with", "interview", "confirm", "notify", ' +
-		'"establish", "review", "obtain", or "contact", those instructions must remain in the output. ' +
-		'Do NOT remove numbered task lists or operational directives. ' +
-		'Do NOT add new facts, names, dates, or details that are not already present. ' +
-		'Do NOT introduce any new people, names, locations, or events not explicitly present in the original. ' +
-		'Do NOT add examples, context, or assumptions not found in the original note. ' +
-		'Rewrite only what is explicitly present in the input text. ' +
-		'Do NOT convert rough notes into polished narrative that changes evidentiary meaning. ' +
-		'Use clear everyday language and avoid overly formal tone or unnecessarily big words. ' +
-		'Return ONLY the improved note body text. ' +
-		'Do NOT include any preamble, label, intro sentence, commentary, or explanation. ' +
-		'Do NOT start your response with phrases like "Here is the improved text:", "Improved version:", ' +
-		'"Sure, here is...", "Certainly,", "Here is an enhanced version:", or any similar framing. ' +
-		'Do NOT add markdown formatting unless the original note uses it. ' +
-		'Output the improved note content and nothing else.';
-
-	// P30-17: Block-level prompt. Used for each paragraph when enhancing long
-	// multi-paragraph notes chunk-by-chunk. Tightly scoped to one paragraph.
-	// P30-18: Added explicit directive/action-item preservation clause.
-	const ENHANCE_BLOCK_PROMPT =
-		'You are a writing assistant for an investigator\'s case notes. ' +
-		'Rewrite ONLY this one paragraph for clarity, grammar, and readability. ' +
-		'You MUST include every name, date, quote, number, action item, and detail from this paragraph. ' +
-		'You MUST preserve any action items, follow-up instructions, next steps, or investigative directives. ' +
-		'If this paragraph contains instructions such as "follow up with", "interview", "confirm", "notify", ' +
-		'"establish", "review", "obtain", or "contact", those instructions must remain in the output. ' +
-		'Do NOT shorten, summarize, or drop anything from this paragraph. ' +
-		'Do NOT add new information, names, dates, or details not present in this paragraph. ' +
-		'Do NOT introduce people, locations, or events not explicitly mentioned in the input. ' +
-		'Do NOT merge this paragraph with other paragraphs or add surrounding context. ' +
-		'Return ONLY the improved paragraph text. ' +
-		'Do NOT include any preamble, label, intro sentence, or explanation. ' +
-		'Do NOT start with phrases like "Here is the improved paragraph:", "Improved:", ' +
-		'"Sure, here is...", or any similar framing. ' +
-		'Output only the improved paragraph text and nothing else.';
-
-	// P30-31: Ultra-conservative safe prompt used as fallback when standard enhancement
-	// fails validation. Restricts AI to grammar/clarity only — no content changes.
-	// P30-31/P30-33: Safe enhance prompt — transform-only, no new content under any circumstances.
-	const ENHANCE_SAFE_PROMPT =
-		'You are a writing assistant for an investigator\'s case notes. ' +
-		'Your ONLY task is to fix grammar, spelling, and punctuation errors in the text you are given. ' +
-		'TRANSFORM ONLY — rewrite each sentence that exists in the input. ' +
-		'Do NOT add new sentences, clauses, or ideas that are not present in the input. ' +
-		'Do NOT introduce any new facts, names, dates, times, locations, events, or organisations. ' +
-		'Do NOT add new people, details, context, examples, or assumptions of any kind. ' +
-		'Do NOT expand, elaborate, extend, or add content of any kind. ' +
-		'Do NOT merge sentences, split sentences, or change paragraph structure. ' +
-		'If you are unsure how to correct a sentence without changing its meaning, return it UNCHANGED. ' +
-		'Preserve the original wording, structure, and order as closely as possible. ' +
-		'Return ONLY the corrected note text with the same number of sentences as the input. ' +
-		'Do NOT include any preamble, label, intro sentence, explanation, or closing remark. ' +
-		'Output the corrected note content and nothing else.';
-
-	function resetEnhanceState(): void {
-		enhanceState = 'idle';
-		enhanceProposalText = '';
-		enhanceError = '';
-		enhanceTruncated = false;
-		enhanceFallbackUsed = false;
-		pendingIntegrityBaseline = null;
-		enhanceIntegrityExplain = null;
-		pendingEnhanceCorrelationId = '';
-		safeCleanupOffer = null;
-		safeCleanupCorrelationId = '';
-		safeCleanupApplying = false;
-		enhancePipelineDevStage = 'idle';
-	}
 
 	function resetStructuredNotesPreview(): void {
 		structuredNotesLoading = false;
@@ -967,10 +819,7 @@
 			}
 			return false;
 		}
-		resetEnhanceState();
 		resetNoteIntegrityDraftState();
-		integrityBaselineText = null;
-		pendingIntegrityBaseline = null;
 		structuredNotesEditedCommitPending = true;
 		recordStructuredNotesObservabilityEvent({
 			correlationId: structuredNotesObsCorrelationId || newStructuredNotesCorrelationId(),
@@ -1066,619 +915,8 @@
 		}
 	}
 
-	function enhanceObservabilityNoteContext(): EnhanceObservabilityNoteContext {
-		if (mode === 'edit' && selectedNote) return { kind: 'edit', noteId: selectedNote.id };
-		return { kind: 'create' };
-	}
-
 	function resetNoteIntegrityDraftState(): void {
-		integrityBaselineText = null;
-		pendingIntegrityBaseline = null;
 		saveIntegrityExplain = null;
-	}
-
-	/**
-	 * Strip common assistant framing wrappers from AI-returned enhancement output.
-	 * Only removes leading phrases — does not alter the actual note body content.
-	 * Applied only to AI enhance output, never to user-authored content (P30-14).
-	 */
-	function sanitizeEnhanceOutput(text: string): string {
-		// Ordered list of leading wrapper patterns to remove (case-insensitive).
-		// Each pattern matches only at the very start of the trimmed string.
-		const wrapperPatterns: RegExp[] = [
-			/^here is the improved (text|version|note|content)[:\s]*/i,
-			/^here is an? (improved|enhanced|revised|updated|polished|cleaned.up|rewritten) (text|version|note|paragraph|content)[:\s]*/i,
-			/^here is the (cleaned|enhanced|revised|updated|polished|cleaned.up|rewritten) (text|version|note|paragraph|content)[:\s]*/i,
-			/^here is the rewritten (text|version|note|paragraph|content)[:\s]*/i,
-			/^improved (text|version|note|content)[:\s]*/i,
-			/^improved (note|paragraph)[:\s]*/i,
-			/^enhanced (text|version|note|content)[:\s]*/i,
-			/^enhanced (note|paragraph)[:\s]*/i,
-			/^revised (text|version|note|content)[:\s]*/i,
-			/^rewritten (text|version|note|paragraph|content)[:\s]*/i,
-			/^cleaned.up (text|version|note|content)[:\s]*/i,
-			/^below is the (improved|enhanced|revised|updated|polished|rewritten) (text|version|note|paragraph|content)[:\s]*/i,
-			/^(sure|certainly|of course|absolutely)[,!.]?\s*(here is|here's|i've improved|i've enhanced|i have improved|i have enhanced|i've rewritten|i have rewritten)[^:\n]*[:\s]*/i,
-			/^(sure|certainly|of course|absolutely)[,!.]?\s*/i,
-		];
-		let result = text.trim();
-		for (const pattern of wrapperPatterns) {
-			const stripped = result.replace(pattern, '').trimStart();
-			// Only accept the strip if meaningful content remains.
-			if (stripped.length > 0) {
-				result = stripped;
-				break;
-			}
-		}
-		return result;
-	}
-
-	/**
-	 * Validate that an enhanced output adequately covers the original note content.
-	 * Conservative checks — only rejects clearly lossy rewrites, not minor rephrasing.
-	 *
-	 * Checks:
-	 *   1. Length ratio — enhanced must be ≥ 60% of original (long narrative; P31-09 parity with CE).
-	 *   2. Key-token carry-forward — quoted text, numbers, capitalized names.
-	 *      If ≥ 4 key tokens found, at most 30% may be absent from the enhanced output.
-	 *
-	 * P30-17.
-	 */
-	/**
-	 * P30-29: Context-aware coverage validation.
-	 *
-	 * Tiers (evaluated in order):
-	 *   1. Empty output — always reject.
-	 *   2. Short note bypass — orig < 300 chars OR fewer than 2 substantive paragraphs
-	 *      (≥40 trimmed chars each) → accept without long-narrative checks. P31-07 tier boundary.
-	 *   3. Structured note — bullet/list content → line count parity only (±1 allowed).
-	 *   4. Long narrative — paragraph count parity + length ratio (≥60% since P31-09) + key-term carry-forward
-	 *      (missing-token threshold raised to 50%, was 30%).
-	 *
-	 * Reasons: 'empty' | 'structure-mismatch' | 'length' | 'key-terms'
-	 */
-	function validateEnhanceCoverage(
-		original: string,
-		enhanced: string
-	): { ok: boolean; reason?: string } {
-		const orig = original.trim();
-		const enh = enhanced.trim();
-
-		if (!enh) {
-			return { ok: false, reason: 'empty' };
-		}
-
-		// P30-29 (1): Short note bypass — not enough content for meaningful validation.
-		const COVERAGE_SHORT_NOTE_MAX_CHARS = 300;
-		const COVERAGE_MIN_SUBSTANTIVE_PARAGRAPH_CHARS = 40;
-		const COVERAGE_LONG_NARRATIVE_MIN_LENGTH_RATIO = 0.6; // P31-09; parity: noteCommitIntegrityService
-		const origParas = orig.split(/\n\n+/).filter((p) => p.trim().length > 0);
-		const substantiveParas = origParas.filter(
-			(p) => p.trim().length >= COVERAGE_MIN_SUBSTANTIVE_PARAGRAPH_CHARS
-		);
-		if (orig.length < COVERAGE_SHORT_NOTE_MAX_CHARS || substantiveParas.length < 2) {
-			return { ok: true };
-		}
-
-		// P30-29 (2) + P31-08: Structured note — markdown *, -, +, •, or numbered lines (leading ws ok).
-		const isStructured =
-			/^\s*[\*\-\+•]\s/m.test(orig) || /^\s*\d+[\.\)]\s/m.test(orig);
-		if (isStructured) {
-			// Only enforce line count parity (±1 line); skip token checks.
-			const origLines = orig.split('\n').filter((l) => l.trim().length > 0).length;
-			const enhLines = enh.split('\n').filter((l) => l.trim().length > 0).length;
-			if (Math.abs(origLines - enhLines) > 1) {
-				return { ok: false, reason: 'structure-mismatch' };
-			}
-			return { ok: true };
-		}
-
-		// P30-29 (3): Paragraph count parity — long narrative notes must not
-		// collapse or expand paragraphs during enhancement.
-		const enhParas = enh.split(/\n\n+/).filter((p) => p.trim().length > 0);
-		if (enhParas.length !== origParas.length) {
-			return { ok: false, reason: 'structure-mismatch' };
-		}
-
-		// Length ratio check.
-		if (enh.length < orig.length * COVERAGE_LONG_NARRATIVE_MIN_LENGTH_RATIO) {
-			return { ok: false, reason: 'length' };
-		}
-
-		// P30-29 (4): Key-token carry-forward — threshold raised to 50% (was 30%)
-		// to reduce false positives from valid rephrasing.
-		const tokens = new Set<string>();
-		for (const m of orig.matchAll(/["']([^"']{2,60})["']/g)) {
-			tokens.add(m[1].toLowerCase().trim());
-		}
-		for (const m of orig.matchAll(/\b\d+(?:[:.\/\-]\d+)*\b/g)) {
-			tokens.add(m[0]);
-		}
-		for (const m of orig.matchAll(/\b[A-Z][a-z]{2,}\b/g)) {
-			tokens.add(m[0].toLowerCase());
-		}
-
-		if (tokens.size >= 4) {
-			const enhLower = enh.toLowerCase();
-			let missing = 0;
-			for (const t of tokens) {
-				if (!enhLower.includes(t)) missing++;
-			}
-			if (missing / tokens.size > 0.5) {
-				return { ok: false, reason: 'key-terms' };
-			}
-		}
-
-		return { ok: true };
-	}
-
-	/**
-	 * P31-12: Certainty-inflation / qualifier-loss guard (parity: noteCommitIntegrityService).
-	 * Narrow phrase families only — not general semantic equivalence.
-	 */
-	function validateCertaintyQualifierPreservation(
-		original: string,
-		enhanced: string
-	): { ok: boolean; reason?: string } {
-		const o = original.toLowerCase();
-		const e = enhanced.toLowerCase();
-
-		if (o.includes('no controlled buy was attempted')) {
-			const preservesNegatedBuy =
-				e.includes('no controlled buy was attempted') ||
-				e.includes('no controlled buy') ||
-				/\bnot\s+attempted\b/.test(e) ||
-				e.includes('was not attempted') ||
-				e.includes('were not attempted');
-			if (!preservesNegatedBuy) {
-				return { ok: false, reason: 'certainty-inflation' };
-			}
-		}
-
-		const exactLimitationSnippets = [
-			'was not confirmed',
-			'were not confirmed',
-			'cannot confirm',
-			'could not confirm',
-			'has not been confirmed',
-			'have not been confirmed'
-		];
-		for (const s of exactLimitationSnippets) {
-			if (o.includes(s) && !e.includes(s)) {
-				return { ok: false, reason: 'certainty-inflation' };
-			}
-		}
-
-		if (
-			(o.includes('may have') || o.includes('might have')) &&
-			!e.includes('may have') &&
-			!e.includes('might have')
-		) {
-			return { ok: false, reason: 'certainty-inflation' };
-		}
-
-		if (
-			(o.includes('may not have') || o.includes('might not have')) &&
-			!e.includes('may not have') &&
-			!e.includes('might not have')
-		) {
-			return { ok: false, reason: 'certainty-inflation' };
-		}
-
-		const appearVariants = ['appeared to', 'appears to', 'appear to'];
-		if (appearVariants.some((x) => o.includes(x)) && !appearVariants.some((x) => e.includes(x))) {
-			return { ok: false, reason: 'qualifier-loss' };
-		}
-
-		const seemVariants = ['seemed to', 'seems to', 'seem to'];
-		if (seemVariants.some((x) => o.includes(x)) && !seemVariants.some((x) => e.includes(x))) {
-			return { ok: false, reason: 'qualifier-loss' };
-		}
-
-		const believeVariants = ['believed to', 'believes to', 'believe to'];
-		if (believeVariants.some((x) => o.includes(x)) && !believeVariants.some((x) => e.includes(x))) {
-			return { ok: false, reason: 'qualifier-loss' };
-		}
-
-		const attributionHedges = ['reportedly', 'allegedly', 'according to'];
-		for (const s of attributionHedges) {
-			if (o.includes(s) && !e.includes(s)) {
-				return { ok: false, reason: 'qualifier-loss' };
-			}
-		}
-
-		if (/\bpossibly\b/.test(o) && !/\bpossibly\b/.test(e)) {
-			return { ok: false, reason: 'qualifier-loss' };
-		}
-
-		if (
-			(o.includes('possibly involved') || o.includes('possible involvement')) &&
-			!e.includes('possibly involved') &&
-			!e.includes('possible involvement') &&
-			!/\bpossibly\b/.test(e)
-		) {
-			return { ok: false, reason: 'qualifier-loss' };
-		}
-
-		if (o.includes('it is possible') && !e.includes('it is possible') && !e.includes('it was possible')) {
-			return { ok: false, reason: 'qualifier-loss' };
-		}
-
-		return { ok: true };
-	}
-
-	/**
-	 * P31-15: Explicit actor–recipient reversal in tight templates only (parity: noteCommitIntegrityService).
-	 */
-	const ENTITY_SWAP_SOLD_TO_RE =
-		/\b([A-Z][a-z]{2,})\s+sold(?:\s+[\w.]+){0,10}\s+to\s+([A-Z][a-z]{2,})\b/;
-	const ENTITY_SWAP_HAND_TO_RE =
-		/\b([A-Z][a-z]{2,})\s+hand(?:ed|ing)?\s+[^\n]{0,45}?\s+to\s+([A-Z][a-z]{2,})\b/;
-	const ENTITY_SWAP_MET_RE = /\b([A-Z][a-z]{2,})\s+met\s+([A-Z][a-z]{2,})\b/;
-
-	function entitySwapPairReversed(original: string, enhanced: string, pairRe: RegExp): boolean {
-		const o = pairRe.exec(original);
-		const e = pairRe.exec(enhanced);
-		if (!o || !e) return false;
-		if (o[1] === e[1] && o[2] === e[2]) return false;
-		return o[1] === e[2] && o[2] === e[1];
-	}
-
-	function validateExplicitActorRecipientSwap(
-		original: string,
-		enhanced: string
-	): { ok: boolean; reason?: string } {
-		if (entitySwapPairReversed(original, enhanced, ENTITY_SWAP_SOLD_TO_RE)) {
-			return { ok: false, reason: 'entity-role-swap' };
-		}
-		if (entitySwapPairReversed(original, enhanced, ENTITY_SWAP_HAND_TO_RE)) {
-			return { ok: false, reason: 'entity-role-swap' };
-		}
-		if (entitySwapPairReversed(original, enhanced, ENTITY_SWAP_MET_RE)) {
-			return { ok: false, reason: 'entity-role-swap' };
-		}
-		return { ok: true };
-	}
-
-	/**
-	 * P30-30: Fabrication detection.
-	 *
-	 * Checks that the enhanced output does not introduce new named entities or
-	 * specific time values that are absent from the original note. Two checks:
-	 *
-	 *   1. Multi-word capitalized sequences (e.g. "Officer Martinez", "John Davis").
-	 *      These are the strongest signal for invented names. Role/title words
-	 *      (Officer, Detective, Dr., etc.) are excluded from the name check since
-	 *      they may be expanded from abbreviations in legitimate rewrites.
-	 *
-	 *   2. Time values in HH:MM format — specific times are high-value facts that
-	 *      must not be invented.
-	 *
-	 * Single capitalized words are intentionally NOT checked here to avoid false
-	 * positives from sentence-start capitalisation and transition words. The key-term
-	 * carry-forward check in validateEnhanceCoverage already guards against dropped
-	 * names from the ORIGINAL perspective; this check guards the ENHANCED perspective.
-	 */
-	/**
-	 * P30-30: Strict fabrication detection — used on the standard enhance pass.
-	 *
-	 * Two checks:
-	 *   1. Multi-word capitalized sequences (e.g. "Officer Martinez", "John Davis").
-	 *      Role/title words are excluded (may be abbreviation expansions). All
-	 *      remaining name words must appear in the original text.
-	 *   2. Time values in HH:MM format — specific times must not be invented.
-	 */
-	function validateNoFabricationStrict(
-		original: string,
-		enhanced: string
-	): { ok: boolean; reason?: string } {
-		const origLower = original.toLowerCase();
-
-		const roleTitles = new Set([
-			'officer', 'detective', 'sergeant', 'lieutenant', 'captain', 'constable',
-			'inspector', 'investigator', 'superintendent', 'deputy', 'agent', 'doctor',
-			'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'witness', 'suspect',
-			'defendant', 'plaintiff', 'victim', 'complainant'
-		]);
-
-		// 1. Multi-word capitalized sequences.
-		for (const m of enhanced.matchAll(/\b([A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+)+)\b/g)) {
-			const phrase = m[1].trim();
-			const words = phrase.split(/\s+/);
-			const nameWords = words.filter((w) => !roleTitles.has(w.toLowerCase()));
-			for (const nameWord of nameWords) {
-				if (nameWord.length >= 3 && !origLower.includes(nameWord.toLowerCase())) {
-					return { ok: false, reason: 'fabrication' };
-				}
-			}
-		}
-
-		// 2. Time values (HH:MM) in enhanced not present in original.
-		for (const m of enhanced.matchAll(/\b(\d{1,2}:\d{2})\b/g)) {
-			if (!origLower.includes(m[1])) {
-				return { ok: false, reason: 'fabrication' };
-			}
-		}
-
-		return { ok: true };
-	}
-
-	/**
-	 * P30-32: Relaxed fabrication detection — used only on the safe enhance pass.
-	 *
-	 * The safe prompt is maximally constrained (grammar/clarity only, no expansion),
-	 * so false-positive risk from legitimate rewrites is higher. Two relaxations vs
-	 * strict mode:
-	 *
-	 *   1. Broader exclusion set — includes common governmental/organisational terms
-	 *      that appear when acronyms are expanded (e.g. "FBI" → "Federal Bureau of
-	 *      Investigation" introduces "Federal" and "Bureau" as Title-Cased words not
-	 *      literally present in the original, but these are not fabricated facts).
-	 *
-	 *   2. No time value check — the safe prompt does not alter factual content; minor
-	 *      reformatting of times is acceptable in a minimal grammar rewrite.
-	 *
-	 * True proper-name fabrication (new people, new locations, new organisations whose
-	 * names are not covered by the exclusion set) is still caught.
-	 */
-	function validateNoFabricationSafe(
-		original: string,
-		enhanced: string
-	): { ok: boolean; reason?: string } {
-		const origLower = original.toLowerCase();
-
-		// Broader exclusion set: role titles + common org/gov acronym-expansion words.
-		const safeExclusions = new Set([
-			// Role and professional titles (same as strict)
-			'officer', 'detective', 'sergeant', 'lieutenant', 'captain', 'constable',
-			'inspector', 'investigator', 'superintendent', 'deputy', 'agent', 'doctor',
-			'dr', 'mr', 'mrs', 'ms', 'miss', 'sir', 'witness', 'suspect',
-			'defendant', 'plaintiff', 'victim', 'complainant',
-			// Governmental and organisational acronym-expansion words
-			'national', 'federal', 'bureau', 'department', 'agency', 'administration',
-			'authority', 'service', 'commission', 'board', 'office', 'division',
-			'unit', 'force', 'corps', 'squad', 'team', 'ministry', 'court',
-			'police', 'sheriff', 'justice', 'homeland', 'security', 'intelligence',
-			'criminal', 'investigation', 'investigations', 'narcotics', 'task',
-			'central', 'state', 'county', 'municipal', 'regional', 'international',
-			'emergency', 'management', 'protection', 'enforcement'
-		]);
-
-		// Multi-word capitalized sequences — same logic as strict but with the broader
-		// exclusion set. Time values are NOT checked in safe mode.
-		for (const m of enhanced.matchAll(/\b([A-Z][a-zA-Z']+(?:\s+[A-Z][a-zA-Z']+)+)\b/g)) {
-			const phrase = m[1].trim();
-			const words = phrase.split(/\s+/);
-			const nameWords = words.filter((w) => !safeExclusions.has(w.toLowerCase()));
-			for (const nameWord of nameWords) {
-				if (nameWord.length >= 3 && !origLower.includes(nameWord.toLowerCase())) {
-					return { ok: false, reason: 'fabrication' };
-				}
-			}
-		}
-
-		return { ok: true };
-	}
-
-	/**
-	 * P30-33 / P33: Sentence-level alignment (safe pass) — length expansion is checked separately
-	 * after other validators (`validateSafeModeLengthExpansion`), matching Case Engine order.
-	 *
-	 *   1. Sentence count guard — enhanced sentence count must not exceed original
-	 *      count by more than one (one tolerance allows for minor punctuation splits).
-	 *      Skipped for structured list/numbered baselines (P31-10 — parity with CE).
-	 *
-	 *   2. Per-sentence alignment — for each enhanced sentence with ≥2 key tokens,
-	 *      at least 40% of its key tokens must appear in the best-matching original
-	 *      sentence. Key tokens: significant words (4+ chars, non-stopword) and
-	 *      numeric values. A 40% threshold accommodates valid synonym/word-order
-	 *      changes while blocking sentences invented from whole cloth.
-	 *      Skipped for structured list/numbered baselines (P31-10).
-	 *
-	 * Sentences shorter than 12 characters and those with fewer than 2 key tokens
-	 * are skipped (they cannot be reliably validated and carry little fabrication risk).
-	 */
-	function validateSafeModeLengthExpansion(original: string, enhanced: string): { ok: boolean; reason?: string } {
-		const origLen = original.trim().length;
-		const enhLen = enhanced.trim().length;
-		const allowedLen = safeModeCoarseLengthAllowanceChars(origLen);
-		if (origLen > 0 && enhLen > allowedLen) {
-			return { ok: false, reason: 'expansion' };
-		}
-		return { ok: true };
-	}
-
-	function validateSentenceAlignmentContent(
-		original: string,
-		enhanced: string
-	): { ok: boolean; reason?: string } {
-		// P31-10: Match CE `isStructuredCoverageNote` — list drafts do not sentence-split like narrative;
-		// grammar passes may add periods per line and inflate filtered sentence counts. Coverage tier
-		// already enforced line parity (±1); coarse length is enforced later via `validateSafeModeLengthExpansion`.
-		const origTrimmed = original.trim();
-		if (/^\s*[\*\-\+•]\s/m.test(origTrimmed) || /^\s*\d+[\.\)]\s/m.test(origTrimmed)) {
-			return { ok: true };
-		}
-
-		// Sentence splitter: split on sentence-ending punctuation followed by whitespace
-		// or end of string. Collapse newlines to spaces first so paragraph breaks don't
-		// fragment sentence detection.
-		const toSentences = (text: string): string[] =>
-			text
-				.replace(/\n+/g, ' ')
-				.split(/(?<=[.!?…])\s+|(?<=[.!?…])$/)
-				.map((s) => s.trim())
-				.filter((s) => s.length >= 12);
-
-		const origSentences = toSentences(original);
-		const enhSentences = toSentences(enhanced);
-
-		// 2. Sentence count guard.
-		if (enhSentences.length > origSentences.length + 1) {
-			return { ok: false, reason: 'sentence-count' };
-		}
-
-		// No sentences to align against — cannot enforce, skip.
-		if (origSentences.length === 0 || enhSentences.length === 0) {
-			return { ok: true };
-		}
-
-		// Common English function words excluded from key-token extraction.
-		// Only words 4+ characters are candidates; this list trims the most
-		// frequent ones that carry no discriminating meaning.
-		const STOP = new Set([
-			'that', 'this', 'with', 'from', 'have', 'they', 'were', 'been',
-			'their', 'would', 'could', 'should', 'will', 'also', 'then',
-			'when', 'what', 'where', 'there', 'which', 'about', 'into',
-			'than', 'some', 'more', 'just', 'over', 'such', 'your', 'each',
-			'after', 'before', 'other', 'these', 'those', 'being', 'while',
-			'both', 'only', 'very', 'most', 'much', 'many', 'said', 'whom'
-		]);
-
-		const keyTokens = (sentence: string): Set<string> => {
-			const out = new Set<string>();
-			for (const m of sentence.matchAll(/\b([A-Za-z]{4,})\b/g)) {
-				const w = m[1].toLowerCase();
-				if (!STOP.has(w)) out.add(w);
-			}
-			for (const m of sentence.matchAll(/\b\d+\b/g)) out.add(m[0]);
-			return out;
-		};
-
-		// 3. Per-sentence alignment check.
-		for (const eSent of enhSentences) {
-			const eToks = keyTokens(eSent);
-			if (eToks.size < 2) continue; // too few tokens to validate reliably
-
-			let bestOverlap = 0;
-			for (const oSent of origSentences) {
-				const oToks = keyTokens(oSent);
-				if (oToks.size === 0) continue;
-				let shared = 0;
-				for (const t of eToks) {
-					if (oToks.has(t)) shared++;
-				}
-				const overlap = shared / eToks.size;
-				if (overlap > bestOverlap) bestOverlap = overlap;
-			}
-
-			// Require at least 40% of the enhanced sentence's key tokens to appear
-			// in the best-matching original sentence.
-			if (bestOverlap < 0.40) {
-				return { ok: false, reason: 'alignment' };
-			}
-		}
-
-		return { ok: true };
-	}
-
-	/**
-	 * Validate that investigative directives and action items from the original
-	 * note are preserved in the enhanced output.
-	 *
-	 * Three checks (any failure rejects the enhancement):
-	 *   1. Directive labels — explicit headers like "action item:" or "next steps:"
-	 *      must still appear in the enhanced output.
-	 *   2. Numbered task lists — if the original has 2+ numbered items, at least
-	 *      half must survive in the enhanced output.
-	 *   3. Directive verb coverage — if the original contains 4+ directive verbs
-	 *      (follow up, interview, confirm, etc.), at least 50% must carry forward.
-	 *      Threshold is high enough to avoid false-positives from valid rephrasing.
-	 *
-	 * P30-18.
-	 */
-	function validateDirectivePreservation(original: string, enhanced: string): boolean {
-		const origLower = original.toLowerCase();
-		const enhLower = enhanced.toLowerCase();
-
-		// 1. Directive label check — if an explicit label appears in the original,
-		//    it must appear in the enhanced output.
-		const directiveLabels = [
-			'action item',
-			'action items',
-			'next step',
-			'next steps',
-			'follow up',
-			'follow-up',
-			'to do',
-			'to-do',
-			'todo'
-		];
-		for (const label of directiveLabels) {
-			if (origLower.includes(label) && !enhLower.includes(label)) {
-				return false;
-			}
-		}
-
-		// 2. Numbered task list check — if the original has 2+ numbered items,
-		//    require at least half to survive (allows merging of short adjacent items).
-		const origNumbered = (original.match(/^\s*\d+[\.\)]\s/gm) ?? []).length;
-		if (origNumbered >= 2) {
-			const enhNumbered = (enhanced.match(/^\s*\d+[\.\)]\s/gm) ?? []).length;
-			if (enhNumbered < Math.ceil(origNumbered * 0.5)) {
-				return false;
-			}
-		}
-
-		// 3. Directive verb coverage — only triggers when 4+ verbs are present
-		//    (indicating a clear task/action section) to avoid false positives.
-		const directiveVerbs = [
-			'follow up',
-			'interview',
-			'confirm',
-			'establish',
-			'review',
-			'notify',
-			'obtain',
-			'contact',
-			'schedule',
-			'request',
-			'verify',
-			'conduct',
-			'arrange'
-		];
-		const origVerbs = directiveVerbs.filter((v) => origLower.includes(v));
-		if (origVerbs.length >= 4) {
-			const enhVerbs = origVerbs.filter((v) => enhLower.includes(v));
-			if (enhVerbs.length < Math.ceil(origVerbs.length * 0.5)) {
-				return false;
-			}
-		}
-
-		return true;
-	}
-
-	/**
-	 * Call the AI to enhance a single block of text.
-	 * Returns the raw content and whether the response was truncated.
-	 * P30-17.
-	 */
-	async function enhanceBlock(
-		modelId: string,
-		block: string,
-		isMultiBlock: boolean,
-		promptOverride?: string
-	): Promise<{ text: string; truncated: boolean }> {
-		const systemPrompt = promptOverride ?? (isMultiBlock ? ENHANCE_BLOCK_PROMPT : ENHANCE_SYSTEM_PROMPT);
-		const res = await generateOpenAIChatCompletion(
-			localStorage.token,
-			{
-				model: modelId,
-				stream: false,
-				max_tokens: -1,
-				messages: [
-					{ role: 'system', content: systemPrompt },
-					{ role: 'user', content: block }
-				]
-			},
-			`${WEBUI_BASE_URL}/api`
-		);
-		type CompletionChoice = { message?: { content?: string }; finish_reason?: string };
-		const choice = (res as { choices?: CompletionChoice[] })?.choices?.[0];
-		return {
-			text: choice?.message?.content ?? '',
-			truncated: (choice?.finish_reason ?? '') === 'length'
-		};
 	}
 
 	function getActiveModelId(): string | null {
@@ -1692,901 +930,6 @@
 		}
 		const visible = $models.filter((m) => !(m?.info?.meta?.hidden ?? false));
 		return visible.length > 0 ? visible[0].id : null;
-	}
-
-	/**
-	 * P30-31: Run one full enhance pass (blocks + all validation).
-	 *
-	 * When safe=true, uses ENHANCE_SAFE_PROMPT for every block and skips the
-	 * per-block drift check (the safe prompt is too constrained to drift).
-	 *
-	 * Returns:
-	 *   { ok: true, assembled }   — passed all validation
-	 *   { ok: false, kind: 'fatal', message }      — truncation / empty response
-	 *   { ok: false, kind: 'validation', message, reasons } — content/fabrication check failed (P31-03)
-	 */
-	async function tryEnhancePass(
-		modelId: string,
-		draftText: string,
-		safe: boolean
-	): Promise<
-		| { ok: true; assembled: string }
-		| { ok: false; kind: 'fatal'; message: string }
-		| { ok: false; kind: 'validation'; message: string; reasons: IntegrityFailureReason[] }
-	> {
-		const blocks = draftText.split(/\n\n+/).filter((b) => b.trim().length > 0);
-		const isMultiBlock = blocks.length > 1;
-		const enhancedBlocks: string[] = [];
-
-		for (const block of blocks) {
-			const { text: raw, truncated } = await enhanceBlock(
-				modelId,
-				block,
-				isMultiBlock,
-				safe ? ENHANCE_SAFE_PROMPT : undefined
-			);
-
-			if (truncated) {
-				return {
-					ok: false,
-					kind: 'fatal',
-					message:
-						'Enhanced suggestion is incomplete — the model stopped before finishing. ' +
-						'The note may be too long for the current model. ' +
-						'Try with a shorter note, or save manually without enhancement.'
-				};
-			}
-
-			if (!raw.trim()) {
-				return {
-					ok: false,
-					kind: 'fatal',
-					message: 'AI returned an empty response for part of the note. Please try again.'
-				};
-			}
-
-			const sanitized = sanitizeEnhanceOutput(raw);
-			if (!sanitized) {
-				return {
-					ok: false,
-					kind: 'fatal',
-					message: 'AI returned an empty response after sanitization. Please try again.'
-				};
-			}
-
-			// P30-30: Per-block drift check — skipped in safe mode since the safe
-			// prompt is too constrained to replace paragraph content wholesale.
-			if (!safe && block.length >= 80) {
-				const blockTokens = new Set<string>();
-				for (const bm of block.matchAll(/\b[A-Z][a-z]{2,}\b/g)) blockTokens.add(bm[0].toLowerCase());
-				for (const bm of block.matchAll(/\b\d+(?:[:.\/\-]\d+)*\b/g)) blockTokens.add(bm[0]);
-				for (const bm of block.matchAll(/["']([^"']{2,60})["']/g)) blockTokens.add(bm[1].toLowerCase().trim());
-				if (blockTokens.size >= 3) {
-					const sanitizedLower = sanitized.toLowerCase();
-					let blockMissing = 0;
-					for (const t of blockTokens) {
-						if (!sanitizedLower.includes(t)) blockMissing++;
-					}
-					if (blockMissing / blockTokens.size > 0.65) {
-						return {
-							ok: false,
-							kind: 'validation',
-							message:
-								'Enhancement rejected — possible content loss. A paragraph appears to have been replaced with different content. Please try again.',
-							reasons: integrityReasonsFromInternalKeys(['block-drift'])
-						};
-					}
-				}
-			}
-
-			enhancedBlocks.push(sanitized);
-		}
-
-		const assembled = enhancedBlocks.join('\n\n');
-
-		const disallowed = validateEnhanceOutputDisallowedPatterns(assembled, draftText);
-		if (disallowed) {
-			return {
-				ok: false,
-				kind: 'validation',
-				message:
-					'Enhancement rejected — the AI added assistant-style wording, placeholders, or speculative content not present in your note. Please try again.',
-				reasons: integrityReasonsFromInternalKeys([disallowed])
-			};
-		}
-
-		// P30-17/P30-29: Coverage validation.
-		const coverage = validateEnhanceCoverage(draftText, assembled);
-		if (!coverage.ok) {
-			const cr = coverage.reason ?? 'key-terms';
-			const ikey = `coverage:${cr}`;
-			return {
-				ok: false,
-				kind: 'validation',
-				message:
-					coverage.reason === 'structure-mismatch'
-						? 'Enhancement rejected — structure mismatch. The enhanced output did not preserve the original structure. Please try again.'
-						: coverage.reason === 'length' || coverage.reason === 'empty'
-							? 'Enhancement rejected — incomplete output. The enhanced version is too short. Please try again.'
-							: 'Enhancement rejected — possible content loss. Important terms may have been dropped. Please try again.',
-				reasons: integrityReasonsFromInternalKeys([ikey])
-			};
-		}
-
-		// P31-12: Certainty / qualifier preservation (strict + safe).
-		const certaintyQualifier = validateCertaintyQualifierPreservation(draftText, assembled);
-		if (!certaintyQualifier.ok) {
-			const cr = certaintyQualifier.reason ?? 'certainty-inflation';
-			return {
-				ok: false,
-				kind: 'validation',
-				message:
-					cr === 'qualifier-loss'
-						? 'Enhancement rejected — hedging or attribution in your original note may have been removed. Please try again.'
-						: 'Enhancement rejected — a stated limitation or uncertain wording may have been turned into a firm statement. Please try again.',
-				reasons: integrityReasonsFromInternalKeys([cr])
-			};
-		}
-
-		// P31-15: Explicit sold-to / hand-to / met actor–recipient swap (strict + safe).
-		const entityRole = validateExplicitActorRecipientSwap(draftText, assembled);
-		if (!entityRole.ok) {
-			return {
-				ok: false,
-				kind: 'validation',
-				message:
-					'Enhancement rejected — who sold, handed, or met whom may have been reversed in an explicit phrase. Please try again.',
-				reasons: integrityReasonsFromInternalKeys(['entity-role-swap'])
-			};
-		}
-
-		// P30-30/P30-32: Fabrication detection — strict on standard pass,
-		// relaxed (no time check, broader org-word exclusions) on safe pass.
-		const fabrication = safe
-			? validateNoFabricationSafe(draftText, assembled)
-			: validateNoFabricationStrict(draftText, assembled);
-		if (!fabrication.ok) {
-			return {
-				ok: false,
-				kind: 'validation',
-				message:
-					'Enhancement rejected — possible fabricated content. The enhanced version may have introduced new information not present in the original note. Please try again.',
-				reasons: integrityReasonsFromInternalKeys(['fabrication'])
-			};
-		}
-
-		// P30-33: Sentence alignment content — safe pass only (length checked after directive preservation).
-		if (safe) {
-			const alignment = validateSentenceAlignmentContent(draftText, assembled);
-			if (!alignment.ok) {
-				const ar = alignment.reason ?? 'alignment';
-				return {
-					ok: false,
-					kind: 'validation',
-					message:
-						ar === 'sentence-count'
-							? 'Enhancement rejected — safe mode introduced additional sentences not present in the original. Please try again.'
-							: 'Enhancement rejected — safe mode output contains content that cannot be traced to the original note. Please try again.',
-					reasons: integrityReasonsFromInternalKeys([`alignment:${ar}`])
-				};
-			}
-		}
-
-		// P30-18: Directive preservation.
-		if (!validateDirectivePreservation(draftText, assembled)) {
-			return {
-				ok: false,
-				kind: 'validation',
-				message:
-					'Enhanced suggestion was rejected because an action item or investigative directive may have been omitted. Please try again.',
-				reasons: integrityReasonsFromInternalKeys(['directive-preservation'])
-			};
-		}
-
-		if (safe) {
-			const lenCk = validateSafeModeLengthExpansion(draftText, assembled);
-			if (!lenCk.ok) {
-				return {
-					ok: false,
-					kind: 'validation',
-					message:
-						'Enhancement rejected — in safe mode the enhancement exceeded safe expansion limits. Try shortening the model output, tightening your draft, or editing manually. Please try again.',
-					reasons: integrityReasonsFromInternalKeys(['alignment:expansion'])
-				};
-			}
-		}
-
-		return { ok: true, assembled };
-	}
-
-	/** P32-02 / P32-03: temporary dev-only logs for safe-cleanup integration (skipped in Vitest). */
-	function enhanceSafeCleanupDebugEnabled(): boolean {
-		return (
-			typeof import.meta !== 'undefined' &&
-			import.meta.env?.DEV === true &&
-			import.meta.env?.MODE !== 'test'
-		);
-	}
-
-	type SafeFallbackPipelineResult = 'proposal_accepted' | 'safe_cleanup_offered' | 'terminal_error';
-
-	/** P32-04: log terminal enhance UI state from the safe-fallback pipeline only (dev / non-test). */
-	function debugEnhancePipelineFinalMode(result: SafeFallbackPipelineResult): void {
-		if (!enhanceSafeCleanupDebugEnabled()) return;
-		// eslint-disable-next-line no-console
-		console.debug('PIPELINE → final mode', enhanceState, result);
-	}
-
-	/**
-	 * P32-03 / P32-04: Shared strict-rejection tail — safe AI pass, then cleanup preview on safe failure.
-	 * Owns final enhanceState for proposal / safe_cleanup / error on this path.
-	 * Used after strict **validation** rejection or after strict pass **throws** (still run safe before cleanup-only).
-	 */
-	async function executeEnhanceSafeFallbackPipeline(
-		modelId: string,
-		draftText: string,
-		noteCtx: EnhanceObservabilityNoteContext,
-		correlationId: string,
-		strictEntry: 'validation_rejected' | 'strict_threw',
-		strictRejectionReasons: IntegrityFailureReason[] | undefined
-	): Promise<SafeFallbackPipelineResult> {
-		enhanceAuditPatch(correlationId, { safeResult: 'pending' });
-		enhancePipelineDevStage = 'safe';
-		if (enhanceSafeCleanupDebugEnabled()) {
-			// eslint-disable-next-line no-console
-			console.debug('PIPELINE → safe start', { correlationId, strictEntry });
-			// eslint-disable-next-line no-console
-			console.debug('safe_pass_started', { correlationId, strictEntry });
-		}
-
-		if (strictEntry === 'validation_rejected') {
-			const strictCodes = strictRejectionReasons?.length
-				? reasonCodesFromEnhanceReasons(strictRejectionReasons)
-				: [];
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_validation_outcome',
-				validationMode: 'strict',
-				outcome: 'rejected',
-				reasonCodes: strictCodes,
-				metadata: {}
-			});
-			enhanceAuditPatch(correlationId, {
-				strictResult: 'rejected',
-				reasonCodes: strictCodes
-			});
-		} else if (strictEntry === 'strict_threw') {
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_validation_outcome',
-				validationMode: 'strict',
-				outcome: 'error',
-				reasonCodes: ['strict_pass_exception'],
-				metadata: {}
-			});
-			enhanceAuditPatch(correlationId, {
-				strictResult: 'error',
-				reasonCodes: ['strict_pass_exception']
-			});
-		}
-
-		recordEnhanceObservabilityEvent({
-			caseId,
-			noteContext: noteCtx,
-			correlationId,
-			eventType: 'enhance_fallback_attempted',
-			validationMode: 'safe',
-			outcome: 'pipeline_started',
-			reasonCodes: [],
-			metadata: {}
-		});
-
-		let safeResult: Awaited<ReturnType<typeof tryEnhancePass>>;
-		try {
-			safeResult = await tryEnhancePass(modelId, draftText, true);
-		} catch (safeErr: unknown) {
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('safe_pass_result', { correlationId, ok: false, threw: true, safeErr });
-				// eslint-disable-next-line no-console
-				console.debug('safe_pass_failed_triggering_cleanup', {
-					correlationId,
-					safeKind: 'threw'
-				});
-			}
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_validation_outcome',
-				validationMode: 'safe',
-				outcome: 'error',
-				reasonCodes: ['safe_pass_exception'],
-				metadata: {}
-			});
-			enhanceAuditPatch(correlationId, {
-				safeResult: 'error',
-				reasonCodes: ['safe_pass_exception']
-			});
-			enhanceIntegrityExplain = null;
-			enhanceError =
-				'Could not generate an enhanced version of this note. Please try again.';
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('PIPELINE → cleanup start', { correlationId, strictEntry, after: 'safe_threw' });
-			}
-			if (await tryOfferSafeCleanup(draftText, noteCtx, correlationId, 'after_safe_pass')) {
-				enhancePipelineDevStage = 'idle';
-				debugEnhancePipelineFinalMode('safe_cleanup_offered');
-				return 'safe_cleanup_offered';
-			}
-			enhanceState = 'error';
-			enhancePipelineDevStage = 'idle';
-			debugEnhancePipelineFinalMode('terminal_error');
-			return 'terminal_error';
-		}
-
-		if (enhanceSafeCleanupDebugEnabled()) {
-			// eslint-disable-next-line no-console
-			console.debug('safe_pass_result', {
-				correlationId,
-				ok: safeResult.ok,
-				kind: safeResult.ok ? undefined : safeResult.kind
-			});
-		}
-
-		if (safeResult.ok) {
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_validation_outcome',
-				validationMode: 'safe',
-				outcome: 'accepted',
-				reasonCodes: [],
-				metadata: { enhanceFallbackUsed: true }
-			});
-			enhanceAuditPatch(correlationId, {
-				safeResult: 'accepted',
-				cleanupResult: 'skipped',
-				outputLength: safeResult.assembled.length,
-				diffStats: computeEnhanceAuditDiffStats(draftText, safeResult.assembled)
-			});
-			pendingIntegrityBaseline = draftText;
-			enhanceProposalText = safeResult.assembled;
-			enhanceFallbackUsed = true;
-			enhanceTruncated = false;
-			enhanceState = 'proposal';
-			pendingEnhanceCorrelationId = correlationId;
-			enhancePipelineDevStage = 'idle';
-			debugEnhancePipelineFinalMode('proposal_accepted');
-			return 'proposal_accepted';
-		}
-
-		if (safeResult.kind === 'fatal') {
-			if (safeResult.message.includes('stopped before finishing')) enhanceTruncated = true;
-			enhanceIntegrityExplain = null;
-			enhanceError = safeResult.message;
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_validation_outcome',
-				validationMode: 'safe',
-				outcome: 'fatal',
-				reasonCodes: [],
-				metadata: { modelTruncated: enhanceTruncated }
-			});
-			enhanceAuditPatch(correlationId, {
-				safeResult: 'error',
-				reasonCodes: enhanceTruncated ? ['model_truncated'] : ['safe_fatal']
-			});
-		} else {
-			enhanceIntegrityExplain = buildEnhanceRejectedExplain(safeResult.reasons);
-			enhanceError = '';
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_validation_outcome',
-				validationMode: 'safe',
-				outcome: 'rejected',
-				reasonCodes: reasonCodesFromEnhanceReasons(safeResult.reasons),
-				metadata: {}
-			});
-			enhanceAuditPatch(correlationId, {
-				safeResult: 'rejected',
-				reasonCodes: reasonCodesFromEnhanceReasons(safeResult.reasons)
-			});
-		}
-
-		if (enhanceSafeCleanupDebugEnabled()) {
-			// eslint-disable-next-line no-console
-			console.debug('safe_pass_failed_triggering_cleanup', {
-				correlationId,
-				safeKind: safeResult.kind
-			});
-		}
-		if (enhanceSafeCleanupDebugEnabled()) {
-			// eslint-disable-next-line no-console
-			console.debug('PIPELINE → cleanup start', { correlationId, strictEntry, after: 'safe_failed' });
-		}
-		if (await tryOfferSafeCleanup(draftText, noteCtx, correlationId, 'after_safe_pass')) {
-			enhancePipelineDevStage = 'idle';
-			debugEnhancePipelineFinalMode('safe_cleanup_offered');
-			return 'safe_cleanup_offered';
-		}
-		enhanceState = 'error';
-		enhancePipelineDevStage = 'idle';
-		debugEnhancePipelineFinalMode('terminal_error');
-		return 'terminal_error';
-	}
-
-	/** P32-01 / P32-02: Ask Case Engine for validated deterministic cleanup; on success shows safe_cleanup panel. */
-	async function tryOfferSafeCleanup(
-		draftText: string,
-		noteCtx: EnhanceObservabilityNoteContext,
-		correlationId: string,
-		rejectPhase: string
-	): Promise<boolean> {
-		const token = $caseEngineToken;
-		if (!token || !caseId) {
-			enhancePipelineDevStage = 'idle';
-			enhanceAuditPatch(correlationId, {
-				cleanupResult: 'invalid',
-				reasonCodes: ['cleanup_no_token_or_case']
-			});
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('safe_cleanup_preview_invalid', { reason: 'no_token_or_case_id', rejectPhase });
-			}
-			return false;
-		}
-		enhancePipelineDevStage = 'cleanup_preview';
-		if (enhanceSafeCleanupDebugEnabled()) {
-			// eslint-disable-next-line no-console
-			console.debug('cleanup_preview_request_fired', { rejectPhase, correlationId, caseId });
-		}
-		try {
-			const res = await previewCaseNotebookSafeSurfaceCleanup(caseId, token, draftText);
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('safe_cleanup_preview_result', {
-					rejectPhase,
-					success: res.success,
-					...('success' in res && res.success
-						? {
-								valid: res.valid,
-								invalidReason: res.invalidReason,
-								changesCount: res.changesSummary?.length,
-								cleanedLen: res.cleanedText?.length
-							}
-						: { errorMessage: (res as { errorMessage?: string }).errorMessage })
-				});
-			}
-			if (!res.success) {
-				enhancePipelineDevStage = 'idle';
-				enhanceAuditPatch(correlationId, {
-					cleanupResult: 'invalid',
-					reasonCodes: ['cleanup_preview_request_failed']
-				});
-				if (enhanceSafeCleanupDebugEnabled()) {
-					// eslint-disable-next-line no-console
-					console.debug('safe_cleanup_preview_invalid', {
-						reason: 'preview_request_failed',
-						errorMessage: res.errorMessage,
-						rejectPhase
-					});
-				}
-				return false;
-			}
-			if (!res.valid) {
-				enhancePipelineDevStage = 'idle';
-				const inv = res.invalidReason ?? 'cleanup_invalid';
-				const fc = Array.isArray(res.failedChecks) ? res.failedChecks : [];
-				enhanceAuditPatch(correlationId, {
-					cleanupResult: 'invalid',
-					reasonCodes: [inv],
-					failedChecks: fc.length ? [...fc] : inv.includes('token') ? ['token-count'] : []
-				});
-				if (enhanceSafeCleanupDebugEnabled()) {
-					// eslint-disable-next-line no-console
-					console.debug('safe_cleanup_invalid_reason', res.invalidReason ?? 'invalid', {
-						failedChecks: res.failedChecks,
-						rejectPhase
-					});
-					// eslint-disable-next-line no-console
-					console.debug('safe_cleanup_preview_invalid', {
-						reason: res.invalidReason ?? 'invalid',
-						failedChecks: res.failedChecks,
-						rejectPhase
-					});
-				}
-				return false;
-			}
-			if (res.cleanedText === draftText) {
-				enhancePipelineDevStage = 'idle';
-				enhanceAuditPatch(correlationId, { cleanupResult: 'no_op', reasonCodes: ['cleanup_no_op_unchanged'] });
-				if (enhanceSafeCleanupDebugEnabled()) {
-					// eslint-disable-next-line no-console
-					console.debug('safe_cleanup_preview_invalid', { reason: 'no_op_unchanged', rejectPhase });
-				}
-				return false;
-			}
-			safeCleanupOffer = {
-				originalText: draftText,
-				cleanedText: res.cleanedText,
-				changesSummary: res.changesSummary
-			};
-			safeCleanupCorrelationId = correlationId;
-			enhanceState = 'safe_cleanup';
-			enhancePipelineDevStage = 'idle';
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('safe_cleanup_rendered', { rejectPhase, correlationId, valid: true });
-			}
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_safe_cleanup_offered',
-				validationMode: 'safe_cleanup',
-				outcome: 'pipeline_started',
-				reasonCodes: [],
-				metadata: { draftCharCount: draftText.length }
-			});
-			enhanceAuditPatch(correlationId, {
-				cleanupResult: 'applied',
-				outputLength: res.cleanedText.length,
-				diffStats: computeEnhanceAuditDiffStats(draftText, res.cleanedText)
-			});
-			return true;
-		} catch (err) {
-			enhancePipelineDevStage = 'idle';
-			enhanceAuditPatch(correlationId, {
-				cleanupResult: 'invalid',
-				reasonCodes: ['cleanup_preview_exception']
-			});
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('safe_cleanup_preview_invalid', { reason: 'exception', rejectPhase, err });
-			}
-			return false;
-		}
-	}
-
-	/**
-	 * Note-level AI enhance (strict / safe / cleanup pipeline on raw note text).
-	 * Distinct from Structure Note + narrative preview; used from in-flow Retry / safe-cleanup actions when offered.
-	 */
-	async function handleEnhance(): Promise<void> {
-		const draftText = mode === 'edit' ? editText.trim() : createText.trim();
-		const noteCtx = enhanceObservabilityNoteContext();
-		const paragraphBlockCount = draftText
-			? draftText.split(/\n\n+/).filter((b) => b.trim().length > 0).length
-			: 0;
-		if (!draftText) {
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId: newEnhanceCorrelationId(),
-				eventType: 'enhance_precondition_failed',
-				validationMode: null,
-				outcome: 'skipped_precondition',
-				reasonCodes: ['empty_draft'],
-				metadata: {
-					draftCharCount: 0,
-					paragraphBlockCount: 0,
-					integrityBaselinePresent: integrityBaselineText !== null
-				}
-			});
-			enhanceError = 'Write some note text before using Enhance.';
-			enhanceState = 'error';
-			return;
-		}
-		const modelId = getActiveModelId();
-		if (!modelId) {
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId: newEnhanceCorrelationId(),
-				eventType: 'enhance_precondition_failed',
-				validationMode: null,
-				outcome: 'skipped_precondition',
-				reasonCodes: ['no_model_available'],
-				metadata: {
-					draftCharCount: draftText.length,
-					paragraphBlockCount,
-					integrityBaselinePresent: integrityBaselineText !== null
-				}
-			});
-			enhanceError = 'No AI model is available. Check your model configuration.';
-			enhanceState = 'error';
-			return;
-		}
-		const correlationId = newEnhanceCorrelationId();
-		pendingEnhanceCorrelationId = '';
-		enhanceState = 'loading';
-		enhanceProposalText = '';
-		enhanceError = '';
-		enhanceTruncated = false;
-		enhanceFallbackUsed = false;
-		saveIntegrityExplain = null;
-		enhanceIntegrityExplain = null;
-
-		recordEnhanceObservabilityEvent({
-			caseId,
-			noteContext: noteCtx,
-			correlationId,
-			eventType: 'enhance_requested',
-			validationMode: null,
-			outcome: 'pipeline_started',
-			reasonCodes: [],
-			metadata: {
-				draftCharCount: draftText.length,
-				paragraphBlockCount,
-				integrityBaselinePresent: integrityBaselineText !== null,
-				modelId
-			}
-		});
-
-		beginEnhancePipelineAudit({ correlationId, caseId, inputLength: draftText.length });
-		try {
-			enhancePipelineDevStage = 'strict';
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('enhance_pipeline_stage', { stage: 'strict', correlationId });
-			}
-
-			let result: Awaited<ReturnType<typeof tryEnhancePass>>;
-			try {
-				result = await tryEnhancePass(modelId, draftText, false);
-			} catch (strictErr: unknown) {
-				if (enhanceSafeCleanupDebugEnabled()) {
-					// eslint-disable-next-line no-console
-					console.debug('strict_pass_threw', { correlationId, strictErr });
-					// eslint-disable-next-line no-console
-					console.debug('STRICT → entering pipeline', { correlationId, entry: 'strict_threw' });
-				}
-				const out = await executeEnhanceSafeFallbackPipeline(
-					modelId,
-					draftText,
-					noteCtx,
-					correlationId,
-					'strict_threw',
-					undefined
-				);
-				if (out === 'proposal_accepted' || out === 'safe_cleanup_offered') return;
-				return;
-			}
-
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('strict_pass_result', {
-					correlationId,
-					ok: result.ok,
-					kind: result.ok ? undefined : result.kind
-				});
-			}
-
-			if (result.ok) {
-				recordEnhanceObservabilityEvent({
-					caseId,
-					noteContext: noteCtx,
-					correlationId,
-					eventType: 'enhance_validation_outcome',
-					validationMode: 'strict',
-					outcome: 'accepted',
-					reasonCodes: [],
-					metadata: { enhanceFallbackUsed: false }
-				});
-				enhanceAuditPatch(correlationId, {
-					strictResult: 'accepted',
-					safeResult: 'skipped',
-					cleanupResult: 'skipped',
-					outputLength: result.assembled.length,
-					diffStats: computeEnhanceAuditDiffStats(draftText, result.assembled)
-				});
-				pendingIntegrityBaseline = draftText;
-				enhanceProposalText = result.assembled;
-				enhanceTruncated = false;
-				enhanceState = 'proposal';
-				pendingEnhanceCorrelationId = correlationId;
-				enhancePipelineDevStage = 'idle';
-				return;
-			}
-
-			if (result.kind === 'fatal') {
-				if (result.message.includes('stopped before finishing')) enhanceTruncated = true;
-				enhanceIntegrityExplain = null;
-				enhanceError = result.message;
-				recordEnhanceObservabilityEvent({
-					caseId,
-					noteContext: noteCtx,
-					correlationId,
-					eventType: 'enhance_validation_outcome',
-					validationMode: 'strict',
-					outcome: 'fatal',
-					reasonCodes: [],
-					metadata: { modelTruncated: enhanceTruncated }
-				});
-				enhanceAuditPatch(correlationId, {
-					strictResult: 'error',
-					reasonCodes: enhanceTruncated ? ['model_truncated'] : ['strict_fatal']
-				});
-				if (enhanceSafeCleanupDebugEnabled()) {
-					// eslint-disable-next-line no-console
-					console.debug('enhance_rejected_triggering_cleanup', { phase: 'strict_fatal', correlationId });
-				}
-				enhancePipelineDevStage = 'idle';
-				if (await tryOfferSafeCleanup(draftText, noteCtx, correlationId, 'strict_fatal')) {
-					return;
-				}
-				if (enhanceState !== 'proposal' && enhanceState !== 'safe_cleanup') {
-					enhanceState = 'error';
-				}
-				return;
-			}
-
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('STRICT → entering pipeline', { correlationId, entry: 'validation_rejected' });
-			}
-			const out = await executeEnhanceSafeFallbackPipeline(
-				modelId,
-				draftText,
-				noteCtx,
-				correlationId,
-				'validation_rejected',
-				result.reasons
-			);
-			if (out === 'proposal_accepted' || out === 'safe_cleanup_offered') return;
-			return;
-		} catch (_e: unknown) {
-			enhanceAuditPatch(correlationId, {
-				strictResult: 'error',
-				safeResult: 'skipped',
-				reasonCodes: ['client_enhance_exception']
-			});
-			enhanceIntegrityExplain = null;
-			enhanceError =
-				'Could not generate an enhanced version of this note. Please try again.';
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: noteCtx,
-				correlationId,
-				eventType: 'enhance_validation_outcome',
-				validationMode: null,
-				outcome: 'error',
-				reasonCodes: ['client_enhance_exception'],
-				metadata: {}
-			});
-			if (enhanceSafeCleanupDebugEnabled()) {
-				// eslint-disable-next-line no-console
-				console.debug('enhance_rejected_triggering_cleanup', { phase: 'client_exception', correlationId });
-			}
-			enhancePipelineDevStage = 'idle';
-			if (await tryOfferSafeCleanup(draftText, noteCtx, correlationId, 'client_exception')) {
-				return;
-			}
-			if (enhanceState !== 'proposal' && enhanceState !== 'safe_cleanup') {
-				enhanceState = 'error';
-			}
-		} finally {
-			finalizeEnhancePipelineAudit();
-		}
-	}
-
-	function applyEnhanceProposal(): void {
-		if (!enhanceProposalText) return;
-		const cid = pendingEnhanceCorrelationId;
-		if (cid) {
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: enhanceObservabilityNoteContext(),
-				correlationId: cid,
-				eventType: 'enhance_applied',
-				validationMode: enhanceFallbackUsed ? 'safe' : 'strict',
-				outcome: 'applied',
-				reasonCodes: [],
-				metadata: { integrityBaselinePresent: pendingIntegrityBaseline !== null }
-			});
-		}
-		if (pendingIntegrityBaseline !== null) {
-			integrityBaselineText = pendingIntegrityBaseline;
-		}
-		pendingIntegrityBaseline = null;
-		if (mode === 'edit') {
-			editText = enhanceProposalText;
-			editEditorRenderKey += 1;
-		} else if (mode === 'create') {
-			createText = enhanceProposalText;
-			createEditorRenderKey += 1;
-		}
-		resetEnhanceState();
-	}
-
-	async function applySafeCleanup(): Promise<void> {
-		if (safeCleanupApplying || !safeCleanupOffer) return;
-		const token = $caseEngineToken;
-		if (!token) {
-			toast.error('Case Engine session required to apply safe cleanup.');
-			return;
-		}
-		safeCleanupApplying = true;
-		try {
-			const noteIdForAudit = mode === 'edit' && selectedNote != null ? selectedNote.id : null;
-			const audit = await auditCaseNotebookSafeSurfaceCleanupApplied(caseId, token, {
-				original_text: safeCleanupOffer.originalText,
-				cleaned_text: safeCleanupOffer.cleanedText,
-				changes_summary: safeCleanupOffer.changesSummary,
-				note_id: noteIdForAudit
-			});
-			if (!audit.success) {
-				toast.error(audit.errorMessage);
-				return;
-			}
-			const cid = safeCleanupCorrelationId || newEnhanceCorrelationId();
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: enhanceObservabilityNoteContext(),
-				correlationId: cid,
-				eventType: 'enhance_safe_cleanup_applied',
-				validationMode: 'safe_cleanup',
-				outcome: 'applied',
-				reasonCodes: ['enhance.safe_cleanup_used'],
-				metadata: { integrityBaselinePresent: true }
-			});
-			integrityBaselineText = safeCleanupOffer.originalText;
-			if (mode === 'edit') {
-				editText = safeCleanupOffer.cleanedText;
-				editEditorRenderKey += 1;
-			} else if (mode === 'create') {
-				createText = safeCleanupOffer.cleanedText;
-				createEditorRenderKey += 1;
-			}
-			resetEnhanceState();
-		} finally {
-			safeCleanupApplying = false;
-		}
-	}
-
-	function dismissEnhanceProposal(): void {
-		if (enhanceState === 'safe_cleanup') {
-			const cid = safeCleanupCorrelationId;
-			if (cid) {
-				recordEnhanceObservabilityEvent({
-					caseId,
-					noteContext: enhanceObservabilityNoteContext(),
-					correlationId: cid,
-					eventType: 'enhance_dismissed',
-					validationMode: 'safe_cleanup',
-					outcome: 'dismissed',
-					reasonCodes: [],
-					metadata: {}
-				});
-			}
-			resetEnhanceState();
-			return;
-		}
-		const cid = pendingEnhanceCorrelationId;
-		if (cid && enhanceProposalText) {
-			recordEnhanceObservabilityEvent({
-				caseId,
-				noteContext: enhanceObservabilityNoteContext(),
-				correlationId: cid,
-				eventType: 'enhance_dismissed',
-				validationMode: enhanceFallbackUsed ? 'safe' : 'strict',
-				outcome: 'dismissed',
-				reasonCodes: [],
-				metadata: {}
-			});
-		}
-		resetEnhanceState();
 	}
 
 	// ── Voice dictation state (P29-Notes-09) ──────────────────────────────────
@@ -3360,7 +1703,6 @@
 	// runs cleanly without a pending discard dialog from the old case.
 	$: if (caseId && $caseEngineToken && caseId !== prevLoadedCaseId) {
 		prevLoadedCaseId = caseId;
-		clearEnhanceObservabilityEvents();
 		notes = [];
 		loadError = '';
 		selectedNote = null;
@@ -3375,7 +1717,6 @@
 		editConflictMessage = '';
 		saving = false;
 		editEditorRenderKey = 0;
-		resetEnhanceState();
 		resetDictationState();
 		clearAttachmentState();
 		deletingId = null;
@@ -3480,7 +1821,6 @@
 			editConflictMessage = '';
 			editEditorRenderKey = 0;
 			resetVersionHistoryState();
-			resetEnhanceState();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			clearAttachmentState();
@@ -3503,7 +1843,6 @@
 			editConflictMessage = '';
 			editEditorRenderKey = 0;
 			resetVersionHistoryState();
-			resetEnhanceState();
 			resetStructuredNotesPreview();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
@@ -3532,7 +1871,6 @@
 			editConflictMessage = '';
 			editEditorRenderKey = 0;
 			resetVersionHistoryState();
-			resetEnhanceState();
 			resetStructuredNotesPreview();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
@@ -3545,7 +1883,6 @@
 	function startEdit(): void {
 		if (!selectedNote) return;
 		showVersionHistory = false;
-		resetEnhanceState();
 		resetDictationState();
 		resetNoteIntegrityDraftState();
 		editTitle = selectedNote.title ?? '';
@@ -3585,7 +1922,6 @@
 			editExpectedUpdatedAt = '';
 			editConflictMessage = '';
 			editEditorRenderKey = 0;
-			resetEnhanceState();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			// P30-20: clear transient workflow state so proposal panel, source
@@ -3602,7 +1938,6 @@
 			createTitle = '';
 			createText = '';
 			createEditorRenderKey = 0;
-			resetEnhanceState();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			// P30-20: clear transient workflow state on cancel.
@@ -3702,10 +2037,7 @@
 		try {
 		const note = await createCaseNotebookNote(
 			activeCaseId,
-			mergeNotebookWritePayload(
-				{ title: createTitle.trim() || buildAutoNoteTitle(text), text },
-				integrityBaselineText
-			),
+			mergeNotebookWritePayload({ title: createTitle.trim() || buildAutoNoteTitle(text), text }, null),
 			$caseEngineToken
 		);
 			if (caseId !== activeCaseId) return;
@@ -3739,17 +2071,6 @@
 				e.errorCode === 'AI_VALIDATION_FAILED'
 			) {
 				saveIntegrityExplain = buildSaveBlockedExplain(e.details, e.message);
-				recordEnhanceObservabilityEvent({
-					caseId: activeCaseId,
-					noteContext: { kind: 'create' },
-					correlationId: newEnhanceCorrelationId(),
-					eventType: 'save_integrity_blocked',
-					validationMode: null,
-					outcome: 'save_integrity_blocked',
-					reasonCodes: reasonCodesFromIntegrityFailureDetails(e.details),
-					requestId: e.requestId,
-					metadata: { integrityBaselinePresent: integrityBaselineText !== null }
-				});
 				return;
 			}
 			toast.error(e instanceof Error ? e.message : 'Failed to create note');
@@ -3813,7 +2134,6 @@
 				editExpectedUpdatedAt = '';
 				editConflictMessage = '';
 				editEditorRenderKey = 0;
-				resetEnhanceState();
 				resetDictationState();
 				resetNoteIntegrityDraftState();
 				mode = 'view';
@@ -3856,7 +2176,7 @@
 					text,
 					expected_updated_at: editExpectedUpdatedAt
 				},
-				integrityBaselineText
+				null
 			),
 			$caseEngineToken
 		);
@@ -3872,7 +2192,6 @@
 			editExpectedUpdatedAt = '';
 			editConflictMessage = '';
 			editEditorRenderKey = 0;
-			resetEnhanceState();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
 			mode = 'view';
@@ -3894,17 +2213,6 @@
 				e.errorCode === 'AI_VALIDATION_FAILED'
 			) {
 				saveIntegrityExplain = buildSaveBlockedExplain(e.details, e.message);
-				recordEnhanceObservabilityEvent({
-					caseId: activeCaseId,
-					noteContext: { kind: 'edit', noteId: selectedNote.id },
-					correlationId: newEnhanceCorrelationId(),
-					eventType: 'save_integrity_blocked',
-					validationMode: null,
-					outcome: 'save_integrity_blocked',
-					reasonCodes: reasonCodesFromIntegrityFailureDetails(e.details),
-					requestId: e.requestId,
-					metadata: { integrityBaselinePresent: integrityBaselineText !== null }
-				});
 				return;
 			}
 			toast.error(e instanceof Error ? e.message : 'Failed to save note');
@@ -3920,14 +2228,41 @@
 		try {
 			await deleteCaseNotebookNote(activeCaseId, noteToDelete.id, $caseEngineToken);
 			if (caseId !== activeCaseId) return;
-			notes = notes.filter((n) => n.id !== noteToDelete.id);
-			browserSearch = '';
 			const wasSelected = selectedNote?.id === noteToDelete.id;
+			const notesBeforeDelete = notes;
+			const searchActive = browserSearch.trim().length > 0;
+			let visibleBeforeDelete: NotebookNote[] = searchActive
+				? filteredNotes.map((r) => r.note)
+				: notesBeforeDelete.slice();
+			let deleteVisibleIndex = visibleBeforeDelete.findIndex((n) => n.id === noteToDelete.id);
+			if (deleteVisibleIndex < 0) {
+				visibleBeforeDelete = notesBeforeDelete.slice();
+				deleteVisibleIndex = visibleBeforeDelete.findIndex((n) => n.id === noteToDelete.id);
+			}
+			notes = notesBeforeDelete.filter((n) => n.id !== noteToDelete.id);
+			browserSearch = '';
 			if (wasSelected) {
 				resetDictationState();
 				resetVersionHistoryState();
-				selectedNote = notes.length > 0 ? notes[0] : null;
-				mode = selectedNote ? 'view' : 'idle';
+				const remainingVisible = visibleBeforeDelete.filter((n) => n.id !== noteToDelete.id);
+				if (remainingVisible.length === 0) {
+					selectedNote = null;
+					mode = 'idle';
+				} else {
+					const pick =
+						deleteVisibleIndex >= 0 && deleteVisibleIndex < remainingVisible.length
+							? remainingVisible[deleteVisibleIndex]
+							: remainingVisible[Math.max(0, deleteVisibleIndex - 1)];
+					const nextSelected = notes.find((n) => n.id === pick.id) ?? null;
+					if (nextSelected) {
+						selectedNote = nextSelected;
+						mode = 'view';
+						void loadNoteAttachments(nextSelected.id);
+					} else {
+						selectedNote = null;
+						mode = 'idle';
+					}
+				}
 			}
 			recentlyDeletedNote = { id: noteToDelete.id, title: noteToDelete.title };
 			restoreFeedback = null;
@@ -4378,139 +2713,7 @@
 						</div>
 					{/if}
 				</div>
-			{#if enhanceState !== 'idle'}
-				<div class="mx-5 mt-3 mb-1 shrink-0 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
-					{#if enhanceState === 'loading'}
-						<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Polishing wording…</div>
-						{#if enhanceSafeCleanupDebugEnabled() && enhancePipelineDevStage !== 'idle'}
-							<div
-								class="px-3 pb-2 text-[10px] font-mono text-amber-700 dark:text-amber-300/95"
-								data-testid="case-note-enhance-pipeline-dev"
-							>
-								pipeline: {enhancePipelineDevStage}
-							</div>
-						{/if}
-					{:else if enhanceState === 'safe_cleanup'}
-						<!-- P32-02: safe_cleanup before error/proposal so sky panel always wins when state is set -->
-						<div
-							class="px-3 py-2 space-y-1.5 border-b border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/35"
-							data-testid="case-note-safe-cleanup-banner"
-						>
-							<p class="text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
-								Surface cleanup (deterministic)
-							</p>
-							<p class="text-[11px] text-sky-950 dark:text-sky-100/95 leading-snug">
-								Spelling, spacing, and punctuation only — <span class="font-semibold">no AI rewrite</span>. Full enhance
-								(and any safe AI pass) did not produce an accepted suggestion; you can apply these fixed strings or retry.
-							</p>
-						</div>
-						{#if enhanceIntegrityExplain}
-							<div class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2" data-testid="case-note-safe-cleanup-prior-error">
-								<p class="font-semibold text-xs">{enhanceIntegrityExplain.heading}</p>
-								<ul class="list-disc pl-4 text-[11px] leading-snug space-y-1">
-									{#each enhanceIntegrityExplain.bullets as line}
-										<li>{line}</li>
-									{/each}
-								</ul>
-							</div>
-						{:else if enhanceError}
-							<div class="px-3 py-2 text-sm text-red-700 dark:text-red-300">{enhanceError}</div>
-						{/if}
-						{#if safeCleanupOffer}
-							{#if safeCleanupOffer.changesSummary.length > 0}
-								<div class="px-3 pt-2">
-									<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Changes</p>
-									<ul class="list-disc pl-4 mt-1 text-[11px] text-gray-700 dark:text-gray-300 space-y-0.5">
-										{#each safeCleanupOffer.changesSummary as line}
-											<li>{line}</li>
-										{/each}
-									</ul>
-								</div>
-							{/if}
-							<div class="px-3 py-2">
-								<textarea
-									readonly
-									class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 min-h-[8rem] max-h-[24rem] overflow-y-auto resize-y"
-									data-testid="case-note-safe-cleanup-preview"
-								>{safeCleanupOffer.cleanedText}</textarea>
-							</div>
-							<div class="flex flex-wrap items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-								<button
-									type="button"
-									class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition disabled:opacity-50"
-									on:click={applySafeCleanup}
-									disabled={safeCleanupApplying}
-									data-testid="case-note-safe-cleanup-apply"
-								>
-									{safeCleanupApplying ? 'Applying…' : 'Apply Safe Cleanup'}
-								</button>
-								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-safe-cleanup-dismiss">Dismiss</button>
-								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-auto" on:click={handleEnhance}>Retry full enhance</button>
-							</div>
-						{/if}
-					{:else if enhanceState === 'proposal'}
-						<div class="border-b border-gray-200 px-3 py-2 dark:border-gray-700">
-							<div class="font-medium text-gray-700 dark:text-gray-200">Enhanced version (suggestion only)</div>
-							{#if enhanceFallbackUsed}
-								<p class="text-[10px] mt-1 text-amber-900 dark:text-amber-200/90 leading-snug">
-									<span class="font-semibold">Safe AI rewrite</span> — standard enhance failed checks first; this is still a
-									<span class="font-semibold">full AI suggestion</span>, not deterministic spell-check.
-								</p>
-								<div class="mt-2 px-2 py-1.5 rounded text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-									Full enhancement was restricted. Showing safe improvement instead.
-								</div>
-							{:else}
-								<p class="text-[10px] mt-1 text-gray-500 dark:text-gray-400 leading-snug">
-									<span class="font-semibold">Standard enhance</span> — full AI rewrite accepted on the first pass.
-								</p>
-							{/if}
-						</div>
-						<div class="px-3 py-2">
-							<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
-							     so long multi-paragraph proposals are fully visible and scrollable. -->
-							<textarea
-								bind:value={enhanceProposalText}
-								class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
-								data-testid="case-note-enhance-proposal-editor"
-							></textarea>
-						</div>
-						<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-							<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
-							<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
-						</div>
-					{:else if enhanceState === 'error'}
-						<div
-							class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2"
-							data-testid="case-note-enhance-error-panel"
-						>
-							{#if enhanceIntegrityExplain}
-								<p class="font-semibold text-xs">{enhanceIntegrityExplain.heading}</p>
-								<ul class="list-disc pl-4 text-[11px] leading-snug space-y-1">
-									{#each enhanceIntegrityExplain.bullets as line}
-										<li>{line}</li>
-									{/each}
-								</ul>
-								<p class="text-[10px] font-semibold uppercase tracking-wide text-red-800 dark:text-red-300 mt-2">
-									Next steps
-								</p>
-								<ul class="list-disc pl-4 text-[10px] leading-snug text-red-900/90 dark:text-red-200/90 space-y-0.5">
-									{#each enhanceIntegrityExplain.guidance as g}
-										<li>{g}</li>
-									{/each}
-								</ul>
-							{:else}
-								<div>{enhanceError}</div>
-							{/if}
-						</div>
-						<div class="flex items-center gap-2 px-3 pb-2">
-							{#if !enhanceTruncated}
-								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
-							{/if}
-							<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
-						</div>
-					{/if}
-				</div>
-			{/if}
+			
 				{#if dictationState !== 'idle'}
 					<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-dictation-panel">
 						{#if dictationState === 'recording'}
@@ -4523,7 +2726,7 @@
 						{:else if dictationState === 'error'}
 							<div class="px-3 py-2 text-red-700 dark:text-red-300">{dictationError}</div>
 							<div class="flex items-center gap-2 px-3 pb-2">
-								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={startDictation}>{dictationCanContinue ? 'Continue recording' : 'Retry'}</button>
+								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={() => void startDictation()}>{dictationCanContinue ? 'Continue recording' : 'Retry'}</button>
 								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissDictationReview}>Dismiss</button>
 							</div>
 						{:else if dictationState === 'review'}
@@ -4713,7 +2916,7 @@
 										<p class="mb-1 text-[10px] text-amber-700 dark:text-amber-300 whitespace-pre-wrap leading-snug">Parser notes: {extraction.extraction_warnings}</p>
 									{/if}
 									<pre class="whitespace-pre-wrap text-[11px] leading-snug text-gray-700 dark:text-gray-300 font-sans">{extraction.extracted_text}</pre>
-									<p class="mt-1.5 text-[10px] text-gray-500 dark:text-gray-400 italic">Derived text — not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
+									<p class="mt-1.5 text-[10px] text-gray-500 dark:text-gray-400 italic">Derived text — not the note body. Use Insert into draft, run Structure Note for narrative preview, or paste into the editor yourself.</p>
 								</div>
 							{/if}
 							{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
@@ -4729,7 +2932,7 @@
 										<p class="text-[9px] text-gray-500 dark:text-gray-500 mb-1">{ocr.confidence_pct}% model confidence</p>
 									{/if}
 									<pre class="whitespace-pre-wrap text-[10px] leading-snug text-gray-600 dark:text-gray-400 font-sans">{ocr?.derived_text}</pre>
-									<p class="mt-1.5 text-[9px] text-gray-500 dark:text-gray-500 italic">Not the note body. To use it: generate a note proposal below, then apply it to the draft editor.</p>
+									<p class="mt-1.5 text-[9px] text-gray-500 dark:text-gray-500 italic">Not the note body. Insert into the draft, use Structure Note, or copy in manually.</p>
 								</div>
 							{/if}
 						</li>
@@ -4844,7 +3047,7 @@
 					class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition"
 					aria-label="Start dictation"
 					title="Dictate note"
-					on:click={startDictation}
+					on:click={() => void startDictation()}
 					data-testid="case-note-dictate-action"
 				>
 					<MicSolid className="size-5" />
@@ -5343,139 +3546,7 @@
 					/>
 					</div>
 				{/if}
-				{#if enhanceState !== 'idle'}
-					<div class="mx-5 mt-3 mb-1 shrink-0 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-enhance-panel">
-						{#if enhanceState === 'loading'}
-							<div class="px-3 py-3 text-gray-500 dark:text-gray-400">Polishing wording…</div>
-							{#if enhanceSafeCleanupDebugEnabled() && enhancePipelineDevStage !== 'idle'}
-								<div
-									class="px-3 pb-2 text-[10px] font-mono text-amber-700 dark:text-amber-300/95"
-									data-testid="case-note-enhance-pipeline-dev"
-								>
-									pipeline: {enhancePipelineDevStage}
-								</div>
-							{/if}
-						{:else if enhanceState === 'safe_cleanup'}
-							<!-- P32-02: safe_cleanup before error/proposal -->
-							<div
-								class="px-3 py-2 space-y-1.5 border-b border-sky-200 bg-sky-50 dark:border-sky-800 dark:bg-sky-950/35"
-								data-testid="case-note-safe-cleanup-banner"
-							>
-								<p class="text-[10px] font-semibold uppercase tracking-wide text-sky-900 dark:text-sky-200">
-									Surface cleanup (deterministic)
-								</p>
-								<p class="text-[11px] text-sky-950 dark:text-sky-100/95 leading-snug">
-									Spelling, spacing, and punctuation only — <span class="font-semibold">no AI rewrite</span>. Full enhance
-									(and any safe AI pass) did not produce an accepted suggestion; you can apply these fixed strings or retry.
-								</p>
-							</div>
-							{#if enhanceIntegrityExplain}
-								<div class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2" data-testid="case-note-safe-cleanup-prior-error">
-									<p class="font-semibold text-xs">{enhanceIntegrityExplain.heading}</p>
-									<ul class="list-disc pl-4 text-[11px] leading-snug space-y-1">
-										{#each enhanceIntegrityExplain.bullets as line}
-											<li>{line}</li>
-										{/each}
-									</ul>
-								</div>
-							{:else if enhanceError}
-								<div class="px-3 py-2 text-sm text-red-700 dark:text-red-300">{enhanceError}</div>
-							{/if}
-							{#if safeCleanupOffer}
-								{#if safeCleanupOffer.changesSummary.length > 0}
-									<div class="px-3 pt-2">
-										<p class="text-[10px] font-semibold uppercase tracking-wide text-gray-500 dark:text-gray-400">Changes</p>
-										<ul class="list-disc pl-4 mt-1 text-[11px] text-gray-700 dark:text-gray-300 space-y-0.5">
-											{#each safeCleanupOffer.changesSummary as line}
-												<li>{line}</li>
-											{/each}
-										</ul>
-									</div>
-								{/if}
-								<div class="px-3 py-2">
-									<textarea
-										readonly
-										class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 min-h-[8rem] max-h-[24rem] overflow-y-auto resize-y"
-										data-testid="case-note-safe-cleanup-preview"
-									>{safeCleanupOffer.cleanedText}</textarea>
-								</div>
-								<div class="flex flex-wrap items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-									<button
-										type="button"
-										class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition disabled:opacity-50"
-										on:click={applySafeCleanup}
-										disabled={safeCleanupApplying}
-										data-testid="case-note-safe-cleanup-apply"
-									>
-										{safeCleanupApplying ? 'Applying…' : 'Apply Safe Cleanup'}
-									</button>
-									<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-safe-cleanup-dismiss">Dismiss</button>
-									<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline ml-auto" on:click={handleEnhance}>Retry full enhance</button>
-								</div>
-							{/if}
-						{:else if enhanceState === 'proposal'}
-							<div class="border-b border-gray-200 px-3 py-2 dark:border-gray-700">
-								<div class="font-medium text-gray-700 dark:text-gray-200">Enhanced version (suggestion only)</div>
-								{#if enhanceFallbackUsed}
-									<p class="text-[10px] mt-1 text-amber-900 dark:text-amber-200/90 leading-snug">
-										<span class="font-semibold">Safe AI rewrite</span> — standard enhance failed checks first; this is still a
-										<span class="font-semibold">full AI suggestion</span>, not deterministic spell-check.
-									</p>
-									<div class="mt-2 px-2 py-1.5 rounded text-[11px] text-amber-800 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800">
-										Full enhancement was restricted. Showing safe improvement instead.
-									</div>
-								{:else}
-									<p class="text-[10px] mt-1 text-gray-500 dark:text-gray-400 leading-snug">
-										<span class="font-semibold">Standard enhance</span> — full AI rewrite accepted on the first pass.
-									</p>
-								{/if}
-							</div>
-							<div class="px-3 py-2">
-								<!-- P30-16: min-h + max-h + overflow-y-auto replaces the fixed rows="7"
-								     so long multi-paragraph proposals are fully visible and scrollable. -->
-								<textarea
-									bind:value={enhanceProposalText}
-									class="w-full rounded border border-gray-200 bg-white px-2.5 py-2 text-xs text-gray-700 focus:outline-none focus:ring-1 focus:ring-gray-300 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200 dark:focus:ring-gray-600 min-h-[10rem] max-h-[24rem] overflow-y-auto resize-y"
-									data-testid="case-note-enhance-proposal-editor"
-								></textarea>
-							</div>
-							<div class="flex items-center gap-2 border-t border-gray-200 px-3 py-2 dark:border-gray-700">
-								<button type="button" class="px-2.5 py-1 rounded text-xs font-medium bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 hover:bg-gray-700 dark:hover:bg-gray-300 transition" on:click={applyEnhanceProposal} data-testid="case-note-enhance-apply">Apply</button>
-								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal} data-testid="case-note-enhance-dismiss">Dismiss</button>
-							</div>
-						{:else if enhanceState === 'error'}
-							<div
-								class="px-3 py-2 text-red-700 dark:text-red-300 space-y-2"
-								data-testid="case-note-enhance-error-panel"
-							>
-								{#if enhanceIntegrityExplain}
-									<p class="font-semibold text-xs">{enhanceIntegrityExplain.heading}</p>
-									<ul class="list-disc pl-4 text-[11px] leading-snug space-y-1">
-										{#each enhanceIntegrityExplain.bullets as line}
-											<li>{line}</li>
-										{/each}
-									</ul>
-									<p class="text-[10px] font-semibold uppercase tracking-wide text-red-800 dark:text-red-300 mt-2">
-										Next steps
-									</p>
-									<ul class="list-disc pl-4 text-[10px] leading-snug text-red-900/90 dark:text-red-200/90 space-y-0.5">
-										{#each enhanceIntegrityExplain.guidance as g}
-											<li>{g}</li>
-										{/each}
-									</ul>
-								{:else}
-									<div>{enhanceError}</div>
-								{/if}
-							</div>
-							<div class="flex items-center gap-2 px-3 pb-2">
-								{#if !enhanceTruncated}
-									<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={handleEnhance}>Retry</button>
-								{/if}
-								<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissEnhanceProposal}>Dismiss</button>
-							</div>
-						{/if}
-					</div>
-				{/if}
+				
 					{#if dictationState !== 'idle'}
 						<div class="shrink-0 mx-5 mt-3 mb-1 rounded-md border border-gray-200 dark:border-gray-700 text-xs" data-testid="case-note-dictation-panel">
 							{#if dictationState === 'recording'}
@@ -5488,7 +3559,7 @@
 							{:else if dictationState === 'error'}
 								<div class="px-3 py-2 text-red-700 dark:text-red-300">{dictationError}</div>
 								<div class="flex items-center gap-2 px-3 pb-2">
-								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={startDictation}>{dictationCanContinue ? 'Continue recording' : 'Retry'}</button>
+								<button type="button" class="text-xs text-blue-600 dark:text-blue-400 hover:underline" on:click={() => void startDictation()}>{dictationCanContinue ? 'Continue recording' : 'Retry'}</button>
 									<button type="button" class="text-xs text-gray-500 hover:underline" on:click={dismissDictationReview}>Dismiss</button>
 								</div>
 							{:else if dictationState === 'review'}
@@ -5693,7 +3764,7 @@
 									<p class="mb-1 text-[10px] text-amber-700 dark:text-amber-300 whitespace-pre-wrap leading-snug">Parser notes: {extraction.extraction_warnings}</p>
 								{/if}
 								<pre class="whitespace-pre-wrap text-[11px] leading-snug text-gray-700 dark:text-gray-300 font-sans">{extraction.extracted_text}</pre>
-								<p class="mt-1.5 text-[10px] text-gray-500 dark:text-gray-400 italic">Derived text — not the note body. Insert into the editor or generate a proposal below, then Save to commit the revision.</p>
+								<p class="mt-1.5 text-[10px] text-gray-500 dark:text-gray-400 italic">Derived text — not the note body. Insert into the editor, run Structure Note if you want narrative preview, then Save.</p>
 							</div>
 						{/if}
 						{#if (ocr?.status === 'extracted' || ocr?.status === 'low_confidence') && isOcrExpanded}
@@ -5709,7 +3780,7 @@
 									<p class="text-[9px] text-gray-500 dark:text-gray-500 mb-1">{ocr.confidence_pct}% model confidence</p>
 								{/if}
 								<pre class="whitespace-pre-wrap text-[10px] leading-snug text-gray-600 dark:text-gray-400 font-sans">{ocr?.derived_text}</pre>
-								<p class="mt-1.5 text-[9px] text-gray-500 dark:text-gray-500 italic">Not the note body. Insert into the editor or generate a proposal below, then Save to commit the revision.</p>
+								<p class="mt-1.5 text-[9px] text-gray-500 dark:text-gray-500 italic">Not the note body. Insert, use Structure Note, then Save when ready.</p>
 							</div>
 						{/if}
 					</li>
@@ -5801,7 +3872,7 @@
 							class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition"
 							aria-label="Start dictation"
 							title="Dictate note"
-							on:click={startDictation}
+							on:click={() => void startDictation()}
 							data-testid="case-note-dictate-action"
 						>
 							<MicSolid className="size-5" />
@@ -5855,46 +3926,7 @@
 </ConfirmDialog>
 
 <style>
-	/*
-	 * P30-25 — Notes Enhance button: faint diagonal sheen.
-	 *
-	 * A narrow ~15deg diagonal highlight slides once across the button on
-	 * a slow intermittent loop. Intensity is kept very low so it reads as
-	 * a professional AI affordance, not a flashy effect.
-	 *
-	 * Animation is disabled under prefers-reduced-motion.
-	 */
-	.enhance-shimmer {
-		position: absolute;
-		inset: 0;
-		background: linear-gradient(
-			75deg,
-			transparent 35%,
-			rgba(167, 139, 250, 0.15) 50%,
-			transparent 65%
-		);
-		background-size: 300% 100%;
-		background-position: 200% center;
-		animation: enhance-sheen 6s ease-in-out 1s infinite;
-		pointer-events: none;
-	}
-
-	@keyframes enhance-sheen {
-		0%   { background-position: 200% center; opacity: 0; }
-		8%   { opacity: 1; }
-		42%  { background-position: -100% center; opacity: 1; }
-		50%  { opacity: 0; }
-		100% { background-position: -100% center; opacity: 0; }
-	}
-
-	@media (prefers-reduced-motion: reduce) {
-		.enhance-shimmer {
-			animation: none;
-			background: transparent;
-		}
-	}
-
-	/* Teal sheen for Structure Note (same motion cadence as enhance-shimmer). */
+	/* Teal sheen for Structure Note button (subtle motion; respects reduced-motion below). */
 	.notes-workflow-shimmer {
 		position: absolute;
 		inset: 0;

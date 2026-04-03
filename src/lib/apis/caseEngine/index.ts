@@ -4107,7 +4107,7 @@ function isP34PrototypeStatementRow(row: unknown): row is P34PrototypeStatement 
 
 /**
  * P34-18 — Request structured draft extraction from Case Engine (`extraction-preview` — proposal + validation + render + meta).
- * UI label: "Generate Structured Draft". Not the P34 prototype route.
+ * Notes UI primary action: "Structure Note" (extraction-preview — not the legacy prototype route).
  */
 export async function previewStructuredNotesExtraction(
 	caseId: string,
@@ -4160,13 +4160,27 @@ export type NarrativePreviewPayload = {
 	trace: Array<{ statementId: string; sourceText: string }>;
 	warnings: string[];
 	previewOnly: true;
+	compositionMode: 'deterministic' | 'ai';
 	integrity?: NarrativeIntegrityResult;
+	/** P37 — Only when AI output existed and was rejected for deterministic fallback (never persisted). */
+	debug?: {
+		rejectedAiNarrative: string;
+		rejectedAiReasons: Array<{ code: string; label: string }>;
+		rejectedAiReasonType: 'meaning_drift' | 'context_loss' | 'other';
+		/** Optional; echoed when server includes them (UI-only). */
+		model?: string;
+		timeoutMs?: number;
+	};
 };
+
+export type NarrativePreviewRequestBody =
+	| { structuredNoteIds?: number[]; structuredStatementIds?: string[]; compositionMode?: 'deterministic' | 'ai' }
+	| { transientSourceText: string; structuredStatementIds?: string[]; compositionMode?: 'deterministic' | 'ai' };
 
 export async function postNarrativePreview(
 	caseId: string,
 	token: string,
-	body: { structuredNoteIds?: number[]; structuredStatementIds?: string[] }
+	body: NarrativePreviewRequestBody
 ): Promise<
 	| { success: true; data: NarrativePreviewPayload; requestId?: string }
 	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
@@ -4194,7 +4208,14 @@ export async function postNarrativePreview(
 	const trace = data.trace;
 	const warnings = data.warnings;
 	const previewOnly = data.previewOnly;
-	if (typeof narrative !== 'string' || !Array.isArray(trace) || !Array.isArray(warnings) || previewOnly !== true) {
+	const compositionMode = data.compositionMode;
+	if (
+		typeof narrative !== 'string' ||
+		!Array.isArray(trace) ||
+		!Array.isArray(warnings) ||
+		previewOnly !== true ||
+		(compositionMode !== 'deterministic' && compositionMode !== 'ai')
+	) {
 		return {
 			success: false,
 			errorMessage: 'Invalid narrative preview response.',
@@ -4208,16 +4229,82 @@ export async function postNarrativePreview(
 		narrative,
 		trace: trace as NarrativePreviewPayload['trace'],
 		warnings: warnings as string[],
-		previewOnly: true
+		previewOnly: true,
+		compositionMode: compositionMode as NarrativePreviewPayload['compositionMode']
 	};
 	if (integrityParsed != null) {
 		payload.integrity = integrityParsed;
+	}
+	const debugRaw = data.debug;
+	const debugParsed = parseNarrativePreviewDebugPayload(data.debug);
+	// TEMP P37 forensic — remove after audit
+	{
+		const reasonLabel =
+			debugParsed != null
+				? debugParsed.rejectedAiReasonType
+				: debugRaw != null && typeof debugRaw === 'object'
+					? 'parse_dropped_or_invalid'
+					: 'absent';
+		console.log(
+			'[narrative-debug api] raw debug present=',
+			debugRaw != null,
+			'reasonType=',
+			reasonLabel
+		);
+	}
+	if (debugParsed != null) {
+		payload.debug = debugParsed;
 	}
 	return {
 		success: true,
 		data: payload,
 		requestId: reqId
 	};
+}
+
+function parseRejectedAiReasonEntries(raw: unknown): Array<{ code: string; label: string }> | null {
+	if (!Array.isArray(raw)) return null;
+	const out: Array<{ code: string; label: string }> = [];
+	for (const item of raw) {
+		if (item == null || typeof item !== 'object') return null;
+		const rec = item as Record<string, unknown>;
+		const code = rec.code;
+		const label = rec.label;
+		if (typeof code !== 'string' || typeof label !== 'string') return null;
+		const c = code.trim();
+		const l = label.trim();
+		if (!c || !l) return null;
+		out.push({ code: c, label: l });
+	}
+	return out;
+}
+
+function parseNarrativePreviewDebugPayload(
+	raw: unknown
+): NarrativePreviewPayload['debug'] | null {
+	if (raw == null || typeof raw !== 'object') return null;
+	const o = raw as Record<string, unknown>;
+	const text = o.rejectedAiNarrative;
+	const reasonsRaw = o.rejectedAiReasons;
+	const rt = o.rejectedAiReasonType;
+	if (typeof text !== 'string') return null;
+	const reasons = parseRejectedAiReasonEntries(reasonsRaw);
+	if (reasons == null) return null;
+	if (rt !== 'meaning_drift' && rt !== 'context_loss' && rt !== 'other') return null;
+	const out: NonNullable<NarrativePreviewPayload['debug']> = {
+		rejectedAiNarrative: text,
+		rejectedAiReasons: reasons,
+		rejectedAiReasonType: rt
+	};
+	const modelRaw = o.model;
+	if (typeof modelRaw === 'string' && modelRaw.trim()) {
+		out.model = modelRaw.trim();
+	}
+	const timeoutRaw = o.timeoutMs;
+	if (typeof timeoutRaw === 'number' && Number.isFinite(timeoutRaw) && timeoutRaw >= 0) {
+		out.timeoutMs = timeoutRaw;
+	}
+	return out;
 }
 
 /** P35-04 — Append-only derived narrative snapshot (non-authoritative). */
@@ -4267,6 +4354,78 @@ export async function postNarrativeRecord(
 	return { success: true, narrativeRecordId, requestId: reqId };
 }
 
+/** P36-01 — Soft-delete saved derived narrative (non-destructive; excluded from active list/detail). */
+export async function postNarrativeRecordSoftDelete(
+	caseId: string,
+	recordId: number,
+	token: string
+): Promise<
+	| { success: true; requestId?: string }
+	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
+> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records/${encodeURIComponent(String(recordId))}/delete`,
+		{
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Content-Type': 'application/json',
+				'X-Request-Id': newCaseEngineRequestId()
+			}
+		}
+	);
+	const reqId = responseRequestId(res);
+	const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(raw, `Narrative delete failed (${res.status})`),
+			requestId: reqId,
+			errorCode: extractApiErrorCode(raw)
+		};
+	}
+	if (raw.success !== true) {
+		return { success: false, errorMessage: 'Invalid narrative delete response.', requestId: reqId };
+	}
+	return { success: true, requestId: reqId };
+}
+
+/** P37-01 — Restore soft-deleted narrative (ADMIN-only; same DB row). */
+export async function postNarrativeRecordRestore(
+	caseId: string,
+	recordId: number,
+	token: string
+): Promise<
+	| { success: true; requestId?: string }
+	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
+> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records/${encodeURIComponent(String(recordId))}/restore`,
+		{
+			method: 'POST',
+			headers: {
+				Authorization: `Bearer ${token}`,
+				'Content-Type': 'application/json',
+				'X-Request-Id': newCaseEngineRequestId()
+			}
+		}
+	);
+	const reqId = responseRequestId(res);
+	const raw = (await res.json().catch(() => ({}))) as Record<string, unknown>;
+	if (!res.ok) {
+		return {
+			success: false,
+			errorMessage: extractApiErrorMessage(raw, `Narrative restore failed (${res.status})`),
+			requestId: reqId,
+			errorCode: extractApiErrorCode(raw)
+		};
+	}
+	if (raw.success !== true) {
+		return { success: false, errorMessage: 'Invalid narrative restore response.', requestId: reqId };
+	}
+	return { success: true, requestId: reqId };
+}
+
 /** P35-05 — List/browse saved derived narratives (read-only). */
 export type NarrativeRecordListItemDto = {
 	id: number;
@@ -4276,6 +4435,10 @@ export type NarrativeRecordListItemDto = {
 	structuredNoteIds: number[];
 	structuredStatementIds?: string[];
 	traceRowCount: number;
+	/** P37-02 — Present on ADMIN `include_deleted=true` list only. */
+	recordSoftDeleted?: boolean;
+	deletedAt?: string | null;
+	deletedBy?: string | null;
 };
 
 export type NarrativeRecordDetailDto = {
@@ -4291,15 +4454,36 @@ export type NarrativeRecordDetailDto = {
 	nonAuthoritative: true;
 };
 
+/** P36-05 — Saved-record export governance (deterministic; from server detail). */
+export type NarrativeExportEligibilityDto = {
+	decision: 'eligible' | 'eligible_with_warning' | 'not_eligible';
+	message: string;
+};
+
+function parseNarrativeExportEligibilityPayload(raw: unknown): NarrativeExportEligibilityDto | null {
+	if (raw == null || typeof raw !== 'object') return null;
+	const o = raw as Record<string, unknown>;
+	const d = o.decision;
+	const m = o.message;
+	if (d !== 'eligible' && d !== 'eligible_with_warning' && d !== 'not_eligible') return null;
+	if (typeof m !== 'string') return null;
+	return { decision: d, message: m };
+}
+
 export async function getNarrativeRecordsList(
 	caseId: string,
-	token: string
+	token: string,
+	opts?: { includeDeleted?: boolean }
 ): Promise<
 	| { success: true; records: NarrativeRecordListItemDto[]; requestId?: string }
 	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
 > {
+	const qs =
+		opts?.includeDeleted === true
+			? `?${new URLSearchParams({ include_deleted: 'true' }).toString()}`
+			: '';
 	const res = await fetch(
-		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records`,
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records${qs}`,
 		{
 			headers: {
 				Authorization: `Bearer ${token}`,
@@ -4331,13 +4515,25 @@ export async function getNarrativeRecordsList(
 export async function getNarrativeRecordDetail(
 	caseId: string,
 	recordId: number,
-	token: string
+	token: string,
+	opts?: { includeDeleted?: boolean }
 ): Promise<
-	| { success: true; record: NarrativeRecordDetailDto; integrity?: NarrativeIntegrityResult; requestId?: string }
+	| {
+			success: true;
+			record: NarrativeRecordDetailDto;
+			integrity?: NarrativeIntegrityResult;
+			exportEligibility?: NarrativeExportEligibilityDto;
+			recordSoftDeleted?: boolean;
+			requestId?: string;
+	  }
 	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
 > {
+	const qs =
+		opts?.includeDeleted === true
+			? `?${new URLSearchParams({ include_deleted: 'true' }).toString()}`
+			: '';
 	const res = await fetch(
-		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records/${encodeURIComponent(String(recordId))}`,
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records/${encodeURIComponent(String(recordId))}${qs}`,
 		{
 			headers: {
 				Authorization: `Bearer ${token}`,
@@ -4366,29 +4562,47 @@ export async function getNarrativeRecordDetail(
 	}
 	const integrityParsed =
 		inner.integrity !== undefined ? parseNarrativeIntegrityPayload(inner.integrity) : null;
+	const exportEligibilityParsed =
+		inner.exportEligibility !== undefined
+			? parseNarrativeExportEligibilityPayload(inner.exportEligibility)
+			: null;
 	const out: {
 		success: true;
 		record: NarrativeRecordDetailDto;
 		integrity?: NarrativeIntegrityResult;
+		exportEligibility?: NarrativeExportEligibilityDto;
+		recordSoftDeleted?: boolean;
 		requestId?: string;
 	} = { success: true, record: rec as NarrativeRecordDetailDto, requestId: reqId };
 	if (integrityParsed != null) {
 		out.integrity = integrityParsed;
 	}
+	if (exportEligibilityParsed != null) {
+		out.exportEligibility = exportEligibilityParsed;
+	}
+	if (inner.recordSoftDeleted === true) {
+		out.recordSoftDeleted = true;
+	}
 	return out;
 }
 
-/** P35-07 — Download plain-text export of a saved derived narrative record (not live preview). */
+/** P35-07 / P36-03 — Download saved derived narrative export (not live preview). Default HTML; `format=txt|pdf` optional. P36-05: `acknowledgeExportWarning` for degraded integrity. */
 export async function downloadNarrativeRecordExport(
 	caseId: string,
 	recordId: number,
-	token: string
+	token: string,
+	opts?: { format?: 'html' | 'txt' | 'pdf'; acknowledgeExportWarning?: boolean }
 ): Promise<
 	| { success: true; blob: Blob; filename: string; requestId?: string }
 	| { success: false; errorMessage: string; requestId?: string; errorCode?: string }
 > {
+	const fmt = opts?.format ?? 'html';
+	const params = new URLSearchParams();
+	if (fmt !== 'html') params.set('format', fmt);
+	if (opts?.acknowledgeExportWarning) params.set('acknowledge_export_warning', '1');
+	const qs = params.toString() ? `?${params.toString()}` : '';
 	const res = await fetch(
-		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records/${encodeURIComponent(String(recordId))}/export`,
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/narrative-records/${encodeURIComponent(String(recordId))}/export${qs}`,
 		{
 			headers: {
 				Authorization: `Bearer ${token}`,
@@ -4408,7 +4622,12 @@ export async function downloadNarrativeRecordExport(
 	}
 	const blob = await res.blob();
 	const cd = res.headers.get('Content-Disposition') ?? '';
-	let filename = `derived-narrative-record-${recordId}.txt`;
+	let filename =
+		fmt === 'pdf'
+			? `derived-narrative-record-${recordId}.pdf`
+			: fmt === 'txt'
+				? `derived-narrative-record-${recordId}.txt`
+				: `derived-narrative-record-${recordId}.html`;
 	const star = /filename\*=UTF-8''([^;\s]+)/i.exec(cd);
 	const quoted = /filename="([^"]+)"/i.exec(cd);
 	if (star?.[1]) {

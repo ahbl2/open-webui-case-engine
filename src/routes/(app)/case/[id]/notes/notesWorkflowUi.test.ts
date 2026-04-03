@@ -109,4 +109,41 @@ describe('Case Notes workflow UI (+page.svelte)', () => {
 		expect(src).not.toMatch(/Working drafts only/);
 		expect(src).not.toMatch(/case-notes-disclaimer/);
 	});
+
+	it('dictation — mic/Retry use void startDictation() to surface async rejections', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(/data-testid="case-note-dictate-action"/);
+		expect(src).toMatch(/on:click=\{\(\) => void startDictation\(\)\}/);
+	});
+
+	it('Notes Enhance UI removed (no panel, no polishing spinner copy)', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).not.toMatch(/case-note-enhance-panel/);
+		expect(src).not.toMatch(/Polishing wording/);
+		expect(src).not.toMatch(/enhanceState/);
+		expect(src).not.toMatch(/handleEnhance/);
+	});
+
+	it('attachment helper copy references Structure Note / narrative, not chat proposals', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(/Structure Note/);
+		expect(src).not.toMatch(/proposal below/);
+	});
+
+	it('post-delete selection: next-at-same-index, else previous, else idle; no jump to notes[0]', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(/visibleBeforeDelete/);
+		expect(src).toMatch(/remainingVisible/);
+		expect(src).toMatch(/deleteVisibleIndex/);
+		expect(src).toMatch(/remainingVisible\[deleteVisibleIndex\]/);
+		expect(src).toMatch(/Math\.max\(0, deleteVisibleIndex - 1\)/);
+		expect(src).toMatch(/loadNoteAttachments\(nextSelected\.id\)/);
+		expect(src).not.toMatch(/selectedNote = notes\.length > 0 \? notes\[0\]/);
+	});
+
+	it('post-delete selection leaves selection unchanged when deleted note was not selected', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(/const wasSelected = selectedNote\?\.id === noteToDelete\.id/);
+		expect(src).toMatch(/if \(wasSelected\)/);
+	});
 });

@@ -500,7 +500,7 @@
 	onConfirm={executeRestore}
 />
 
-<div class="flex flex-col h-full overflow-y-auto" data-testid="case-timeline-page">
+<div class="flex flex-col flex-1 min-h-0 overflow-y-auto" data-testid="case-timeline-page">
 
 	<!-- ── Section header ──────────────────────────────────────────────────── -->
 	<div class="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800">

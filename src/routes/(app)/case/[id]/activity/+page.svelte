@@ -275,7 +275,7 @@
 	}
 </script>
 
-<div class="flex flex-col h-full overflow-y-auto" data-testid="case-activity-page">
+<div class="flex flex-col flex-1 min-h-0 overflow-y-auto" data-testid="case-activity-page">
 	<div class="shrink-0 flex flex-wrap items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
 		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Activity</h2>
 		<span class="text-xs text-gray-400 dark:text-gray-500">Read-only case history, newest first</span>

@@ -309,7 +309,10 @@
 			<!-- MAIN WORKSPACE SLOT
 			     Overflow is managed by individual page/tab components so each
 			     section can control its own scroll behavior. -->
-			<div class="flex-1 min-h-0 overflow-hidden relative" data-testid="case-workspace-main">
+			<div
+				class="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden relative"
+				data-testid="case-workspace-main"
+			>
 				{#if loading && !$activeCaseMeta}
 					<div class="flex items-center justify-center h-full">
 						<Spinner className="size-5" />

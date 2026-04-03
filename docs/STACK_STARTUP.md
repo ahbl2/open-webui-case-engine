@@ -46,6 +46,8 @@ Browser speech recognition for the Notes `Dictate` action requires a secure cont
 - Works on `http://localhost` (local-only testing)
 - For LAN hosts (`http://192.168.x.x:3001`), use **HTTPS**
 
+**Quick path:** from this repo run `./scripts/dev-tls-cert.sh` (optional LAN IP argument), set `DEV_HTTPS_KEY_FILE` / `DEV_HTTPS_CERT_FILE` in `.env` to the generated `certs/dev-*.pem` files, restart `npm run dev`. See [DetectiveCaseEngine LOCAL_STACK_RUNBOOK — HTTPS in local dev](../../DetectiveCaseEngine/docs/operations/LOCAL_STACK_RUNBOOK.md#https-in-local-dev-vite) (adjust path if your checkout layout differs).
+
 ### 1) Create a local LAN certificate (mkcert recommended)
 
 Install `mkcert`, then generate a cert that covers your LAN IP (and optional hostname):
