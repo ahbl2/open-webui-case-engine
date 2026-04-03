@@ -12,6 +12,7 @@
 	 * P38-06 — beforeNavigate guard for unsaved create/edit (parity with Notes P28-29)
 	 * P38-07 — operator microcopy: direct + Log entry vs Proposals review/commit (copy only)
 	 * P38-08 — timeline type “note” vs Notes tab (labels/tooltips only; value stays `note`)
+	 * P39-02 — deterministic search + occurred date range + type (client-side; P39-01 §6)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -63,6 +64,10 @@
 		TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
 		TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP
 	} from '$lib/caseTimeline/timelineTypeNoteClarity';
+	import {
+		filterTimelineEntries,
+		normalizeTimelineSearchNeedle
+	} from '$lib/caseTimeline/timelineListFilter';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -101,6 +106,9 @@
 		loadError = '';
 		loadedAt = '';
 		activeFilter = 'all';
+		filterSearchText = '';
+		filterDateFrom = '';
+		filterDateTo = '';
 		showDeleted = false;
 		showDeleteConfirm = false;
 		pendingDeleteEntry = null;
@@ -143,7 +151,10 @@
 			entries = result;
 			const now = new Date();
 			loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-			activeFilter = 'all'; // reset filter on each reload so counts stay honest
+			activeFilter = 'all'; // reset filters on each reload so counts stay honest
+			filterSearchText = '';
+			filterDateFrom = '';
+			filterDateTo = '';
 		} catch (e: unknown) {
 			if (loadId !== activeEntriesLoadId) return;
 			loadError = e instanceof Error ? e.message : 'Failed to load timeline entries.';
@@ -168,20 +179,10 @@
 
 	let activeFilter: FilterValue = 'all';
 
-	$: filteredEntries = activeFilter === 'all'
-		? entries
-		: entries.filter((e) => e.type === activeFilter);
-
-	// Count label: "12 entries" when unfiltered, "3 of 12 entries" when filtered.
-	$: countLabel = (() => {
-		const total = entries.length;
-		const shown = filteredEntries.length;
-		if (total === 0) return '';
-		const unit = (n: number) => n === 1 ? 'entry' : 'entries';
-		return activeFilter === 'all'
-			? `${total} ${unit(total)}`
-			: `${shown} of ${total} ${unit(total)}`;
-	})();
+	// P39-02 — search + occurred date range (client-side; no API change)
+	let filterSearchText = '';
+	let filterDateFrom = '';
+	let filterDateTo = '';
 
 	// ── Soft-delete / restore lifecycle (P28-35) ────────────────────────────────
 	// All lifecycle actions use ConfirmDialog (non-blocking).
@@ -354,6 +355,48 @@
 			? TIMELINE_TYPE_NOTE_DISPLAY_LABEL
 			: `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
 	}
+
+	/** P39-02 — type chip labels must match searchable display strings */
+	function timelineFilterTypeLabel(type: string): string {
+		if ((ENTRY_TYPES as readonly string[]).includes(type)) {
+			return timelineEntryTypeOptionLabel(type as (typeof ENTRY_TYPES)[number]);
+		}
+		return type ? `${type.charAt(0).toUpperCase()}${type.slice(1)}` : '';
+	}
+
+	function clearTimelineFilters(): void {
+		filterSearchText = '';
+		filterDateFrom = '';
+		filterDateTo = '';
+		activeFilter = 'all';
+	}
+
+	$: filteredEntries = filterTimelineEntries(
+		entries,
+		{
+			searchText: filterSearchText,
+			dateFrom: filterDateFrom,
+			dateTo: filterDateTo,
+			typeFilter: activeFilter
+		},
+		timelineFilterTypeLabel
+	);
+
+	$: filtersActive =
+		normalizeTimelineSearchNeedle(filterSearchText) !== '' ||
+		filterDateFrom !== '' ||
+		filterDateTo !== '' ||
+		activeFilter !== 'all';
+
+	// Count: "12 entries" unfiltered; "3 of 12 entries" when any filter active (P39-02)
+	$: countLabel = (() => {
+		const total = entries.length;
+		const shown = filteredEntries.length;
+		if (total === 0) return '';
+		const unit = (n: number) => (n === 1 ? 'entry' : 'entries');
+		if (!filtersActive) return `${total} ${unit(total)}`;
+		return `${shown} of ${total} ${unit(total)}`;
+	})();
 
 	let editingEntryId: string | null = null;
 	let editDraft: EditDraft | null = null;
@@ -651,29 +694,89 @@
 		</div>
 	{/if}
 
-	<!-- ── Type filter strip (P28-32) ──────────────────────────────────────── -->
-	<!--    Only shown when there are entries loaded (not while create-form-only) -->
+	<!-- ── Search + date range + type (P28-32 type chips; P39-02 text + dates) ── -->
 	{#if !loading && !loadError && entries.length > 0}
 		<div
-			class="shrink-0 flex items-center gap-1 px-4 py-2 border-b border-gray-200 dark:border-gray-800"
-			role="toolbar"
-			aria-label="Filter timeline by entry type"
-			data-testid="case-timeline-filter-strip"
+			class="shrink-0 flex flex-col gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-800"
+			data-testid="case-timeline-search-filter-bar"
 		>
-			{#each FILTER_TYPES as ft}
+			<div class="flex flex-wrap items-center gap-2">
+				<input
+					type="search"
+					bind:value={filterSearchText}
+					placeholder="Search text, location, type…"
+					class="text-xs rounded border border-gray-300 dark:border-gray-600
+					       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100
+					       px-2 py-1.5 min-w-[10rem] flex-1 max-w-md
+					       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
+					data-testid="case-timeline-filter-search"
+					aria-label="Search timeline entries"
+				/>
+				<div class="flex items-center gap-1 flex-wrap">
+					<label class="sr-only" for="timeline-filter-date-from">Occurred from</label>
+					<input
+						id="timeline-filter-date-from"
+						type="date"
+						bind:value={filterDateFrom}
+						class="text-xs rounded border border-gray-300 dark:border-gray-600
+						       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
+						       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
+						data-testid="case-timeline-filter-date-from"
+					/>
+					<span class="text-[10px] text-gray-400 dark:text-gray-500">–</span>
+					<label class="sr-only" for="timeline-filter-date-to">Occurred to</label>
+					<input
+						id="timeline-filter-date-to"
+						type="date"
+						bind:value={filterDateTo}
+						class="text-xs rounded border border-gray-300 dark:border-gray-600
+						       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
+						       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
+						data-testid="case-timeline-filter-date-to"
+					/>
+				</div>
 				<button
 					type="button"
-					class="text-xs px-2.5 py-1 rounded-full transition font-medium
-					       {activeFilter === ft.value
-					           ? 'bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900'
-					           : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200'}"
-					on:click={() => (activeFilter = ft.value)}
-					aria-pressed={activeFilter === ft.value}
-					data-testid="case-timeline-filter-{ft.value}"
+					disabled={!filtersActive}
+					class="text-xs font-medium px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600
+					       text-gray-600 dark:text-gray-300
+					       hover:bg-gray-100 dark:hover:bg-gray-800
+					       disabled:opacity-40 disabled:cursor-not-allowed transition"
+					data-testid="case-timeline-filter-clear"
+					on:click={clearTimelineFilters}
 				>
-					{ft.label}
+					Clear filters
 				</button>
-			{/each}
+				{#if filtersActive}
+					<span
+						class="text-xs text-gray-500 dark:text-gray-400 tabular-nums"
+						data-testid="case-timeline-filter-shown-count"
+					>
+						{filteredEntries.length} of {entries.length} match
+					</span>
+				{/if}
+			</div>
+			<div
+				class="flex flex-wrap items-center gap-1"
+				role="toolbar"
+				aria-label="Filter timeline by entry type"
+				data-testid="case-timeline-filter-strip"
+			>
+				{#each FILTER_TYPES as ft}
+					<button
+						type="button"
+						class="text-xs px-2.5 py-1 rounded-full transition font-medium
+						       {activeFilter === ft.value
+						           ? 'bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900'
+						           : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200'}"
+						on:click={() => (activeFilter = ft.value)}
+						aria-pressed={activeFilter === ft.value}
+						data-testid="case-timeline-filter-{ft.value}"
+					>
+						{ft.label}
+					</button>
+				{/each}
+			</div>
 		</div>
 	{/if}
 
@@ -866,12 +969,12 @@
 			</CaseEmptyState>
 
 		{:else if filteredEntries.length === 0}
-			<!-- Entries exist but none match the active type filter -->
+			<!-- P39-02: entries exist but none match current filters (type + text + dates) -->
 			<p
 				class="text-sm text-gray-400 dark:text-gray-500 text-center py-12"
 				data-testid="case-timeline-filter-empty"
 			>
-				No timeline entries match this type filter.
+				No timeline entries match the current filters.
 			</p>
 
 		{:else}
