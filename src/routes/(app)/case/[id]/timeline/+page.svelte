@@ -13,6 +13,7 @@
 	 * P38-07 — operator microcopy: direct + Log entry vs Proposals review/commit (copy only)
 	 * P38-08 — timeline type “note” vs Notes tab (labels/tooltips only; value stays `note`)
 	 * P39-02 — deterministic search + occurred date range + type (client-side; P39-01 §6)
+	 * P39-02A — invalid date hint, search match highlight, large-list hint
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -68,6 +69,10 @@
 		filterTimelineEntries,
 		normalizeTimelineSearchNeedle
 	} from '$lib/caseTimeline/timelineListFilter';
+	import {
+		isTimelineFilterDateRangeInverted,
+		shouldShowLargeTimelineFilterHint
+	} from '$lib/caseTimeline/timelineSearchUx';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -388,6 +393,10 @@
 		filterDateTo !== '' ||
 		activeFilter !== 'all';
 
+	$: filterDateRangeInvalid = isTimelineFilterDateRangeInverted(filterDateFrom, filterDateTo);
+	$: showLargeTimelineFilterHint = shouldShowLargeTimelineFilterHint(entries.length);
+	$: searchHighlightNeedle = normalizeTimelineSearchNeedle(filterSearchText);
+
 	// Count: "12 entries" unfiltered; "3 of 12 entries" when any filter active (P39-02)
 	$: countLabel = (() => {
 		const total = entries.length;
@@ -700,6 +709,15 @@
 			class="shrink-0 flex flex-col gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-800"
 			data-testid="case-timeline-search-filter-bar"
 		>
+			{#if showLargeTimelineFilterHint}
+				<p
+					class="text-[10px] text-gray-400 dark:text-gray-500 m-0"
+					data-testid="case-timeline-filter-large-list-hint"
+					role="status"
+				>
+					Filtering large timelines may be slower
+				</p>
+			{/if}
 			<div class="flex flex-wrap items-center gap-2">
 				<input
 					type="search"
@@ -712,28 +730,39 @@
 					data-testid="case-timeline-filter-search"
 					aria-label="Search timeline entries"
 				/>
-				<div class="flex items-center gap-1 flex-wrap">
-					<label class="sr-only" for="timeline-filter-date-from">Occurred from</label>
-					<input
-						id="timeline-filter-date-from"
-						type="date"
-						bind:value={filterDateFrom}
-						class="text-xs rounded border border-gray-300 dark:border-gray-600
-						       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
-						       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
-						data-testid="case-timeline-filter-date-from"
-					/>
-					<span class="text-[10px] text-gray-400 dark:text-gray-500">–</span>
-					<label class="sr-only" for="timeline-filter-date-to">Occurred to</label>
-					<input
-						id="timeline-filter-date-to"
-						type="date"
-						bind:value={filterDateTo}
-						class="text-xs rounded border border-gray-300 dark:border-gray-600
-						       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
-						       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
-						data-testid="case-timeline-filter-date-to"
-					/>
+				<div class="flex flex-col gap-0.5 min-w-0">
+					<div class="flex items-center gap-1 flex-wrap">
+						<label class="sr-only" for="timeline-filter-date-from">Occurred from</label>
+						<input
+							id="timeline-filter-date-from"
+							type="date"
+							bind:value={filterDateFrom}
+							class="text-xs rounded border border-gray-300 dark:border-gray-600
+							       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
+							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
+							data-testid="case-timeline-filter-date-from"
+						/>
+						<span class="text-[10px] text-gray-400 dark:text-gray-500">–</span>
+						<label class="sr-only" for="timeline-filter-date-to">Occurred to</label>
+						<input
+							id="timeline-filter-date-to"
+							type="date"
+							bind:value={filterDateTo}
+							class="text-xs rounded border border-gray-300 dark:border-gray-600
+							       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
+							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
+							data-testid="case-timeline-filter-date-to"
+						/>
+					</div>
+					{#if filterDateRangeInvalid}
+						<span
+							class="text-[10px] text-amber-600 dark:text-amber-400"
+							data-testid="case-timeline-filter-date-range-hint"
+							role="status"
+						>
+							Start date is after end date
+						</span>
+					{/if}
 				</div>
 				<button
 					type="button"
@@ -1169,6 +1198,7 @@
 						{entry}
 						{caseId}
 						token={$caseEngineToken ?? ''}
+						searchHighlightNeedle={searchHighlightNeedle}
 						onEditRequest={() => startEdit(entry)}
 						onDeleteRequest={() => handleDeleteEntry(entry)}
 						onRestoreRequest={isAdmin ? () => handleRestoreEntry(entry) : null}

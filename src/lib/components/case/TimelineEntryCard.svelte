@@ -4,6 +4,7 @@
 	 *                     P28-34 Edit Surface, P28-35 Soft-Delete + Restore UI,
 	 *                     P28-38 Usability Polish Pass
 	 *                     P38-08 — type “note” vs Notes tab (labels/tooltips only)
+	 *                     P39-02A — optional search match highlight (normalized needle from parent)
 	 *
 	 * Truth signals (P28-31):
 	 *   1. AI-cleaned transparency — badge + show/hide original toggle
@@ -28,6 +29,7 @@
 		TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
 		TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP
 	} from '$lib/caseTimeline/timelineTypeNoteClarity';
+	import { splitTextForSearchHighlight } from '$lib/caseTimeline/timelineSearchUx';
 	import { formatCaseDateTimeWithSeconds, formatCaseDateTime } from '$lib/utils/formatDateTime';
 
 	export let entry: TimelineEntry;
@@ -44,6 +46,8 @@
 	 * Pass null to hide the Restore button (non-ADMIN users, or not applicable).
 	 */
 	export let onRestoreRequest: (() => void) | null = null;
+	/** P39-02A: trim+lowercase needle from `normalizeTimelineSearchNeedle`; empty = no highlight */
+	export let searchHighlightNeedle = '';
 
 	const TYPE_LABELS: Record<string, string> = {
 		note:         TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
@@ -86,6 +90,8 @@
 	$: displayText = isCleaned && !showOriginal
 		? entry.text_cleaned!.trim()
 		: (entry.text_original ?? '').trim();
+
+	$: bodyHighlightSegments = splitTextForSearchHighlight(displayText, searchHighlightNeedle);
 
 	// ── Edited / version state (P28-31) ────────────────────────────────────────
 	$: versionCount = entry.version_count ?? 0;
@@ -192,7 +198,13 @@
 			class="text-xs text-gray-400 dark:text-gray-600 line-clamp-2 leading-relaxed"
 			data-testid="timeline-entry-deleted-text"
 		>
-			{entry.text_original}
+			{#each splitTextForSearchHighlight(entry.text_original ?? '', searchHighlightNeedle) as seg, hIdx (hIdx)}
+				{#if seg.highlight}
+					<mark
+						class="timeline-search-match bg-amber-100/80 dark:bg-amber-900/40 rounded px-0.5 text-inherit"
+					>{seg.text}</mark>
+				{:else}{seg.text}{/if}
+			{/each}
 		</p>
 
 		<!-- Footer: recorded by + removed at -->
@@ -271,7 +283,13 @@
 					class="text-xs text-gray-400 dark:text-gray-500 truncate max-w-[16rem]"
 					title={entry.location_text}
 				>
-					at {entry.location_text}
+					at {#each splitTextForSearchHighlight(entry.location_text, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
+						{#if locSeg.highlight}
+							<mark
+								class="timeline-search-match bg-amber-100/80 dark:bg-amber-900/40 rounded px-0.5 text-inherit"
+							>{locSeg.text}</mark>
+						{:else}{locSeg.text}{/if}
+					{/each}
 				</span>
 			{/if}
 		</div>
@@ -306,7 +324,13 @@
 			class="text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap leading-relaxed"
 			data-testid="timeline-entry-body"
 		>
-			{displayText}
+			{#each bodyHighlightSegments as seg, bIdx (bIdx)}
+				{#if seg.highlight}
+					<mark
+						class="timeline-search-match bg-amber-100/80 dark:bg-amber-900/40 rounded px-0.5 text-inherit"
+					>{seg.text}</mark>
+				{:else}{seg.text}{/if}
+			{/each}
 		</p>
 
 		<!-- ── Tags ─────────────────────────────────────────────────────────────── -->
