@@ -16,6 +16,7 @@
 	 * P39-02A — invalid date hint, search match highlight, large-list hint
 	 * P39-03 — bottom composer shell for create entry (separate date + time; P39-01 §3–§5)
 	 * P39-04 — speech dictation into the bottom composer (raw transcript → editable text; P39-01 §5)
+	 * P39-05 — OCR/import text from file into the bottom composer (extracted text → editable; P39-01 §5)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -86,6 +87,14 @@
 		type TimelineDictationState
 	} from '$lib/caseTimeline/timelineDictation';
 	import MicSolid from '$lib/components/icons/MicSolid.svelte';
+	import DocumentArrowUp from '$lib/components/icons/DocumentArrowUp.svelte';
+	import {
+		isTimelineImportFileSupported,
+		unsupportedTimelineImportMessage,
+		TIMELINE_IMPORT_ACCEPT,
+		type TimelineImportState
+	} from '$lib/caseTimeline/timelineTextImport';
+	import { extractContentFromFile } from '$lib/utils';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -141,6 +150,7 @@
 		composerSaving = false;
 		composerError = '';
 		resetTimelineDictation();
+		resetTimelineImport();
 		editingEntryId = null;
 		editDraft = null;
 		editSaving = false;
@@ -316,6 +326,7 @@
 
 	function cancelComposer(): void {
 		resetTimelineDictation();
+		resetTimelineImport();
 		composerOpen = false;
 		composerDraft = null;
 		composerError = '';
@@ -494,7 +505,63 @@
 
 	onDestroy(() => {
 		resetTimelineDictation();
+		resetTimelineImport();
 	});
+
+	// ── P39-05 Bottom composer text import (file → editable text) ─────────────────
+	// Lifecycle: idle → processing → idle (extracted text appended) or error.
+	// Uses extractContentFromFile (client-side; no backend upload/attachment record).
+	// Supported: PDF, DOCX, plain-text (.txt, .md, .csv, .json, etc.).
+	// Images are not supported in V1 (client-side extraction only).
+
+	let importState: TimelineImportState = 'idle';
+	let importError = '';
+	let importFilename = '';
+
+	function resetTimelineImport(): void {
+		importState = 'idle';
+		importError = '';
+		importFilename = '';
+	}
+
+	async function handleImportFile(files: FileList | null): Promise<void> {
+		if (!files || files.length === 0) return;
+		const file = files[0];
+
+		importFilename = file.name;
+		importError = '';
+		importState = 'processing';
+
+		if (!isTimelineImportFileSupported(file)) {
+			importState = 'error';
+			importError = unsupportedTimelineImportMessage(file);
+			return;
+		}
+
+		try {
+			const extracted = await extractContentFromFile(file);
+			const text = typeof extracted === 'string' ? extracted.trim() : '';
+			if (!text) {
+				importState = 'error';
+				importError = `No readable text was found in "${file.name}".`;
+				return;
+			}
+			if (composerDraft) {
+				composerDraft = {
+					...composerDraft,
+					text_original: appendTranscriptToComposerText(composerDraft.text_original, text)
+				};
+			}
+			importState = 'idle';
+			importFilename = '';
+		} catch (e: unknown) {
+			importState = 'error';
+			importError =
+				e instanceof Error && e.message
+					? `Could not extract text from "${file.name}": ${e.message}`
+					: `Could not extract text from "${file.name}". Please try a different file.`;
+		}
+	}
 
 	// ── Inline edit state (P28-34) ──────────────────────────────────────────────
 	// Only one entry can be in edit mode at a time.
@@ -1348,8 +1415,9 @@
 					></textarea>
 				</div>
 
-				<!-- P39-04: Dictation control (speech → composer text) -->
-				<div class="flex flex-col gap-1">
+				<!-- P39-04 + P39-05: Assisted-input controls (dictation + import) -->
+				<div class="flex flex-col gap-1.5">
+					<!-- Dictation error -->
 					{#if dictationState === 'error'}
 						<div class="flex items-start gap-2">
 							<p
@@ -1372,8 +1440,33 @@
 							</button>
 						</div>
 					{/if}
-					<div class="flex items-center gap-2 min-h-[1.75rem]">
+					<!-- Import error -->
+					{#if importState === 'error'}
+						<div class="flex items-start gap-2">
+							<p
+								class="text-xs text-red-500 dark:text-red-400 flex-1"
+								aria-live="assertive"
+								data-testid="timeline-import-error"
+							>
+								{importError}
+							</p>
+							<button
+								type="button"
+								on:click={resetTimelineImport}
+								class="shrink-0 text-xs text-gray-500 dark:text-gray-400
+								       hover:text-gray-700 dark:hover:text-gray-200
+								       px-1.5 py-0.5 rounded transition"
+								aria-label="Dismiss import error"
+								data-testid="timeline-import-error-dismiss"
+							>
+								Dismiss
+							</button>
+						</div>
+					{/if}
+					<!-- Controls row: state-dependent -->
+					<div class="flex items-center gap-2 flex-wrap min-h-[1.75rem]">
 						{#if dictationState === 'listening'}
+							<!-- Dictation active — listening indicator + Stop -->
 							<span
 								class="inline-flex items-center gap-1.5 text-xs text-red-600 dark:text-red-400 font-medium"
 								aria-live="polite"
@@ -1397,7 +1490,21 @@
 							>
 								Stop
 							</button>
+						{:else if importState === 'processing'}
+							<!-- Import active — processing indicator -->
+							<span
+								class="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+								aria-live="polite"
+								data-testid="timeline-import-processing"
+							>
+								<span
+									class="size-2 rounded-full bg-blue-400 animate-pulse inline-block"
+									aria-hidden="true"
+								></span>
+								Extracting text{importFilename ? ` from "${importFilename}"` : ''}…
+							</span>
 						{:else}
+							<!-- Idle — both controls available -->
 							<button
 								type="button"
 								on:click={() => void startTimelineDictation()}
@@ -1413,6 +1520,27 @@
 								<MicSolid className="size-3.5" />
 								<span>Dictate</span>
 							</button>
+							<!-- Import text from file (P39-05) -->
+							<label
+								class="inline-flex items-center gap-1.5 cursor-pointer text-xs
+								       text-blue-600 dark:text-blue-400
+								       hover:text-blue-700 dark:hover:text-blue-300
+								       px-2 py-1 rounded border border-blue-200 dark:border-blue-800
+								       hover:bg-blue-50 dark:hover:bg-blue-900/20 transition"
+								title="Import text from a file (PDF, Word, .txt, .md, .csv, …)"
+								aria-label="Import text from a file"
+								data-testid="timeline-import-label"
+							>
+								<DocumentArrowUp className="size-3.5" />
+								<span>Import text</span>
+								<input
+									type="file"
+									accept={TIMELINE_IMPORT_ACCEPT}
+									class="hidden"
+									data-testid="timeline-import-file-input"
+									on:change={(e) => void handleImportFile((e.target as HTMLInputElement).files)}
+								/>
+							</label>
 						{/if}
 					</div>
 				</div>
