@@ -631,9 +631,11 @@
 			<div class="max-h-96 overflow-auto flex flex-col bg-white dark:bg-gray-950">
 			{#if activeTool === 'proposals'}
 				<!-- P19-10: Full proposal review panel (replaces inline P19-09 panel) -->
+				<!-- P38-03: Same refreshOnNav as /case/[id]/proposals — afterNavigate refetch when returning from other case routes -->
 				<ProposalReviewPanel
 					{caseId}
 					token={$caseEngineToken ?? ''}
+					refreshOnNav={true}
 					data-testid="proposals-panel"
 				/>
 				{:else if activeTool === 'files'}

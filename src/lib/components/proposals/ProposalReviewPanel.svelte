@@ -46,7 +46,7 @@
 	export let token: string;
 	/** `page` = full-height dashboard; `compact` = e.g. Case Tools sidebar. */
 	export let layout: 'compact' | 'page' = 'compact';
-	/** When true, refetch when returning from another case route (e.g. chat → proposals). */
+	/** When true, refetch on client afterNavigate (e.g. /proposals ↔ other case tabs; Case Tools embed — P38-03). */
 	export let refreshOnNav = false;
 
 	let typeFilter: 'all' | 'timeline' | 'note' = 'all';
