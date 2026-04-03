@@ -10,6 +10,7 @@
 	 * P28-37 — Timeline Entry Create UI (Governed)
 	 * P28-38 — Timeline Usability Polish Pass
 	 * P38-06 — beforeNavigate guard for unsaved create/edit (parity with Notes P28-29)
+	 * P38-07 — operator microcopy: direct + Log entry vs Proposals review/commit (copy only)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -51,6 +52,12 @@
 		isDirtyTimelineEdit,
 		isoToDatetimeLocal
 	} from './timelineUnsavedDirty';
+	import {
+		TIMELINE_EMPTY_STATE_DESCRIPTION,
+		TIMELINE_HEADER_SUBLINE,
+		TIMELINE_LOG_ENTRY_BUTTON_TITLE,
+		TIMELINE_OFFICIAL_RECORD_BADGE_TITLE
+	} from './timelineOperatorMicrocopy';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -526,7 +533,7 @@
 			<span
 				class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
 				       bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-				title="Official case records committed through the proposal pipeline"
+				title={TIMELINE_OFFICIAL_RECORD_BADGE_TITLE}
 			>Official record</span>
 			<!-- Count: updates with active filter -->
 			{#if !loading && entries.length > 0}
@@ -535,7 +542,7 @@
 				</span>
 			{/if}
 			<span class="shrink-0 text-[10px] text-gray-400 dark:text-gray-500">
-				Committed facts only · working drafts → Notes tab
+				{TIMELINE_HEADER_SUBLINE}
 			</span>
 		</div>
 
@@ -552,7 +559,7 @@
 				       hover:bg-blue-50 dark:hover:bg-blue-900/20
 				       disabled:opacity-40 transition"
 				data-testid="case-timeline-log-entry"
-				title="Log a new timeline entry directly"
+				title={TIMELINE_LOG_ENTRY_BUTTON_TITLE}
 			>
 				+ Log entry
 			</button>
@@ -833,7 +840,7 @@
 			<!-- Case has no entries yet -->
 			<CaseEmptyState
 				title="No official timeline entries recorded for this case."
-				description="Log an entry directly using the '+ Log entry' button above, or submit one through the proposal pipeline in the Chat tab. Working drafts belong in the Notes tab."
+				description={TIMELINE_EMPTY_STATE_DESCRIPTION}
 				testId="case-timeline-empty"
 			>
 				<svelte:fragment slot="icon">
