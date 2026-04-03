@@ -9,6 +9,7 @@
 	 * P28-36 — Replace window.confirm with ConfirmDialog
 	 * P28-37 — Timeline Entry Create UI (Governed)
 	 * P28-38 — Timeline Usability Polish Pass
+	 * P38-06 — beforeNavigate guard for unsaved create/edit (parity with Notes P28-29)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -29,6 +30,7 @@
 	 *   - No change_reason required for create (contrast with P28-34 edit)
 	 */
 	import { onMount } from 'svelte';
+	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { caseEngineToken, caseEngineUser } from '$lib/stores';
 	import {
@@ -44,6 +46,11 @@
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import TimelineEntryCard from '$lib/components/case/TimelineEntryCard.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+	import {
+		isDirtyTimelineCreate,
+		isDirtyTimelineEdit,
+		isoToDatetimeLocal
+	} from './timelineUnsavedDirty';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -253,10 +260,6 @@
 	let createSaving = false;
 	let createError = '';
 
-	function isDirtyCreate(): boolean {
-		return !!createDraft && createDraft.text_original.trim() !== '';
-	}
-
 	function doOpenCreate(): void {
 		editingEntryId = null;
 		editDraft = null;
@@ -345,18 +348,6 @@
 	let pendingDiscardAction: (() => void) | null = null;
 
 	/**
-	 * Extract the datetime-local-compatible portion of an ISO 8601 string.
-	 * Strips timezone and ensures seconds are present: YYYY-MM-DDTHH:mm:ss
-	 * The result is treated as UTC throughout the edit session.
-	 */
-	function isoToDatetimeLocal(iso: string): string {
-		const match = iso.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)/);
-		if (!match) return iso.slice(0, 19).replace(' ', 'T');
-		const base = match[1];
-		return base.length === 16 ? `${base}:00` : base.slice(0, 19);
-	}
-
-	/**
 	 * Convert a datetime-local string back to an ISO 8601 UTC string.
 	 * Appends 'Z' (UTC). Limitation: if the original was non-UTC, the
 	 * timezone offset is lost — the backend stores the corrected value as-is.
@@ -387,7 +378,7 @@
 
 	function startEdit(entry: TimelineEntry): void {
 		// Guard: another entry in edit mode, or create form has unsaved content.
-		if ((editingEntryId && editingEntryId !== entry.id) || isDirtyCreate()) {
+		if ((editingEntryId && editingEntryId !== entry.id) || isDirtyTimelineCreate(createDraft)) {
 			pendingDiscardAction = () => doStartEdit(entry);
 			showDiscardConfirm = true;
 			return;
@@ -456,6 +447,32 @@
 			editSaving = false;
 		}
 	}
+
+	function isTimelineRouteDirty(): boolean {
+		return (
+			isDirtyTimelineCreate(createDraft) || isDirtyTimelineEdit(editingEntryId, editDraft, entries)
+		);
+	}
+
+	// ── Route-navigation guard (P38-06; pattern from Notes P28-29 / P28-46) ─────
+	// Cross-case navigations pass through — the case-switch reactive block clears
+	// timeline draft state. Loop prevention: discard clears dirty state before goto().
+	beforeNavigate(({ cancel, willUnload, to }) => {
+		if (!isTimelineRouteDirty() || willUnload || !to) return;
+		if (to.params?.id && to.params.id !== caseId) return;
+		if (showDiscardConfirm) {
+			cancel();
+			return;
+		}
+		cancel();
+		const targetHref = to.url.href;
+		pendingDiscardAction = () => {
+			cancelCreate();
+			cancelEdit();
+			goto(targetHref);
+		};
+		showDiscardConfirm = true;
+	});
 </script>
 
 <!--
@@ -469,7 +486,7 @@
 <ConfirmDialog
 	bind:show={showDiscardConfirm}
 	title="Discard unsaved changes?"
-	message="You have unsaved changes to this entry. Discard them and edit the other entry instead?"
+	message="You have unsaved timeline changes. If you continue, they will be lost."
 	cancelLabel="Keep editing"
 	confirmLabel="Discard"
 	onConfirm={() => {
