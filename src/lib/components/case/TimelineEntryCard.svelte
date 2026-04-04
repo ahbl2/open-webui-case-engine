@@ -20,11 +20,13 @@
 	 *   - Lazy-loaded on first expand; cached for session
 	 *
 	 * Lifecycle (P28-35):
-	 *   - Active entries show compact Remove + Edit buttons in footer
+	 *   - Active entries: primary Edit inline; secondary actions in Notes-style ⋮ menu
 	 *   - Deleted entries (entry.deleted_at set) render a compact removed-state view
 	 *   - onRestoreRequest (ADMIN only) shown for deleted entries
 	 */
 	import { tick, afterUpdate } from 'svelte';
+	import { DropdownMenu } from 'bits-ui';
+	import { flyAndScale } from '$lib/utils/transitions';
 	import type { TimelineEntry, TimelineEntryVersion } from '$lib/apis/caseEngine';
 	import { listTimelineEntryVersions } from '$lib/apis/caseEngine';
 	import {
@@ -34,6 +36,11 @@
 	import { splitTextForSearchHighlight } from '$lib/caseTimeline/timelineSearchUx';
 	import { formatCaseDateTimeWithSeconds, formatCaseDateTime } from '$lib/utils/formatDateTime';
 	import TimelineEntryLinkedImagesViewer from './TimelineEntryLinkedImagesViewer.svelte';
+	import EllipsisVertical from '$lib/components/icons/EllipsisVertical.svelte';
+	import ClockRotateRight from '$lib/components/icons/ClockRotateRight.svelte';
+	import Download from '$lib/components/icons/Download.svelte';
+	import GarbageBin from '$lib/components/icons/GarbageBin.svelte';
+	import { downloadTimelineEntryExport } from '$lib/caseTimeline/timelineEntryExport';
 
 	export let entry: TimelineEntry;
 	/** Case ID — required for the versions endpoint. */
@@ -85,6 +92,8 @@
 	}
 
 	let linkedImagesViewerOpen = false;
+	/** Notes-style kebab menu (per card instance). */
+	let actionsMenuOpen = false;
 
 	$: tags = parseTags(entry.tags);
 	$: isDeleted = !!entry.deleted_at;
@@ -98,6 +107,9 @@
 		: (entry.text_original ?? '').trim();
 
 	$: bodyHighlightSegments = splitTextForSearchHighlight(displayText, searchHighlightNeedle);
+
+	/** Export body matches list view: active uses displayed (cleaned vs original) text; deleted uses stored original. */
+	$: textForExport = isDeleted ? (entry.text_original ?? '').trim() : displayText;
 
 	// ── Edited / version state (P28-31) ────────────────────────────────────────
 	$: versionCount = entry.version_count ?? 0;
@@ -125,9 +137,8 @@
 	let historyError = '';
 	let versionHistory: TimelineEntryVersion[] = [];
 
-	async function toggleHistory(): Promise<void> {
-		if (!isEdited) return;
-		if (historyExpanded) { historyExpanded = false; return; }
+	async function expandHistoryPanel(): Promise<void> {
+		if (historyExpanded) return;
 		historyExpanded = true;
 		if (historyLoaded) return;
 		historyLoading = true;
@@ -140,6 +151,30 @@
 		} finally {
 			historyLoading = false;
 		}
+	}
+
+	async function toggleHistory(): Promise<void> {
+		if (!isEdited) return;
+		if (historyExpanded) {
+			historyExpanded = false;
+			return;
+		}
+		await expandHistoryPanel();
+	}
+
+	function exportEntryFromMenu(format: 'txt' | 'md'): void {
+		actionsMenuOpen = false;
+		downloadTimelineEntryExport(entry, textForExport, format);
+	}
+
+	async function openVersionHistoryFromMenu(): Promise<void> {
+		actionsMenuOpen = false;
+		await expandHistoryPanel();
+	}
+
+	function requestRemoveFromMenu(): void {
+		actionsMenuOpen = false;
+		onDeleteRequest();
 	}
 
 	function sameTimestamp(a: string, b: string): boolean {
@@ -239,22 +274,70 @@
 				</button>
 			{/if}
 
-		<!-- Restore button — only when onRestoreRequest is provided (ADMIN) -->
-		{#if onRestoreRequest}
-			<button
-				type="button"
-				class="ml-auto text-xs font-medium px-2 py-0.5 rounded
-				       bg-green-50 dark:bg-green-900/20
-				       text-green-600 dark:text-green-400
-				       hover:bg-green-100 dark:hover:bg-green-900/40
-				       transition"
-				on:click={onRestoreRequest}
-				title="Restore this entry to the active timeline"
-				data-testid="timeline-entry-restore-button"
-			>
-				Restore
-			</button>
-		{/if}
+		<div class="ml-auto flex items-center gap-0.5 shrink-0">
+			<DropdownMenu.Root bind:open={actionsMenuOpen} onOpenChange={(s) => (actionsMenuOpen = s)}>
+				<DropdownMenu.Trigger>
+					<button
+						type="button"
+						class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+						aria-label="More actions for this timeline entry"
+						title="More actions for this timeline entry"
+						data-testid="timeline-entry-actions-menu-trigger"
+					>
+						<EllipsisVertical />
+					</button>
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Content
+					class="w-full max-w-[190px] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+					sideOffset={4}
+					side="bottom"
+					align="end"
+					transition={flyAndScale}
+				>
+					<DropdownMenu.Item
+						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+						on:click={() => void openVersionHistoryFromMenu()}
+						data-testid="timeline-entry-menu-version-history"
+					>
+						<ClockRotateRight className="w-4 h-4 shrink-0" />
+						<span>Version history</span>
+					</DropdownMenu.Item>
+					<hr class="border-gray-100 dark:border-gray-800 my-1" />
+					<DropdownMenu.Item
+						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+						on:click={() => exportEntryFromMenu('txt')}
+						data-testid="timeline-entry-menu-export-txt"
+					>
+						<Download className="w-4 h-4 shrink-0" />
+						<span>Export TXT</span>
+					</DropdownMenu.Item>
+					<DropdownMenu.Item
+						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+						on:click={() => exportEntryFromMenu('md')}
+						data-testid="timeline-entry-menu-export-md"
+					>
+						<Download className="w-4 h-4 shrink-0" />
+						<span>Export MD</span>
+					</DropdownMenu.Item>
+				</DropdownMenu.Content>
+			</DropdownMenu.Root>
+
+			{#if onRestoreRequest}
+				<button
+					type="button"
+					class="text-xs font-medium px-2 py-0.5 rounded
+					       bg-green-50 dark:bg-green-900/20
+					       text-green-600 dark:text-green-400
+					       hover:bg-green-100 dark:hover:bg-green-900/40
+					       transition"
+					on:click={onRestoreRequest}
+					title="Restore this entry to the active timeline"
+					data-testid="timeline-entry-restore-button"
+				>
+					Restore
+				</button>
+			{/if}
+		</div>
 		</div>
 
 		<!-- Entry text — truncated and subdued; enough to identify the entry -->
@@ -281,6 +364,71 @@
 				Removed {formatCaseDateTime(entry.deleted_at ?? '')}
 			</span>
 		</div>
+
+		{#if historyExpanded}
+			<div
+				class="mt-1 pt-2 border-t border-dashed border-amber-200 dark:border-amber-800/50"
+				data-testid="timeline-entry-history-panel"
+			>
+				<p class="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 mb-2">
+					Version history
+				</p>
+
+				{#if historyLoading}
+					<p class="text-xs text-gray-400 dark:text-gray-500 py-1" data-testid="timeline-entry-history-loading">
+						Loading…
+					</p>
+				{:else if historyError}
+					<p class="text-xs text-red-500 dark:text-red-400 py-1" data-testid="timeline-entry-history-error">
+						{historyError}
+					</p>
+				{:else if versionHistory.length === 0}
+					<p class="text-xs text-gray-400 dark:text-gray-500 py-1 italic" data-testid="timeline-entry-history-empty">
+						No prior version records found.
+					</p>
+				{:else}
+					<ol class="flex flex-col gap-3">
+						{#each [...versionHistory].reverse() as ver (ver.id)}
+							<li
+								class="pl-3 border-l-2 border-amber-200 dark:border-amber-800/60 flex flex-col gap-1"
+								data-testid="timeline-entry-version-{ver.version_number}"
+							>
+								<div class="flex items-center gap-2 flex-wrap">
+									<span class="text-[10px] font-semibold font-mono text-amber-600 dark:text-amber-400">
+										v{ver.version_number}{ver.version_number === 1 ? ' · original' : ''}
+									</span>
+									<span class="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
+										changed {formatCaseDateTime(ver.changed_at)} by {ver.changed_by}
+									</span>
+								</div>
+								<p class="text-[10px] italic text-gray-500 dark:text-gray-400">
+									"{ver.change_reason}"
+								</p>
+								{#if !sameTimestamp(ver.prior_occurred_at, entry.occurred_at)}
+									<p class="text-[10px] text-gray-400 dark:text-gray-500">
+										Occurred (then):
+										<span class="font-mono">{formatCaseDateTimeWithSeconds(ver.prior_occurred_at)}</span>
+									</p>
+								{/if}
+								{#if ver.prior_type !== entry.type}
+									<p class="text-[10px] text-gray-400 dark:text-gray-500">
+										Type (then): {typeLabel(ver.prior_type)}
+									</p>
+								{/if}
+								<p class="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
+									{ver.prior_text_original}
+								</p>
+								{#if ver.prior_text_cleaned}
+									<p class="text-[10px] text-violet-500 dark:text-violet-400 italic">
+										AI-cleaned version also existed at this state.
+									</p>
+								{/if}
+							</li>
+						{/each}
+					</ol>
+				{/if}
+			</div>
+		{/if}
 
 		<TimelineEntryLinkedImagesViewer
 			show={linkedImagesViewerOpen}
@@ -490,34 +638,72 @@
 			</span>
 		{/if}
 
-		<!-- Action buttons: Remove · Edit (right-aligned, subtle) -->
+		<!-- Primary Edit + Notes-style ⋮ menu (Version history, exports, Remove) -->
 		<div class="ml-auto flex items-center gap-1">
 			<button
 				type="button"
-				class="text-xs text-gray-400 dark:text-gray-500
-				       hover:text-red-600 dark:hover:text-red-400
-				       px-1.5 py-0.5 rounded
-				       hover:bg-red-50 dark:hover:bg-red-900/20
-				       transition"
-				on:click={onDeleteRequest}
-				title="Remove this timeline entry (soft delete — can be restored by ADMIN)"
-				data-testid="timeline-entry-delete-button"
-			>
-				Remove
-			</button>
-			<button
-				type="button"
-				class="text-xs text-gray-400 dark:text-gray-500
-				       hover:text-amber-700 dark:hover:text-amber-400
-				       px-1.5 py-0.5 rounded
-				       hover:bg-amber-50 dark:hover:bg-amber-900/20
-				       transition"
+				class="text-xs font-medium px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
 				on:click={onEditRequest}
 				title="Edit this timeline entry"
 				data-testid="timeline-entry-edit-button"
 			>
 				Edit
 			</button>
+			<DropdownMenu.Root bind:open={actionsMenuOpen} onOpenChange={(s) => (actionsMenuOpen = s)}>
+				<DropdownMenu.Trigger>
+					<button
+						type="button"
+						class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+						aria-label="More actions for this timeline entry"
+						title="More actions for this timeline entry"
+						data-testid="timeline-entry-actions-menu-trigger"
+					>
+						<EllipsisVertical />
+					</button>
+				</DropdownMenu.Trigger>
+				<DropdownMenu.Content
+					class="w-full max-w-[190px] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+					sideOffset={4}
+					side="bottom"
+					align="end"
+					transition={flyAndScale}
+				>
+					<DropdownMenu.Item
+						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+						on:click={() => void openVersionHistoryFromMenu()}
+						data-testid="timeline-entry-menu-version-history"
+					>
+						<ClockRotateRight className="w-4 h-4 shrink-0" />
+						<span>Version history</span>
+					</DropdownMenu.Item>
+					<hr class="border-gray-100 dark:border-gray-800 my-1" />
+					<DropdownMenu.Item
+						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+						on:click={() => exportEntryFromMenu('txt')}
+						data-testid="timeline-entry-menu-export-txt"
+					>
+						<Download className="w-4 h-4 shrink-0" />
+						<span>Export TXT</span>
+					</DropdownMenu.Item>
+					<DropdownMenu.Item
+						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+						on:click={() => exportEntryFromMenu('md')}
+						data-testid="timeline-entry-menu-export-md"
+					>
+						<Download className="w-4 h-4 shrink-0" />
+						<span>Export MD</span>
+					</DropdownMenu.Item>
+					<hr class="border-gray-100 dark:border-gray-800 my-1" />
+					<DropdownMenu.Item
+						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 rounded-lg"
+						on:click={requestRemoveFromMenu}
+						data-testid="timeline-entry-delete-button"
+					>
+						<GarbageBin className="w-4 h-4 shrink-0" />
+						<span>Remove</span>
+					</DropdownMenu.Item>
+				</DropdownMenu.Content>
+			</DropdownMenu.Root>
 		</div>
 		</div>
 
