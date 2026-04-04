@@ -16,7 +16,7 @@ describe('TimelineEntryCard actions menu', () => {
 		expect(src).toMatch(/timeline-entry-actions-menu-trigger/);
 		expect(src).toMatch(/timeline-entry-menu-version-history/);
 		expect(src).toMatch(/timeline-entry-menu-export-txt/);
-		expect(src).toMatch(/timeline-entry-menu-export-md/);
+		expect(src).toMatch(/timeline-entry-menu-export-pdf/);
 	});
 
 	it('does not offer Duplicate in the timeline entry menu', () => {

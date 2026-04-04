@@ -162,7 +162,7 @@
 		await expandHistoryPanel();
 	}
 
-	function exportEntryFromMenu(format: 'txt' | 'md'): void {
+	function exportEntryFromMenu(format: 'txt' | 'pdf'): void {
 		actionsMenuOpen = false;
 		downloadTimelineEntryExport(entry, textForExport, format);
 	}
@@ -313,11 +313,11 @@
 					</DropdownMenu.Item>
 					<DropdownMenu.Item
 						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-						on:click={() => exportEntryFromMenu('md')}
-						data-testid="timeline-entry-menu-export-md"
+						on:click={() => exportEntryFromMenu('pdf')}
+						data-testid="timeline-entry-menu-export-pdf"
 					>
 						<Download className="w-4 h-4 shrink-0" />
-						<span>Export MD</span>
+						<span>Export PDF</span>
 					</DropdownMenu.Item>
 				</DropdownMenu.Content>
 			</DropdownMenu.Root>
@@ -687,11 +687,11 @@
 					</DropdownMenu.Item>
 					<DropdownMenu.Item
 						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-						on:click={() => exportEntryFromMenu('md')}
-						data-testid="timeline-entry-menu-export-md"
+						on:click={() => exportEntryFromMenu('pdf')}
+						data-testid="timeline-entry-menu-export-pdf"
 					>
 						<Download className="w-4 h-4 shrink-0" />
-						<span>Export MD</span>
+						<span>Export PDF</span>
 					</DropdownMenu.Item>
 					<hr class="border-gray-100 dark:border-gray-800 my-1" />
 					<DropdownMenu.Item

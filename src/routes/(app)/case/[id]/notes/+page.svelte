@@ -115,6 +115,11 @@
 	import { mergeNotebookWritePayload } from '$lib/caseNotes/notebookIntegrityPayload';
 	import { buildAutoNoteTitle } from '$lib/caseNotes/buildAutoNoteTitle';
 	import { createNoteComposerDropHandlers } from '$lib/caseNotes/noteComposerDrop';
+	import {
+		buildNotebookNoteExportTxtContent,
+		notebookNoteExportFilename
+	} from '$lib/caseNotes/noteExportDocument';
+	import { downloadPlainTextAsPdf } from '$lib/caseExport/plainTextReportPdf';
 	import { type IntegrityExplainBlock, buildSaveBlockedExplain } from '$lib/caseNotes/noteIntegrityExplain';
 	import {
 		newStructuredNotesCorrelationId,
@@ -1443,52 +1448,29 @@
 		return slug || 'untitled';
 	}
 
-	function exportNoteContent(format: 'txt' | 'md'): void {
+	function exportNoteContent(format: 'txt' | 'pdf'): void {
 		if (!selectedNote || mode !== 'view') return;
-		const title = selectedNote.title?.trim() || 'Untitled';
 		const createdBy = attributionLabel(selectedNote.created_by_name, selectedNote.created_by) ?? selectedNote.created_by;
 		const updatedBy = attributionLabel(selectedNote.updated_by_name, selectedNote.updated_by) ?? selectedNote.updated_by;
-		const text = selectedNote.current_text ?? '';
-		let content = '';
-		let mime = '';
-		let ext = '';
+		const content = buildNotebookNoteExportTxtContent(selectedNote, createdBy, updatedBy);
+		const slug = safeFileSlug(selectedNote.title);
 
 		if (format === 'txt') {
-			content =
-				`Title: ${title}\n` +
-				`Note ID: ${selectedNote.id}\n` +
-				`Case ID: ${selectedNote.case_id}\n` +
-				`Created: ${selectedNote.created_at}\n` +
-				`Created by: ${createdBy}\n` +
-				`Updated: ${selectedNote.updated_at}\n` +
-				`Updated by: ${updatedBy}\n\n` +
-				text;
-			mime = 'text/plain;charset=utf-8';
-			ext = 'txt';
-		} else {
-			content =
-				`# ${title}\n\n` +
-				`- Note ID: ${selectedNote.id}\n` +
-				`- Case ID: ${selectedNote.case_id}\n` +
-				`- Created: ${selectedNote.created_at}\n` +
-				`- Created by: ${createdBy}\n` +
-				`- Updated: ${selectedNote.updated_at}\n` +
-				`- Updated by: ${updatedBy}\n\n` +
-				`${text}\n`;
-			mime = 'text/markdown;charset=utf-8';
-			ext = 'md';
+			const filename = notebookNoteExportFilename(selectedNote.id, slug, 'txt');
+			const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+			const url = URL.createObjectURL(blob);
+			const link = document.createElement('a');
+			link.href = url;
+			link.download = filename;
+			document.body.appendChild(link);
+			link.click();
+			document.body.removeChild(link);
+			URL.revokeObjectURL(url);
+			return;
 		}
 
-		const filename = `case-note-${selectedNote.id}-${safeFileSlug(selectedNote.title)}.${ext}`;
-		const blob = new Blob([content], { type: mime });
-		const url = URL.createObjectURL(blob);
-		const link = document.createElement('a');
-		link.href = url;
-		link.download = filename;
-		document.body.appendChild(link);
-		link.click();
-		document.body.removeChild(link);
-		URL.revokeObjectURL(url);
+		const filename = notebookNoteExportFilename(selectedNote.id, slug, 'pdf');
+		void downloadPlainTextAsPdf(content, filename);
 	}
 
 	// ── Delete state ───────────────────────────────────────────────────────────
@@ -3253,11 +3235,11 @@
 
 								<DropdownMenu.Item
 									class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-									on:click={() => { noteMenuOpen = false; exportNoteContent('md'); }}
-									data-testid="case-note-export-md-action"
+									on:click={() => { noteMenuOpen = false; exportNoteContent('pdf'); }}
+									data-testid="case-note-export-pdf-action"
 								>
 									<Download className="w-4 h-4 shrink-0" />
-									<span>Export MD</span>
+									<span>Export PDF</span>
 								</DropdownMenu.Item>
 
 								<hr class="border-gray-100 dark:border-gray-800 my-1" />

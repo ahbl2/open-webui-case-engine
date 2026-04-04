@@ -1,6 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	buildTimelineEntryExportPayload,
+	buildTimelineEntryTxtDocument,
 	safeTimelineExportSlug,
 	timelineEntryExportFilename
 } from './timelineEntryExport';
@@ -26,26 +27,21 @@ describe('timelineEntryExport', () => {
 		expect(safeTimelineExportSlug('Note!')).toBe('note');
 	});
 
-	it('buildTimelineEntryExportPayload txt includes metadata and body', () => {
-		const { content, ext, filename } = buildTimelineEntryExportPayload(
-			baseEntry,
-			'Shown body',
-			'txt'
-		);
-		expect(ext).toBe('txt');
-		expect(content).toContain('Entry ID: te-1');
-		expect(content).toContain('Case ID: c-1');
-		expect(content).toContain('Type: surveillance');
-		expect(content).toContain('Location: Main St');
-		expect(content).toContain('Shown body');
-		expect(filename).toBe('case-timeline-entry-te-1-surveillance.txt');
+	it('buildTimelineEntryTxtDocument matches txt export payload content', () => {
+		const doc = buildTimelineEntryTxtDocument(baseEntry, 'Shown body');
+		const { content } = buildTimelineEntryExportPayload(baseEntry, 'Shown body', 'txt');
+		expect(doc).toBe(content);
+		expect(doc).toContain('Entry ID: te-1');
+		expect(doc).toContain('Case ID: c-1');
+		expect(doc).toContain('Type: surveillance');
+		expect(doc).toContain('Location: Main St');
+		expect(doc).toContain('Shown body');
 	});
 
-	it('buildTimelineEntryExportPayload md uses markdown header', () => {
-		const { content, ext } = buildTimelineEntryExportPayload(baseEntry, 'Body', 'md');
-		expect(ext).toBe('md');
-		expect(content.startsWith('# Timeline entry')).toBe(true);
-		expect(content).toContain('Body');
+	it('buildTimelineEntryExportPayload txt filename is stable', () => {
+		const { ext, filename } = buildTimelineEntryExportPayload(baseEntry, 'Shown body', 'txt');
+		expect(ext).toBe('txt');
+		expect(filename).toBe('case-timeline-entry-te-1-surveillance.txt');
 	});
 
 	it('omits Location line when empty', () => {
@@ -54,7 +50,8 @@ describe('timelineEntryExport', () => {
 		expect(content).not.toMatch(/^Location:/m);
 	});
 
-	it('timelineEntryExportFilename is stable', () => {
+	it('timelineEntryExportFilename supports pdf extension', () => {
 		expect(timelineEntryExportFilename('id', 'note', 'txt')).toBe('case-timeline-entry-id-note.txt');
+		expect(timelineEntryExportFilename('id', 'note', 'pdf')).toBe('case-timeline-entry-id-note.pdf');
 	});
 });
