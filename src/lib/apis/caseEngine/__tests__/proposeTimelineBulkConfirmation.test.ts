@@ -1,5 +1,5 @@
 /**
- * P40-05C — Client sends bulk_confirmation_token with confirm_bulk for fast server confirm.
+ * P40-05C / P40-05D — Bulk confirm request body + success envelope unwrapping + stable counts for UI.
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -70,5 +70,58 @@ describe('proposeTimelineEntriesFromCaseFile bulk confirmation token', () => {
 			expect(err.code).toBe('BULK_PROPOSAL_CONFIRMATION_REQUIRED');
 			expect(err.bulk_confirmation_token).toBe('srv-token');
 		}
+	});
+
+	it('P40-05D: unwraps P20 envelope on 201 so proposal_count is available to the UI', async () => {
+		fetchSpy.mockResolvedValueOnce(
+			jsonResponse(
+				{
+					success: true,
+					data: {
+						proposals: [{ id: 'p1' } as never],
+						proposal_count: 1,
+						bulk_threshold: 10,
+						source_text_truncated_for_model: false
+					}
+				},
+				201
+			)
+		);
+		const { proposeTimelineEntriesFromCaseFile } = await import('../index');
+		const out = await proposeTimelineEntriesFromCaseFile('c', 'f', 'jwt', {
+			confirm_bulk: true,
+			bulk_confirmation_token: 't'
+		});
+		expect(out.proposal_count).toBe(1);
+		expect(out.proposals).toHaveLength(1);
+	});
+
+	it('P40-05D: derives proposal_count from proposals when count omitted (legacy flat body)', async () => {
+		fetchSpy.mockResolvedValueOnce(
+			jsonResponse(
+				{
+					proposals: [{ id: 'a' } as never, { id: 'b' } as never],
+					bulk_threshold: 10,
+					source_text_truncated_for_model: false
+				} as Record<string, unknown>,
+				201
+			)
+		);
+		const { proposeTimelineEntriesFromCaseFile } = await import('../index');
+		const out = await proposeTimelineEntriesFromCaseFile('c', 'f', 'jwt', {});
+		expect(out.proposal_count).toBe(2);
+	});
+
+	it('P40-05D: 400 invalid/expired token surfaces message via extractApiErrorMessage', async () => {
+		const bodyText =
+			'Bulk confirmation is invalid or expired. Run propose timeline entries again to regenerate.';
+		fetchSpy.mockResolvedValueOnce(jsonResponse({ error: bodyText }, 400));
+		const { proposeTimelineEntriesFromCaseFile } = await import('../index');
+		await expect(
+			proposeTimelineEntriesFromCaseFile('c', 'f', 'jwt', {
+				confirm_bulk: true,
+				bulk_confirmation_token: 'stale'
+			})
+		).rejects.toThrow(bodyText);
 	});
 });

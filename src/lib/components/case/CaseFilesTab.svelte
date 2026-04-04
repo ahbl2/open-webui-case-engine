@@ -278,10 +278,19 @@
 					? { bulk_confirmation_token: bulkConfirmToken }
 					: {})
 			});
+			const n = result.proposal_count;
 			closeBulkModal();
-			toast.success(
-				`${result.proposal_count} timeline proposal${result.proposal_count === 1 ? '' : 's'} created — review in Proposals`
-			);
+			if (n <= 0) {
+				toast.warning(
+					'Proposal generation finished but no proposals were returned. Open the Proposals tab to verify, or run Propose timeline entries again.',
+					{ duration: 12000 }
+				);
+			} else {
+				toast.success(
+					`${n} timeline proposal${n === 1 ? '' : 's'} created. Open the Proposals tab to review and approve.`,
+					{ duration: 9000 }
+				);
+			}
 			if (result.source_text_truncated_for_model === true) {
 				toast.warning(
 					'Only the start of this file was sent to the model — proposals may miss events from later in the file. Check the Proposals tab for the full warning.',
@@ -297,6 +306,12 @@
 				bulk_confirmation_token?: string;
 			};
 			if (err.status === 409 && err.code === 'BULK_PROPOSAL_CONFIRMATION_REQUIRED') {
+				if (confirmBulk) {
+					toast.warning(
+						'The server still requires bulk confirmation (counts may have changed). Review the dialog and click Create proposals again, or cancel and run Propose timeline entries from scratch.',
+						{ duration: 12000 }
+					);
+				}
 				bulkConfirmFile = f;
 				bulkConfirmCount = err.proposal_count ?? 0;
 				bulkConfirmThreshold = err.threshold ?? 0;
@@ -305,7 +320,16 @@
 						? err.bulk_confirmation_token
 						: null;
 			} else {
-				toast.error(err?.message ?? 'Propose timeline entries failed');
+				const msg = err?.message ?? 'Propose timeline entries failed';
+				const isToken =
+					typeof msg === 'string' &&
+					(msg.includes('invalid') || msg.includes('expired') || msg.includes('regenerate'));
+				toast.error(
+					isToken
+						? `${msg} Use Propose timeline entries again to generate a fresh batch.`
+						: msg,
+					{ duration: isToken ? 12000 : 6000 }
+				);
 			}
 		} finally {
 			proposingFileId = null;
@@ -527,6 +551,7 @@
 					type="button"
 					class="px-3 py-1.5 text-sm rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
 					disabled={proposingFileId !== null}
+					data-testid="bulk-proposal-confirm-submit"
 					on:click={() => bulkConfirmFile && runProposeTimeline(bulkConfirmFile, true)}
 				>
 					{proposingFileId ? 'Working…' : 'Create proposals'}

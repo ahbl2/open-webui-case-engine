@@ -3757,16 +3757,11 @@ export async function proposeTimelineEntriesFromCaseFile(
 			})
 		}
 	);
-	const data = (await res.json().catch(() => ({}))) as {
-		error?: string;
-		code?: string;
-		proposal_count?: number;
-		threshold?: number;
-		bulk_confirmation_token?: string;
-	};
+	const data = await res.json().catch(() => ({}));
 	if (res.status === 409) {
+		const flat = data as Record<string, unknown>;
 		const err = new Error(
-			typeof data?.error === 'string' ? data.error : 'Bulk proposal confirmation required'
+			extractApiErrorMessage(data, 'Bulk proposal confirmation required')
 		) as Error & {
 			code?: string;
 			proposal_count?: number;
@@ -3774,22 +3769,33 @@ export async function proposeTimelineEntriesFromCaseFile(
 			bulk_confirmation_token?: string;
 			status?: number;
 		};
-		err.code = data?.code;
-		err.proposal_count = data?.proposal_count;
-		err.threshold = data?.threshold;
+		err.code = typeof flat.code === 'string' ? flat.code : undefined;
+		err.proposal_count =
+			typeof flat.proposal_count === 'number' ? flat.proposal_count : undefined;
+		err.threshold = typeof flat.threshold === 'number' ? flat.threshold : undefined;
 		err.bulk_confirmation_token =
-			typeof data?.bulk_confirmation_token === 'string' ? data.bulk_confirmation_token : undefined;
+			typeof flat.bulk_confirmation_token === 'string' ? flat.bulk_confirmation_token : undefined;
 		err.status = 409;
 		throw err;
 	}
 	if (!res.ok) {
-		throw new Error(data?.error ?? `Propose timeline from file failed (${res.status})`);
+		throw new Error(extractApiErrorMessage(data, `Propose timeline from file failed (${res.status})`));
 	}
-	return data as {
-		proposals: ProposalRecord[];
-		proposal_count: number;
-		bulk_threshold: number;
-		source_text_truncated_for_model: boolean;
+	/** P40-05D: unwrap P20 `{ success, data }` when present; normalize counts so UI never shows undefined. */
+	const payload = unwrapEnvelopeCanonicalFirst<{
+		proposals?: ProposalRecord[];
+		proposal_count?: number;
+		bulk_threshold?: number;
+		source_text_truncated_for_model?: boolean;
+	}>(data, 'proposeTimelineFromCaseFile');
+	const proposals = Array.isArray(payload.proposals) ? payload.proposals : [];
+	const proposal_count =
+		typeof payload.proposal_count === 'number' ? payload.proposal_count : proposals.length;
+	return {
+		proposals,
+		proposal_count,
+		bulk_threshold: typeof payload.bulk_threshold === 'number' ? payload.bulk_threshold : 10,
+		source_text_truncated_for_model: payload.source_text_truncated_for_model === true
 	};
 }
 
