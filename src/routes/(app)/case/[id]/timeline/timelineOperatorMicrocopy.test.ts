@@ -1,6 +1,6 @@
 /**
  * P38-07 — Lock operator clarity strings (direct log vs Proposals).
- * Post-P39 bug fix: locks timezone label to ET, not UTC.
+ * P40-05G: timezone label reflects browser-local datetime-local semantics, not UTC.
  */
 import { describe, it, expect } from 'vitest';
 import {
@@ -36,9 +36,9 @@ describe('timelineOperatorMicrocopy (P38-07)', () => {
 	});
 });
 
-describe('timelineOperatorMicrocopy — timezone label (post-P39 bug fix)', () => {
-	it('TIMELINE_TIME_ZONE_LABEL is ET, not UTC', () => {
-		expect(TIMELINE_TIME_ZONE_LABEL).toContain('ET');
+describe('timelineOperatorMicrocopy — timezone label (P40-05G local)', () => {
+	it('TIMELINE_TIME_ZONE_LABEL signals local time, not UTC', () => {
+		expect(TIMELINE_TIME_ZONE_LABEL.toLowerCase()).toContain('local');
 		expect(TIMELINE_TIME_ZONE_LABEL.toUpperCase()).not.toContain('UTC');
 	});
 
@@ -47,8 +47,8 @@ describe('timelineOperatorMicrocopy — timezone label (post-P39 bug fix)', () =
 		expect(TIMELINE_TIME_ZONE_LABEL.length).toBeGreaterThan(0);
 	});
 
-	it('TIMELINE_TIME_ZONE_TOOLTIP references ET, not UTC', () => {
-		expect(TIMELINE_TIME_ZONE_TOOLTIP).toContain('ET');
+	it('TIMELINE_TIME_ZONE_TOOLTIP references local time, not UTC', () => {
+		expect(TIMELINE_TIME_ZONE_TOOLTIP.toLowerCase()).toContain('local');
 		expect(TIMELINE_TIME_ZONE_TOOLTIP.toUpperCase()).not.toContain('UTC');
 	});
 

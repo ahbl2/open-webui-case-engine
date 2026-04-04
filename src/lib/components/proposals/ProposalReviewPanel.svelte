@@ -46,7 +46,17 @@
 		getBulkApprovePendingTargets,
 		bulkCommitSelectionBlockedReason
 	} from '$lib/utils/proposalUiState';
-	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
+	import { formatCaseDateTime, formatCaseDateTimeWithSeconds } from '$lib/utils/formatDateTime';
+	import { isoToDatetimeLocal, datetimeLocalToIso } from '$lib/caseTimeline/timelineOccurredAtLocal';
+	import {
+		TIMELINE_ENTRY_TYPE_VALUES,
+		timelineEntryTypeOptionLabel,
+		isCanonicalTimelineEntryType
+	} from '$lib/caseTimeline/timelineEntryTypeOptions';
+	import {
+		TIMELINE_TIME_ZONE_LABEL,
+		TIMELINE_TIME_ZONE_TOOLTIP
+	} from '../../../routes/(app)/case/[id]/timeline/timelineOperatorMicrocopy';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 
 	// ── Props ──────────────────────────────────────────────────────────────────
@@ -173,13 +183,24 @@
 		return payload._ce_document_timeline_intake === true;
 	}
 
+	/** P40-05G — same local display as timeline cards; not raw ISO in the edit field. */
+	function formatTimelineOccurredAtForDisplay(raw: unknown): string {
+		if (raw == null) return '—';
+		const s = String(raw).trim();
+		if (!s) return '—';
+		const d = new Date(s);
+		if (!isNaN(d.getTime())) return formatCaseDateTimeWithSeconds(s);
+		return s;
+	}
+
 	function seedDocEditIfNeeded(proposalId: string, payload: Record<string, unknown>): void {
 		if (docEditById[proposalId]) return;
 		const conf = String(payload.occurred_at_confidence ?? 'medium').toLowerCase();
+		const rawAt = payload.occurred_at != null ? String(payload.occurred_at).trim() : '';
 		docEditById = {
 			...docEditById,
 			[proposalId]: {
-				occurred_at: payload.occurred_at != null ? String(payload.occurred_at) : '',
+				occurred_at: rawAt ? isoToDatetimeLocal(rawAt) : '',
 				type: String(payload.type ?? ''),
 				text_original: String(payload.text_original ?? ''),
 				text_cleaned: String(payload.text_cleaned ?? ''),
@@ -237,7 +258,7 @@
 			const base = parsePayload(prop.proposed_payload);
 			const merged: Record<string, unknown> = {
 				...base,
-				occurred_at: edit.occurred_at.trim() || null,
+				occurred_at: edit.occurred_at.trim() ? datetimeLocalToIso(edit.occurred_at.trim()) : null,
 				type: edit.type.trim(),
 				text_original: edit.text_original,
 				text_cleaned: edit.text_cleaned,
@@ -1151,8 +1172,11 @@
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
 											Occurred At
 										</span>
-										<span class="text-[11px] text-gray-700 dark:text-gray-300 font-mono">
-											{payload.occurred_at ?? '—'}
+										<span
+											class="text-[11px] text-gray-700 dark:text-gray-300"
+											data-testid="proposal-timeline-occurred-display"
+										>
+											{formatTimelineOccurredAtForDisplay(payload.occurred_at)}
 										</span>
 									</div>
 									<div class="flex gap-2 items-start">
@@ -1285,8 +1309,8 @@
 										{@const de = docEditById[proposal.id]}
 										{#if de.occurred_at_confidence === 'low' && !de.operator_occurred_at_confirmed}
 											<p class="text-[10px] text-amber-700 dark:text-amber-400 mt-2">
-												Low date confidence — set or verify <span class="font-mono">occurred_at</span> and
-												check “I confirm date/time” before commit.
+												Low date confidence — verify the date and time below and check “I confirm date/time”
+												before commit.
 											</p>
 										{/if}
 										<div
@@ -1307,22 +1331,37 @@
 												</p>
 											{/if}
 											<label class="block text-[10px] text-gray-600 dark:text-gray-400">
-												occurred_at (ISO 8601 with timezone)
+												Occurred at
+												<span class="text-[9px] font-normal text-gray-500 dark:text-gray-500 ml-1"
+													>{TIMELINE_TIME_ZONE_LABEL}</span
+												>
 												<input
-													type="text"
-													class="mt-0.5 w-full text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-1.5 py-1 font-mono"
+													type="datetime-local"
+													step="1"
+													title={TIMELINE_TIME_ZONE_TOOLTIP}
+													class="mt-0.5 w-full max-w-md text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-1.5 py-1"
+													data-testid="document-ingest-occurred-input"
 													bind:value={docEditById[proposal.id].occurred_at}
 													on:input={() => (docEditById = docEditById)}
 												/>
 											</label>
 											<label class="block text-[10px] text-gray-600 dark:text-gray-400">
-												type
-												<input
-													type="text"
-													class="mt-0.5 w-full text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-1.5 py-1"
+												Type
+												<select
+													class="mt-0.5 w-full max-w-md text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-1.5 py-1"
+													data-testid="document-ingest-type-select"
 													bind:value={docEditById[proposal.id].type}
-													on:input={() => (docEditById = docEditById)}
-												/>
+													on:change={() => (docEditById = docEditById)}
+												>
+													{#if docEditById[proposal.id].type && !isCanonicalTimelineEntryType(docEditById[proposal.id].type)}
+														<option value={docEditById[proposal.id].type}
+															>{timelineEntryTypeOptionLabel(docEditById[proposal.id].type)} (from ingest)</option
+														>
+													{/if}
+													{#each TIMELINE_ENTRY_TYPE_VALUES as t}
+														<option value={t}>{timelineEntryTypeOptionLabel(t)}</option>
+													{/each}
+												</select>
 											</label>
 											<label class="block text-[10px] text-gray-600 dark:text-gray-400">
 												text_original

@@ -31,7 +31,7 @@
 	 *
 	 * P28-37 changes:
 	 *   - "+ Log entry" button in header opens a governed inline create form
-	 *   - Fields: occurred_at (datetime-local, ET), type, text_original (required),
+	 *   - Fields: occurred_at (datetime-local, browser local TZ), type, text_original (required),
 	 *     location_text (optional)
 	 *   - On save: POST /cases/:id/entries; created entry inserted into list in
 	 *     occurred_at order; form dismissed
@@ -65,6 +65,12 @@
 		isBottomComposerSaveValid,
 		type BottomComposerDraft
 	} from './timelineUnsavedDirty';
+	import { datetimeLocalToIso } from '$lib/caseTimeline/timelineOccurredAtLocal';
+	import {
+		TIMELINE_ENTRY_TYPE_VALUES,
+		timelineEntryTypeOptionLabel,
+		isCanonicalTimelineEntryType
+	} from '$lib/caseTimeline/timelineEntryTypeOptions';
 	import {
 		TIMELINE_SENSITIVE_CHANGE_REASON_MIN_LEN,
 		TIMELINE_SENSITIVE_REASON_HINT,
@@ -798,8 +804,8 @@
 
 	// ── Inline edit state (P28-34) ──────────────────────────────────────────────
 	// Only one entry can be in edit mode at a time.
-	// editDraft.occurred_at is stored in datetime-local format (YYYY-MM-DDTHH:mm:ss)
-	// and converted to ISO 8601 UTC on save via datetimeLocalToIso().
+	// editDraft.occurred_at is datetime-local (local civil time); save uses
+	// `$lib/caseTimeline/timelineOccurredAtLocal` `datetimeLocalToIso` → UTC Z for the API.
 	interface EditDraft {
 		text_original: string;
 		type: string;
@@ -809,18 +815,10 @@
 		linked_images: Array<{ id: string; original_filename: string }>;
 	}
 
-	const ENTRY_TYPES = ['note', 'surveillance', 'interview', 'evidence'] as const;
-
-	function timelineEntryTypeOptionLabel(t: (typeof ENTRY_TYPES)[number]): string {
-		return t === 'note'
-			? TIMELINE_TYPE_NOTE_DISPLAY_LABEL
-			: `${t.charAt(0).toUpperCase()}${t.slice(1)}`;
-	}
-
 	/** P39-02 — type chip labels must match searchable display strings */
 	function timelineFilterTypeLabel(type: string): string {
-		if ((ENTRY_TYPES as readonly string[]).includes(type)) {
-			return timelineEntryTypeOptionLabel(type as (typeof ENTRY_TYPES)[number]);
+		if (isCanonicalTimelineEntryType(type)) {
+			return timelineEntryTypeOptionLabel(type);
 		}
 		return type ? `${type.charAt(0).toUpperCase()}${type.slice(1)}` : '';
 	}
@@ -874,19 +872,6 @@
 	// Replaces window.confirm from P28-34. Same deferred-action pattern as Notes.
 	let showDiscardConfirm = false;
 	let pendingDiscardAction: (() => void) | null = null;
-
-	/**
-	 * Convert a datetime-local string back to an ISO 8601 UTC string.
-	 * Appends 'Z' (UTC). Limitation: if the original was non-UTC, the
-	 * timezone offset is lost — the backend stores the corrected value as-is.
-	 */
-	function datetimeLocalToIso(local: string): string {
-		if (!local) return '';
-		const clean = local.trim();
-		if (clean.length === 16) return `${clean}:00Z`;
-		if (clean.length === 19) return `${clean}Z`;
-		return clean;
-	}
 
 	function doStartEdit(entry: TimelineEntry): void {
 		// Close composer silently (guard already fired before calling this).
@@ -1457,13 +1442,13 @@
 									data-testid="edit-type-select"
 									title={TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP}
 								>
-									{#each ENTRY_TYPES as t}
+									{#each TIMELINE_ENTRY_TYPE_VALUES as t}
 										<option value={t}>{timelineEntryTypeOptionLabel(t)}</option>
 									{/each}
 								</select>
 							</div>
 
-							<!-- occurred_at (datetime-local, Eastern time) -->
+							<!-- occurred_at (datetime-local — operator local timezone, P40-05G) -->
 							<div class="flex flex-col gap-1.5 flex-1 min-w-[200px]">
 								<label
 									class="text-xs font-medium text-gray-600 dark:text-gray-300"
@@ -1765,7 +1750,7 @@
 							data-testid="composer-type-select"
 							title={TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP}
 						>
-							{#each ENTRY_TYPES as t}
+							{#each TIMELINE_ENTRY_TYPE_VALUES as t}
 								<option value={t}>{timelineEntryTypeOptionLabel(t)}</option>
 							{/each}
 						</select>

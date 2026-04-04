@@ -1,8 +1,12 @@
 /**
  * P38-06 — Pure helpers for “unsaved timeline create/edit” detection (beforeNavigate guard).
  * Mirrors Timeline +page field semantics; safe to unit-test without Svelte.
+ * P40-05G — `isoToDatetimeLocal` lives in `$lib/caseTimeline/timelineOccurredAtLocal` (real local TZ).
  */
 import type { TimelineEntry } from '$lib/apis/caseEngine';
+import { isoToDatetimeLocal } from '$lib/caseTimeline/timelineOccurredAtLocal';
+
+export { isoToDatetimeLocal };
 
 export interface TimelineCreateDraftForDirty {
 	text_original: string;
@@ -21,17 +25,6 @@ export interface TimelineEditDraftForDirty {
 /** Same algorithm as inline create `isDirtyCreate()` — any non-empty entry text. */
 export function isDirtyTimelineCreate(draft: TimelineCreateDraftForDirty | null): boolean {
 	return !!draft && draft.text_original.trim() !== '';
-}
-
-/**
- * Convert ISO `occurred_at` to datetime-local slice for comparison with edit draft.
- * Must stay aligned with `+page.svelte` save path expectations.
- */
-export function isoToDatetimeLocal(iso: string): string {
-	const match = iso.match(/^(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2})?)/);
-	if (!match) return iso.slice(0, 19).replace(' ', 'T');
-	const base = match[1];
-	return base.length === 16 ? `${base}:00` : base.slice(0, 19);
 }
 
 // ── P39-03 — Bottom composer state helpers ─────────────────────────────────

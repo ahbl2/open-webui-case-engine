@@ -49,3 +49,16 @@ describe('ProposalReviewPanel.svelte — P40-03A semantics', () => {
 		expect(src).toMatch(/Pre-commit correction \(approval stands/i);
 	});
 });
+
+describe('ProposalReviewPanel.svelte — P40-05G timezone + timeline-aligned editors', () => {
+	it('uses datetime-local and shared type select for document-ingest edit (not raw ISO text)', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toContain('data-testid="document-ingest-occurred-input"');
+		expect(src).toContain('type="datetime-local"');
+		expect(src).toContain('data-testid="document-ingest-type-select"');
+		expect(src).toContain('TIMELINE_ENTRY_TYPE_VALUES');
+		expect(src).toContain('datetimeLocalToIso');
+		expect(src).toContain('data-testid="proposal-timeline-occurred-display"');
+		expect(src).not.toMatch(/occurred_at \(ISO 8601 with timezone\)/);
+	});
+});

@@ -113,8 +113,3 @@ describe('isDirtyTimelineEdit', () => {
 	});
 });
 
-describe('isoToDatetimeLocal', () => {
-	it('aligns Zulu occurred_at with edit draft comparison', () => {
-		expect(isoToDatetimeLocal('2024-01-15T10:00:00Z')).toBe('2024-01-15T10:00:00');
-	});
-});
