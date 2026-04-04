@@ -3711,7 +3711,66 @@ export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'committed';
 /**
  * P41-04: `proposed_payload` JSON may include `deterministic_timestamp_candidates` (schema_version 2
  * per P41-03) for document-ingest timeline rows — preserved verbatim on list/get/update when unchanged.
+ * P41-05: list/get/create/update/commit may add `occurred_at_timestamp_reconciliation` (computed, not stored).
+ * P41-06: optional `operational_timezone` + `model_operational_calendar_ymd` — read-time date comparison context only.
+ * P41-09: list/get may add `occurred_at_guidance` (computed, not stored; advisory only).
  */
+export type OccurredAtTimestampReconciliationState =
+	| 'no_model_timestamp'
+	| 'no_deterministic_candidates'
+	| 'exact_match'
+	| 'date_match_precision_diff'
+	| 'deterministic_more_precise'
+	| 'model_more_precise'
+	| 'conflict'
+	| 'deterministic_ambiguous'
+	| 'deterministic_partial_only'
+	| 'unresolved';
+
+export interface OccurredAtTimestampReconciliation {
+	schema_version: 1;
+	reconciliation_state: OccurredAtTimestampReconciliationState | string;
+	compared_model_occurred_at: string | null;
+	model_occurred_at_normalized_utc: string | null;
+	matched_candidate_index: number | null;
+	matched_candidate_summary: string | null;
+	reason_codes: string[];
+	/** P41-06: IANA zone used for calendar-date comparison (default America/New_York on server). */
+	operational_timezone?: string;
+	/** P41-06: Model instant’s calendar date in `operational_timezone` (YYYY-MM-DD). */
+	model_operational_calendar_ymd?: string | null;
+}
+
+/** P41-09 — Read-time advisory synthesis (deterministic + reconciliation + optional P41-08 AI). */
+export type OccurredAtGuidanceState =
+	| 'clear_deterministic_exact'
+	| 'deterministic_preferred'
+	| 'model_preferred'
+	| 'date_level_alignment'
+	| 'ambiguous_requires_operator_choice'
+	| 'partial_requires_operator_input'
+	| 'conflict_requires_operator_review'
+	| 'no_timestamp_available'
+	| 'unresolved';
+
+export interface OccurredAtGuidanceInputsSnapshot {
+	reconciliation_state: string;
+	deterministic_candidate_count: number;
+	has_ai_assist: boolean;
+	ai_suggested_candidate_index: number | null;
+}
+
+export interface OccurredAtGuidance {
+	schema_version: 1;
+	guidance_state: OccurredAtGuidanceState | string;
+	recommended_candidate_index: number | null;
+	recommended_summary: string | null;
+	confidence_label: 'low' | 'medium' | 'high';
+	reason_codes: string[];
+	inputs_snapshot: OccurredAtGuidanceInputsSnapshot;
+	operational_timezone: string;
+}
+
 export interface ProposalRecord {
 	id: string;
 	case_id: string;
@@ -3728,6 +3787,9 @@ export interface ProposalRecord {
 	committed_at: string | null;
 	committed_record_id: string | null;
 	rejection_reason: string | null;
+	occurred_at_timestamp_reconciliation?: OccurredAtTimestampReconciliation;
+	/** P41-09 — Advisory read-time guidance; does not change commit authority. */
+	occurred_at_guidance?: OccurredAtGuidance;
 }
 
 /** P40-01 / P40-05E — POST /cases/:caseId/files/:fileId/propose-timeline-entries */

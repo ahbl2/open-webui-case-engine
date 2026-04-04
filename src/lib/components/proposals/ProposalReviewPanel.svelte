@@ -59,6 +59,8 @@
 	} from '../../../routes/(app)/case/[id]/timeline/timelineOperatorMicrocopy';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import DeterministicTimestampCandidatesReview from './DeterministicTimestampCandidatesReview.svelte';
+	import OccurredAtTimestampReconciliationReview from './OccurredAtTimestampReconciliationReview.svelte';
+	import OccurredAtGuidanceReview from './OccurredAtGuidanceReview.svelte';
 	import { parseDeterministicTimestampCandidatesFromPayload } from '$lib/caseTimeline/deterministicTimestampCandidates';
 
 	// ── Props ──────────────────────────────────────────────────────────────────
@@ -1231,6 +1233,14 @@
 											{/if}
 										</div>
 									</div>
+									{#if proposal.proposal_type === 'timeline' && proposal.occurred_at_timestamp_reconciliation}
+										<OccurredAtTimestampReconciliationReview
+											rec={proposal.occurred_at_timestamp_reconciliation}
+										/>
+									{/if}
+									{#if proposal.proposal_type === 'timeline' && proposal.occurred_at_guidance}
+										<OccurredAtGuidanceReview guidance={proposal.occurred_at_guidance} />
+									{/if}
 									{#if isDocumentTimelineIntakePayload(payload)}
 										{@const detTsItems = parseDeterministicTimestampCandidatesFromPayload(payload)}
 										<DeterministicTimestampCandidatesReview items={detTsItems} />

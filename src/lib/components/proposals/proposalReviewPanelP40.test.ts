@@ -10,6 +10,14 @@ const detTsPath = join(
 	process.cwd(),
 	'src/lib/components/proposals/DeterministicTimestampCandidatesReview.svelte'
 );
+const recPath = join(
+	process.cwd(),
+	'src/lib/components/proposals/OccurredAtTimestampReconciliationReview.svelte'
+);
+const guidancePath = join(
+	process.cwd(),
+	'src/lib/components/proposals/OccurredAtGuidanceReview.svelte'
+);
 
 describe('ProposalReviewPanel.svelte — P40-01A hardening', () => {
 	it('exposes a prominent truncation banner test id and operator-facing partial-file wording', () => {
@@ -83,5 +91,34 @@ describe('ProposalReviewPanel.svelte — P41-04 deterministic timestamp candidat
 		expect(child).toMatch(/<strong>not<\/strong> the official/);
 		expect(child).toContain('data-confidence-category');
 		expect(child).toContain('deterministic-candidate-ambiguous-alternates');
+	});
+});
+
+describe('ProposalReviewPanel.svelte — P41-09 occurred_at_guidance', () => {
+	it('wires OccurredAtGuidanceReview for timeline proposals with guidance', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toContain('OccurredAtGuidanceReview');
+		expect(src).toContain('occurred_at_guidance');
+		const child = readFileSync(guidancePath, 'utf8');
+		expect(child).toContain('occurred-at-guidance-review');
+		expect(child).toMatch(/Advisory — timestamp guidance/i);
+	});
+});
+
+describe('ProposalReviewPanel.svelte — P41-05 reconciliation surfacing', () => {
+	it('wires OccurredAtTimestampReconciliationReview for timeline proposals', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toContain('OccurredAtTimestampReconciliationReview');
+		expect(src).toContain('occurred_at_timestamp_reconciliation');
+	});
+
+	it('reconciliation child is review-only and exposes test ids', () => {
+		const child = readFileSync(recPath, 'utf8');
+		expect(child).toContain('data-testid="occurred-at-timestamp-reconciliation"');
+		expect(child).toContain('data-testid="reconciliation-state-badge"');
+		expect(child).toContain('data-testid="reconciliation-operational-context"');
+		expect(child).toMatch(/Informational only/i);
+		expect(child).toMatch(/America\/New_York/i);
+		expect(child).not.toMatch(/apply this timestamp/i);
 	});
 });
