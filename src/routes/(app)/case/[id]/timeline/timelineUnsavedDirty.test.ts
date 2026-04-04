@@ -22,7 +22,8 @@ const baseEntry: TimelineEntry = {
 	text_original: 'Hello',
 	text_cleaned: null,
 	deleted_at: null,
-	version_count: 0
+	version_count: 0,
+	linked_image_files: []
 };
 
 describe('isDirtyTimelineCreate', () => {
@@ -46,7 +47,8 @@ describe('isDirtyTimelineEdit', () => {
 		type: 'note',
 		occurred_at: isoToDatetimeLocal(baseEntry.occurred_at),
 		location_text: 'Loc A',
-		change_reason: ''
+		change_reason: '',
+		linked_images: []
 	};
 
 	it('false when not editing', () => {
@@ -92,6 +94,20 @@ describe('isDirtyTimelineEdit', () => {
 				'e1',
 				{ ...draftMatch, occurred_at: '2024-01-15T11:00:00' },
 				[baseEntry]
+			)
+		).toBe(true);
+	});
+
+	it('true when linked_images differ from entry.linked_image_files', () => {
+		const withFile: TimelineEntry = {
+			...baseEntry,
+			linked_image_files: [{ id: 'f1', original_filename: 'a.png', mime_type: 'image/png' }]
+		};
+		expect(
+			isDirtyTimelineEdit(
+				'e1',
+				{ ...draftMatch, linked_images: [] },
+				[withFile]
 			)
 		).toBe(true);
 	});

@@ -1193,6 +1193,16 @@ export async function downloadCaseFile(fileId: string, filename: string, token: 
 	URL.revokeObjectURL(url);
 }
 
+/** Authorized GET /files/:id — returns a blob: URL; caller must URL.revokeObjectURL when done. */
+export async function fetchCaseFileObjectUrl(fileId: string, token: string): Promise<string> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/files/${fileId}`, {
+		headers: { Authorization: `Bearer ${token}` }
+	});
+	if (!res.ok) throw new Error(`Could not load file (${res.status})`);
+	const blob = await res.blob();
+	return URL.createObjectURL(blob);
+}
+
 export async function extractCaseFileText(fileId: string, token: string): Promise<{
 	id: string;
 	fileId: string;
@@ -1927,6 +1937,13 @@ export async function getCaseDeleted(
 
 // ─── Official Case Timeline (timeline_entries) ────────────────────────────────
 
+/** Linked case file rows returned with timeline entries (images only; source of truth is case_files). */
+export interface TimelineLinkedImageFile {
+	id: string;
+	original_filename: string;
+	mime_type: string | null;
+}
+
 export interface TimelineEntry {
 	id: string;
 	case_id: string;
@@ -1941,6 +1958,8 @@ export interface TimelineEntry {
 	deleted_at: string | null;
 	/** Number of prior-state version snapshots. 0 = never edited; N = edited N times (current = vN+1). */
 	version_count?: number;
+	/** Image attachments linked via timeline_entry_case_files → case_files. */
+	linked_image_files?: TimelineLinkedImageFile[];
 }
 
 /**
@@ -2040,8 +2059,9 @@ export async function listTimelineEntryVersions(
  * Endpoint: PUT /cases/:caseId/entries/:entryId
  * - change_reason is required (enforced by both UI and backend)
  * - Backend atomically captures the prior state before applying the update
- * - Response is the updated timeline_entries row (does NOT include computed version_count)
+ * - Response is the updated timeline_entries row plus linked_image_files (does NOT include computed version_count)
  * - Caller is responsible for locally incrementing version_count after a successful save
+ * - Omit linked_file_ids to leave links unchanged; pass [] to clear; pass ids to replace set
  */
 export async function updateCaseTimelineEntry(
 	caseId: string,
@@ -2053,6 +2073,7 @@ export async function updateCaseTimelineEntry(
 		occurred_at?: string;
 		location_text?: string | null;
 		change_reason: string;
+		linked_file_ids?: string[];
 	}
 ): Promise<Partial<TimelineEntry>> {
 	const res = await fetch(
@@ -2080,7 +2101,7 @@ export async function updateCaseTimelineEntry(
  * - type and text_original are required
  * - location_text is optional (pass null or omit to leave blank)
  * - Available to any user with mutate access to the case (CID/SIU/ADMIN)
- * - Returns HTTP 201 + the created timeline_entries row
+ * - Returns HTTP 201 + the created timeline_entries row and linked_image_files
  * - Note: version_count is not included in the create response (starts at 0 implicitly)
  */
 export async function createCaseTimelineEntry(
@@ -2091,6 +2112,7 @@ export async function createCaseTimelineEntry(
 		type: string;
 		text_original: string;
 		location_text?: string | null;
+		linked_file_ids?: string[];
 	}
 ): Promise<TimelineEntry> {
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries`, {

@@ -14,7 +14,8 @@ const clean: BottomComposerDraft = {
 	occurred_time: '',
 	type: 'note',
 	text_original: '',
-	location_text: ''
+	location_text: '',
+	linked_images: []
 };
 
 // ── Dirty state ──────────────────────────────────────────────────────────────
@@ -46,6 +47,15 @@ describe('isDirtyBottomComposer — open/close and dirty detection', () => {
 
 	it('false when only type changed (type always has a value; not a meaningful dirty signal)', () => {
 		expect(isDirtyBottomComposer({ ...clean, type: 'evidence' })).toBe(false);
+	});
+
+	it('true when linked_images non-empty', () => {
+		expect(
+			isDirtyBottomComposer({
+				...clean,
+				linked_images: [{ id: 'f1', original_filename: 'a.png' }]
+			})
+		).toBe(true);
 	});
 });
 

@@ -130,7 +130,8 @@ describe('imported text — integration with P39-03 dirty/save-valid guards', ()
 			occurred_time: '',
 			type: 'note',
 			text_original: '',
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 	}
 
@@ -149,7 +150,8 @@ describe('imported text — integration with P39-03 dirty/save-valid guards', ()
 			occurred_time: '14:30',
 			type: 'note',
 			text_original: appendTranscriptToComposerText('', 'Report text extracted from document.'),
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(true);
 	});
@@ -160,7 +162,8 @@ describe('imported text — integration with P39-03 dirty/save-valid guards', ()
 			occurred_time: '14:30',
 			type: 'note',
 			text_original: appendTranscriptToComposerText('', 'Extracted text.'),
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(false);
 	});
@@ -171,7 +174,8 @@ describe('imported text — integration with P39-03 dirty/save-valid guards', ()
 			occurred_time: '',
 			type: 'note',
 			text_original: appendTranscriptToComposerText('', 'Extracted text.'),
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(false);
 	});

@@ -48,6 +48,7 @@
 		updateCaseTimelineEntry,
 		softDeleteTimelineEntry,
 		restoreTimelineEntry,
+		uploadCaseFile,
 		type TimelineEntry
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
@@ -172,6 +173,10 @@
 		composerDraft = null;
 		composerSaving = false;
 		composerError = '';
+		composerLinkedUploadError = '';
+		composerLinkedUploading = false;
+		editLinkedUploadError = '';
+		editLinkedUploading = false;
 		resetTimelineDictation();
 		resetTimelineImport();
 		resetTimelineTranscription();
@@ -324,6 +329,8 @@
 	let composerDraft: BottomComposerDraft | null = null;
 	let composerSaving = false;
 	let composerError = '';
+	let composerLinkedUploading = false;
+	let composerLinkedUploadError = '';
 
 	$: composerSaveValid = isBottomComposerSaveValid(composerDraft);
 
@@ -336,9 +343,11 @@
 			occurred_time: '',
 			type: 'note',
 			text_original: '',
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		composerError = '';
+		composerLinkedUploadError = '';
 		composerOpen = true;
 	}
 
@@ -361,6 +370,43 @@
 		composerOpen = false;
 		composerDraft = null;
 		composerError = '';
+		composerLinkedUploadError = '';
+	}
+
+	async function handleComposerLinkedImagesPick(files: FileList | null): Promise<void> {
+		if (!files?.length || !composerDraft || !$caseEngineToken) return;
+		composerLinkedUploadError = '';
+		composerLinkedUploading = true;
+		try {
+			for (const file of Array.from(files)) {
+				if (!file.type.startsWith('image/')) {
+					composerLinkedUploadError =
+						'Only image files can be attached. Each file is stored as a case file and linked when you save.';
+					continue;
+				}
+				const cf = await uploadCaseFile(caseId, file, $caseEngineToken);
+				composerDraft = {
+					...composerDraft,
+					linked_images: [
+						...composerDraft.linked_images,
+						{ id: cf.id, original_filename: cf.original_filename }
+					]
+				};
+			}
+		} catch (e: unknown) {
+			composerLinkedUploadError =
+				e instanceof Error ? e.message : 'Image upload failed. You can remove the file and try again.';
+		} finally {
+			composerLinkedUploading = false;
+		}
+	}
+
+	function removeComposerLinkedImage(fileId: string): void {
+		if (!composerDraft) return;
+		composerDraft = {
+			...composerDraft,
+			linked_images: composerDraft.linked_images.filter((x) => x.id !== fileId)
+		};
 	}
 
 	/** Requests cancel: shows confirm dialog if dirty, closes immediately if clean. */
@@ -416,7 +462,8 @@
 				occurred_at: datetimeLocalToIso(localDatetime),
 				type: composerDraft.type,
 				text_original: text,
-				location_text: composerDraft.location_text.trim() || null
+				location_text: composerDraft.location_text.trim() || null,
+				linked_file_ids: composerDraft.linked_images.map((x) => x.id)
 			});
 			// Insert in occurred_at order; version_count defaults to 0 in card.
 			entries = [...entries, created].sort(
@@ -750,6 +797,7 @@
 		occurred_at: string;   // datetime-local format for <input type="datetime-local">
 		location_text: string; // empty string means null on save
 		change_reason: string;
+		linked_images: Array<{ id: string; original_filename: string }>;
 	}
 
 	const ENTRY_TYPES = ['note', 'surveillance', 'interview', 'evidence'] as const;
@@ -810,6 +858,8 @@
 	let editDraft: EditDraft | null = null;
 	let editSaving = false;
 	let editError = '';
+	let editLinkedUploading = false;
+	let editLinkedUploadError = '';
 
 	// ── Dirty-switch confirm dialog (P28-36) ────────────────────────────────────
 	// Replaces window.confirm from P28-34. Same deferred-action pattern as Notes.
@@ -840,9 +890,14 @@
 			type: entry.type,
 			occurred_at: isoToDatetimeLocal(entry.occurred_at),
 			location_text: entry.location_text ?? '',
-			change_reason: ''
+			change_reason: '',
+			linked_images: (entry.linked_image_files ?? []).map((f) => ({
+				id: f.id,
+				original_filename: f.original_filename
+			}))
 		};
 		editError = '';
+		editLinkedUploadError = '';
 	}
 
 	function startEdit(entry: TimelineEntry): void {
@@ -859,6 +914,40 @@
 		editingEntryId = null;
 		editDraft = null;
 		editError = '';
+		editLinkedUploadError = '';
+	}
+
+	async function handleEditLinkedImagesPick(files: FileList | null): Promise<void> {
+		if (!files?.length || !editDraft || !$caseEngineToken) return;
+		editLinkedUploadError = '';
+		editLinkedUploading = true;
+		try {
+			for (const file of Array.from(files)) {
+				if (!file.type.startsWith('image/')) {
+					editLinkedUploadError =
+						'Only image files can be attached. Each file is stored as a case file and linked when you save.';
+					continue;
+				}
+				const cf = await uploadCaseFile(caseId, file, $caseEngineToken);
+				editDraft = {
+					...editDraft,
+					linked_images: [...editDraft.linked_images, { id: cf.id, original_filename: cf.original_filename }]
+				};
+			}
+		} catch (e: unknown) {
+			editLinkedUploadError =
+				e instanceof Error ? e.message : 'Image upload failed. You can remove the file and try again.';
+		} finally {
+			editLinkedUploading = false;
+		}
+	}
+
+	function removeEditLinkedImage(fileId: string): void {
+		if (!editDraft) return;
+		editDraft = {
+			...editDraft,
+			linked_images: editDraft.linked_images.filter((x) => x.id !== fileId)
+		};
 	}
 
 	async function saveEdit(): Promise<void> {
@@ -888,7 +977,8 @@
 					type: editDraft.type,
 					occurred_at: datetimeLocalToIso(editDraft.occurred_at),
 					location_text: editDraft.location_text.trim() || null,
-					change_reason: reason
+					change_reason: reason,
+					linked_file_ids: editDraft.linked_images.map((x) => x.id)
 				}
 			);
 
@@ -905,7 +995,10 @@
 					occurred_at: (updated.occurred_at as string) ?? e.occurred_at,
 					location_text: (updated.location_text as string | null) ?? null,
 					text_cleaned: (updated.text_cleaned as string | null) ?? null,
-					version_count: (e.version_count ?? 0) + 1
+					version_count: (e.version_count ?? 0) + 1,
+					linked_image_files: Array.isArray(updated.linked_image_files)
+						? (updated.linked_image_files as TimelineEntry['linked_image_files'])
+						: e.linked_image_files
 				};
 			});
 
@@ -1374,6 +1467,72 @@
 								       focus:outline-none focus:ring-1 focus:ring-amber-400 dark:focus:ring-amber-600"
 								data-testid="edit-location-input"
 							/>
+						</div>
+
+						<!-- Linked images (case files; links saved with Save changes) -->
+						<div class="flex flex-col gap-1.5">
+							<span class="text-xs font-medium text-gray-600 dark:text-gray-300">
+								Images
+								<span class="text-[10px] font-normal text-gray-400 dark:text-gray-500 ml-1"
+									>(optional)</span
+								>
+							</span>
+							<div class="flex flex-wrap items-center gap-2">
+								<label
+									class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600
+									       text-gray-600 dark:text-gray-300 cursor-pointer
+									       hover:bg-gray-50 dark:hover:bg-gray-800 transition
+									       {editLinkedUploading ? 'opacity-50 pointer-events-none' : ''}"
+									data-testid="timeline-edit-attach-images-label"
+								>
+									<span>{editLinkedUploading ? 'Uploading…' : 'Attach images'}</span>
+									<input
+										type="file"
+										accept="image/*"
+										multiple
+										class="hidden"
+										data-testid="timeline-edit-attach-images-input"
+										disabled={editLinkedUploading}
+										on:change={(e) => {
+											void handleEditLinkedImagesPick((e.target as HTMLInputElement).files);
+											(e.target as HTMLInputElement).value = '';
+										}}
+									/>
+								</label>
+								{#if editDraft.linked_images.length > 0}
+									<span class="text-[10px] text-gray-500"
+										>{editDraft.linked_images.length} attached</span
+									>
+								{/if}
+							</div>
+							{#if editDraft.linked_images.length > 0}
+								<ul class="flex flex-wrap gap-1.5" data-testid="timeline-edit-linked-chips">
+									{#each editDraft.linked_images as img (img.id)}
+										<li
+											class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded
+											       bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 max-w-full"
+										>
+											<span class="truncate max-w-[10rem]" title={img.original_filename}
+												>{img.original_filename}</span
+											>
+											<button
+												type="button"
+												class="text-gray-400 hover:text-red-600 shrink-0"
+												data-testid="timeline-edit-remove-linked-{img.id}"
+												title="Remove from this entry (file stays in case files)"
+												on:click={() => removeEditLinkedImage(img.id)}
+											>
+												×
+											</button>
+										</li>
+									{/each}
+								</ul>
+							{/if}
+							{#if editLinkedUploadError}
+								<p class="text-xs text-red-500 dark:text-red-400" data-testid="timeline-edit-attach-error">
+									{editLinkedUploadError}
+								</p>
+							{/if}
 						</div>
 
 						<!-- Reason for change (required) -->
@@ -1862,6 +2021,74 @@
 						       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
 						data-testid="composer-location-input"
 					/>
+				</div>
+
+				<!-- Optional: link images (stored as case files; saved with entry) -->
+				<div class="flex flex-col gap-1.5">
+					<span class="text-xs font-medium text-gray-600 dark:text-gray-300">
+						Images
+						<span class="text-[10px] font-normal text-gray-400 dark:text-gray-500 ml-1"
+							>(optional — upload now; links apply when you log the entry)</span
+						>
+					</span>
+					<div class="flex flex-wrap items-center gap-2">
+						<label
+							class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600
+							       text-gray-600 dark:text-gray-300 cursor-pointer
+							       hover:bg-gray-50 dark:hover:bg-gray-800 transition
+							       {composerLinkedUploading ? 'opacity-50 pointer-events-none' : ''}"
+							data-testid="timeline-composer-attach-images-label"
+						>
+							<span>{composerLinkedUploading ? 'Uploading…' : 'Attach images'}</span>
+							<input
+								type="file"
+								accept="image/*"
+								multiple
+								class="hidden"
+								data-testid="timeline-composer-attach-images-input"
+								disabled={composerLinkedUploading}
+								on:change={(e) => {
+									void handleComposerLinkedImagesPick(
+										(e.target as HTMLInputElement).files
+									);
+									(e.target as HTMLInputElement).value = '';
+								}}
+							/>
+						</label>
+						{#if composerDraft.linked_images.length > 0}
+							<span class="text-[10px] text-gray-500"
+								>{composerDraft.linked_images.length} attached</span
+							>
+						{/if}
+					</div>
+					{#if composerDraft.linked_images.length > 0}
+						<ul class="flex flex-wrap gap-1.5" data-testid="timeline-composer-linked-chips">
+							{#each composerDraft.linked_images as img (img.id)}
+								<li
+									class="inline-flex items-center gap-1 text-[10px] px-1.5 py-0.5 rounded
+									       bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300 max-w-full"
+								>
+									<span class="truncate max-w-[10rem]" title={img.original_filename}
+										>{img.original_filename}</span
+									>
+									<button
+										type="button"
+										class="text-gray-400 hover:text-red-600 shrink-0"
+										data-testid="timeline-composer-remove-linked-{img.id}"
+										title="Remove from this entry (file stays in case files)"
+										on:click={() => removeComposerLinkedImage(img.id)}
+									>
+										×
+									</button>
+								</li>
+							{/each}
+						</ul>
+					{/if}
+					{#if composerLinkedUploadError}
+						<p class="text-xs text-red-500 dark:text-red-400" data-testid="timeline-composer-attach-error">
+							{composerLinkedUploadError}
+						</p>
+					{/if}
 				</div>
 
 				<!-- Error -->

@@ -152,7 +152,8 @@ describe('appendTranscriptToComposerText — integration with P39-03 dirty/save-
 			occurred_time: '',
 			type: 'note',
 			text_original: '',
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 	}
 
@@ -171,7 +172,8 @@ describe('appendTranscriptToComposerText — integration with P39-03 dirty/save-
 			occurred_time: '09:00',
 			type: 'note',
 			text_original: appendTranscriptToComposerText('', 'Witness arrived at the scene.'),
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(true);
 	});
@@ -182,7 +184,8 @@ describe('appendTranscriptToComposerText — integration with P39-03 dirty/save-
 			occurred_time: '09:00',
 			type: 'note',
 			text_original: appendTranscriptToComposerText('', 'Witness arrived.'),
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(false);
 	});
@@ -193,7 +196,8 @@ describe('appendTranscriptToComposerText — integration with P39-03 dirty/save-
 			occurred_time: '',
 			type: 'note',
 			text_original: appendTranscriptToComposerText('', 'Witness arrived.'),
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(false);
 	});

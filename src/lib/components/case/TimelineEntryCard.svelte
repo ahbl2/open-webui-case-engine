@@ -33,6 +33,7 @@
 	} from '$lib/caseTimeline/timelineTypeNoteClarity';
 	import { splitTextForSearchHighlight } from '$lib/caseTimeline/timelineSearchUx';
 	import { formatCaseDateTimeWithSeconds, formatCaseDateTime } from '$lib/utils/formatDateTime';
+	import TimelineEntryLinkedImagesViewer from './TimelineEntryLinkedImagesViewer.svelte';
 
 	export let entry: TimelineEntry;
 	/** Case ID — required for the versions endpoint. */
@@ -83,8 +84,11 @@
 		try { return JSON.parse(raw); } catch { return []; }
 	}
 
+	let linkedImagesViewerOpen = false;
+
 	$: tags = parseTags(entry.tags);
 	$: isDeleted = !!entry.deleted_at;
+	$: linkedImageFiles = entry.linked_image_files ?? [];
 
 	// ── AI-cleaned text toggle (P28-31) ────────────────────────────────────────
 	let showOriginal = false;
@@ -209,6 +213,32 @@
 				Removed from timeline
 			</span>
 
+			{#if linkedImageFiles.length > 0}
+				<button
+					type="button"
+					class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded
+					       border border-gray-200 dark:border-gray-600
+					       text-gray-500 dark:text-gray-400
+					       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+					title="View linked images from case files"
+					data-testid="timeline-entry-linked-images-trigger"
+					on:click={() => (linkedImagesViewerOpen = true)}
+				>
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 16 16"
+						fill="currentColor"
+						class="size-3.5 shrink-0 opacity-80"
+						aria-hidden="true"
+					>
+						<path
+							d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
+						/>
+					</svg>
+					{linkedImageFiles.length}
+				</button>
+			{/if}
+
 		<!-- Restore button — only when onRestoreRequest is provided (ADMIN) -->
 		{#if onRestoreRequest}
 			<button
@@ -251,6 +281,13 @@
 				Removed {formatCaseDateTime(entry.deleted_at ?? '')}
 			</span>
 		</div>
+
+		<TimelineEntryLinkedImagesViewer
+			show={linkedImagesViewerOpen}
+			{token}
+			files={linkedImageFiles}
+			onClose={() => (linkedImagesViewerOpen = false)}
+		/>
 	</li>
 
 {:else}
@@ -325,6 +362,32 @@
 						{:else}{locSeg.text}{/if}
 					{/each}
 				</span>
+			{/if}
+
+			{#if linkedImageFiles.length > 0}
+				<button
+					type="button"
+					class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded
+					       border border-gray-200 dark:border-gray-600
+					       text-gray-500 dark:text-gray-400
+					       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+					title="View linked images from case files"
+					data-testid="timeline-entry-linked-images-trigger"
+					on:click={() => (linkedImagesViewerOpen = true)}
+				>
+					<svg
+						xmlns="http://www.w3.org/2000/svg"
+						viewBox="0 0 16 16"
+						fill="currentColor"
+						class="size-3.5 shrink-0 opacity-80"
+						aria-hidden="true"
+					>
+						<path
+							d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
+						/>
+					</svg>
+					{linkedImageFiles.length}
+				</button>
 			{/if}
 		</div>
 
@@ -523,5 +586,12 @@
 				{/if}
 			</div>
 		{/if}
+
+		<TimelineEntryLinkedImagesViewer
+			show={linkedImagesViewerOpen}
+			{token}
+			files={linkedImageFiles}
+			onClose={() => (linkedImagesViewerOpen = false)}
+		/>
 	</li>
 {/if}

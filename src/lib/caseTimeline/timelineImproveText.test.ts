@@ -252,14 +252,23 @@ describe('composer dirty/save-valid state after Improve text', () => {
 		const improved = {
 			occurred_date: '2026-04-04',
 			occurred_time: '14:30',
+			type: 'note',
 			text_original: 'Arrived at scene. Suspect identified.',
-			location_text: ''
+			location_text: '',
+			linked_images: [] as { id: string; original_filename: string }[]
 		};
 		expect(isDirtyBottomComposer(improved)).toBe(true);
 	});
 
 	it('isDirtyBottomComposer returns false when no fields are filled', () => {
-		const blank = { occurred_date: '', occurred_time: '', text_original: '', location_text: '' };
+		const blank = {
+			occurred_date: '',
+			occurred_time: '',
+			type: 'note',
+			text_original: '',
+			location_text: '',
+			linked_images: [] as { id: string; original_filename: string }[]
+		};
 		expect(isDirtyBottomComposer(blank)).toBe(false);
 	});
 
@@ -267,20 +276,43 @@ describe('composer dirty/save-valid state after Improve text', () => {
 		const draft = {
 			occurred_date: '2026-04-04',
 			occurred_time: '14:30',
+			type: 'note',
 			text_original: 'Arrived at scene. Suspect identified.',
-			location_text: ''
+			location_text: '',
+			linked_images: [] as { id: string; original_filename: string }[]
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(true);
 	});
 
 	it('isBottomComposerSaveValid is false if improved text is somehow empty', () => {
-		const draft = { occurred_date: '2026-04-04', occurred_time: '14:30', text_original: '', location_text: '' };
+		const draft = {
+			occurred_date: '2026-04-04',
+			occurred_time: '14:30',
+			type: 'note',
+			text_original: '',
+			location_text: '',
+			linked_images: [] as { id: string; original_filename: string }[]
+		};
 		expect(isBottomComposerSaveValid(draft)).toBe(false);
 	});
 
 	it('save validity requires date and time in addition to text (no contract change)', () => {
-		const draftNoDate = { occurred_date: '', occurred_time: '14:30', text_original: 'Some text.', location_text: '' };
-		const draftNoTime = { occurred_date: '2026-04-04', occurred_time: '', text_original: 'Some text.', location_text: '' };
+		const draftNoDate = {
+			occurred_date: '',
+			occurred_time: '14:30',
+			type: 'note',
+			text_original: 'Some text.',
+			location_text: '',
+			linked_images: [] as { id: string; original_filename: string }[]
+		};
+		const draftNoTime = {
+			occurred_date: '2026-04-04',
+			occurred_time: '',
+			type: 'note',
+			text_original: 'Some text.',
+			location_text: '',
+			linked_images: [] as { id: string; original_filename: string }[]
+		};
 		expect(isBottomComposerSaveValid(draftNoDate)).toBe(false);
 		expect(isBottomComposerSaveValid(draftNoTime)).toBe(false);
 	});

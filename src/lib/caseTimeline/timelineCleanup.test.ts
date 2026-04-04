@@ -325,7 +325,14 @@ describe('applyTimelineComposerCleanup — combined rules', () => {
 
 describe('applyTimelineComposerCleanup — integration with P39-03 dirty/save-valid', () => {
 	function emptyDraft(): BottomComposerDraft {
-		return { occurred_date: '', occurred_time: '', type: 'note', text_original: '', location_text: '' };
+		return {
+			occurred_date: '',
+			occurred_time: '',
+			type: 'note',
+			text_original: '',
+			location_text: '',
+			linked_images: []
+		};
 	}
 
 	it('cleaned text in draft makes isDirtyBottomComposer true', () => {
@@ -341,7 +348,8 @@ describe('applyTimelineComposerCleanup — integration with P39-03 dirty/save-va
 			occurred_time: '09:00',
 			type: 'note',
 			text_original: cleanedText,
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(true);
 	});
@@ -360,7 +368,8 @@ describe('applyTimelineComposerCleanup — integration with P39-03 dirty/save-va
 			occurred_time: '',
 			type: 'note',
 			text_original: cleanedText,
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(false);
 	});

@@ -29,7 +29,14 @@ function file(name: string, type: string = '') {
 }
 
 function emptyDraft(): BottomComposerDraft {
-	return { occurred_date: '', occurred_time: '', type: 'note', text_original: '', location_text: '' };
+	return {
+		occurred_date: '',
+		occurred_time: '',
+		type: 'note',
+		text_original: '',
+		location_text: '',
+		linked_images: []
+	};
 }
 
 // ── isTimelineAudioFileSupported — supported by extension ─────────────────────
@@ -197,7 +204,8 @@ describe('audio transcription — integration with composer dirty/save-valid', (
 			occurred_time: '14:30',
 			type: 'note',
 			text_original: transcribed,
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(true);
 	});
@@ -209,7 +217,8 @@ describe('audio transcription — integration with composer dirty/save-valid', (
 			occurred_time: '',
 			type: 'note',
 			text_original: transcribed,
-			location_text: ''
+			location_text: '',
+			linked_images: []
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(false);
 	});
