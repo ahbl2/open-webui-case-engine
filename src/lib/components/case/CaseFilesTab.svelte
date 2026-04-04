@@ -1,5 +1,6 @@
 <script lang="ts">
-	import { onDestroy } from 'svelte';
+	import { onDestroy, tick } from 'svelte';
+	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import {
@@ -307,6 +308,8 @@
 		proposeWorkflow = { step: 'processing', file: f, abort };
 		proposingFileId = f.id;
 
+		let navigateToProposalsAfter = false;
+
 		try {
 			const result = await proposeTimelineEntriesFromCaseFile(caseId, f.id, token, {
 				confirm_bulk: confirmBulk,
@@ -336,11 +339,14 @@
 							? result.bulk_confirmation_token
 							: null
 				};
+				/** P41-16 — flush DOM to bulk-confirm branch before finally clears proposingFileId (avoids empty modal flash / stuck processing shell). */
+				await tick();
 				return;
 			}
 
 			const n = result.proposal_count;
 			proposeWorkflow = { step: 'idle' };
+			navigateToProposalsAfter = true;
 			if (n <= 0) {
 				toast.warning(
 					'Proposal generation finished but no proposals were returned. Open the Proposals tab to verify, or run Propose timeline entries again.',
@@ -378,6 +384,10 @@
 			);
 		} finally {
 			if (gen === proposeRequestGeneration) proposingFileId = null;
+		}
+
+		if (navigateToProposalsAfter && gen === proposeRequestGeneration) {
+			await goto(`/case/${caseId}/proposals`);
 		}
 	}
 
@@ -575,8 +585,8 @@
 	{/if}
 </div>
 
-<!-- P40-01 bulk confirm + P41-14 processing (same modal shell) -->
-{#if proposeWorkflow.step !== 'idle'}
+<!-- P40-01 bulk confirm + P41-14 processing (same modal shell). P41-16: explicit steps so idle never renders an empty overlay. -->
+{#if proposeWorkflow.step === 'processing' || proposeWorkflow.step === 'bulk_confirm'}
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
 		role="dialog"
@@ -591,6 +601,7 @@
 			class="max-w-md w-full rounded-lg bg-white dark:bg-gray-850 shadow-xl mx-4 p-4"
 			on:click|stopPropagation
 		>
+			{#key proposeWorkflow.step}
 			{#if proposeWorkflow.step === 'processing'}
 				<div data-testid="propose-timeline-processing">
 					<h3 id="propose-timeline-modal-title" class="font-medium text-sm mb-2">
@@ -645,6 +656,7 @@
 					</div>
 				</div>
 			{/if}
+			{/key}
 		</div>
 	</div>
 {/if}

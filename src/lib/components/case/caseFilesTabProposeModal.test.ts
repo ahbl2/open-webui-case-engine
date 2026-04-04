@@ -1,5 +1,5 @@
 /**
- * P41-14 — Case Files tab: processing modal + cancel + unified bulk confirm (static source contract).
+ * P41-14 / P41-16 — Case Files tab: processing modal, bulk confirm, navigation (static source contract).
  */
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -38,5 +38,34 @@ describe('CaseFilesTab.svelte — P41-14 propose timeline modal', () => {
 		expect(src).toContain('data-testid="bulk-proposal-confirm-submit"');
 		expect(src).toContain('runProposeTimeline(proposeWorkflow.file, true)');
 		expect(src).toContain('Many timeline proposals');
+	});
+});
+
+describe('CaseFilesTab.svelte — P41-16 modal transition + proposals redirect', () => {
+	it('gates the overlay on explicit processing or bulk_confirm (never idle empty shell)', () => {
+		const src = readFileSync(tabPath, 'utf8');
+		expect(src).toMatch(
+			/proposeWorkflow\.step === 'processing' \|\| proposeWorkflow\.step === 'bulk_confirm'/
+		);
+	});
+
+	it('awaits tick after confirmation_required before returning so bulk UI can mount', () => {
+		const src = readFileSync(tabPath, 'utf8');
+		expect(src).toMatch(/status === 'confirmation_required'/);
+		expect(src).toMatch(/await tick\(\)/);
+		expect(src).toMatch(/P41-16/);
+	});
+
+	it('navigates to case proposals route after successful created (not on cancel path)', () => {
+		const src = readFileSync(tabPath, 'utf8');
+		expect(src).toContain("from '$app/navigation'");
+		expect(src).toContain('goto(');
+		expect(src).toContain('/proposals');
+		expect(src).toContain('navigateToProposalsAfter');
+	});
+
+	it('keys inner modal body by proposeWorkflow.step for clean processing → bulk swap', () => {
+		const src = readFileSync(tabPath, 'utf8');
+		expect(src).toContain('{#key proposeWorkflow.step}');
 	});
 });
