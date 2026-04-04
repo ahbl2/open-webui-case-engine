@@ -1161,7 +1161,7 @@ export async function listCaseFiles(caseId: string, token: string): Promise<Case
 export async function uploadCaseFile(caseId: string, file: File, token: string): Promise<CaseFile> {
 	const form = new FormData();
 	form.append('file', file);
-	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/files`, {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/files`, {
 		method: 'POST',
 		headers: {
 			Authorization: `Bearer ${token}`
@@ -1170,9 +1170,9 @@ export async function uploadCaseFile(caseId: string, file: File, token: string):
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) {
-		throw new Error(data?.error ?? `Upload failed (${res.status})`);
+		throw new Error(extractApiErrorMessage(data, `Upload failed (${res.status})`));
 	}
-	return data;
+	return unwrapEnvelopeCanonicalFirst<CaseFile>(data, 'uploadCaseFile');
 }
 
 export function getCaseFileDownloadUrl(fileId: string): string {

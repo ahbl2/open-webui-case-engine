@@ -39,6 +39,7 @@
 	 *   - No change_reason required for create (contrast with P28-34 edit)
 	 */
 	import { onMount, onDestroy } from 'svelte';
+	import { get } from 'svelte/store';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { caseEngineToken, caseEngineUser } from '$lib/stores';
@@ -374,7 +375,9 @@
 	}
 
 	async function handleComposerLinkedImagesPick(files: FileList | null): Promise<void> {
-		if (!files?.length || !composerDraft || !$caseEngineToken) return;
+		if (!files?.length || !composerDraft) return;
+		const token = get(caseEngineToken);
+		if (!token) return;
 		composerLinkedUploadError = '';
 		composerLinkedUploading = true;
 		try {
@@ -384,7 +387,7 @@
 						'Only image files can be attached. Each file is stored as a case file and linked when you save.';
 					continue;
 				}
-				const cf = await uploadCaseFile(caseId, file, $caseEngineToken);
+				const cf = await uploadCaseFile(caseId, file, token);
 				composerDraft = {
 					...composerDraft,
 					linked_images: [
@@ -918,7 +921,9 @@
 	}
 
 	async function handleEditLinkedImagesPick(files: FileList | null): Promise<void> {
-		if (!files?.length || !editDraft || !$caseEngineToken) return;
+		if (!files?.length || !editDraft) return;
+		const token = get(caseEngineToken);
+		if (!token) return;
 		editLinkedUploadError = '';
 		editLinkedUploading = true;
 		try {
@@ -928,7 +933,7 @@
 						'Only image files can be attached. Each file is stored as a case file and linked when you save.';
 					continue;
 				}
-				const cf = await uploadCaseFile(caseId, file, $caseEngineToken);
+				const cf = await uploadCaseFile(caseId, file, token);
 				editDraft = {
 					...editDraft,
 					linked_images: [...editDraft.linked_images, { id: cf.id, original_filename: cf.original_filename }]
