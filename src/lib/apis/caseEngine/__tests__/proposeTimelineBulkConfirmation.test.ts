@@ -138,6 +138,27 @@ describe('proposeTimelineEntriesFromCaseFile bulk confirmation token', () => {
 		}
 	});
 
+	it('P41-14: forwards AbortSignal to fetch when provided', async () => {
+		fetchSpy.mockResolvedValueOnce(
+			jsonResponse(
+				{
+					status: 'created',
+					proposals: [],
+					proposal_count: 0,
+					bulk_threshold: 10,
+					source_text_truncated_for_model: false
+				},
+				201
+			)
+		);
+		const ac = new AbortController();
+		const { proposeTimelineEntriesFromCaseFile } = await import('../index');
+		await proposeTimelineEntriesFromCaseFile('c', 'f', 'jwt', { signal: ac.signal });
+		expect(fetchSpy).toHaveBeenCalledTimes(1);
+		const init = fetchSpy.mock.calls[0][1] as RequestInit;
+		expect(init.signal).toBe(ac.signal);
+	});
+
 	it('P40-05D: 400 invalid/expired token surfaces message via extractApiErrorMessage', async () => {
 		const bodyText =
 			'Bulk confirmation is invalid or expired. Run propose timeline entries again to regenerate.';

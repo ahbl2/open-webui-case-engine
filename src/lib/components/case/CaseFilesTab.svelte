@@ -1,5 +1,7 @@
 <script lang="ts">
+	import { onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
+	import Spinner from '$lib/components/common/Spinner.svelte';
 	import {
 		listCaseFiles,
 		uploadCaseFile,
@@ -22,6 +24,17 @@
 	} from '$lib/components/case/caseFilesExtractSupport';
 	import { buildCaseFileExtractedTextModalBody } from '$lib/components/case/caseFileExtractedTextModal';
 
+	type ProposeWorkflowState =
+		| { step: 'idle' }
+		| { step: 'processing'; file: CaseFile; abort: AbortController }
+		| {
+				step: 'bulk_confirm';
+				file: CaseFile;
+				count: number;
+				threshold: number;
+				token: string | null;
+		  };
+
 	export let caseId: string;
 	export let token: string;
 
@@ -37,11 +50,10 @@
 	let addingTagFileId: string | null = null;
 	let newTagInput = '';
 	let proposingFileId: string | null = null;
-	let bulkConfirmFile: CaseFile | null = null;
-	let bulkConfirmCount = 0;
-	let bulkConfirmThreshold = 0;
-	/** P40-05C: from 409 — confirm resend skips Ollama when token is still valid */
-	let bulkConfirmToken: string | null = null;
+	/** P41-14 — processing modal + bulk confirm in one shell; cancel via AbortController */
+	let proposeWorkflow: ProposeWorkflowState = { step: 'idle' };
+	/** Invalidates stale async completion after cancel / case switch / unmount (P41-14). */
+	let proposeRequestGeneration = 0;
 
 	/** P38-04: nested dragenter/dragleave depth so highlight survives child boundaries */
 	let fileDragDepth = 0;
@@ -65,10 +77,11 @@
 		addingTagFileId = null;
 		newTagInput = '';
 		proposingFileId = null;
-		bulkConfirmFile = null;
-		bulkConfirmCount = 0;
-		bulkConfirmThreshold = 0;
-		bulkConfirmToken = null;
+		if (proposeWorkflow.step === 'processing') {
+			proposeRequestGeneration += 1;
+			proposeWorkflow.abort.abort();
+		}
+		proposeWorkflow = { step: 'idle' };
 		fileDragDepth = 0;
 		loadFiles();
 	}
@@ -262,22 +275,48 @@
 		}
 	}
 
-	function closeBulkModal() {
-		bulkConfirmFile = null;
-		bulkConfirmCount = 0;
-		bulkConfirmThreshold = 0;
-		bulkConfirmToken = null;
+	/** Close modal; abort in-flight propose and toast only when canceling active processing (P41-14). */
+	function dismissProposeModal() {
+		const wasProcessing = proposeWorkflow.step === 'processing';
+		if (wasProcessing) {
+			proposeRequestGeneration += 1;
+			proposeWorkflow.abort.abort();
+		}
+		proposeWorkflow = { step: 'idle' };
+		proposingFileId = null;
+		if (wasProcessing) {
+			toast.info('Proposal generation canceled.', { duration: 5000 });
+		}
+	}
+
+	function isFileProposeLocked(f: CaseFile): boolean {
+		if (proposingFileId === f.id) return true;
+		if (proposeWorkflow.step === 'idle') return false;
+		return proposeWorkflow.file.id === f.id;
 	}
 
 	async function runProposeTimeline(f: CaseFile, confirmBulk: boolean) {
+		const priorBulkTok =
+			confirmBulk && proposeWorkflow.step === 'bulk_confirm' && proposeWorkflow.file.id === f.id
+				? proposeWorkflow.token
+				: null;
+
+		const gen = proposeRequestGeneration + 1;
+		proposeRequestGeneration = gen;
+		const abort = new AbortController();
+		proposeWorkflow = { step: 'processing', file: f, abort };
 		proposingFileId = f.id;
+
 		try {
 			const result = await proposeTimelineEntriesFromCaseFile(caseId, f.id, token, {
 				confirm_bulk: confirmBulk,
-				...(confirmBulk && bulkConfirmToken
-					? { bulk_confirmation_token: bulkConfirmToken }
+				signal: abort.signal,
+				...(confirmBulk && priorBulkTok
+					? { bulk_confirmation_token: priorBulkTok }
 					: {})
 			});
+
+			if (gen !== proposeRequestGeneration) return;
 
 			if (result.status === 'confirmation_required') {
 				if (confirmBulk) {
@@ -286,19 +325,22 @@
 						{ duration: 12000 }
 					);
 				}
-				bulkConfirmFile = f;
-				bulkConfirmCount = result.proposal_count;
-				bulkConfirmThreshold = result.threshold;
-				bulkConfirmToken =
-					typeof result.bulk_confirmation_token === 'string' &&
-					result.bulk_confirmation_token.length > 0
-						? result.bulk_confirmation_token
-						: null;
+				proposeWorkflow = {
+					step: 'bulk_confirm',
+					file: f,
+					count: result.proposal_count,
+					threshold: result.threshold,
+					token:
+						typeof result.bulk_confirmation_token === 'string' &&
+						result.bulk_confirmation_token.length > 0
+							? result.bulk_confirmation_token
+							: null
+				};
 				return;
 			}
 
 			const n = result.proposal_count;
-			closeBulkModal();
+			proposeWorkflow = { step: 'idle' };
 			if (n <= 0) {
 				toast.warning(
 					'Proposal generation finished but no proposals were returned. Open the Proposals tab to verify, or run Propose timeline entries again.',
@@ -317,11 +359,17 @@
 				);
 			}
 		} catch (e: unknown) {
-			const err = e as Error;
+			if (gen !== proposeRequestGeneration) return;
+			const err = e as Error & { name?: string };
+			if (err?.name === 'AbortError') {
+				proposeWorkflow = { step: 'idle' };
+				return;
+			}
 			const msg = err?.message ?? 'Propose timeline entries failed';
 			const isToken =
 				typeof msg === 'string' &&
 				(msg.includes('invalid') || msg.includes('expired') || msg.includes('regenerate'));
+			proposeWorkflow = { step: 'idle' };
 			toast.error(
 				isToken
 					? `${msg} Use Propose timeline entries again to generate a fresh batch.`
@@ -329,9 +377,18 @@
 				{ duration: isToken ? 12000 : 6000 }
 			);
 		} finally {
-			proposingFileId = null;
+			if (gen === proposeRequestGeneration) proposingFileId = null;
 		}
 	}
+
+	onDestroy(() => {
+		if (proposeWorkflow.step === 'processing') {
+			proposeRequestGeneration += 1;
+			proposeWorkflow.abort.abort();
+		}
+		proposeWorkflow = { step: 'idle' };
+		proposingFileId = null;
+	});
 
 	async function handleRemoveTag(f: CaseFile, tag: string) {
 		try {
@@ -447,14 +504,18 @@
 					<button
 						type="button"
 						class="text-violet-600 dark:text-violet-400 hover:underline text-xs disabled:opacity-50"
-						disabled={proposingFileId === f.id || f.extraction_status !== 'extracted'}
+						disabled={isFileProposeLocked(f) || f.extraction_status !== 'extracted'}
 						title={f.extraction_status !== 'extracted'
 							? 'Extract text first, then propose timeline entries'
 							: 'Create pending timeline proposals (review in Proposals tab)'}
 						data-testid="propose-timeline-from-file-btn"
 						on:click={() => runProposeTimeline(f, false)}
 					>
-						{proposingFileId === f.id ? 'Proposing…' : 'Propose timeline entries'}
+						{isFileProposeLocked(f)
+							? proposeWorkflow.step === 'processing' && proposingFileId === f.id
+								? 'Proposing…'
+								: 'Pending…'
+							: 'Propose timeline entries'}
 					</button>
 					</div>
 					<!-- Ticket 25: Tags -->
@@ -514,46 +575,76 @@
 	{/if}
 </div>
 
-<!-- P40-01: bulk proposal count confirmation -->
-{#if bulkConfirmFile}
+<!-- P40-01 bulk confirm + P41-14 processing (same modal shell) -->
+{#if proposeWorkflow.step !== 'idle'}
 	<div
 		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
 		role="dialog"
 		aria-modal="true"
-		aria-labelledby="bulk-proposal-title"
-		on:click={(e) => e.target === e.currentTarget && closeBulkModal()}
-		on:keydown={(e) => e.key === 'Escape' && closeBulkModal()}
+		aria-labelledby="propose-timeline-modal-title"
+		on:click={(e) => e.target === e.currentTarget && dismissProposeModal()}
+		on:keydown={(e) => e.key === 'Escape' && dismissProposeModal()}
 		tabindex="-1"
-		data-testid="bulk-proposal-confirm-modal"
+		data-testid="propose-timeline-modal"
 	>
 		<div
 			class="max-w-md w-full rounded-lg bg-white dark:bg-gray-850 shadow-xl mx-4 p-4"
 			on:click|stopPropagation
 		>
-			<h3 id="bulk-proposal-title" class="font-medium text-sm mb-2">Many timeline proposals</h3>
-			<p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-				Extraction would create <strong>{bulkConfirmCount}</strong> pending proposals (threshold
-				{bulkConfirmThreshold}). This stays review-first — nothing is written to the official Timeline until
-				you approve and commit each entry. Continue?
-			</p>
-			<div class="flex justify-end gap-2">
-				<button
-					type="button"
-					class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600"
-					on:click={closeBulkModal}
-				>
-					Cancel
-				</button>
-				<button
-					type="button"
-					class="px-3 py-1.5 text-sm rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
-					disabled={proposingFileId !== null}
-					data-testid="bulk-proposal-confirm-submit"
-					on:click={() => bulkConfirmFile && runProposeTimeline(bulkConfirmFile, true)}
-				>
-					{proposingFileId ? 'Working…' : 'Create proposals'}
-				</button>
-			</div>
+			{#if proposeWorkflow.step === 'processing'}
+				<div data-testid="propose-timeline-processing">
+					<h3 id="propose-timeline-modal-title" class="font-medium text-sm mb-2">
+						Processing document for timeline proposals
+					</h3>
+					<p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+						Analyzing extracted text and generating pending proposals. This may take a moment. Nothing is
+						committed to the official timeline until you review and approve in the Proposals tab.
+					</p>
+					<div class="flex items-center gap-3 mb-4" aria-live="polite">
+						<Spinner className="size-6 text-violet-600 dark:text-violet-400" />
+						<span class="text-sm text-gray-700 dark:text-gray-300" data-testid="propose-timeline-processing-label"
+							>Working…</span
+						>
+					</div>
+					<div class="flex justify-end">
+						<button
+							type="button"
+							class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600"
+							data-testid="propose-timeline-cancel-btn"
+							on:click={dismissProposeModal}
+						>
+							Cancel
+						</button>
+					</div>
+				</div>
+			{:else if proposeWorkflow.step === 'bulk_confirm'}
+				<div data-testid="bulk-proposal-confirm-modal">
+					<h3 id="propose-timeline-modal-title" class="font-medium text-sm mb-2">Many timeline proposals</h3>
+					<p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+						Extraction would create <strong>{proposeWorkflow.count}</strong> pending proposals (threshold
+						{proposeWorkflow.threshold}). This stays review-first — nothing is written to the official Timeline until
+						you approve and commit each entry. Continue?
+					</p>
+					<div class="flex justify-end gap-2">
+						<button
+							type="button"
+							class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600"
+							on:click={dismissProposeModal}
+						>
+							Cancel
+						</button>
+						<button
+							type="button"
+							class="px-3 py-1.5 text-sm rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+							disabled={proposingFileId !== null}
+							data-testid="bulk-proposal-confirm-submit"
+							on:click={() => runProposeTimeline(proposeWorkflow.file, true)}
+						>
+							{proposingFileId ? 'Working…' : 'Create proposals'}
+						</button>
+					</div>
+				</div>
+			{/if}
 		</div>
 	</div>
 {/if}

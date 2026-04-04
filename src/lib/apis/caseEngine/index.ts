@@ -3813,7 +3813,13 @@ export async function proposeTimelineEntriesFromCaseFile(
 	caseId: string,
 	fileId: string,
 	token: string,
-	options?: { confirm_bulk?: boolean; model?: string; bulk_confirmation_token?: string }
+	options?: {
+		confirm_bulk?: boolean;
+		model?: string;
+		bulk_confirmation_token?: string;
+		/** P41-14 — cancel in-flight propose from Files tab */
+		signal?: AbortSignal;
+	}
 ): Promise<ProposeTimelineFromCaseFileResult> {
 	const bulkTok =
 		typeof options?.bulk_confirmation_token === 'string' && options.bulk_confirmation_token.trim()
@@ -3831,7 +3837,8 @@ export async function proposeTimelineEntriesFromCaseFile(
 				confirm_bulk: options?.confirm_bulk === true,
 				...(options?.model ? { model: options.model } : {}),
 				...(bulkTok ? { bulk_confirmation_token: bulkTok } : {})
-			})
+			}),
+			signal: options?.signal
 		}
 	);
 	const data = await res.json().catch(() => ({}));
