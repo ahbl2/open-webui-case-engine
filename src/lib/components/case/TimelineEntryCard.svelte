@@ -5,6 +5,7 @@
 	 *                     P28-38 Usability Polish Pass
 	 *                     P38-08 — type “note” vs Notes tab (labels/tooltips only)
 	 *                     P39-02A — optional search match highlight (normalized needle from parent)
+	 *                     Long body text: line-clamp (~4 lines) + per-entry Show more / Show less
 	 *
 	 * Truth signals (P28-31):
 	 *   1. AI-cleaned transparency — badge + show/hide original toggle
@@ -23,6 +24,7 @@
 	 *   - Deleted entries (entry.deleted_at set) render a compact removed-state view
 	 *   - onRestoreRequest (ADMIN only) shown for deleted entries
 	 */
+	import { tick, afterUpdate } from 'svelte';
 	import type { TimelineEntry, TimelineEntryVersion } from '$lib/apis/caseEngine';
 	import { listTimelineEntryVersions } from '$lib/apis/caseEngine';
 	import {
@@ -139,6 +141,38 @@
 	function sameTimestamp(a: string, b: string): boolean {
 		try { return new Date(a).getTime() === new Date(b).getTime(); } catch { return a === b; }
 	}
+
+	// ── Long entry body: line-clamp + Show more / less (per card, display-only) ──
+	let bodyEl: HTMLParagraphElement | undefined;
+	let bodyExpanded = false;
+	let showBodyClampToggle = false;
+	let bodyClampMeasureKey = '';
+
+	async function updateBodyClampState(): Promise<void> {
+		await tick();
+		const el = bodyEl;
+		if (!el) {
+			showBodyClampToggle = false;
+			return;
+		}
+		el.classList.add('line-clamp-4', 'overflow-hidden');
+		void el.offsetHeight;
+		const overflows = el.scrollHeight > el.clientHeight + 2;
+		el.classList.remove('line-clamp-4', 'overflow-hidden');
+		if (showBodyClampToggle !== overflows) {
+			showBodyClampToggle = overflows;
+		}
+		await tick();
+	}
+
+	afterUpdate(() => {
+		const key = `${entry.id}|${displayText}`;
+		if (key !== bodyClampMeasureKey) {
+			bodyClampMeasureKey = key;
+			bodyExpanded = false;
+		}
+		void updateBodyClampState();
+	});
 </script>
 
 {#if isDeleted}
@@ -321,7 +355,10 @@
 
 		<!-- ── Entry body ───────────────────────────────────────────────────────── -->
 		<p
+			bind:this={bodyEl}
 			class="text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap leading-relaxed"
+			class:line-clamp-4={showBodyClampToggle && !bodyExpanded}
+			class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
 			data-testid="timeline-entry-body"
 		>
 			{#each bodyHighlightSegments as seg, bIdx (bIdx)}
@@ -332,6 +369,17 @@
 				{:else}{seg.text}{/if}
 			{/each}
 		</p>
+		{#if showBodyClampToggle}
+			<button
+				type="button"
+				class="mt-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400
+				       hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2 transition"
+				data-testid="timeline-entry-body-toggle"
+				on:click={() => (bodyExpanded = !bodyExpanded)}
+			>
+				{bodyExpanded ? 'Show less' : 'Show more'}
+			</button>
+		{/if}
 
 		<!-- ── Tags ─────────────────────────────────────────────────────────────── -->
 		{#if tags.length > 0}

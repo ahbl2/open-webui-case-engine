@@ -79,6 +79,10 @@
 		normalizeTimelineSearchNeedle
 	} from '$lib/caseTimeline/timelineListFilter';
 	import {
+		isTimelinePageShortcutTargetEditable,
+		resolveTimelinePageKeydownIntent
+	} from '$lib/caseTimeline/timelinePageKeyboard';
+	import {
 		isTimelineFilterDateRangeInverted,
 		shouldShowLargeTimelineFilterHint
 	} from '$lib/caseTimeline/timelineSearchUx';
@@ -234,6 +238,8 @@
 	let filterSearchText = '';
 	let filterDateFrom = '';
 	let filterDateTo = '';
+	/** P39 keyboard shortcut: `/` focuses this element when the filter bar is mounted */
+	let timelineFilterSearchEl: HTMLInputElement | undefined;
 
 	// ── Soft-delete / restore lifecycle (P28-35) ────────────────────────────────
 	// All lifecycle actions use ConfirmDialog (non-blocking).
@@ -365,6 +371,35 @@
 		}
 		pendingDiscardAction = () => cancelComposer();
 		showDiscardConfirm = true;
+	}
+
+	/** Timeline-only shortcuts: `/` search, `n` new entry, `Escape` composer cancel (guarded). */
+	function handleTimelinePageKeydown(event: KeyboardEvent): void {
+		const intent = resolveTimelinePageKeydownIntent({
+			key: event.key,
+			ctrlKey: event.ctrlKey,
+			metaKey: event.metaKey,
+			altKey: event.altKey,
+			targetEditable: isTimelinePageShortcutTargetEditable(event.target),
+			overlayOpen: showDiscardConfirm || showDeleteConfirm || showRestoreConfirm,
+			composerOpen
+		});
+		switch (intent.kind) {
+			case 'focus-search':
+				event.preventDefault();
+				timelineFilterSearchEl?.focus();
+				return;
+			case 'open-composer':
+				event.preventDefault();
+				openCreateForm();
+				return;
+			case 'cancel-composer':
+				event.preventDefault();
+				requestCancelComposer();
+				return;
+			default:
+				return;
+		}
 	}
 
 	async function saveComposer(): Promise<void> {
@@ -910,6 +945,8 @@
 	});
 </script>
 
+<svelte:window on:keydown={handleTimelinePageKeydown} />
+
 <!--
 	Official Case Timeline — P28-31 through P28-38
 	Backed by timeline_entries (official case records).
@@ -1086,6 +1123,7 @@
 			<div class="flex flex-wrap items-center gap-2">
 				<input
 					type="search"
+					bind:this={timelineFilterSearchEl}
 					bind:value={filterSearchText}
 					placeholder="Search text, location, type…"
 					class="text-xs rounded border border-gray-300 dark:border-gray-600
