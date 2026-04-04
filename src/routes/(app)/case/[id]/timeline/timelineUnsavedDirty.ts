@@ -1,7 +1,7 @@
 /**
  * P38-06 — Pure helpers for “unsaved timeline create/edit” detection (beforeNavigate guard).
  * Mirrors Timeline +page field semantics; safe to unit-test without Svelte.
- * P40-05G — `isoToDatetimeLocal` lives in `$lib/caseTimeline/timelineOccurredAtLocal` (real local TZ).
+ * P40-05G / P41-10 — `isoToDatetimeLocal` uses operational America/New_York civil time (see `timelineOccurredAtLocal`).
  */
 import type { TimelineEntry } from '$lib/apis/caseEngine';
 import { isoToDatetimeLocal } from '$lib/caseTimeline/timelineOccurredAtLocal';

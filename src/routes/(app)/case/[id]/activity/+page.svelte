@@ -15,7 +15,10 @@
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
-	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
+	import {
+		formatCaseDateTime,
+		formatOperationalCaseDateTime
+	} from '$lib/utils/formatDateTime';
 
 	// ── Route-reuse case-switch guard (P28-45) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -346,7 +349,7 @@
 						</div>
 						{#if item.type === 'Timeline' && item.occurredAt}
 							<div class="mt-0.5 text-xs text-gray-400 dark:text-gray-500">
-								Occurred: {formatCaseDateTime(item.occurredAt)}
+								Occurred: {formatOperationalCaseDateTime(item.occurredAt)}
 							</div>
 						{/if}
 						<div class="mt-1 text-xs text-gray-400 dark:text-gray-500 flex items-center gap-2">

@@ -31,7 +31,7 @@
 	 *
 	 * P28-37 changes:
 	 *   - "+ Log entry" button in header opens a governed inline create form
-	 *   - Fields: occurred_at (datetime-local, browser local TZ), type, text_original (required),
+	 *   - Fields: occurred_at (datetime-local, operational America/New_York civil time), type, text_original (required),
 	 *     location_text (optional)
 	 *   - On save: POST /cases/:id/entries; created entry inserted into list in
 	 *     occurred_at order; form dismissed
@@ -804,7 +804,7 @@
 
 	// ── Inline edit state (P28-34) ──────────────────────────────────────────────
 	// Only one entry can be in edit mode at a time.
-	// editDraft.occurred_at is datetime-local (local civil time); save uses
+	// editDraft.occurred_at is datetime-local (America/New_York civil time); save uses
 	// `$lib/caseTimeline/timelineOccurredAtLocal` `datetimeLocalToIso` → UTC Z for the API.
 	interface EditDraft {
 		text_original: string;
@@ -1448,7 +1448,7 @@
 								</select>
 							</div>
 
-							<!-- occurred_at (datetime-local — operator local timezone, P40-05G) -->
+							<!-- occurred_at (datetime-local — operational America/New_York, P41-10) -->
 							<div class="flex flex-col gap-1.5 flex-1 min-w-[200px]">
 								<label
 									class="text-xs font-medium text-gray-600 dark:text-gray-300"

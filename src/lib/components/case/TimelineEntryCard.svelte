@@ -34,7 +34,10 @@
 		TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP
 	} from '$lib/caseTimeline/timelineTypeNoteClarity';
 	import { splitTextForSearchHighlight } from '$lib/caseTimeline/timelineSearchUx';
-	import { formatCaseDateTimeWithSeconds, formatCaseDateTime } from '$lib/utils/formatDateTime';
+	import {
+		formatOperationalCaseDateTimeWithSeconds,
+		formatCaseDateTime
+	} from '$lib/utils/formatDateTime';
 	import TimelineEntryLinkedImagesViewer from './TimelineEntryLinkedImagesViewer.svelte';
 	import TimelineEntryProvenanceBlock from './TimelineEntryProvenanceBlock.svelte';
 	import EllipsisVertical from '$lib/components/icons/EllipsisVertical.svelte';
@@ -241,7 +244,7 @@
 				datetime={entry.occurred_at}
 				class="text-xs font-mono text-gray-400 dark:text-gray-600"
 			>
-				{formatCaseDateTimeWithSeconds(entry.occurred_at)}
+				{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
 			</time>
 			<span
 				class="text-[10px] font-medium px-1 py-0.5 rounded
@@ -416,7 +419,7 @@
 								{#if !sameTimestamp(ver.prior_occurred_at, entry.occurred_at)}
 									<p class="text-[10px] text-gray-400 dark:text-gray-500">
 										Occurred (then):
-										<span class="font-mono">{formatCaseDateTimeWithSeconds(ver.prior_occurred_at)}</span>
+										<span class="font-mono">{formatOperationalCaseDateTimeWithSeconds(ver.prior_occurred_at)}</span>
 									</p>
 								{/if}
 								{#if ver.prior_type !== entry.type}
@@ -471,7 +474,7 @@
 			class="text-xs font-mono text-gray-600 dark:text-gray-300"
 			title="When this occurred"
 		>
-			{formatCaseDateTimeWithSeconds(entry.occurred_at)}
+			{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
 		</time>
 
 			<!-- Edited badge — interactive button when version_count > 0 (P28-33) -->
@@ -763,7 +766,7 @@
 								{#if !sameTimestamp(ver.prior_occurred_at, entry.occurred_at)}
 									<p class="text-[10px] text-gray-400 dark:text-gray-500">
 										Occurred (then):
-										<span class="font-mono">{formatCaseDateTimeWithSeconds(ver.prior_occurred_at)}</span>
+										<span class="font-mono">{formatOperationalCaseDateTimeWithSeconds(ver.prior_occurred_at)}</span>
 									</p>
 								{/if}
 								{#if ver.prior_type !== entry.type}

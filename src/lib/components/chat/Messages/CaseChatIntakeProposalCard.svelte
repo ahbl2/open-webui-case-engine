@@ -9,6 +9,7 @@
 	} from '$lib/apis/caseEngine';
 	import { caseEngineToken } from '$lib/stores';
 	import { isIsoOccurredAtWithTimezone } from '$lib/utils/chatIntakeIntent';
+	import { formatOperationalCaseDateTimeWithSeconds } from '$lib/utils/formatDateTime';
 
 	export let caseId: string;
 	export let proposal: ProposalRecord;
@@ -67,6 +68,12 @@
 		} catch {
 			return { original: '', cleaned: '', occurredAt: null, entryType: '', dateAmbiguity: null };
 		}
+	}
+
+	function formatOccurredAtForCard(raw: string): string {
+		const d = new Date(raw.trim());
+		if (!Number.isNaN(d.getTime())) return formatOperationalCaseDateTimeWithSeconds(raw.trim());
+		return raw;
 	}
 
 	$: display = parseDisplay(proposal);
@@ -186,7 +193,7 @@
 	<div class="flex flex-wrap gap-x-4 gap-y-1 text-xs text-gray-700 dark:text-gray-300">
 		<span><span class="font-medium">Type:</span> {display.entryType || '—'}</span>
 		{#if display.occurredAt != null}
-			<span><span class="font-medium">Occurred at:</span> {display.occurredAt}</span>
+			<span><span class="font-medium">Occurred at:</span> {formatOccurredAtForCard(display.occurredAt)}</span>
 		{:else if proposal.proposal_type === 'timeline'}
 			<span class="text-amber-800 dark:text-amber-200"
 				><span class="font-medium">Occurred at:</span> not set — request a revision with a date/time</span

@@ -46,7 +46,10 @@
 		getBulkApprovePendingTargets,
 		bulkCommitSelectionBlockedReason
 	} from '$lib/utils/proposalUiState';
-	import { formatCaseDateTime, formatCaseDateTimeWithSeconds } from '$lib/utils/formatDateTime';
+	import {
+		formatCaseDateTime,
+		formatOperationalCaseDateTimeWithSeconds
+	} from '$lib/utils/formatDateTime';
 	import { isoToDatetimeLocal, datetimeLocalToIso } from '$lib/caseTimeline/timelineOccurredAtLocal';
 	import {
 		TIMELINE_ENTRY_TYPE_VALUES,
@@ -193,7 +196,7 @@
 		const s = String(raw).trim();
 		if (!s) return '—';
 		const d = new Date(s);
-		if (!isNaN(d.getTime())) return formatCaseDateTimeWithSeconds(s);
+		if (!isNaN(d.getTime())) return formatOperationalCaseDateTimeWithSeconds(s);
 		return s;
 	}
 
