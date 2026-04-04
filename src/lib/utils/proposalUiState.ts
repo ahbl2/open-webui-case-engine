@@ -130,6 +130,123 @@ export function isBulkRejectEnabled(
 	return isBulkApproveEnabled(selectedIds, proposals);
 }
 
+/** Pending proposal ids in the current selection (bulk approve/reject targets). */
+export function getBulkApprovePendingTargets(
+	selectedIds: ReadonlySet<string>,
+	proposals: readonly ProposalRecord[]
+): string[] {
+	const map = new Map(proposals.map((p) => [p.id, p]));
+	return [...selectedIds].filter((id) => map.get(id)?.status === 'pending');
+}
+
+/** Approved proposal ids in the selection (bulk commit iterates these; UI should filter to committable). */
+export function getBulkCommitApprovedTargets(
+	selectedIds: ReadonlySet<string>,
+	proposals: readonly ProposalRecord[]
+): string[] {
+	const map = new Map(proposals.map((p) => [p.id, p]));
+	return [...selectedIds].filter((id) => map.get(id)?.status === 'approved');
+}
+
+/**
+ * P40-05 — Mixed-queue summary for post-ingest / multi-proposal review clarity.
+ * Counts rejected vs pending; splits approved into committable vs chronology-blocked (timeline only).
+ */
+export interface ProposalQueueMixSummary {
+	pending: number;
+	approvedReadyToCommit: number;
+	approvedBlockedChronology: number;
+	rejected: number;
+	committed: number;
+}
+
+export function summarizeProposalQueueMix(
+	proposals: readonly ProposalRecord[]
+): ProposalQueueMixSummary {
+	const g = groupByStatus(proposals);
+	let approvedReadyToCommit = 0;
+	let approvedBlockedChronology = 0;
+	for (const p of g.approved) {
+		if (p.proposal_type === 'timeline' && timelineProposalCommitBlockedByLowChronology(p)) {
+			approvedBlockedChronology++;
+		} else {
+			approvedReadyToCommit++;
+		}
+	}
+	return {
+		pending: g.pending.length,
+		approvedReadyToCommit,
+		approvedBlockedChronology,
+		rejected: g.rejected.length,
+		committed: g.committed.length
+	};
+}
+
+/** One-line operator summary; empty queue → "No proposals in this filter". */
+export function formatProposalQueueMixSummary(s: ProposalQueueMixSummary): string {
+	const parts: string[] = [];
+	if (s.pending > 0) {
+		parts.push(s.pending === 1 ? '1 pending review' : `${s.pending} pending review`);
+	}
+	const approvedTotal = s.approvedReadyToCommit + s.approvedBlockedChronology;
+	if (approvedTotal > 0) {
+		if (s.approvedBlockedChronology === 0) {
+			parts.push(
+				approvedTotal === 1
+					? '1 approved (ready to commit)'
+					: `${approvedTotal} approved (ready to commit)`
+			);
+		} else if (s.approvedReadyToCommit === 0) {
+			parts.push(
+				approvedTotal === 1
+					? '1 approved — confirm chronology before commit'
+					: `${approvedTotal} approved — confirm chronology before commit`
+			);
+		} else {
+			parts.push(
+				`${approvedTotal} approved (${s.approvedReadyToCommit} ready, ${s.approvedBlockedChronology} need chronology)`
+			);
+		}
+	}
+	if (s.rejected > 0) {
+		parts.push(s.rejected === 1 ? '1 rejected (excluded from review queue)' : `${s.rejected} rejected (excluded from review queue)`);
+	}
+	if (s.committed > 0) {
+		parts.push(s.committed === 1 ? '1 on official record' : `${s.committed} on official record`);
+	}
+	return parts.length > 0 ? parts.join(' · ') : 'No proposals in this filter';
+}
+
+/** Accessible title for bulk commit button when disabled (explains chronology / status mismatch). */
+export function bulkCommitSelectionBlockedReason(
+	selectedIds: ReadonlySet<string>,
+	proposals: readonly ProposalRecord[]
+): string | null {
+	if (selectedIds.size === 0) return null;
+	if (isBulkCommitEnabled(selectedIds, proposals)) return null;
+	const map = new Map(proposals.map((p) => [p.id, p]));
+	let blockedChrono = 0;
+	let notApproved = 0;
+	for (const id of selectedIds) {
+		const p = map.get(id);
+		if (!p) return 'Some selected proposals are unknown — refresh the list.';
+		if (p.status !== 'approved') notApproved++;
+		else if (timelineProposalCommitBlockedByLowChronology(p)) blockedChrono++;
+	}
+	if (blockedChrono > 0 && notApproved > 0) {
+		return `${blockedChrono} need chronology confirmation; ${notApproved} not approved — adjust selection or complete review.`;
+	}
+	if (blockedChrono > 0) {
+		return blockedChrono === 1
+			? 'One selected proposal needs chronology confirmation before commit.'
+			: `${blockedChrono} selected proposals need chronology confirmation before commit.`;
+	}
+	if (notApproved > 0) {
+		return 'Every selected item must be approved before commit — pending items are not on the official record yet.';
+	}
+	return 'Cannot commit this selection.';
+}
+
 /** Groups proposals by status. All four groups are always present, possibly empty. */
 export function groupByStatus(
 	proposals: readonly ProposalRecord[]

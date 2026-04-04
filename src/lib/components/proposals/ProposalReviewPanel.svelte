@@ -12,6 +12,7 @@
 	 *   - Illegal transitions are blocked in UI; backend enforces the real rules.
 	 *   - Bulk operations process proposals serially; partial failures are surfaced.
 	 *   - Self-review and capability errors are distinct from generic 403s.
+	 * P40-05 — Multi-proposal confirm dialogs (≥2), queue mix summary, bulk commit disabled reasons.
 	 */
 	import { onMount } from 'svelte';
 	import { afterNavigate } from '$app/navigation';
@@ -39,9 +40,14 @@
 		statusLabel,
 		payloadPreview,
 		statusBadgeClasses,
-		tabClasses
+		tabClasses,
+		summarizeProposalQueueMix,
+		formatProposalQueueMixSummary,
+		getBulkApprovePendingTargets,
+		bulkCommitSelectionBlockedReason
 	} from '$lib/utils/proposalUiState';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
+	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 
 	// ── Props ──────────────────────────────────────────────────────────────────
 
@@ -111,6 +117,12 @@
 	let bulkProcessing = false;
 	let bulkProgressMsg = '';
 
+	/** P40-05 — explicit confirm before multi-item approve/commit */
+	let bulkApproveConfirmShow = false;
+	let bulkCommitConfirmShow = false;
+	let bulkApproveConfirmCount = 0;
+	let bulkCommitConfirmCount = 0;
+
 	// ── Computed ───────────────────────────────────────────────────────────────
 
 	$: proposalsFiltered =
@@ -133,6 +145,11 @@
 	$: bulkRejectEnabled = isBulkRejectEnabled(selected, proposals);
 
 	$: selectedOnTabCount = activeProposals.filter((p) => selected.has(p.id)).length;
+	$: queueMixSummary = formatProposalQueueMixSummary(summarizeProposalQueueMix(proposalsFiltered));
+	$: bulkCommitBlockedReason = bulkCommitSelectionBlockedReason(selected, proposals);
+	$: bulkPendingRejectCount = getBulkApprovePendingTargets(selected, proposals).length;
+	$: bulkApproveConfirmMessage = `You are about to approve **${bulkApproveConfirmCount}** pending proposals. They move to Approved only — nothing is written to the official Timeline or Notes until you commit. Other proposals stay on their current tabs.`;
+	$: bulkCommitConfirmMessage = `This creates **${bulkCommitConfirmCount}** official case records (Timeline entries and/or Notes). Pending or unselected proposals are unchanged. The server still enforces chronology rules on every commit.`;
 
 	// ── Data loading ───────────────────────────────────────────────────────────
 
@@ -340,12 +357,31 @@
 
 	// ── Bulk actions ───────────────────────────────────────────────────────────
 
+	function requestBulkApprove(): void {
+		const targets = getBulkApprovePendingTargets(selected, proposals);
+		if (targets.length >= 2) {
+			bulkApproveConfirmCount = targets.length;
+			bulkApproveConfirmShow = true;
+		} else {
+			void handleBulkApprove();
+		}
+	}
+
+	function requestBulkCommit(): void {
+		if (!bulkCommitEnabled || bulkProcessing) return;
+		const targets = [...selected].filter((id) => proposals.find((q) => q.id === id)?.status === 'approved');
+		if (targets.length >= 2) {
+			bulkCommitConfirmCount = targets.length;
+			bulkCommitConfirmShow = true;
+		} else {
+			void handleBulkCommit();
+		}
+	}
+
 	async function handleBulkApprove(): Promise<void> {
 		bulkError = '';
 		bulkProcessing = true;
-		const targets = [...selected].filter((id) => {
-			return proposals.find((q) => q.id === id)?.status === 'pending';
-		});
+		const targets = getBulkApprovePendingTargets(selected, proposals);
 		const errors: string[] = [];
 		for (let i = 0; i < targets.length; i++) {
 			bulkProgressMsg = `Approving ${i + 1} of ${targets.length}…`;
@@ -447,9 +483,7 @@
 	async function handleBulkCommit(): Promise<void> {
 		bulkError = '';
 		bulkProcessing = true;
-		const targets = [...selected].filter((id) => {
-			return proposals.find((q) => q.id === id)?.status === 'approved';
-		});
+		const targets = [...selected].filter((id) => proposals.find((q) => q.id === id)?.status === 'approved');
 		const errors: string[] = [];
 		for (let i = 0; i < targets.length; i++) {
 			bulkProgressMsg = `Committing ${i + 1} of ${targets.length}…`;
@@ -585,6 +619,16 @@
 		</button>
 	</div>
 
+	{#if proposalsFiltered.length > 0}
+		<div
+			class="shrink-0 px-3 py-1.5 text-[10px] leading-snug text-gray-600 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30"
+			data-testid="proposal-queue-mix-summary"
+		>
+			<span class="font-medium text-gray-700 dark:text-gray-300">Queue:</span>
+			{queueMixSummary}
+		</div>
+	{/if}
+
 	<!-- P40-01A: unmistakable when model saw only a prefix of extracted text -->
 	{#if truncatedDocIngestOnActiveTab}
 		<div
@@ -609,7 +653,8 @@
 				<!-- Inline bulk reject reason input -->
 				<div class="flex flex-col gap-1.5">
 					<span class="text-blue-700 dark:text-blue-300 font-medium text-[11px]">
-						Rejection reason for {selectedOnTabCount} proposal{selectedOnTabCount !== 1 ? 's' : ''}:
+						Reject {bulkPendingRejectCount} pending proposal{bulkPendingRejectCount !== 1 ? 's' : ''} (stays out
+						of the official record). Reason:
 					</span>
 					<div class="flex gap-1.5 items-center">
 						<input
@@ -653,9 +698,10 @@
 								type="button"
 								class="px-2 py-0.5 rounded text-[11px] font-medium bg-blue-600 hover:bg-blue-700
 								       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
-								on:click={handleBulkApprove}
+								on:click={requestBulkApprove}
 								disabled={bulkProcessing}
 								data-testid="bulk-approve-btn"
+								title="Approve pending items in this selection (not on official record until commit)"
 							>
 								{bulkProcessing ? bulkProgressMsg : '✓ Approve Selected'}
 							</button>
@@ -677,11 +723,11 @@
 							type="button"
 							class="px-2 py-0.5 rounded text-[11px] font-medium bg-green-600 hover:bg-green-700
 							       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
-							on:click={handleBulkCommit}
+							on:click={requestBulkCommit}
 							disabled={!bulkCommitEnabled || bulkProcessing}
-							title={!bulkCommitEnabled
-								? 'All selected proposals must be approved before committing'
-								: 'Commit all selected approved proposals to the case'}
+							title={bulkCommitEnabled
+								? 'Creates official Timeline / Note records for each selected approved proposal'
+								: bulkCommitBlockedReason ?? 'Cannot commit this selection'}
 							data-testid="bulk-commit-btn"
 						>
 							{bulkProcessing ? bulkProgressMsg : '→ Commit Selected'}
@@ -803,6 +849,15 @@
 								>
 									{statusLabel(proposal.status)}
 								</span>
+								{#if proposal.status === 'approved' && proposal.proposal_type === 'timeline' && timelineProposalCommitBlockedByLowChronology(proposal)}
+									<span
+										class="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide shrink-0 bg-amber-200 text-amber-950 dark:bg-amber-900/55 dark:text-amber-100 border border-amber-500/50"
+										data-testid="approved-chronology-blocked-chip"
+										title="Low confidence occurred_at — confirm before commit (same rule as single-item commit)"
+									>
+										Time confirm
+									</span>
+								{/if}
 
 								<!-- Type badge -->
 								<span
@@ -1089,8 +1144,9 @@
 
 							{:else if proposal.proposal_type === 'timeline'}
 								<!-- Timeline payload -->
-								<div class="space-y-1">
+								{#if true}
 									{@const chronologyConf = normalizeProposalPayloadChronologyConfidence(payload)}
+									<div class="space-y-1">
 									<div class="flex gap-2">
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
 											Occurred At
@@ -1340,6 +1396,7 @@
 										</div>
 									{/if}
 								</div>
+								{/if}
 
 							{:else}
 								<!-- Unknown type — raw JSON -->
@@ -1390,4 +1447,24 @@
 		</div>
 	{/if}
 	</div>
+
+	<!-- P40-05 — explicit multi-item confirmations (single-item bulk uses same handlers without dialog) -->
+	<ConfirmDialog
+		bind:show={bulkApproveConfirmShow}
+		title="Approve multiple proposals?"
+		message={bulkApproveConfirmMessage}
+		confirmLabel={`Approve ${bulkApproveConfirmCount}`}
+		onConfirm={() => {
+			void handleBulkApprove();
+		}}
+	/>
+	<ConfirmDialog
+		bind:show={bulkCommitConfirmShow}
+		title="Commit to official record?"
+		message={bulkCommitConfirmMessage}
+		confirmLabel={`Commit ${bulkCommitConfirmCount}`}
+		onConfirm={() => {
+			void handleBulkCommit();
+		}}
+	/>
 </div>

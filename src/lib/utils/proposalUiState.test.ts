@@ -20,7 +20,12 @@ import {
 	statusBadgeClasses,
 	tabClasses,
 	normalizeProposalPayloadChronologyConfidence,
-	timelineProposalCommitBlockedByLowChronology
+	timelineProposalCommitBlockedByLowChronology,
+	getBulkApprovePendingTargets,
+	getBulkCommitApprovedTargets,
+	summarizeProposalQueueMix,
+	formatProposalQueueMixSummary,
+	bulkCommitSelectionBlockedReason
 } from './proposalUiState';
 import type { ProposalRecord } from '$lib/apis/caseEngine';
 
@@ -227,6 +232,83 @@ describe('P40-03 chronology helpers', () => {
 			operator_occurred_at_confirmed: true
 		});
 		expect(timelineProposalCommitBlockedByLowChronology(p)).toBe(false);
+	});
+});
+
+// ─── P40-05 bulk targets + queue mix + blocked reasons ───────────────────────
+
+describe('P40-05 bulk targets', () => {
+	it('getBulkApprovePendingTargets returns only pending ids in selection order', () => {
+		const proposals = [
+			makeProposal('a', 'pending'),
+			makeProposal('b', 'approved'),
+			makeProposal('c', 'pending')
+		];
+		expect(getBulkApprovePendingTargets(new Set(['c', 'a', 'b']), proposals)).toEqual(['c', 'a']);
+	});
+
+	it('getBulkCommitApprovedTargets returns approved ids in selection order', () => {
+		const proposals = [
+			makeProposal('a', 'approved'),
+			makeProposal('b', 'pending'),
+			makeProposal('c', 'approved')
+		];
+		expect(getBulkCommitApprovedTargets(new Set(['c', 'a', 'b']), proposals)).toEqual(['c', 'a']);
+	});
+});
+
+describe('P40-05 summarizeProposalQueueMix / formatProposalQueueMixSummary', () => {
+	it('splits approved into ready vs chronology-blocked timeline', () => {
+		const proposals = [
+			makeTimelineProposal('low', 'approved', {
+				occurred_at: '2024-01-01T00:00:00.000Z',
+				occurred_at_confidence: 'low'
+			}),
+			makeTimelineProposal('ok', 'approved', {
+				occurred_at: '2024-01-02T00:00:00.000Z',
+				occurred_at_confidence: 'high'
+			}),
+			makeProposal('n', 'pending')
+		];
+		const s = summarizeProposalQueueMix(proposals);
+		expect(s.pending).toBe(1);
+		expect(s.approvedReadyToCommit).toBe(1);
+		expect(s.approvedBlockedChronology).toBe(1);
+		const line = formatProposalQueueMixSummary(s);
+		expect(line).toContain('1 pending review');
+		expect(line).toContain('2 approved');
+		expect(line).toContain('1 ready');
+		expect(line).toContain('1 need chronology');
+	});
+
+	it('rejected wording distinguishes from pending', () => {
+		const proposals = [makeProposal('r', 'rejected'), makeProposal('p', 'pending')];
+		const line = formatProposalQueueMixSummary(summarizeProposalQueueMix(proposals));
+		expect(line).toContain('rejected (excluded from review queue)');
+		expect(line).toContain('pending review');
+	});
+});
+
+describe('P40-05 bulkCommitSelectionBlockedReason', () => {
+	it('returns null when selection is committable', () => {
+		const proposals = [makeProposal('a', 'approved'), makeProposal('b', 'approved')];
+		expect(bulkCommitSelectionBlockedReason(new Set(['a', 'b']), proposals)).toBe(null);
+	});
+
+	it('explains mixed chronology-blocked and not-approved', () => {
+		const low = makeTimelineProposal('low', 'approved', {
+			occurred_at: '2024-01-01T00:00:00.000Z',
+			occurred_at_confidence: 'low'
+		});
+		const proposals = [low, makeProposal('pen', 'pending')];
+		const msg = bulkCommitSelectionBlockedReason(new Set(['low', 'pen']), proposals);
+		expect(msg).toContain('chronology');
+		expect(msg).toContain('not approved');
+	});
+
+	it('flags unknown id in selection', () => {
+		const proposals = [makeProposal('a', 'approved')];
+		expect(bulkCommitSelectionBlockedReason(new Set(['a', 'ghost']), proposals)).toContain('unknown');
 	});
 });
 
