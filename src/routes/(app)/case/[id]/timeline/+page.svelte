@@ -17,6 +17,7 @@
 	 * P39-03 — bottom composer shell for create entry (separate date + time; P39-01 §3–§5)
 	 * P39-04 — speech dictation into the bottom composer (raw transcript → editable text; P39-01 §5)
 	 * P39-05 — OCR/import text from file into the bottom composer (extracted text → editable; P39-01 §5)
+	 * P39-06 — deterministic cleanup of composer text (rule-based; visible result; no auto-save; P39-01 §5)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -95,6 +96,9 @@
 		type TimelineImportState
 	} from '$lib/caseTimeline/timelineTextImport';
 	import { extractContentFromFile } from '$lib/utils';
+	import {
+		applyTimelineComposerCleanup
+	} from '$lib/caseTimeline/timelineCleanup';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -151,6 +155,8 @@
 		composerError = '';
 		resetTimelineDictation();
 		resetTimelineImport();
+		cleanupState = 'idle';
+		cleanupSummary = [];
 		editingEntryId = null;
 		editDraft = null;
 		editSaving = false;
@@ -327,6 +333,8 @@
 	function cancelComposer(): void {
 		resetTimelineDictation();
 		resetTimelineImport();
+		cleanupState = 'idle';
+		cleanupSummary = [];
 		composerOpen = false;
 		composerDraft = null;
 		composerError = '';
@@ -506,6 +514,8 @@
 	onDestroy(() => {
 		resetTimelineDictation();
 		resetTimelineImport();
+		cleanupState = 'idle';
+		cleanupSummary = [];
 	});
 
 	// ── P39-05 Bottom composer text import (file → editable text) ─────────────────
@@ -560,6 +570,28 @@
 				e instanceof Error && e.message
 					? `Could not extract text from "${file.name}": ${e.message}`
 					: `Could not extract text from "${file.name}". Please try a different file.`;
+		}
+	}
+
+	// ── P39-06 Bottom composer deterministic cleanup ──────────────────────────────
+	// Synchronous; no network call; no LLM. Rules: line endings, Unicode typography,
+	// trailing whitespace per line, internal spaces, standalone i→I, common typos,
+	// trailing newlines. Returns immediately; result shown as dismissable indicator.
+
+	type TimelineCleanupState = 'idle' | 'applied' | 'noop';
+	let cleanupState: TimelineCleanupState = 'idle';
+	let cleanupSummary: string[] = [];
+
+	function handleTimelineCleanup(): void {
+		if (!composerDraft?.text_original.trim()) return;
+		const result = applyTimelineComposerCleanup(composerDraft.text_original);
+		if (result.changed) {
+			composerDraft = { ...composerDraft, text_original: result.cleanedText };
+			cleanupSummary = result.changesSummary;
+			cleanupState = 'applied';
+		} else {
+			cleanupSummary = [];
+			cleanupState = 'noop';
 		}
 	}
 
@@ -1415,7 +1447,7 @@
 					></textarea>
 				</div>
 
-				<!-- P39-04 + P39-05: Assisted-input controls (dictation + import) -->
+				<!-- P39-04 + P39-05 + P39-06: Assisted-input controls (dictation + import + cleanup) -->
 				<div class="flex flex-col gap-1.5">
 					<!-- Dictation error -->
 					{#if dictationState === 'error'}
@@ -1460,6 +1492,34 @@
 								data-testid="timeline-import-error-dismiss"
 							>
 								Dismiss
+							</button>
+						</div>
+					{/if}
+					<!-- Cleanup result (P39-06) -->
+					{#if cleanupState === 'applied' || cleanupState === 'noop'}
+						<div class="flex items-center gap-2">
+							<span
+								class="text-xs {cleanupState === 'applied'
+									? 'text-green-700 dark:text-green-400'
+									: 'text-gray-500 dark:text-gray-400'}"
+								aria-live="polite"
+								data-testid="timeline-cleanup-result"
+							>
+								{#if cleanupState === 'applied'}
+									Cleaned up ({cleanupSummary.length} change{cleanupSummary.length !== 1 ? 's' : ''})
+								{:else}
+									No changes needed — text is already clean.
+								{/if}
+							</span>
+							<button
+								type="button"
+								on:click={() => { cleanupState = 'idle'; cleanupSummary = []; }}
+								class="text-xs text-gray-400 dark:text-gray-500
+								       hover:text-gray-600 dark:hover:text-gray-300 transition"
+								aria-label="Dismiss cleanup result"
+								data-testid="timeline-cleanup-dismiss"
+							>
+								×
 							</button>
 						</div>
 					{/if}
@@ -1541,6 +1601,23 @@
 									on:change={(e) => void handleImportFile((e.target as HTMLInputElement).files)}
 								/>
 							</label>
+							<!-- Deterministic cleanup (P39-06) -->
+							<button
+								type="button"
+								on:click={handleTimelineCleanup}
+								disabled={!composerDraft?.text_original?.trim()}
+								class="inline-flex items-center gap-1.5 text-xs
+								       text-gray-600 dark:text-gray-400
+								       hover:text-gray-800 dark:hover:text-gray-200
+								       px-2 py-1 rounded border border-gray-300 dark:border-gray-600
+								       hover:bg-gray-100 dark:hover:bg-gray-800
+								       disabled:opacity-40 disabled:cursor-not-allowed transition"
+								title="Apply deterministic cleanup: normalize whitespace, fix typography, correct common typos"
+								aria-label="Clean up entry text"
+								data-testid="timeline-cleanup-start"
+							>
+								<span>Clean up</span>
+							</button>
 						{/if}
 					</div>
 				</div>
