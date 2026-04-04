@@ -8,12 +8,18 @@
 		getCaseFileText,
 		addFileTag,
 		removeFileTag,
+		proposeTimelineEntriesFromCaseFile,
 		type CaseFile
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import { dataTransferHasFiles } from '$lib/components/case/caseFilesDrop';
+	import {
+		CASE_FILES_SUPPORTED_EXTRACT_TYPES_LABEL,
+		caseFileExtLabel,
+		isCaseFileLikelyExtractable
+	} from '$lib/components/case/caseFilesExtractSupport';
 
 	export let caseId: string;
 	export let token: string;
@@ -29,6 +35,10 @@
 	let fileInput: HTMLInputElement;
 	let addingTagFileId: string | null = null;
 	let newTagInput = '';
+	let proposingFileId: string | null = null;
+	let bulkConfirmFile: CaseFile | null = null;
+	let bulkConfirmCount = 0;
+	let bulkConfirmThreshold = 0;
 
 	/** P38-04: nested dragenter/dragleave depth so highlight survives child boundaries */
 	let fileDragDepth = 0;
@@ -51,6 +61,8 @@
 		extractingId = null;
 		addingTagFileId = null;
 		newTagInput = '';
+		proposingFileId = null;
+		bulkConfirmFile = null;
 		fileDragDepth = 0;
 		loadFiles();
 	}
@@ -159,14 +171,16 @@
 		extractingId = f.id;
 		try {
 			const result = await extractCaseFileText(f.id, token);
-			const ext = fileExtLabel(f.original_filename, f.mime_type);
+			const ext = caseFileExtLabel(f.original_filename, f.mime_type);
 
 			if (result.status === 'EXTRACTED') {
 				toast.success('Text extracted');
 				viewTextFileId = f.id;
 				viewTextContent = null;
 			} else if (result.status === 'UNSUPPORTED') {
-				toast.error(`.${ext} files are not supported for extraction. Supported: ${SUPPORTED_EXTRACT_TYPES}`);
+				toast.error(
+					`.${ext} files are not supported for extraction. Supported: ${CASE_FILES_SUPPORTED_EXTRACT_TYPES_LABEL}`
+				);
 			} else {
 				toast.error(result.message ?? `Extraction failed for .${ext} file`);
 			}
@@ -213,30 +227,6 @@
 		}
 	}
 
-	const SUPPORTED_EXTRACT_TYPES = 'txt, csv, log, json, pdf';
-
-	/** Return the lowercase extension from filename, falling back to MIME subtype. */
-	function fileExtLabel(filename: string, mimeType: string | null): string {
-		const dot = filename.lastIndexOf('.');
-		if (dot !== -1 && dot < filename.length - 1) {
-			return filename.slice(dot + 1).toLowerCase();
-		}
-		if (mimeType) {
-			const sub = mimeType.split('/')[1]?.split(';')[0]?.toLowerCase();
-			if (sub) return sub;
-		}
-		return '?';
-	}
-
-	/** True if the backend can extract text from this file type. */
-	function isLikelyExtractable(filename: string, mimeType: string | null): boolean {
-		const dot = filename.lastIndexOf('.');
-		const ext = dot !== -1 ? filename.slice(dot + 1).toLowerCase() : '';
-		if (['txt', 'csv', 'log', 'json', 'pdf'].includes(ext)) return true;
-		if (mimeType?.startsWith('text/') || mimeType === 'application/pdf') return true;
-		return false;
-	}
-
 	// Ticket 25: Evidence tags
 	function startAddTag(f: CaseFile) {
 		addingTagFileId = f.id;
@@ -258,6 +248,47 @@
 			cancelAddTag();
 		} catch (e: any) {
 			toast.error(e?.message ?? 'Add tag failed');
+		}
+	}
+
+	function closeBulkModal() {
+		bulkConfirmFile = null;
+		bulkConfirmCount = 0;
+		bulkConfirmThreshold = 0;
+	}
+
+	async function runProposeTimeline(f: CaseFile, confirmBulk: boolean) {
+		proposingFileId = f.id;
+		try {
+			const result = await proposeTimelineEntriesFromCaseFile(caseId, f.id, token, {
+				confirm_bulk: confirmBulk
+			});
+			closeBulkModal();
+			toast.success(
+				`${result.proposal_count} timeline proposal${result.proposal_count === 1 ? '' : 's'} created — review in Proposals`
+			);
+			if (result.source_text_truncated_for_model === true) {
+				toast.warning(
+					'Only the start of this file was sent to the model — proposals may miss events from later in the file. Check the Proposals tab for the full warning.',
+					{ duration: 14000 }
+				);
+			}
+		} catch (e: unknown) {
+			const err = e as Error & {
+				status?: number;
+				code?: string;
+				proposal_count?: number;
+				threshold?: number;
+			};
+			if (err.status === 409 && err.code === 'BULK_PROPOSAL_CONFIRMATION_REQUIRED') {
+				bulkConfirmFile = f;
+				bulkConfirmCount = err.proposal_count ?? 0;
+				bulkConfirmThreshold = err.threshold ?? 0;
+			} else {
+				toast.error(err?.message ?? 'Propose timeline entries failed');
+			}
+		} finally {
+			proposingFileId = null;
 		}
 	}
 
@@ -313,7 +344,9 @@
 
 	<!-- Files list -->
 	<div class="text-xs text-gray-500 dark:text-gray-400">
-		Text extraction supported for: <span class="font-mono">{SUPPORTED_EXTRACT_TYPES}</span>
+		Text extraction supported for: <span class="font-mono" data-testid="case-files-supported-extract-types"
+			>{CASE_FILES_SUPPORTED_EXTRACT_TYPES_LABEL}</span
+		>
 	</div>
 
 	{#if loading}
@@ -334,11 +367,14 @@
 				<div class="flex flex-wrap items-center gap-2">
 					<span class="font-medium truncate flex-1 min-w-0">{f.original_filename}</span>
 					<span
-						class="shrink-0 font-mono text-xs px-1.5 py-0.5 rounded {isLikelyExtractable(f.original_filename, f.mime_type)
+						class="shrink-0 font-mono text-xs px-1.5 py-0.5 rounded {isCaseFileLikelyExtractable(
+							f.original_filename,
+							f.mime_type
+						)
 							? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
 							: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}"
 						title={f.mime_type ?? undefined}
-					>{fileExtLabel(f.original_filename, f.mime_type)}</span>
+					>{caseFileExtLabel(f.original_filename, f.mime_type)}</span>
 					<span class="text-gray-500 text-xs shrink-0"
 						>{f.file_size_bytes != null ? `${Math.round(f.file_size_bytes / 1024)} KB` : ''}</span
 					>
@@ -357,7 +393,7 @@
 					>
 						{extractingId === f.id ? 'Extracting...' : 'Extract text'}
 					</button>
-					{#if !isLikelyExtractable(f.original_filename, f.mime_type)}
+					{#if !isCaseFileLikelyExtractable(f.original_filename, f.mime_type)}
 						<span class="text-xs text-amber-600 dark:text-amber-400">(type not supported)</span>
 					{/if}
 					<button
@@ -366,6 +402,18 @@
 						on:click={() => handleViewText(f)}
 					>
 						View extracted text
+					</button>
+					<button
+						type="button"
+						class="text-violet-600 dark:text-violet-400 hover:underline text-xs disabled:opacity-50"
+						disabled={proposingFileId === f.id || f.extraction_status !== 'extracted'}
+						title={f.extraction_status !== 'extracted'
+							? 'Extract text first, then propose timeline entries'
+							: 'Create pending timeline proposals (review in Proposals tab)'}
+						data-testid="propose-timeline-from-file-btn"
+						on:click={() => runProposeTimeline(f, false)}
+					>
+						{proposingFileId === f.id ? 'Proposing…' : 'Propose timeline entries'}
 					</button>
 					</div>
 					<!-- Ticket 25: Tags -->
@@ -424,6 +472,49 @@
 		</div>
 	{/if}
 </div>
+
+<!-- P40-01: bulk proposal count confirmation -->
+{#if bulkConfirmFile}
+	<div
+		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+		role="dialog"
+		aria-modal="true"
+		aria-labelledby="bulk-proposal-title"
+		on:click={(e) => e.target === e.currentTarget && closeBulkModal()}
+		on:keydown={(e) => e.key === 'Escape' && closeBulkModal()}
+		tabindex="-1"
+		data-testid="bulk-proposal-confirm-modal"
+	>
+		<div
+			class="max-w-md w-full rounded-lg bg-white dark:bg-gray-850 shadow-xl mx-4 p-4"
+			on:click|stopPropagation
+		>
+			<h3 id="bulk-proposal-title" class="font-medium text-sm mb-2">Many timeline proposals</h3>
+			<p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+				Extraction would create <strong>{bulkConfirmCount}</strong> pending proposals (threshold
+				{bulkConfirmThreshold}). This stays review-first — nothing is written to the official Timeline until
+				you approve and commit each entry. Continue?
+			</p>
+			<div class="flex justify-end gap-2">
+				<button
+					type="button"
+					class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600"
+					on:click={closeBulkModal}
+				>
+					Cancel
+				</button>
+				<button
+					type="button"
+					class="px-3 py-1.5 text-sm rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+					disabled={proposingFileId !== null}
+					on:click={() => bulkConfirmFile && runProposeTimeline(bulkConfirmFile, true)}
+				>
+					{proposingFileId ? 'Working…' : 'Create proposals'}
+				</button>
+			</div>
+		</div>
+	</div>
+{/if}
 
 <!-- View extracted text modal -->
 {#if viewTextFileId}
