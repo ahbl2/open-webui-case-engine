@@ -9,6 +9,7 @@
 		getCaseIntakeHistory
 	} from '$lib/apis/caseEngine';
 	import type { AuditLogItem, DeletedItemsResponse, IntakeHistoryResponse } from '$lib/apis/caseEngine';
+	import { auditTimelineLineageSummary } from '$lib/caseTimeline/auditTimelineLineageSummary';
 
 	export let caseId: string;
 	export let token: string;
@@ -170,10 +171,8 @@
 			Narrative lifecycle actions (saved, exported, soft-deleted) appear here when recorded — read-only,
 			with case and record ids only; narrative text is not included.
 		</p>
-		<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="case-audit-timeline-provenance-hint">
-			When a timeline row was committed from a proposal, expanding an audit row may include a short origin
-			summary (for example document ingest vs chat-typed draft) and optional case file references — the
-			timeline entry itself remains the official record.
+		<p class="text-xs text-gray-400 dark:text-gray-500" data-testid="case-audit-timeline-provenance-hint">
+			Lineage column summarizes timeline-related audit metadata when present; expand a row for full JSON.
 		</p>
 		<div class="flex flex-wrap gap-2 items-center">
 			<select
@@ -200,17 +199,18 @@
 						<th class="text-left px-2 py-1.5">Action</th>
 						<th class="text-left px-2 py-1.5">User</th>
 						<th class="text-left px-2 py-1.5">Entity</th>
+						<th class="text-left px-2 py-1.5 max-w-[11rem]">Lineage</th>
 						<th class="text-left px-2 py-1.5 w-8"></th>
 					</tr>
 				</thead>
 				<tbody>
 					{#if auditLoading && auditItems.length === 0}
 						<tr>
-							<td colspan="5" class="px-2 py-4 text-gray-500">Loading...</td>
+							<td colspan="6" class="px-2 py-4 text-gray-500">Loading...</td>
 						</tr>
 					{:else if filteredAudit.length === 0}
 						<tr>
-							<td colspan="5" class="px-2 py-4 text-gray-500">No audit records</td>
+							<td colspan="6" class="px-2 py-4 text-gray-500">No audit records</td>
 						</tr>
 					{:else}
 						{#each filteredAudit as item (item.id)}
@@ -219,6 +219,12 @@
 								<td class="px-2 py-1">{item.action}</td>
 								<td class="px-2 py-1">{item.user_role ?? item.user_id}</td>
 								<td class="px-2 py-1">{item.entity_type} / {item.entity_id?.slice?.(0, 8)}</td>
+								<td
+									class="px-2 py-1 text-xs text-gray-600 dark:text-gray-400 max-w-[11rem] align-top"
+									data-testid="case-audit-lineage-cell"
+								>
+									{auditTimelineLineageSummary(item.details) ?? '—'}
+								</td>
 								<td class="px-2 py-1">
 									<details class="cursor-pointer">
 										<summary class="text-xs text-gray-500">...</summary>

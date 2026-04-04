@@ -1944,11 +1944,15 @@ export interface TimelineLinkedImageFile {
 	mime_type: string | null;
 }
 
-/** P40-02: derived provenance for committed entries (Case Engine). */
+/** P40-02 / P40-02A: derived provenance for committed entries (Case Engine). */
 export interface TimelineEntryProvenance {
 	origin_kind: string;
 	origin_label: string;
 	lineage_explanation: string;
+	derivation_source: string;
+	/** Back-compat intake column only — not the modern proposal path */
+	legacy_intake_fallback?: boolean;
+	proposal_payload_unreadable?: boolean;
 	committed_via_proposal: boolean;
 	proposal_id: string | null;
 	source_case_file_id: string | null;

@@ -15,6 +15,8 @@ describe('P40-02 timeline provenance UI', () => {
 		expect(src).toMatch(/data-testid="timeline-entry-origin-badge"/);
 		expect(src).toMatch(/data-testid="timeline-entry-provenance-source-file"/);
 		expect(src).toMatch(/data-testid="timeline-entry-provenance-chat-context"/);
+		expect(src).toMatch(/data-testid="timeline-entry-provenance-legacy-fallback"/);
+		expect(src).toMatch(/data-testid="timeline-entry-provenance-payload-unreadable"/);
 		expect(src).toMatch(/not from a document extract/);
 		expect(src).not.toMatch(/normal chat/);
 	});
@@ -26,9 +28,10 @@ describe('P40-02 timeline provenance UI', () => {
 		expect(src).toMatch(/TimelineEntryProvenanceBlock/);
 	});
 
-	it('CaseIntegrityTab documents timeline proposal audit provenance', () => {
+	it('CaseIntegrityTab uses lineage column and supplemental hint', () => {
 		const src = readFileSync(join(here, 'CaseIntegrityTab.svelte'), 'utf8');
 		expect(src).toMatch(/data-testid="case-audit-timeline-provenance-hint"/);
-		expect(src).toMatch(/document ingest/);
+		expect(src).toMatch(/data-testid="case-audit-lineage-cell"/);
+		expect(src).toMatch(/auditTimelineLineageSummary/);
 	});
 });

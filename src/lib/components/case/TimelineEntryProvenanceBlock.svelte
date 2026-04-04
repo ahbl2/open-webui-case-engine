@@ -30,9 +30,20 @@
 		<p class="italic text-gray-500 dark:text-gray-500">
 			{provenance.lineage_explanation}
 		</p>
+		{#if provenance.legacy_intake_fallback}
+			<p class="text-amber-700/90 dark:text-amber-400/90" data-testid="timeline-entry-provenance-legacy-fallback">
+				Compatibility only: this row predates or bypassed the standard proposal commit path. New work should
+				use proposals, not this legacy link.
+			</p>
+		{/if}
 		{#if provenance.committed_via_proposal}
 			<p data-testid="timeline-entry-provenance-proposal-path">
 				Committed through the proposals workflow (review and commit) — not a direct silent write.
+			</p>
+		{/if}
+		{#if provenance.proposal_payload_unreadable}
+			<p data-testid="timeline-entry-provenance-payload-unreadable">
+				Proposal linkage is recorded, but the saved snapshot could not be parsed for finer classification.
 			</p>
 		{/if}
 		{#if provenance.source_file_display_name}
