@@ -109,6 +109,7 @@
 		type TimelineTranscriptionState
 	} from '$lib/caseTimeline/timelineAudioTranscription';
 	import { transcribeAudio } from '$lib/apis/audio';
+	import { CASE_CANCEL_BTN_CLASS } from '$lib/caseButtonClasses';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -1362,10 +1363,8 @@
 									type="button"
 									on:click={cancelEdit}
 									disabled={editSaving}
-									class="text-xs text-gray-500 dark:text-gray-400
-									       hover:text-gray-700 dark:hover:text-gray-200
-									       px-2 py-1.5 transition disabled:opacity-40"
-									data-testid="timeline-edit-cancel"
+								class={CASE_CANCEL_BTN_CLASS}
+								data-testid="timeline-edit-cancel"
 								>
 									Cancel
 								</button>
@@ -1813,15 +1812,13 @@
 					>
 						{composerSaving ? 'Saving…' : 'Log entry'}
 					</button>
-					<button
-						type="button"
-						on:click={requestCancelComposer}
-						disabled={composerSaving}
-						class="text-xs text-gray-500 dark:text-gray-400
-						       hover:text-gray-700 dark:hover:text-gray-200
-						       px-2 py-1.5 transition disabled:opacity-40"
-						data-testid="timeline-composer-cancel"
-					>
+				<button
+					type="button"
+					on:click={requestCancelComposer}
+					disabled={composerSaving}
+					class={CASE_CANCEL_BTN_CLASS}
+					data-testid="timeline-composer-cancel"
+				>
 						Cancel
 					</button>
 					{#if !composerSaveValid}
