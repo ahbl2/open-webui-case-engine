@@ -35,3 +35,17 @@ describe('ProposalReviewPanel.svelte — P40-03 chronology confidence', () => {
 		expect(src).toMatch(/Chronology responsibility/i);
 	});
 });
+
+describe('ProposalReviewPanel.svelte — P40-03A semantics', () => {
+	it('separates high vs medium chronology copy and approved pre-commit framing', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toContain('data-testid="timeline-chronology-copy-high"');
+		expect(src).toContain('data-testid="timeline-chronology-copy-medium"');
+		expect(src).toContain('data-testid="timeline-chronology-copy-low"');
+		expect(src).toMatch(/Source-explicit/i);
+		expect(src).toMatch(/Partly inferred/i);
+		expect(src).toContain('data-testid="approved-timeline-precommit-notice"');
+		expect(src).toMatch(/controlled pre-commit corrections/i);
+		expect(src).toMatch(/Pre-commit correction \(approval stands/i);
+	});
+});

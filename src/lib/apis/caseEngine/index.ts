@@ -3849,7 +3849,9 @@ export async function getProposal(
 
 /**
  * Update proposal payload while **pending**, or while **approved** before commit (reviewer with
- * `can_approve_ai_proposals`; P40-03 chronology confirmation on approved document/chat proposals).
+ * `can_approve_ai_proposals`). **Approved timeline (P40-03A):** server allows only chronology /
+ * ambiguity / low-confidence confirmation fields, plus document-ingest body fields when applicable —
+ * not arbitrary text rewrites on generic timeline proposals.
  */
 export async function updateProposal(
 	caseId: string,

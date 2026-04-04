@@ -1103,24 +1103,63 @@
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
 											When confidence
 										</span>
-										<div class="text-[10px] text-gray-600 dark:text-gray-400 flex-1 space-y-0.5">
+										<div
+											class="text-[10px] text-gray-600 dark:text-gray-400 flex-1 space-y-0.5 rounded-r py-0.5 pl-2 border-l-2 {chronologyConf ===
+											'high'
+												? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20'
+												: chronologyConf === 'medium'
+													? 'border-violet-500 bg-violet-50/50 dark:bg-violet-950/25'
+													: 'border-amber-500 bg-amber-50/40 dark:bg-amber-950/20'}"
+										>
 											<span
 												class="font-medium uppercase tracking-wide text-[9px] px-1 py-0.5 rounded {chronologyConf ===
 												'high'
 													? 'bg-emerald-100/90 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100'
 													: chronologyConf === 'medium'
-														? 'bg-sky-100/90 text-sky-900 dark:bg-sky-950/50 dark:text-sky-100'
+														? 'bg-violet-200/90 text-violet-950 dark:bg-violet-900/60 dark:text-violet-100'
 														: 'bg-amber-100/90 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100'}"
 												data-testid="timeline-chronology-confidence-badge"
 											>
 												{chronologyConf}
 											</span>
-											<p class="text-[9px] text-gray-500 dark:text-gray-500 leading-snug">
-												High = date/time spelled out in the source. Medium = we have a time but it was partly
-												inferred. Low = unreliable — confirm (below) before commit.
-											</p>
+											{#if chronologyConf === 'high'}
+												<p
+													class="text-[9px] text-gray-600 dark:text-gray-400 leading-snug mt-0.5"
+													data-testid="timeline-chronology-copy-high"
+												>
+													<strong>Source-explicit:</strong> the date or time appears in the quoted source text.
+													That does not prove it is factually correct — still sanity-check before commit.
+												</p>
+											{:else if chronologyConf === 'medium'}
+												<p
+													class="text-[9px] text-gray-600 dark:text-gray-400 leading-snug mt-0.5"
+													data-testid="timeline-chronology-copy-medium"
+												>
+													<strong>Partly inferred:</strong> a timestamp is present but not fully anchored in
+													explicit calendar wording. Compare against the source carefully before you commit.
+												</p>
+											{:else}
+												<p
+													class="text-[9px] text-gray-600 dark:text-gray-400 leading-snug mt-0.5"
+													data-testid="timeline-chronology-copy-low"
+												>
+													<strong>Unreliable timing:</strong> confirm or correct below (or via document-ingest
+													fields) before commit — required for low confidence.
+												</p>
+											{/if}
 										</div>
 									</div>
+									{#if proposal.status === 'approved' && proposal.proposal_type === 'timeline'}
+										<p
+											class="text-[9px] text-gray-600 dark:text-gray-400 mt-1 px-1 py-1 rounded border border-gray-200 dark:border-gray-600 bg-gray-50/80 dark:bg-gray-900/40"
+											data-testid="approved-timeline-precommit-notice"
+										>
+											<strong>Already approved.</strong> Further edits here are
+											<strong>controlled pre-commit corrections</strong> (chronology and, for document-ingest
+											rows, extracted text) — not a full redraft. Reject and re-propose if the narrative needs a
+											fresh review.
+										</p>
+									{/if}
 									<div class="flex gap-2">
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
 											Type
@@ -1199,8 +1238,18 @@
 											data-testid="document-ingest-edit-form"
 										>
 											<p class="text-[10px] font-semibold text-violet-900 dark:text-violet-200">
-												Review &amp; edit (before approve or commit)
+												{#if proposal.status === 'approved'}
+													Pre-commit correction (approval stands; limited fields)
+												{:else}
+													Review &amp; edit (before approve or commit)
+												{/if}
 											</p>
+											{#if proposal.status === 'approved'}
+												<p class="text-[9px] text-violet-800/90 dark:text-violet-300/90 leading-snug">
+													Use this only to fix timing, confidence, or obvious extract errors before commit — not
+													to rework reviewed content.
+												</p>
+											{/if}
 											<label class="block text-[10px] text-gray-600 dark:text-gray-400">
 												occurred_at (ISO 8601 with timezone)
 												<input
@@ -1245,7 +1294,7 @@
 													on:change={() => (docEditById = docEditById)}
 												>
 													<option value="high">High — explicit date/time in source</option>
-													<option value="medium">Medium — inferred or partial basis</option>
+													<option value="medium">Medium — partly inferred; check against source</option>
 													<option value="low">Low — confirm before commit</option>
 												</select>
 											</label>
