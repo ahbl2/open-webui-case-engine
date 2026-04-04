@@ -1,5 +1,5 @@
 /**
- * P40-05C / P40-05D — Bulk confirm request body + success envelope unwrapping + stable counts for UI.
+ * P40-05C / P40-05D / P40-05E — Bulk confirm body, envelope unwrap, typed confirmation_required (no error path).
  */
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 
@@ -23,13 +23,16 @@ describe('proposeTimelineEntriesFromCaseFile bulk confirmation token', () => {
 
 	it('includes bulk_confirmation_token in JSON body when confirm_bulk and token provided', async () => {
 		fetchSpy.mockResolvedValueOnce(
-			jsonResponse({
-				proposals: [],
-				proposal_count: 11,
-				bulk_threshold: 10,
-				source_text_truncated_for_model: false
-			},
-			201)
+			jsonResponse(
+				{
+					status: 'created',
+					proposals: [],
+					proposal_count: 0,
+					bulk_threshold: 10,
+					source_text_truncated_for_model: false
+				},
+				201
+			)
 		);
 		const { proposeTimelineEntriesFromCaseFile } = await import('../index');
 		await proposeTimelineEntriesFromCaseFile('case-1', 'file-2', 'jwt', {
@@ -43,41 +46,58 @@ describe('proposeTimelineEntriesFromCaseFile bulk confirmation token', () => {
 		expect(body.bulk_confirmation_token).toBe('pending-token-uuid');
 	});
 
-	it('attaches bulk_confirmation_token to thrown 409 error for UI modal state', async () => {
+	it('P40-05E: 200 confirmation_required returns typed outcome (not an error)', async () => {
 		fetchSpy.mockResolvedValueOnce(
 			jsonResponse(
 				{
-					error: 'BULK',
-					code: 'BULK_PROPOSAL_CONFIRMATION_REQUIRED',
+					status: 'confirmation_required',
 					proposal_count: 12,
 					threshold: 10,
+					bulk_threshold: 10,
 					bulk_confirmation_token: 'srv-token'
+				},
+				200
+			)
+		);
+		const { proposeTimelineEntriesFromCaseFile } = await import('../index');
+		const out = await proposeTimelineEntriesFromCaseFile('c', 'f', 'jwt', {});
+		expect(out.status).toBe('confirmation_required');
+		if (out.status === 'confirmation_required') {
+			expect(out.proposal_count).toBe(12);
+			expect(out.threshold).toBe(10);
+			expect(out.bulk_confirmation_token).toBe('srv-token');
+		}
+	});
+
+	it('P40-05E transition: legacy 409 BULK_PROPOSAL maps to confirmation_required', async () => {
+		fetchSpy.mockResolvedValueOnce(
+			jsonResponse(
+				{
+					error: 'legacy',
+					code: 'BULK_PROPOSAL_CONFIRMATION_REQUIRED',
+					proposal_count: 11,
+					threshold: 10,
+					bulk_confirmation_token: 'legacy-tok'
 				},
 				409
 			)
 		);
 		const { proposeTimelineEntriesFromCaseFile } = await import('../index');
-		try {
-			await proposeTimelineEntriesFromCaseFile('c', 'f', 'jwt', {});
-			expect.fail('expected throw');
-		} catch (e: unknown) {
-			const err = e as Error & {
-				code?: string;
-				bulk_confirmation_token?: string;
-				status?: number;
-			};
-			expect(err.status).toBe(409);
-			expect(err.code).toBe('BULK_PROPOSAL_CONFIRMATION_REQUIRED');
-			expect(err.bulk_confirmation_token).toBe('srv-token');
+		const out = await proposeTimelineEntriesFromCaseFile('c', 'f', 'jwt', {});
+		expect(out.status).toBe('confirmation_required');
+		if (out.status === 'confirmation_required') {
+			expect(out.bulk_confirmation_token).toBe('legacy-tok');
+			expect(out.proposal_count).toBe(11);
 		}
 	});
 
-	it('P40-05D: unwraps P20 envelope on 201 so proposal_count is available to the UI', async () => {
+	it('P40-05D: unwraps P20 envelope on 201 created so proposal_count is available', async () => {
 		fetchSpy.mockResolvedValueOnce(
 			jsonResponse(
 				{
 					success: true,
 					data: {
+						status: 'created',
 						proposals: [{ id: 'p1' } as never],
 						proposal_count: 1,
 						bulk_threshold: 10,
@@ -92,8 +112,11 @@ describe('proposeTimelineEntriesFromCaseFile bulk confirmation token', () => {
 			confirm_bulk: true,
 			bulk_confirmation_token: 't'
 		});
-		expect(out.proposal_count).toBe(1);
-		expect(out.proposals).toHaveLength(1);
+		expect(out.status).toBe('created');
+		if (out.status === 'created') {
+			expect(out.proposal_count).toBe(1);
+			expect(out.proposals).toHaveLength(1);
+		}
 	});
 
 	it('P40-05D: derives proposal_count from proposals when count omitted (legacy flat body)', async () => {
@@ -109,7 +132,10 @@ describe('proposeTimelineEntriesFromCaseFile bulk confirmation token', () => {
 		);
 		const { proposeTimelineEntriesFromCaseFile } = await import('../index');
 		const out = await proposeTimelineEntriesFromCaseFile('c', 'f', 'jwt', {});
-		expect(out.proposal_count).toBe(2);
+		expect(out.status).toBe('created');
+		if (out.status === 'created') {
+			expect(out.proposal_count).toBe(2);
+		}
 	});
 
 	it('P40-05D: 400 invalid/expired token surfaces message via extractApiErrorMessage', async () => {

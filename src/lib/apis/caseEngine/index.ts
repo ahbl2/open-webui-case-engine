@@ -3726,18 +3726,29 @@ export interface ProposalRecord {
 	rejection_reason: string | null;
 }
 
-/** P40-01 — POST /cases/:caseId/files/:fileId/propose-timeline-entries */
+/** P40-01 / P40-05E — POST /cases/:caseId/files/:fileId/propose-timeline-entries */
+export type ProposeTimelineFromCaseFileResult =
+	| {
+			status: 'created';
+			proposals: ProposalRecord[];
+			proposal_count: number;
+			bulk_threshold: number;
+			source_text_truncated_for_model: boolean;
+	  }
+	| {
+			status: 'confirmation_required';
+			proposal_count: number;
+			threshold: number;
+			bulk_threshold: number;
+			bulk_confirmation_token: string;
+	  };
+
 export async function proposeTimelineEntriesFromCaseFile(
 	caseId: string,
 	fileId: string,
 	token: string,
 	options?: { confirm_bulk?: boolean; model?: string; bulk_confirmation_token?: string }
-): Promise<{
-	proposals: ProposalRecord[];
-	proposal_count: number;
-	bulk_threshold: number;
-	source_text_truncated_for_model: boolean;
-}> {
+): Promise<ProposeTimelineFromCaseFileResult> {
 	const bulkTok =
 		typeof options?.bulk_confirmation_token === 'string' && options.bulk_confirmation_token.trim()
 			? options.bulk_confirmation_token.trim()
@@ -3758,40 +3769,70 @@ export async function proposeTimelineEntriesFromCaseFile(
 		}
 	);
 	const data = await res.json().catch(() => ({}));
+
+	/** P40-05E transition: older Case Engine used 409 for threshold workflow — map to the same typed outcome. */
 	if (res.status === 409) {
 		const flat = data as Record<string, unknown>;
-		const err = new Error(
-			extractApiErrorMessage(data, 'Bulk proposal confirmation required')
-		) as Error & {
-			code?: string;
-			proposal_count?: number;
-			threshold?: number;
-			bulk_confirmation_token?: string;
-			status?: number;
-		};
-		err.code = typeof flat.code === 'string' ? flat.code : undefined;
-		err.proposal_count =
-			typeof flat.proposal_count === 'number' ? flat.proposal_count : undefined;
-		err.threshold = typeof flat.threshold === 'number' ? flat.threshold : undefined;
-		err.bulk_confirmation_token =
-			typeof flat.bulk_confirmation_token === 'string' ? flat.bulk_confirmation_token : undefined;
-		err.status = 409;
-		throw err;
+		if (flat.code === 'BULK_PROPOSAL_CONFIRMATION_REQUIRED') {
+			const tok =
+				typeof flat.bulk_confirmation_token === 'string' ? flat.bulk_confirmation_token.trim() : '';
+			if (!tok) {
+				throw new Error(extractApiErrorMessage(data, 'Bulk proposal confirmation required'));
+			}
+			const th =
+				typeof flat.threshold === 'number'
+					? flat.threshold
+					: typeof flat.bulk_threshold === 'number'
+						? flat.bulk_threshold
+						: 10;
+			return {
+				status: 'confirmation_required',
+				proposal_count: typeof flat.proposal_count === 'number' ? flat.proposal_count : 0,
+				threshold: th,
+				bulk_threshold: th,
+				bulk_confirmation_token: tok
+			};
+		}
+		throw new Error(extractApiErrorMessage(data, `Propose timeline from file failed (${res.status})`));
 	}
+
 	if (!res.ok) {
 		throw new Error(extractApiErrorMessage(data, `Propose timeline from file failed (${res.status})`));
 	}
-	/** P40-05D: unwrap P20 `{ success, data }` when present; normalize counts so UI never shows undefined. */
-	const payload = unwrapEnvelopeCanonicalFirst<{
-		proposals?: ProposalRecord[];
-		proposal_count?: number;
-		bulk_threshold?: number;
-		source_text_truncated_for_model?: boolean;
-	}>(data, 'proposeTimelineFromCaseFile');
-	const proposals = Array.isArray(payload.proposals) ? payload.proposals : [];
+
+	const payload = unwrapEnvelopeCanonicalFirst<Record<string, unknown>>(
+		data,
+		'proposeTimelineFromCaseFile'
+	);
+
+	if (payload.status === 'confirmation_required') {
+		const th =
+			typeof payload.threshold === 'number'
+				? payload.threshold
+				: typeof payload.bulk_threshold === 'number'
+					? payload.bulk_threshold
+					: 10;
+		const tok =
+			typeof payload.bulk_confirmation_token === 'string'
+				? payload.bulk_confirmation_token.trim()
+				: '';
+		if (!tok) {
+			throw new Error('Bulk confirmation required but server did not return bulk_confirmation_token');
+		}
+		return {
+			status: 'confirmation_required',
+			proposal_count: typeof payload.proposal_count === 'number' ? payload.proposal_count : 0,
+			threshold: th,
+			bulk_threshold: typeof payload.bulk_threshold === 'number' ? payload.bulk_threshold : th,
+			bulk_confirmation_token: tok
+		};
+	}
+
+	const proposals = Array.isArray(payload.proposals) ? (payload.proposals as ProposalRecord[]) : [];
 	const proposal_count =
 		typeof payload.proposal_count === 'number' ? payload.proposal_count : proposals.length;
 	return {
+		status: 'created',
 		proposals,
 		proposal_count,
 		bulk_threshold: typeof payload.bulk_threshold === 'number' ? payload.bulk_threshold : 10,

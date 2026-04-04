@@ -278,6 +278,25 @@
 					? { bulk_confirmation_token: bulkConfirmToken }
 					: {})
 			});
+
+			if (result.status === 'confirmation_required') {
+				if (confirmBulk) {
+					toast.warning(
+						'The server still requires bulk confirmation (counts may have changed). Review the dialog and click Create proposals again, or cancel and run Propose timeline entries from scratch.',
+						{ duration: 12000 }
+					);
+				}
+				bulkConfirmFile = f;
+				bulkConfirmCount = result.proposal_count;
+				bulkConfirmThreshold = result.threshold;
+				bulkConfirmToken =
+					typeof result.bulk_confirmation_token === 'string' &&
+					result.bulk_confirmation_token.length > 0
+						? result.bulk_confirmation_token
+						: null;
+				return;
+			}
+
 			const n = result.proposal_count;
 			closeBulkModal();
 			if (n <= 0) {
@@ -298,39 +317,17 @@
 				);
 			}
 		} catch (e: unknown) {
-			const err = e as Error & {
-				status?: number;
-				code?: string;
-				proposal_count?: number;
-				threshold?: number;
-				bulk_confirmation_token?: string;
-			};
-			if (err.status === 409 && err.code === 'BULK_PROPOSAL_CONFIRMATION_REQUIRED') {
-				if (confirmBulk) {
-					toast.warning(
-						'The server still requires bulk confirmation (counts may have changed). Review the dialog and click Create proposals again, or cancel and run Propose timeline entries from scratch.',
-						{ duration: 12000 }
-					);
-				}
-				bulkConfirmFile = f;
-				bulkConfirmCount = err.proposal_count ?? 0;
-				bulkConfirmThreshold = err.threshold ?? 0;
-				bulkConfirmToken =
-					typeof err.bulk_confirmation_token === 'string' && err.bulk_confirmation_token.length > 0
-						? err.bulk_confirmation_token
-						: null;
-			} else {
-				const msg = err?.message ?? 'Propose timeline entries failed';
-				const isToken =
-					typeof msg === 'string' &&
-					(msg.includes('invalid') || msg.includes('expired') || msg.includes('regenerate'));
-				toast.error(
-					isToken
-						? `${msg} Use Propose timeline entries again to generate a fresh batch.`
-						: msg,
-					{ duration: isToken ? 12000 : 6000 }
-				);
-			}
+			const err = e as Error;
+			const msg = err?.message ?? 'Propose timeline entries failed';
+			const isToken =
+				typeof msg === 'string' &&
+				(msg.includes('invalid') || msg.includes('expired') || msg.includes('regenerate'));
+			toast.error(
+				isToken
+					? `${msg} Use Propose timeline entries again to generate a fresh batch.`
+					: msg,
+				{ duration: isToken ? 12000 : 6000 }
+			);
 		} finally {
 			proposingFileId = null;
 		}
