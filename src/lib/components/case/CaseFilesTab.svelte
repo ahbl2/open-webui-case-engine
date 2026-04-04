@@ -20,6 +20,7 @@
 		caseFileExtLabel,
 		isCaseFileLikelyExtractable
 	} from '$lib/components/case/caseFilesExtractSupport';
+	import { buildCaseFileExtractedTextModalBody } from '$lib/components/case/caseFileExtractedTextModal';
 
 	export let caseId: string;
 	export let token: string;
@@ -167,6 +168,25 @@
 		await handleDroppedFiles(Array.from(list));
 	}
 
+	/** P40-05B: same GET /files/:id/text path as “View extracted text” so the modal is never blank after extract. */
+	async function loadExtractedTextIntoModal(fileId: string): Promise<void> {
+		viewTextFileId = fileId;
+		viewTextContent = null;
+		viewTextLoading = true;
+		try {
+			const data = await getCaseFileText(fileId, token);
+			viewTextContent = buildCaseFileExtractedTextModalBody({
+				status: data.status,
+				message: data.message,
+				extracted_text: data.extracted_text
+			});
+		} catch (e: any) {
+			viewTextContent = `Error: ${e?.message ?? 'Failed to load'}`;
+		} finally {
+			viewTextLoading = false;
+		}
+	}
+
 	async function handleExtract(f: CaseFile) {
 		extractingId = f.id;
 		try {
@@ -175,8 +195,7 @@
 
 			if (result.status === 'EXTRACTED') {
 				toast.success('Text extracted');
-				viewTextFileId = f.id;
-				viewTextContent = null;
+				await loadExtractedTextIntoModal(f.id);
 			} else if (result.status === 'UNSUPPORTED') {
 				toast.error(
 					`.${ext} files are not supported for extraction. Supported: ${CASE_FILES_SUPPORTED_EXTRACT_TYPES_LABEL}`
@@ -198,20 +217,7 @@
 	}
 
 	async function handleViewText(f: CaseFile) {
-		viewTextFileId = f.id;
-		viewTextContent = null;
-		viewTextLoading = true;
-		try {
-			const data = await getCaseFileText(f.id, token);
-			viewTextContent = data.extracted_text ?? '(No text)';
-			if (data.status !== 'EXTRACTED' && data.message) {
-				viewTextContent = `[${data.status}] ${data.message}\n\n${viewTextContent}`;
-			}
-		} catch (e: any) {
-			viewTextContent = `Error: ${e?.message ?? 'Failed to load'}`;
-		} finally {
-			viewTextLoading = false;
-		}
+		await loadExtractedTextIntoModal(f.id);
 	}
 
 	function closeViewText() {
@@ -547,7 +553,9 @@
 				{#if viewTextLoading}
 					<div class="text-gray-500">Loading...</div>
 				{:else if viewTextContent !== null}
-					<pre class="whitespace-pre-wrap text-sm font-sans">{viewTextContent}</pre>
+					<pre
+						class="whitespace-pre-wrap text-sm font-sans"
+						data-testid="case-file-extracted-text-body">{viewTextContent}</pre>
 				{/if}
 			</div>
 		</div>
