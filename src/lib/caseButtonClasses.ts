@@ -27,6 +27,20 @@
  */
 
 /**
+ * Assist / AI-action button (teal, semi-transparent, with shimmer affordance).
+ *
+ * Use for actions that invoke an AI-assisted or AI-powered workflow where the
+ * detective reviews the result before saving. Timeline "Improve text" and Notes
+ * "Structure Note" are both this role.
+ *
+ * Reference: Notes "Structure Note" button (N-A1/N-A2 in the P38 audit).
+ * Pairs with a `.timeline-assist-shimmer` (or `.notes-workflow-shimmer`) child
+ * span for the idle sheen animation — `overflow-hidden` is already included.
+ */
+export const CASE_ASSIST_BTN_CLASS =
+	'relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium overflow-hidden border-teal-400/90 dark:border-teal-600 text-teal-900 dark:text-teal-100 bg-white/70 dark:bg-gray-800/70 hover:bg-teal-50/95 dark:hover:bg-teal-900/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition';
+
+/**
  * Cancel / abandon form button (non-destructive).
  *
  * Use when the user exits a create or edit form without saving.

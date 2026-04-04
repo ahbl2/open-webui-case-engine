@@ -100,8 +100,10 @@
 	} from '$lib/caseTimeline/timelineTextImport';
 	import { extractContentFromFile } from '$lib/utils';
 	import {
-		applyTimelineComposerCleanup
-	} from '$lib/caseTimeline/timelineCleanup';
+		isTimelineImproveTextNoop,
+		type TimelineImproveState
+	} from '$lib/caseTimeline/timelineImproveText';
+	import { previewStructuredNotesExtraction } from '$lib/apis/caseEngine';
 	import {
 		isTimelineAudioFileSupported,
 		unsupportedTimelineAudioMessage,
@@ -109,7 +111,7 @@
 		type TimelineTranscriptionState
 	} from '$lib/caseTimeline/timelineAudioTranscription';
 	import { transcribeAudio } from '$lib/apis/audio';
-	import { CASE_CANCEL_BTN_CLASS } from '$lib/caseButtonClasses';
+	import { CASE_CANCEL_BTN_CLASS, CASE_ASSIST_BTN_CLASS } from '$lib/caseButtonClasses';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -167,8 +169,8 @@
 		resetTimelineDictation();
 		resetTimelineImport();
 		resetTimelineTranscription();
-		cleanupState = 'idle';
-		cleanupSummary = [];
+		improveState = 'idle';
+		improveError = '';
 		editingEntryId = null;
 		editDraft = null;
 		editSaving = false;
@@ -346,8 +348,8 @@
 		resetTimelineDictation();
 		resetTimelineImport();
 		resetTimelineTranscription();
-		cleanupState = 'idle';
-		cleanupSummary = [];
+		improveState = 'idle';
+		improveError = '';
 		composerOpen = false;
 		composerDraft = null;
 		composerError = '';
@@ -528,8 +530,8 @@
 		resetTimelineDictation();
 		resetTimelineImport();
 		resetTimelineTranscription();
-		cleanupState = 'idle';
-		cleanupSummary = [];
+		improveState = 'idle';
+		improveError = '';
 	});
 
 	// ── P39-05 Bottom composer text import (file → editable text) ─────────────────
@@ -590,22 +592,44 @@
 	// ── P39-06 Bottom composer deterministic cleanup ──────────────────────────────
 	// Synchronous; no network call; no LLM. Rules: line endings, Unicode typography,
 	// trailing whitespace per line, internal spaces, standalone i→I, common typos,
-	// trailing newlines. Returns immediately; result shown as dismissable indicator.
+	// Upgraded from P39-06 deterministic cleanup to AI-powered text improvement
+	// (uses previewStructuredNotesExtraction — same backend pipeline as Notes
+	// "Structure Note"). Result lands directly in the composer as visible,
+	// editable text. No auto-save. No hidden write. Explicit save still required.
 
-	type TimelineCleanupState = 'idle' | 'applied' | 'noop';
-	let cleanupState: TimelineCleanupState = 'idle';
-	let cleanupSummary: string[] = [];
+	let improveState: TimelineImproveState = 'idle';
+	let improveError = '';
 
-	function handleTimelineCleanup(): void {
-		if (!composerDraft?.text_original.trim()) return;
-		const result = applyTimelineComposerCleanup(composerDraft.text_original);
-		if (result.changed) {
-			composerDraft = { ...composerDraft, text_original: result.cleanedText };
-			cleanupSummary = result.changesSummary;
-			cleanupState = 'applied';
-		} else {
-			cleanupSummary = [];
-			cleanupState = 'noop';
+	async function handleTimelineImproveText(): Promise<void> {
+		if (!composerDraft?.text_original?.trim()) return;
+		if (!$caseEngineToken) {
+			improveError = 'Case Engine session required.';
+			improveState = 'error';
+			return;
+		}
+		improveState = 'processing';
+		improveError = '';
+		try {
+			const result = await previewStructuredNotesExtraction(
+				caseId,
+				$caseEngineToken,
+				composerDraft.text_original.trim()
+			);
+			if (!result.success) {
+				improveError = result.errorMessage || 'Text improvement unavailable.';
+				improveState = 'error';
+				return;
+			}
+			const { render } = result.data;
+			if (render.status === 'blocked' || isTimelineImproveTextNoop(render.renderedText, composerDraft.text_original)) {
+				improveState = 'noop';
+				return;
+			}
+			composerDraft = { ...composerDraft, text_original: render.renderedText };
+			improveState = 'applied';
+		} catch {
+			improveError = 'Text improvement unavailable. Try again.';
+			improveState = 'error';
 		}
 	}
 
@@ -1599,29 +1623,33 @@
 							</button>
 						</div>
 					{/if}
-					<!-- Cleanup result (P39-06) -->
-					{#if cleanupState === 'applied' || cleanupState === 'noop'}
+					<!-- Improve text result (applied / noop / error) -->
+					{#if improveState === 'applied' || improveState === 'noop' || improveState === 'error'}
 						<div class="flex items-center gap-2">
 							<span
-								class="text-xs {cleanupState === 'applied'
+								class="text-xs {improveState === 'applied'
 									? 'text-green-700 dark:text-green-400'
+									: improveState === 'error'
+									? 'text-red-600 dark:text-red-400'
 									: 'text-gray-500 dark:text-gray-400'}"
 								aria-live="polite"
-								data-testid="timeline-cleanup-result"
+								data-testid="timeline-improve-result"
 							>
-								{#if cleanupState === 'applied'}
-									Cleaned up ({cleanupSummary.length} change{cleanupSummary.length !== 1 ? 's' : ''})
+								{#if improveState === 'applied'}
+									Text improved — review and save when ready.
+								{:else if improveState === 'noop'}
+									Already looks good — no changes made.
 								{:else}
-									No changes needed — text is already clean.
+									{improveError || 'Text improvement unavailable.'}
 								{/if}
 							</span>
 							<button
 								type="button"
-								on:click={() => { cleanupState = 'idle'; cleanupSummary = []; }}
+								on:click={() => { improveState = 'idle'; improveError = ''; }}
 								class="text-xs text-gray-400 dark:text-gray-500
 								       hover:text-gray-600 dark:hover:text-gray-300 transition"
-								aria-label="Dismiss cleanup result"
-								data-testid="timeline-cleanup-dismiss"
+								aria-label="Dismiss improve text result"
+								data-testid="timeline-improve-dismiss"
 							>
 								×
 							</button>
@@ -1680,6 +1708,19 @@
 								></span>
 								Transcribing{transcriptionFilename ? ` "${transcriptionFilename}"` : ''}…
 							</span>
+						{:else if improveState === 'processing'}
+							<!-- Improve text active — teal processing indicator -->
+							<span
+								class="inline-flex items-center gap-1.5 text-xs text-teal-600 dark:text-teal-400"
+								aria-live="polite"
+								data-testid="timeline-improve-processing"
+							>
+								<span
+									class="size-2 rounded-full bg-teal-400 animate-pulse inline-block"
+									aria-hidden="true"
+								></span>
+								Improving text…
+							</span>
 						{:else}
 							<!-- Idle — both controls available -->
 							<button
@@ -1718,22 +1759,18 @@
 									on:change={(e) => void handleImportFile((e.target as HTMLInputElement).files)}
 								/>
 							</label>
-							<!-- Deterministic cleanup (P39-06) -->
+							<!-- Improve text — AI-powered teal assist action -->
 							<button
 								type="button"
-								on:click={handleTimelineCleanup}
+								on:click={() => void handleTimelineImproveText()}
 								disabled={!composerDraft?.text_original?.trim()}
-								class="inline-flex items-center gap-1.5 text-xs
-								       text-gray-600 dark:text-gray-400
-								       hover:text-gray-800 dark:hover:text-gray-200
-								       px-2 py-1 rounded border border-gray-300 dark:border-gray-600
-								       hover:bg-gray-100 dark:hover:bg-gray-800
-								       disabled:opacity-40 disabled:cursor-not-allowed transition"
-								title="Apply deterministic cleanup: normalize whitespace, fix typography, correct common typos"
-								aria-label="Clean up entry text"
-								data-testid="timeline-cleanup-start"
+								class={CASE_ASSIST_BTN_CLASS}
+								title="Improve entry text using AI — result stays in composer for review before save"
+								aria-label="Improve entry text"
+								data-testid="timeline-improve-start"
 							>
-								<span>Clean up</span>
+								<span class="timeline-assist-shimmer" aria-hidden="true"></span>
+								<span>Improve text</span>
 							</button>
 							<!-- Transcribe audio file (P39-07) -->
 							<label
@@ -1835,3 +1872,50 @@
 		</section>
 	{/if}
 </div>
+
+<style>
+	/* Teal sheen for "Improve text" assist button — mirrors Notes workflow-shimmer.
+	   Idle-only affordance that this is an AI-assisted action; respects reduced-motion. */
+	.timeline-assist-shimmer {
+		position: absolute;
+		inset: 0;
+		background: linear-gradient(
+			75deg,
+			transparent 35%,
+			rgba(45, 212, 191, 0.16) 50%,
+			transparent 65%
+		);
+		background-size: 300% 100%;
+		background-position: 200% center;
+		animation: timeline-assist-sheen 6s ease-in-out 1s infinite;
+		pointer-events: none;
+	}
+
+	@keyframes timeline-assist-sheen {
+		0% {
+			background-position: 200% center;
+			opacity: 0;
+		}
+		8% {
+			opacity: 1;
+		}
+		42% {
+			background-position: -100% center;
+			opacity: 1;
+		}
+		50% {
+			opacity: 0;
+		}
+		100% {
+			background-position: -100% center;
+			opacity: 0;
+		}
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.timeline-assist-shimmer {
+			animation: none;
+			background: transparent;
+		}
+	}
+</style>
