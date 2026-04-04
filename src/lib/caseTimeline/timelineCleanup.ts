@@ -183,3 +183,31 @@ export function applyTimelineComposerCleanup(rawText: string): TimelineCleanupRe
 
 	return { cleanedText: s, changesSummary: summary, changed: s !== rawText };
 }
+
+/**
+ * Minimal deterministic normalization applied to `text_original` at save time
+ * (create and edit). Called immediately before the API call, after `.trim()`.
+ *
+ * Rules (two only — in order):
+ *   1. Capitalize the first character if it is a lowercase letter.
+ *      Has no effect when the text starts with a digit, punctuation, or uppercase.
+ *   2. Append a period when the text does not already end with `.`, `!`, or `?`.
+ *
+ * Invariants:
+ *   - No AI, no network — purely synchronous and local.
+ *   - Does NOT rewrite, paraphrase, reorder, or alter meaning.
+ *   - Hedged wording already in the text ("maybe", "not sure", "I think") is
+ *     preserved unchanged; only the first character and final punctuation are touched.
+ *   - Returns the input unchanged when it is empty.
+ */
+export function normalizeTimelineEntryTextForSave(text: string): string {
+	if (!text) return text;
+	let s = text;
+	// Rule 1: capitalize first character if it is a lowercase letter
+	s = s.replace(/^[a-z]/, (c) => c.toUpperCase());
+	// Rule 2: add trailing period when no sentence-ending punctuation present
+	if (!/[.!?]$/.test(s)) {
+		s = s + '.';
+	}
+	return s;
+}

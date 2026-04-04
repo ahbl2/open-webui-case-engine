@@ -358,17 +358,26 @@
 			by <span class="font-medium text-gray-500 dark:text-gray-400">{entry.created_by}</span>
 		</span>
 
-			{#if isRetrospective}
-				<span
-					class="text-[10px] font-medium px-1 py-0.5 rounded
-					       bg-gray-100 dark:bg-gray-800
-					       text-gray-500 dark:text-gray-400"
-					title="This entry was recorded approximately {retrospectiveHours} hours after the event it describes."
-					data-testid="timeline-entry-retrospective"
-				>
-					Logged {retrospectiveHours}h after
-				</span>
-			{/if}
+		{#if isRetrospective}
+			<span
+				class="text-[10px] font-medium px-1 py-0.5 rounded
+				       border border-gray-300 dark:border-gray-600
+				       text-gray-500 dark:text-gray-400"
+				title="This entry was logged significantly after the event it describes."
+				data-testid="timeline-entry-delayed-logging"
+			>
+				Logged later
+			</span>
+			<span
+				class="text-[10px] font-medium px-1 py-0.5 rounded
+				       bg-gray-100 dark:bg-gray-800
+				       text-gray-500 dark:text-gray-400"
+				title="This entry was recorded approximately {retrospectiveHours} hours after the event it describes."
+				data-testid="timeline-entry-retrospective"
+			>
+				Logged {retrospectiveHours}h after
+			</span>
+		{/if}
 
 		<!-- Action buttons: Remove · Edit (right-aligned, subtle) -->
 		<div class="ml-auto flex items-center gap-1">

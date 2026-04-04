@@ -104,6 +104,7 @@
 		renderTimelineParagraphText,
 		type TimelineImproveState
 	} from '$lib/caseTimeline/timelineImproveText';
+	import { normalizeTimelineEntryTextForSave } from '$lib/caseTimeline/timelineCleanup';
 	import { previewStructuredNotesExtraction } from '$lib/apis/caseEngine';
 	import {
 		isTimelineAudioFileSupported,
@@ -370,7 +371,7 @@
 		if (!composerDraft || !$caseEngineToken) return;
 		if (!composerSaveValid) return;
 
-		const text = composerDraft.text_original.trim();
+		const text = normalizeTimelineEntryTextForSave(composerDraft.text_original.trim());
 		const localDatetime = `${composerDraft.occurred_date}T${composerDraft.occurred_time}`;
 
 		composerSaving = true;
@@ -833,7 +834,7 @@
 			editError = 'Reason for change is required.';
 			return;
 		}
-		const text = editDraft.text_original.trim();
+		const text = normalizeTimelineEntryTextForSave(editDraft.text_original.trim());
 		if (!text) {
 			editError = 'Entry text must not be empty.';
 			return;

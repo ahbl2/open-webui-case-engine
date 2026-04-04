@@ -9,7 +9,7 @@
  *   5. Edge cases: empty text, already-clean text, multiple rules firing together
  */
 import { describe, expect, it } from 'vitest';
-import { applyTimelineComposerCleanup } from './timelineCleanup';
+import { applyTimelineComposerCleanup, normalizeTimelineEntryTextForSave } from './timelineCleanup';
 import {
 	isDirtyBottomComposer,
 	isBottomComposerSaveValid,
@@ -363,5 +363,63 @@ describe('applyTimelineComposerCleanup — integration with P39-03 dirty/save-va
 			location_text: ''
 		};
 		expect(isBottomComposerSaveValid(draft)).toBe(false);
+	});
+});
+
+// ── normalizeTimelineEntryTextForSave ────────────────────────────────────────
+
+describe('normalizeTimelineEntryTextForSave', () => {
+	it('capitalizes lowercase first character', () => {
+		expect(normalizeTimelineEntryTextForSave('went to the scene.')).toBe('Went to the scene.');
+	});
+
+	it('adds trailing period when text has no sentence-ending punctuation', () => {
+		expect(normalizeTimelineEntryTextForSave('Arrived at 09:00')).toBe('Arrived at 09:00.');
+	});
+
+	it('applies both rules together: lowercase start and no trailing punctuation', () => {
+		expect(normalizeTimelineEntryTextForSave('subject was seen near the building'))
+			.toBe('Subject was seen near the building.');
+	});
+
+	it('does not add period when text ends with period', () => {
+		expect(normalizeTimelineEntryTextForSave('Arrived at 09:00.')).toBe('Arrived at 09:00.');
+	});
+
+	it('does not add period when text ends with exclamation mark', () => {
+		expect(normalizeTimelineEntryTextForSave('Stop!')).toBe('Stop!');
+	});
+
+	it('does not add period when text ends with question mark', () => {
+		expect(normalizeTimelineEntryTextForSave('Suspect fled?')).toBe('Suspect fled?');
+	});
+
+	it('does not modify already correct text', () => {
+		const input = 'Vehicle parked outside the address.';
+		expect(normalizeTimelineEntryTextForSave(input)).toBe(input);
+	});
+
+	it('preserves hedged wording — only capitalizes and adds period', () => {
+		expect(normalizeTimelineEntryTextForSave('maybe the suspect left earlier'))
+			.toBe('Maybe the suspect left earlier.');
+	});
+
+	it('preserves "I think" phrasing unchanged (only capitalizes first char and adds period)', () => {
+		expect(normalizeTimelineEntryTextForSave('i think this might be related'))
+			.toBe('I think this might be related.');
+	});
+
+	it('does not change text that starts with a digit', () => {
+		expect(normalizeTimelineEntryTextForSave('3 subjects observed leaving'))
+			.toBe('3 subjects observed leaving.');
+	});
+
+	it('does not change text that starts with uppercase', () => {
+		expect(normalizeTimelineEntryTextForSave('Subject observed at location'))
+			.toBe('Subject observed at location.');
+	});
+
+	it('returns empty string unchanged', () => {
+		expect(normalizeTimelineEntryTextForSave('')).toBe('');
 	});
 });
