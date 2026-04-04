@@ -101,6 +101,7 @@
 	import { extractContentFromFile } from '$lib/utils';
 	import {
 		isTimelineImproveTextNoop,
+		renderTimelineParagraphText,
 		type TimelineImproveState
 	} from '$lib/caseTimeline/timelineImproveText';
 	import { previewStructuredNotesExtraction } from '$lib/apis/caseEngine';
@@ -620,12 +621,13 @@
 				improveState = 'error';
 				return;
 			}
-			const { render } = result.data;
-			if (render.status === 'blocked' || isTimelineImproveTextNoop(render.renderedText, composerDraft.text_original)) {
-				improveState = 'noop';
-				return;
-			}
-			composerDraft = { ...composerDraft, text_original: render.renderedText };
+		const { render } = result.data;
+		const paragraphText = renderTimelineParagraphText(render.blocks);
+		if (render.status === 'blocked' || isTimelineImproveTextNoop(paragraphText, composerDraft.text_original)) {
+			improveState = 'noop';
+			return;
+		}
+		composerDraft = { ...composerDraft, text_original: paragraphText };
 			improveState = 'applied';
 		} catch {
 			improveError = 'Text improvement unavailable. Try again.';
