@@ -113,6 +113,7 @@
 		type NarrativeIntegrityResult,
 		type NarrativePreviewRejectedAiDebug
 	} from '$lib/caseNotes/narrativePreviewReviewUi';
+	import { renderNotesCleanText } from '$lib/caseNotes/structuredNotesCleanText';
 
 	export let originalNoteText: string;
 	export let loading: boolean;
@@ -556,7 +557,9 @@
 	}
 
 	$: statementRenderBlocks =
-		data?.render?.blocks?.filter((b) => b.kind === 'statement') ?? [];
+		data?.render?.blocks?.filter((b) => b.kind === 'statement' && !b.blockId.endsWith('~h')) ?? [];
+
+	$: cleanRenderedText = renderNotesCleanText(data?.render?.blocks ?? []);
 
 	$: showAcceptEdit =
 		canCommitDraft && !editedCommitPending && !actionBusy && !loading && data != null;
@@ -616,6 +619,8 @@
 				type="button"
 				class="shrink-0 text-xs px-2.5 py-1 rounded border border-teal-400/70 text-teal-900 dark:text-teal-100 dark:border-teal-600 hover:bg-teal-100/80 dark:hover:bg-teal-900/40"
 				data-testid="{testIdPrefix}-close"
+				title="Close Structure Note panel"
+				aria-label="Close Structure Note panel"
 				on:click={onClosePanel}
 			>
 				Close
@@ -719,17 +724,19 @@
 									: 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60'}"
 								data-testid="{testIdPrefix}-render-block"
 								data-block-id={blk.blockId}
+								title="Show matching line in structured breakdown"
+								aria-label="Structured trace: highlight matching statement"
 								on:click={() => onRenderedBlockClick(blk)}
 							>
 								{blk.text}
 							</button>
 						{/each}
 					</div>
-					<textarea
-						readonly
-						class="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-2 text-xs text-gray-800 dark:text-gray-200 min-h-[6rem] max-h-[16rem] overflow-y-auto resize-y font-sans whitespace-pre-wrap"
-						data-testid="{testIdPrefix}-rendered-text"
-					>{data.render.renderedText}</textarea>
+				<textarea
+					readonly
+					class="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-2 text-xs text-gray-800 dark:text-gray-200 min-h-[6rem] max-h-[16rem] overflow-y-auto resize-y font-sans whitespace-pre-wrap"
+					data-testid="{testIdPrefix}-rendered-text"
+				>{cleanRenderedText}</textarea>
 				{/if}
 				{#if data.render.warnings.length > 0}
 					<details class="mt-2 text-[10px] text-gray-600 dark:text-gray-400">
@@ -750,6 +757,7 @@
 						type="button"
 						class="text-xs px-3 py-2 rounded-md border border-teal-600 bg-teal-600 text-white font-medium hover:bg-teal-700 disabled:opacity-50"
 						data-testid="{testIdPrefix}-accept"
+						title="Load structured draft into the note editor; use Save note to persist"
 						disabled={actionBusy}
 						on:click={onAcceptDraft}
 					>
@@ -761,6 +769,7 @@
 						type="button"
 						class="text-xs px-3 py-2 rounded-md border border-teal-500 text-teal-900 dark:text-teal-100 dark:border-teal-500 font-medium hover:bg-teal-100/80 dark:hover:bg-teal-900/40 disabled:opacity-50"
 						data-testid="{testIdPrefix}-edit"
+						title="Load draft into the editor to edit; use Save note to persist"
 						disabled={actionBusy}
 						on:click={onEditDraft}
 					>
@@ -772,6 +781,7 @@
 						type="button"
 						class="text-xs px-3 py-2 rounded-md border border-gray-400 text-gray-800 dark:text-gray-200 dark:border-gray-600 font-medium hover:bg-gray-100 dark:hover:bg-gray-800 disabled:opacity-50"
 						data-testid="{testIdPrefix}-reject"
+						title="Dismiss preview and keep your original note text"
 						disabled={actionBusy}
 						on:click={onRejectPreview}
 					>
@@ -823,6 +833,7 @@
 						type="button"
 						class="text-xs px-2.5 py-1.5 rounded border border-violet-400/80 text-violet-900 dark:text-violet-100 dark:border-violet-600 hover:bg-violet-50/90 dark:hover:bg-violet-950/40 disabled:opacity-50"
 						data-testid="{testIdPrefix}-narrative-generate"
+						title="Run narrative preview from your note (does not save)"
 						disabled={narrativePreviewLoading || actionBusy || loading}
 						on:click={handleGenerateNarrativePreview}
 					>
@@ -848,6 +859,7 @@
 							class="rounded border border-amber-300/90 bg-amber-50/95 dark:border-amber-700/80 dark:bg-amber-950/35 px-2.5 py-2 space-y-1.5"
 							data-testid="{testIdPrefix}-narrative-framing"
 							aria-label={NARRATIVE_PREVIEW_REVIEW_NOTICE_TITLE}
+							title={NARRATIVE_PREVIEW_REVIEW_NOTICE_SHORT}
 						>
 							<p
 								class="text-[11px] font-bold uppercase tracking-wide text-amber-900 dark:text-amber-100"
@@ -1010,6 +1022,7 @@
 								type="button"
 								class="text-xs px-4 py-2.5 rounded-md border border-emerald-600/90 bg-emerald-600 text-white font-semibold shadow-sm hover:bg-emerald-700 disabled:opacity-50"
 								data-testid="{testIdPrefix}-narrative-accept"
+								title="Insert narrative preview into the note editor; still unsaved until you save"
 								disabled={narrativePreviewLoading || actionBusy || loading}
 								on:click={handleNarrativeLocalAccept}
 							>
@@ -1022,6 +1035,7 @@
 									type="button"
 									class="text-xs px-2.5 py-2 rounded-md border border-rose-400/70 text-rose-900 dark:text-rose-100 dark:border-rose-600/80 font-medium hover:bg-rose-50/90 dark:hover:bg-rose-950/40 disabled:opacity-50"
 									data-testid="{testIdPrefix}-narrative-reject"
+									title="Mark preview as not accepted this session (does not change the saved note)"
 									disabled={narrativePreviewLoading || actionBusy || loading}
 									on:click={handleNarrativeLocalReject}
 								>
@@ -1031,6 +1045,7 @@
 									type="button"
 									class="text-xs px-2.5 py-2 rounded-md border border-violet-400/70 text-violet-900 dark:text-violet-100 dark:border-violet-600/80 font-medium hover:bg-violet-50/90 dark:hover:bg-violet-950/40 disabled:opacity-50"
 									data-testid="{testIdPrefix}-narrative-regenerate"
+									title="Request a fresh narrative preview from the server"
 									disabled={narrativePreviewLoading || actionBusy || loading}
 									on:click={handleGenerateNarrativePreview}
 								>
@@ -1040,6 +1055,7 @@
 									type="button"
 									class="text-xs px-2.5 py-1.5 rounded border border-gray-400/60 text-gray-600 dark:text-gray-400 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800/60 disabled:opacity-50"
 									data-testid="{testIdPrefix}-narrative-clear"
+									title="Clear preview from this panel; saved snapshots stay under Past snapshots"
 									disabled={narrativePreviewLoading || actionBusy || loading}
 									on:click={handleNarrativeLocalClear}
 								>
@@ -1182,18 +1198,20 @@
 															: 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60'}"
 														data-testid="{testIdPrefix}-render-block"
 														data-block-id={blk.blockId}
+														title="Show matching line in structured breakdown"
+														aria-label="Structured trace: highlight matching statement"
 														on:click={() => onRenderedBlockClick(blk)}
 													>
 														{blk.text}
 													</button>
 												{/each}
 											</div>
-											<textarea
-												readonly
-												tabindex="-1"
-												class="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-2 text-xs text-gray-800 dark:text-gray-200 min-h-[6rem] max-h-[16rem] overflow-y-auto resize-y font-sans whitespace-pre-wrap"
-												data-testid="{testIdPrefix}-rendered-text"
-											>{data.render.renderedText}</textarea>
+										<textarea
+											readonly
+											tabindex="-1"
+											class="w-full rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900 px-2 py-2 text-xs text-gray-800 dark:text-gray-200 min-h-[6rem] max-h-[16rem] overflow-y-auto resize-y font-sans whitespace-pre-wrap"
+											data-testid="{testIdPrefix}-rendered-text"
+										>{cleanRenderedText}</textarea>
 										{/if}
 										{#if data.render.warnings.length > 0}
 											<details class="mt-2 text-[10px] text-gray-600 dark:text-gray-400">
@@ -1221,6 +1239,8 @@
 																: 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60'}"
 															data-testid="{testIdPrefix}-stmt-row"
 															data-statement-id={st.statementId}
+															title="Show matching paragraph in draft"
+															aria-label="Structured trace: highlight matching draft paragraph"
 															on:click={() => onStatementClick(st.statementId)}
 														>
 															<span class="block text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{st.verbatimText}</span>
@@ -1353,6 +1373,7 @@
 																class="text-[10px] font-medium text-teal-800 dark:text-teal-200 underline hover:no-underline"
 																data-testid="{testIdPrefix}-narrative-trace-toggle-source"
 																aria-expanded={expanded}
+																title={expanded ? NARRATIVE_TRACE_SHOW_LESS : NARRATIVE_TRACE_SHOW_MORE}
 																on:click={() => toggleNarrativeTraceSourceExpanded(rowKey)}
 															>
 																{expanded ? NARRATIVE_TRACE_SHOW_LESS : NARRATIVE_TRACE_SHOW_MORE}
@@ -1471,20 +1492,21 @@
 								<p class="text-[10px] text-slate-700 dark:text-slate-300 leading-snug">
 									{NARRATIVE_SAVE_DERIVED_HELPER}
 								</p>
-								<button
-									type="button"
-									class="text-xs px-2.5 py-1.5 rounded border border-slate-600/80 text-slate-900 dark:text-slate-100 dark:border-slate-500 hover:bg-slate-100/90 dark:hover:bg-slate-900/50 disabled:opacity-50"
-									data-testid="{testIdPrefix}-narrative-save-derived"
-									disabled={narrativePreviewLoading ||
-										narrativeSaveBusy ||
-										actionBusy ||
-										loading ||
-										!narrativePreviewText.trim() ||
-										narrativePreviewTrace.length === 0 ||
-										lastNarrativePreviewScope == null ||
-										lastNarrativePreviewScope.structuredNoteIds.length === 0}
-									on:click={handleSaveAcceptedNarrative}
-								>
+							<button
+								type="button"
+								class="text-xs px-2.5 py-1.5 rounded border border-slate-600/80 text-slate-900 dark:text-slate-100 dark:border-slate-500 hover:bg-slate-100/90 dark:hover:bg-slate-900/50 disabled:opacity-50"
+								data-testid="{testIdPrefix}-narrative-save-derived"
+								title="Save narrative snapshot to the case (append-only reference; notebook unchanged)"
+								disabled={narrativePreviewLoading ||
+									narrativeSaveBusy ||
+									actionBusy ||
+									loading ||
+									!narrativePreviewText.trim() ||
+									narrativePreviewTrace.length === 0 ||
+									lastNarrativePreviewScope == null ||
+									lastNarrativePreviewScope.structuredNoteIds.length === 0}
+								on:click={handleSaveAcceptedNarrative}
+							>
 									{narrativeSaveBusy ? 'Saving…' : NARRATIVE_SAVE_DERIVED_BUTTON_LABEL}
 								</button>
 								{#if narrativeSaveError}
@@ -1530,6 +1552,9 @@
 							type="button"
 							class="text-[10px] px-2 py-1 rounded border border-indigo-400/80 text-indigo-900 dark:text-indigo-100 dark:border-indigo-600"
 							data-testid="{testIdPrefix}-narrative-show-deleted-toggle"
+							title={showDeletedNarrativesInList
+								? 'Hide soft-deleted narrative snapshots from the list'
+								: 'Show soft-deleted narrative snapshots in the list'}
 							on:click={toggleShowDeletedSavedNarratives}
 						>
 							{showDeletedNarrativesInList ? NARRATIVE_HIDE_DELETED_LABEL : NARRATIVE_SHOW_DELETED_LABEL}
@@ -1564,6 +1589,8 @@
 												: 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60'}"
 											data-testid="{testIdPrefix}-saved-list-item"
 											data-saved-record-id={rec.id}
+											title="Open saved narrative snapshot"
+											aria-label="Saved narrative snapshot"
 											on:click={() => onSelectSavedRecord(rec.id)}
 										>
 											<span class="block font-mono text-[10px] text-indigo-800 dark:text-indigo-200/90"
@@ -1590,6 +1617,8 @@
 											class="w-full text-left rounded border px-2 py-1.5 text-[11px] transition border-amber-200 dark:border-amber-800 hover:bg-amber-50/80 dark:hover:bg-amber-950/40"
 											data-testid="{testIdPrefix}-saved-list-deleted-item"
 											data-saved-record-id={rec.id}
+											title="Open soft-deleted narrative snapshot"
+											aria-label="Soft-deleted narrative snapshot"
 											on:click={() => onSelectSavedRecord(rec.id, { recordSoftDeleted: true })}
 										>
 											<span class="block font-mono text-[10px] text-amber-900 dark:text-amber-100"
@@ -1630,6 +1659,7 @@
 									type="button"
 									class="text-xs px-2 py-1 rounded border border-rose-400/80 text-rose-900 dark:text-rose-100 disabled:opacity-50"
 									data-testid="{testIdPrefix}-saved-delete-derived"
+									title="Soft-delete this saved narrative (you can restore while eligible)"
 									disabled={narrativeDeleteBusy}
 									on:click={handleDeleteSavedNarrative}
 								>
@@ -1640,6 +1670,7 @@
 									type="button"
 									class="text-xs px-2 py-1 rounded border border-emerald-500/80 text-emerald-900 dark:text-emerald-100 disabled:opacity-50"
 									data-testid="{testIdPrefix}-saved-restore-narrative"
+									title="Restore this soft-deleted narrative snapshot"
 									disabled={narrativeRestoreBusy}
 									on:click={handleRestoreSavedNarrative}
 								>
@@ -1695,6 +1726,7 @@
 								type="button"
 								class="text-xs px-2.5 py-1.5 rounded border border-indigo-500/80 text-indigo-950 dark:text-indigo-100 dark:border-indigo-600 hover:bg-indigo-100/80 dark:hover:bg-indigo-950/50 disabled:opacity-50"
 								data-testid="{testIdPrefix}-saved-export-derived"
+								title="Download this saved narrative as plain text"
 								disabled={savedExportBusy || savedDetailLoading || savedRecordSoftDeleted}
 								on:click={handleExportSavedNarrative}
 							>
@@ -1801,6 +1833,8 @@
 							<button
 								type="button"
 								class="text-xs px-2.5 py-1.5 rounded border border-amber-600 text-amber-950 dark:text-amber-100 disabled:opacity-50"
+								title="Load a soft-deleted narrative by record ID (admin)"
+								aria-label="Load deleted narrative by ID"
 								disabled={adminRecoverBusy}
 								on:click={() => handleAdminRecoverLoadDeleted()}
 							>
@@ -1857,6 +1891,8 @@
 									: 'border-gray-200 dark:border-gray-700 hover:bg-gray-50 dark:hover:bg-gray-800/60'}"
 								data-testid="{testIdPrefix}-stmt-row"
 								data-statement-id={st.statementId}
+								title="Show matching paragraph in draft"
+								aria-label="Structured trace: highlight matching draft paragraph"
 								on:click={() => onStatementClick(st.statementId)}
 							>
 								<span class="block text-gray-800 dark:text-gray-200 whitespace-pre-wrap">{st.verbatimText}</span>

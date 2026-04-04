@@ -114,6 +114,7 @@
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 	import { mergeNotebookWritePayload } from '$lib/caseNotes/notebookIntegrityPayload';
 	import { buildAutoNoteTitle } from '$lib/caseNotes/buildAutoNoteTitle';
+	import { createNoteComposerDropHandlers } from '$lib/caseNotes/noteComposerDrop';
 	import { type IntegrityExplainBlock, buildSaveBlockedExplain } from '$lib/caseNotes/noteIntegrityExplain';
 	import {
 		newStructuredNotesCorrelationId,
@@ -124,6 +125,7 @@
 		readStructuredNotesServerEnabledFromHealth
 	} from '$lib/caseNotes/structuredNotesFeatureCapability';
 	import { computeStructuredDraftHydration } from '$lib/caseNotes/structuredNotesDraftEditorHydration';
+	import { renderNotesCleanText } from '$lib/caseNotes/structuredNotesCleanText';
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
 	// this component for a different case. prevLoadedCaseId is seeded to the
@@ -481,6 +483,17 @@
 			await loadDraftAttachmentIngestionState(draftAttachments.map((a) => a.id)).catch(() => {});
 		}
 	}
+
+	let composerDropTargetActive = false;
+
+	const noteComposerDropHandlers = createNoteComposerDropHandlers({
+		isCreateMode: () => mode === 'create',
+		attachDraft: (files) => void handleAttachFileToDraft(files),
+		attachNote: (files) => void handleAttachFileToNote(files),
+		setDropActive: (v) => {
+			composerDropTargetActive = v;
+		}
+	});
 
 	/**
 	 * Remove an attachment (soft-delete on backend).
@@ -851,14 +864,14 @@
 
 	function handleStructuredAcceptDraft(): void {
 		if (!structuredNotesResult) return;
-		const t = structuredNotesResult.render.renderedText;
+		const t = renderNotesCleanText(structuredNotesResult.render.blocks);
 		if (!applyStructuredDraftToEditor(t, 'structured_notes_accept_clicked')) return;
 		toast.success('Draft loaded into the editor. Use Save note when you are ready to persist.');
 	}
 
 	function handleStructuredEditDraft(): void {
 		if (!structuredNotesResult) return;
-		const t = structuredNotesResult.render.renderedText;
+		const t = renderNotesCleanText(structuredNotesResult.render.blocks);
 		applyStructuredDraftToEditor(t, 'structured_notes_edit_started');
 	}
 
@@ -1812,6 +1825,7 @@
 	/** Select a note from the browser list. Guarded: prompts if a dirty draft exists. */
 	function selectNote(note: NotebookNote): void {
 		guardedContextSwitch(() => {
+			composerDropTargetActive = false;
 			createTitle = '';
 			createText = '';
 			createEditorRenderKey = 0;
@@ -1834,6 +1848,7 @@
 	/** Enter create mode. Guarded: prompts if a dirty draft exists. */
 	function startNewNote(): void {
 		guardedContextSwitch(() => {
+			composerDropTargetActive = false;
 			createTitle = '';
 			createText = '';
 			createEditorRenderKey = 0;
@@ -1862,6 +1877,7 @@
 	function duplicateSelectedNote(): void {
 		if (!selectedNote) return;
 		guardedContextSwitch(() => {
+			composerDropTargetActive = false;
 			createTitle = selectedNote.title ?? '';
 			createText = selectedNote.current_text;
 			createEditorRenderKey += 1;
@@ -1874,6 +1890,10 @@
 			resetStructuredNotesPreview();
 			resetDictationState();
 			resetNoteIntegrityDraftState();
+			// Fresh draft session (same as + New) so duplicate does not inherit a prior create attachment session.
+			draftSessionId = generateDraftSessionId();
+			draftAttachments = [];
+			attachmentUploadError = '';
 			// Keep selectedNote for context; create mode remains an unsaved, independent draft.
 			mode = 'create';
 		});
@@ -1882,6 +1902,7 @@
 	/** Enter edit mode for the currently selected note. Never dirty on entry. */
 	function startEdit(): void {
 		if (!selectedNote) return;
+		composerDropTargetActive = false;
 		showVersionHistory = false;
 		resetDictationState();
 		resetNoteIntegrityDraftState();
@@ -1916,6 +1937,7 @@
 	 */
 	function cancelEdit(): void {
 		guardedContextSwitch(() => {
+			composerDropTargetActive = false;
 			resetStructuredNotesPreview();
 			editTitle = '';
 			editText = '';
@@ -1934,6 +1956,7 @@
 	/** Cancel create mode. Guarded: prompts if any content has been typed. */
 	function cancelCreate(): void {
 		guardedContextSwitch(() => {
+			composerDropTargetActive = false;
 			resetStructuredNotesPreview();
 			createTitle = '';
 			createText = '';
@@ -1942,6 +1965,10 @@
 			resetNoteIntegrityDraftState();
 			// P30-20: clear transient workflow state on cancel.
 			resetAttachmentWorkflowState();
+			// Abandon draft-session attachments so the next create/duplicate does not inherit them.
+			draftSessionId = '';
+			draftAttachments = [];
+			attachmentUploadError = '';
 			mode = selectedNote ? 'view' : 'idle';
 		});
 	}
@@ -2439,8 +2466,8 @@
 								{...builder}
 								use:builder.action
 								class="shrink-0 self-stretch inline-flex items-center justify-center min-h-[2.25rem] min-w-[2.25rem] px-1 rounded-r-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition relative z-10"
-								aria-label="Note list actions"
-								title="Note actions"
+								aria-label="More actions for this note"
+								title="More actions for this note"
 								data-testid="case-note-list-overflow-trigger"
 								on:click|stopPropagation
 								on:pointerdown|stopPropagation
@@ -2526,8 +2553,8 @@
 									{...builder}
 									use:builder.action
 									class="shrink-0 self-stretch inline-flex items-center justify-center min-h-[2.25rem] min-w-[2.25rem] px-1 rounded-r-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100/80 dark:hover:bg-gray-800/80 transition relative z-10"
-									aria-label="Note list actions"
-									title="Note actions"
+									aria-label="More actions for this note"
+									title="More actions for this note"
 									data-testid="case-note-list-overflow-trigger"
 									on:click|stopPropagation
 									on:pointerdown|stopPropagation
@@ -2660,10 +2687,23 @@
 				</div>
 				<!-- Editor + structured review (P37 — narrative full-pane hides duplicate editor) -->
 				<div
-					class="flex flex-1 min-h-0 flex-col overflow-y-auto"
+					class="relative flex flex-1 min-h-0 flex-col overflow-y-auto"
 					data-testid="case-notes-create-scroll"
 					data-notes-narrative-full-pane={notesNarrativeReviewFullPane ? '1' : '0'}
+					on:dragenter={noteComposerDropHandlers.onDragEnter}
+					on:dragleave={noteComposerDropHandlers.onDragLeave}
+					on:dragover={noteComposerDropHandlers.onDragOver}
+					on:drop={noteComposerDropHandlers.onDrop}
 				>
+					{#if composerDropTargetActive}
+						<div
+							class="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border-2 border-dashed border-blue-400/50 bg-blue-50/90 dark:border-blue-500/40 dark:bg-gray-900/80"
+							data-testid="case-note-composer-drop-overlay"
+							aria-hidden="true"
+						>
+							<span class="text-sm font-medium text-blue-900 dark:text-blue-100">Drop files to attach</span>
+						</div>
+					{/if}
 					{#if structuredNotesEditedCommitPending}
 						<div
 							class="mx-5 mt-2 mb-1 rounded-md border border-teal-200 bg-teal-50/90 px-3 py-2 text-xs text-teal-950 dark:border-teal-800 dark:bg-teal-950/35 dark:text-teal-100"
@@ -2814,6 +2854,7 @@
 									<button
 										class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded px-1"
 										title="Remove attachment"
+										aria-label="Remove attachment"
 										on:click={async () => {
 											removingAttachmentIds = new Set([...removingAttachmentIds, att.id]);
 											await removeAttachment(att.id, true);
@@ -2831,8 +2872,8 @@
 									type="button"
 									class="self-start rounded-md px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
 									title={isOcrEligible(att)
-										? 'Run OCR to extract text from this image for use in a note draft or proposal'
-										: 'Extract text for .txt, .md, .docx, and PDF; other types are recorded as unsupported with a short notice'}
+										? 'Run OCR to extract text from this image'
+										: 'Extract text from .txt, .md, .docx, or PDF; other types are recorded as unsupported'}
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'extracted'}
@@ -2840,7 +2881,7 @@
 									<button
 										type="button"
 										class="rounded-md px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
-										title="Insert extracted text into the active draft editor (appends if draft already has content)"
+										title="Insert into the note editor (appends if there is already text)"
 										on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename, att.id)}
 									>Insert into draft</button>
 									<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -2858,7 +2899,7 @@
 									<button
 										type="button"
 										class="rounded-md px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
-										title="Insert OCR text into the active draft editor (appends if draft already has content)"
+										title="Insert into the note editor (appends if there is already text)"
 										on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename, att.id)}
 									>Insert into draft</button>
 									<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -2899,6 +2940,9 @@
 								<button
 									type="button"
 									class="self-start rounded-md px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
+									title={isOcrEligible(att)
+										? 'Run OCR to extract text from this image'
+										: 'Extract text from .txt, .md, .docx, or PDF; other types are recorded as unsupported'}
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'unsupported'}
@@ -2942,7 +2986,7 @@
 			{:else if !attachmentUploadError}
 				<!-- Empty hint — invite user to attach files for the ingestion workflow -->
 				<p class="text-[11px] text-gray-400 dark:text-gray-500 italic">
-					Use 📎 below to attach files. Process to extract text, then insert into the draft. <span class="font-medium not-italic">Save</span> commits the final note.
+					Use 📎 or drop files on the note area to attach. Process to extract text, then insert into the draft. <span class="font-medium not-italic">Save note</span> commits the final note.
 				</p>
 				{/if}
 			</div>
@@ -2972,7 +3016,7 @@
 				>
 					<button
 						type="button"
-						disabled={creating}
+						disabled={creating || attachmentUploading}
 						class="px-3 py-1.5 rounded text-xs font-medium
 						       bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900
 						       hover:bg-gray-700 dark:hover:bg-gray-300 disabled:opacity-50 transition"
@@ -2982,8 +3026,9 @@
 					</button>
 				<button
 					type="button"
+					disabled={attachmentUploading}
 					class="px-3 py-1.5 rounded text-xs text-gray-500
-					       hover:text-gray-700 dark:hover:text-gray-300 transition"
+					       hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition"
 					on:click={cancelCreate}
 				>
 					Cancel
@@ -2991,10 +3036,10 @@
 			{#if structuredNotesUiOffered}
 				<button
 					type="button"
-					disabled={structuredNotesLoading || structuredNotesActionBusy}
+					disabled={structuredNotesLoading || structuredNotesActionBusy || attachmentUploading}
 					class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium overflow-hidden border-teal-400/90 dark:border-teal-600 text-teal-900 dark:text-teal-100 bg-white/70 dark:bg-gray-800/70 hover:bg-teal-50/95 dark:hover:bg-teal-900/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
 					on:click={() => void runStructuredNotesPreview()}
-					title="Run structured extraction and narrative preview from your current draft. Nothing is saved until you use Save note."
+					title="Structure Note: preview extraction and narrative from the editor. Does not save the note."
 					data-testid="case-note-structure-note-action"
 				>
 					<span>{structuredNotesLoading ? 'Structuring…' : 'Structure Note'}</span>
@@ -3004,8 +3049,8 @@
 			<!-- P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
 			<label
 				class="cursor-pointer h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}"
-				title="Attach file"
-				aria-label="Attach file"
+				title="Attach files (choose or drop on note area)"
+				aria-label="Attach files"
 			>
 				<Clip className="size-5" strokeWidth="2" />
 				<input
@@ -3045,8 +3090,8 @@
 					type="button"
 					disabled={dictationState === 'processing'}
 					class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition"
-					aria-label="Start dictation"
-					title="Dictate note"
+					aria-label="Dictate into the note"
+					title="Dictate into the note (speech to text)"
 					on:click={() => void startDictation()}
 					data-testid="case-note-dictate-action"
 				>
@@ -3116,7 +3161,8 @@
 								<button
 									type="button"
 									class="shrink-0 mt-0.5 inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded text-[10px] text-gray-400 dark:text-gray-500 bg-gray-100 dark:bg-gray-800 hover:bg-gray-200 dark:hover:bg-gray-700 hover:text-gray-600 dark:hover:text-gray-300 transition"
-									title="Jump to attachments"
+									title="Jump to attachment list below"
+									aria-label="Jump to attachment list"
 									on:click={() => document.getElementById('note-view-attachments')?.scrollIntoView({ behavior: 'smooth', block: 'start' })}
 								>
 									<Clip className="size-3" strokeWidth="2" />
@@ -3145,6 +3191,7 @@
 						<button
 							type="button"
 							class="text-xs px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition font-medium"
+							title="Edit this note"
 							on:click={startEdit}
 						>
 							Edit
@@ -3159,8 +3206,8 @@
 								<button
 									type="button"
 									class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-									aria-label="Note actions"
-									title="Note actions"
+									aria-label="More actions for this note"
+									title="More actions for this note"
 								>
 									<EllipsisVertical />
 								</button>
@@ -3237,6 +3284,7 @@
 								<button
 									type="button"
 									class="text-xs text-gray-500 hover:underline dark:text-gray-400"
+									title="Close version history"
 									on:click={closeVersionHistory}
 									data-testid="case-note-version-history-close"
 								>
@@ -3492,10 +3540,23 @@
 					{:else}
 					<!-- Editor + structured review + side panels + attachments: one scroll region (P37 — reach narrative/debug) -->
 					<div
-						class="flex flex-1 min-h-0 flex-col overflow-y-auto"
+						class="relative flex flex-1 min-h-0 flex-col overflow-y-auto"
 						data-testid="case-notes-edit-scroll"
 						data-notes-narrative-full-pane={notesNarrativeReviewFullPane ? '1' : '0'}
+						on:dragenter={noteComposerDropHandlers.onDragEnter}
+						on:dragleave={noteComposerDropHandlers.onDragLeave}
+						on:dragover={noteComposerDropHandlers.onDragOver}
+						on:drop={noteComposerDropHandlers.onDrop}
 					>
+						{#if composerDropTargetActive}
+							<div
+								class="pointer-events-none absolute inset-0 z-20 flex items-center justify-center rounded-md border-2 border-dashed border-blue-400/50 bg-blue-50/90 dark:border-blue-500/40 dark:bg-gray-900/80"
+								data-testid="case-note-composer-drop-overlay"
+								aria-hidden="true"
+							>
+								<span class="text-sm font-medium text-blue-900 dark:text-blue-100">Drop files to attach</span>
+							</div>
+						{/if}
 						{#if structuredNotesEditedCommitPending}
 							<div
 								class="mx-5 mt-2 mb-1 rounded-md border border-teal-200 bg-teal-50/90 px-3 py-2 text-xs text-teal-950 dark:border-teal-800 dark:bg-teal-950/35 dark:text-teal-100"
@@ -3610,7 +3671,7 @@
 			{#if attachmentsLoading}
 				<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
 			{:else if noteAttachments.length === 0}
-				<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Use 📎 below to attach files.</div>
+				<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Use 📎 or drop files on the note area to attach.</div>
 				{:else}
 					<ul class="space-y-3" data-testid="note-edit-attachment-list">
 					{#each noteAttachments as att (att.id)}
@@ -3670,6 +3731,7 @@
 										type="button"
 										class="text-[11px] text-gray-500 dark:text-gray-400 hover:text-red-600 dark:hover:text-red-400 rounded px-1"
 										title="Remove attachment"
+										aria-label="Remove attachment"
 										on:click={() => { confirmRemoveAttachmentId = att.id; }}
 									>×</button>
 								{/if}
@@ -3684,7 +3746,7 @@
 									class="self-start rounded-md px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
 									title={isOcrEligible(att)
 										? 'Run OCR to extract text from this image'
-										: 'Extract text for .txt, .md, .docx, and PDF; other types are recorded as unsupported with a short notice'}
+										: 'Extract text from .txt, .md, .docx, or PDF; other types are recorded as unsupported'}
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'extracted'}
@@ -3692,7 +3754,7 @@
 									<button
 										type="button"
 										class="rounded-md px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
-										title="Insert extracted text into the edit draft"
+										title="Insert into the note editor (appends if there is already text)"
 										on:click={() => insertProcessedText(extraction.extracted_text ?? '', att.original_filename, att.id)}
 									>Insert into note</button>
 									<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -3710,7 +3772,7 @@
 									<button
 										type="button"
 										class="rounded-md px-3 py-1.5 text-xs font-semibold bg-emerald-600 hover:bg-emerald-700 text-white shadow-sm transition"
-										title="Insert OCR text into the edit draft"
+										title="Insert into the note editor (appends if there is already text)"
 										on:click={() => insertProcessedText(ocr?.derived_text ?? '', att.original_filename, att.id)}
 									>Insert into note</button>
 									<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -3748,6 +3810,9 @@
 								<button
 									type="button"
 									class="self-start rounded-md px-3 py-1.5 text-xs font-semibold bg-blue-600 hover:bg-blue-700 text-white shadow-sm transition"
+									title={isOcrEligible(att)
+										? 'Run OCR to extract text from this image'
+										: 'Extract text from .txt, .md, .docx, or PDF; other types are recorded as unsupported'}
 									on:click={() => void processAttachment(att)}
 								>Process attachment</button>
 							{:else if extraction?.status === 'unsupported'}
@@ -3797,7 +3862,7 @@
 				>
 					<button
 						type="button"
-						disabled={saving}
+						disabled={saving || attachmentUploading}
 						class="px-3 py-1.5 rounded text-xs font-medium
 						       bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900
 						       hover:bg-gray-700 dark:hover:bg-gray-300 disabled:opacity-50 transition"
@@ -3807,8 +3872,9 @@
 						</button>
 						<button
 							type="button"
+							disabled={attachmentUploading}
 							class="px-3 py-1.5 rounded text-xs text-gray-500
-							       hover:text-gray-700 dark:hover:text-gray-300 transition"
+							       hover:text-gray-700 dark:hover:text-gray-300 disabled:opacity-50 disabled:cursor-not-allowed transition"
 							on:click={cancelEdit}
 						>
 							Cancel
@@ -3816,10 +3882,10 @@
 				{#if structuredNotesUiOffered}
 					<button
 						type="button"
-						disabled={structuredNotesLoading || structuredNotesActionBusy}
+						disabled={structuredNotesLoading || structuredNotesActionBusy || attachmentUploading}
 						class="relative h-8 px-3 inline-flex items-center gap-1.5 rounded-md border text-xs font-medium overflow-hidden border-teal-400/90 dark:border-teal-600 text-teal-900 dark:text-teal-100 bg-white/70 dark:bg-gray-800/70 hover:bg-teal-50/95 dark:hover:bg-teal-900/30 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-500 disabled:opacity-50 disabled:cursor-not-allowed transition"
 						on:click={() => void runStructuredNotesPreview()}
-						title="Run structured extraction and narrative preview from your current draft. Nothing is saved until you use Save note."
+						title="Structure Note: preview extraction and narrative from the editor. Does not save the note."
 						data-testid="case-note-structure-note-action-edit"
 					>
 						<span>{structuredNotesLoading ? 'Structuring…' : 'Structure Note'}</span>
@@ -3829,8 +3895,8 @@
 				<!-- P30-23/P30-24: Clip icon at size-5 with strokeWidth=2 for desktop clarity -->
 					<label
 						class="cursor-pointer h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200 transition {attachmentUploading ? 'opacity-50 pointer-events-none' : ''}"
-						title="Attach file"
-						aria-label="Attach file"
+						title="Attach files (choose or drop on note area)"
+						aria-label="Attach files"
 					>
 						<Clip className="size-5" strokeWidth="2" />
 						<input
@@ -3870,8 +3936,8 @@
 							type="button"
 							disabled={dictationState === 'processing'}
 							class="h-8 w-8 inline-flex items-center justify-center rounded border border-gray-300 dark:border-gray-700 text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 disabled:opacity-50 transition"
-							aria-label="Start dictation"
-							title="Dictate note"
+							aria-label="Dictate into the note"
+							title="Dictate into the note (speech to text)"
 							on:click={() => void startDictation()}
 							data-testid="case-note-dictate-action"
 						>
