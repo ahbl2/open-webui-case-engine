@@ -20,6 +20,15 @@
  *   blocks from the render result and joins them with a single space, restoring
  *   proper paragraph form without the Notes-specific annotation sections
  *   (conflicts, ambiguities, actions, issues) that do not belong in a timeline entry.
+ *
+ * Certainty disclaimer exclusion (this module):
+ *   When a statement is classified as hedged or questioned, the backend renderer
+ *   appends a synthetic certainty block (`blockSuffix: 'h'`, hardcoded for hedged)
+ *   containing commentary such as "This information is not confirmed." This block
+ *   carries `kind: 'statement'` and appears in `render.blocks`. It must be excluded
+ *   from Timeline output: Timeline may preserve hedged wording already present in the
+ *   detective's own text, but must not inject synthesized commentary sentences.
+ *   The `~h` blockId suffix is the stable discriminator for these blocks.
  */
 
 import type { StructuredNoteRenderedBlock } from '../types/structuredNotes/extractionPreview';
@@ -37,15 +46,22 @@ export type TimelineImproveState = 'idle' | 'processing' | 'applied' | 'noop' | 
  * This function takes only the `statement` blocks — the same verified, expanded,
  * punctuated text the backend produced — and joins them with a single space to
  * produce one continuous paragraph narrative. Non-statement blocks (conflicts,
- * ambiguities, actions, issues) are not included: they carry structured
- * annotation meaning that does not belong in a timeline entry's text field.
+ * ambiguities, actions, issues) are excluded: they carry structured annotation
+ * meaning that does not belong in a timeline entry's text field.
+ *
+ * Certainty disclaimer blocks (blockId ending `~h`) are also excluded. The backend
+ * uses the hardcoded suffix `'h'` (hedged) to distinguish synthesized commentary
+ * from narrative statement segments. Regular multi-segment statements use numeric
+ * suffixes (`~0`, `~1`, …). Excluding `~h` removes appended sentences such as
+ * "This information is not confirmed." without touching legitimate hedged wording
+ * that the detective's own text already carries.
  *
  * Each statement block already ends with a period (from the backend
  * `ensureTrailingPeriod` rule), so joining with ` ` produces correct spacing.
  */
 export function renderTimelineParagraphText(blocks: StructuredNoteRenderedBlock[]): string {
 	return blocks
-		.filter((b) => b.kind === 'statement')
+		.filter((b) => b.kind === 'statement' && !b.blockId.endsWith('~h'))
 		.map((b) => b.text.trim())
 		.filter(Boolean)
 		.join(' ');

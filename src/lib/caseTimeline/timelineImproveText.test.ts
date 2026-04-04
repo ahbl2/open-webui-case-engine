@@ -110,6 +110,79 @@ describe('renderTimelineParagraphText', () => {
 		expect(result).not.toContain('Planned or stated next steps');
 		expect(result).toBe('Subject departed at 18:00.');
 	});
+
+	// ── Certainty/disclaimer leakage exclusion ───────────────────────────────
+	// The backend appends a synthetic certainty block (blockSuffix 'h', hardcoded
+	// for hedged/questioned certainty) when a statement's certainty is hedged but
+	// the verbatim text does not already carry uncertainty language. This block has
+	// kind: 'statement' and blockId ending '~h'. Timeline must exclude it.
+
+	it('excludes synthesized certainty disclaimer block (~h suffix) from output', () => {
+		// Simulates the known failing sample:
+		// Input: "I think if this still works tell me what you think"
+		// Backend detects certainty: 'hedged', produces main statement + ~h certainty block
+		const blocks = [
+			{
+				blockId: 'stmt-s1~0',
+				kind: 'statement' as const,
+				text: 'I think if this still works, let me know what you think.'
+			},
+			{
+				blockId: 'stmt-s1~h',
+				kind: 'statement' as const,
+				text: 'This information is not confirmed.'
+			}
+		];
+		const result = renderTimelineParagraphText(blocks);
+		expect(result).not.toContain('This information is not confirmed.');
+		expect(result).toBe('I think if this still works, let me know what you think.');
+	});
+
+	it('excludes certainty block even when it is the only block besides a clean statement', () => {
+		const blocks = [
+			{ blockId: 'stmt-abc~0', kind: 'statement' as const, text: 'Subject may have fled the area.' },
+			{ blockId: 'stmt-abc~h', kind: 'statement' as const, text: 'This information is not confirmed.' }
+		];
+		expect(renderTimelineParagraphText(blocks)).toBe('Subject may have fled the area.');
+	});
+
+	it('keeps ~0 and ~1 numeric-suffix segments (multi-segment split statements)', () => {
+		// Multi-sentence statements may be split into ~0, ~1, etc. — these are narrative and must be kept
+		const blocks = [
+			{ blockId: 'stmt-x~0', kind: 'statement' as const, text: 'Arrived at the location at 10:00.' },
+			{ blockId: 'stmt-x~1', kind: 'statement' as const, text: 'Observed the vehicle parked outside.' }
+		];
+		expect(renderTimelineParagraphText(blocks)).toBe(
+			'Arrived at the location at 10:00. Observed the vehicle parked outside.'
+		);
+	});
+
+	it('handles mixed ~0/~1/~h blocks — includes narrative, excludes disclaimer', () => {
+		const blocks = [
+			{ blockId: 'stmt-m~0', kind: 'statement' as const, text: 'Subject may have visited the location.' },
+			{ blockId: 'stmt-m~1', kind: 'statement' as const, text: 'No additional witnesses were available.' },
+			{ blockId: 'stmt-m~h', kind: 'statement' as const, text: 'This information is not confirmed.' }
+		];
+		expect(renderTimelineParagraphText(blocks)).toBe(
+			'Subject may have visited the location. No additional witnesses were available.'
+		);
+	});
+
+	it('preserves hedged wording already in the detective text (not added by renderer)', () => {
+		// When the verbatim itself carries uncertainty ("possibly", "might", etc.),
+		// the backend does NOT add a ~h block. The wording stays in the statement text.
+		// renderTimelineParagraphText must preserve that hedged wording.
+		const blocks = [
+			{
+				blockId: 'stmt-1',
+				kind: 'statement' as const,
+				text: 'Subject possibly fled north; could not confirm direction.'
+			}
+		];
+		expect(renderTimelineParagraphText(blocks)).toBe(
+			'Subject possibly fled north; could not confirm direction.'
+		);
+	});
 });
 
 // ── isTimelineImproveTextNoop ────────────────────────────────────────────────
