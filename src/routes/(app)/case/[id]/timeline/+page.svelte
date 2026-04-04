@@ -18,6 +18,7 @@
 	 * P39-04 — speech dictation into the bottom composer (raw transcript → editable text; P39-01 §5)
 	 * P39-05 — OCR/import text from file into the bottom composer (extracted text → editable; P39-01 §5)
 	 * P39-06 — deterministic cleanup of composer text (rule-based; visible result; no auto-save; P39-01 §5)
+	 * P39-07 — audio file transcription into the bottom composer (OWUI STT backend; raw transcript → editable; P39-01 §5)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -99,6 +100,13 @@
 	import {
 		applyTimelineComposerCleanup
 	} from '$lib/caseTimeline/timelineCleanup';
+	import {
+		isTimelineAudioFileSupported,
+		unsupportedTimelineAudioMessage,
+		TIMELINE_AUDIO_ACCEPT,
+		type TimelineTranscriptionState
+	} from '$lib/caseTimeline/timelineAudioTranscription';
+	import { transcribeAudio } from '$lib/apis/audio';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -155,6 +163,7 @@
 		composerError = '';
 		resetTimelineDictation();
 		resetTimelineImport();
+		resetTimelineTranscription();
 		cleanupState = 'idle';
 		cleanupSummary = [];
 		editingEntryId = null;
@@ -333,6 +342,7 @@
 	function cancelComposer(): void {
 		resetTimelineDictation();
 		resetTimelineImport();
+		resetTimelineTranscription();
 		cleanupState = 'idle';
 		cleanupSummary = [];
 		composerOpen = false;
@@ -514,6 +524,7 @@
 	onDestroy(() => {
 		resetTimelineDictation();
 		resetTimelineImport();
+		resetTimelineTranscription();
 		cleanupState = 'idle';
 		cleanupSummary = [];
 	});
@@ -592,6 +603,75 @@
 		} else {
 			cleanupSummary = [];
 			cleanupState = 'noop';
+		}
+	}
+
+	// ── P39-07 Bottom composer audio transcription ────────────────────────────────
+	// Async: sends audio file to OWUI STT backend (POST /audio/api/v1/transcriptions).
+	// Uses localStorage.token (OWUI session), not $caseEngineToken.
+	// Raw transcript text is appended to composerDraft.text_original via
+	// appendTranscriptToComposerText — same helper as P39-04 dictation.
+	// No audio file is stored; no Case Engine API call; no backend contract change.
+
+	let transcriptionState: TimelineTranscriptionState = 'idle';
+	let transcriptionError = '';
+	let transcriptionFilename = '';
+
+	function resetTimelineTranscription(): void {
+		transcriptionState = 'idle';
+		transcriptionError = '';
+		transcriptionFilename = '';
+	}
+
+	async function handleTranscribeAudioFile(files: FileList | null): Promise<void> {
+		if (!files || files.length === 0) return;
+		const audioFile = files[0];
+
+		if (!isTimelineAudioFileSupported(audioFile)) {
+			transcriptionState = 'error';
+			transcriptionError = unsupportedTimelineAudioMessage(audioFile);
+			return;
+		}
+
+		transcriptionState = 'processing';
+		transcriptionFilename = audioFile.name;
+		transcriptionError = '';
+
+		try {
+			const token: string = (typeof localStorage !== 'undefined' ? localStorage.token : '') ?? '';
+			if (!token) {
+				transcriptionState = 'error';
+				transcriptionError =
+					'Transcription requires an active session. Please sign in and try again.';
+				transcriptionFilename = '';
+				return;
+			}
+
+			const res = await transcribeAudio(token, audioFile);
+			const transcript: string = typeof res?.text === 'string' ? res.text.trim() : '';
+
+			if (!transcript) {
+				transcriptionState = 'error';
+				transcriptionError =
+					'Transcription returned no text. The audio may be silent, too short, or in an unsupported language/codec.';
+				transcriptionFilename = '';
+				return;
+			}
+
+			if (composerDraft) {
+				composerDraft = {
+					...composerDraft,
+					text_original: appendTranscriptToComposerText(composerDraft.text_original, transcript)
+				};
+			}
+
+			transcriptionState = 'idle';
+			transcriptionFilename = '';
+		} catch (err: unknown) {
+			const msg = err instanceof Error ? err.message : String(err);
+			transcriptionState = 'error';
+			transcriptionError = `Transcription failed: ${msg}`;
+			transcriptionFilename = '';
 		}
 	}
 
@@ -1447,7 +1527,7 @@
 					></textarea>
 				</div>
 
-				<!-- P39-04 + P39-05 + P39-06: Assisted-input controls (dictation + import + cleanup) -->
+				<!-- P39-04 + P39-05 + P39-06 + P39-07: Assisted-input controls (dictation + import + cleanup + transcription) -->
 				<div class="flex flex-col gap-1.5">
 					<!-- Dictation error -->
 					{#if dictationState === 'error'}
@@ -1490,6 +1570,29 @@
 								       px-1.5 py-0.5 rounded transition"
 								aria-label="Dismiss import error"
 								data-testid="timeline-import-error-dismiss"
+							>
+								Dismiss
+							</button>
+						</div>
+					{/if}
+					<!-- Transcription error (P39-07) -->
+					{#if transcriptionState === 'error'}
+						<div class="flex items-start gap-2">
+							<p
+								class="text-xs text-red-500 dark:text-red-400 flex-1"
+								aria-live="assertive"
+								data-testid="timeline-transcription-error"
+							>
+								{transcriptionError}
+							</p>
+							<button
+								type="button"
+								on:click={resetTimelineTranscription}
+								class="shrink-0 text-xs text-gray-500 dark:text-gray-400
+								       hover:text-gray-700 dark:hover:text-gray-200
+								       px-1.5 py-0.5 rounded transition"
+								aria-label="Dismiss transcription error"
+								data-testid="timeline-transcription-error-dismiss"
 							>
 								Dismiss
 							</button>
@@ -1563,6 +1666,19 @@
 								></span>
 								Extracting text{importFilename ? ` from "${importFilename}"` : ''}…
 							</span>
+						{:else if transcriptionState === 'processing'}
+							<!-- Transcription active — processing indicator (P39-07) -->
+							<span
+								class="inline-flex items-center gap-1.5 text-xs text-gray-500 dark:text-gray-400"
+								aria-live="polite"
+								data-testid="timeline-transcription-processing"
+							>
+								<span
+									class="size-2 rounded-full bg-purple-400 animate-pulse inline-block"
+									aria-hidden="true"
+								></span>
+								Transcribing{transcriptionFilename ? ` "${transcriptionFilename}"` : ''}…
+							</span>
 						{:else}
 							<!-- Idle — both controls available -->
 							<button
@@ -1618,6 +1734,31 @@
 							>
 								<span>Clean up</span>
 							</button>
+							<!-- Transcribe audio file (P39-07) -->
+							<label
+								class="inline-flex items-center gap-1.5 cursor-pointer text-xs
+								       text-purple-600 dark:text-purple-400
+								       hover:text-purple-700 dark:hover:text-purple-300
+								       px-2 py-1 rounded border border-purple-200 dark:border-purple-800
+								       hover:bg-purple-50 dark:hover:bg-purple-900/20 transition"
+								title="Transcribe an audio file (MP3, WAV, M4A, WebM, …)"
+								aria-label="Transcribe audio file"
+								data-testid="timeline-transcription-label"
+							>
+								<span>Transcribe audio</span>
+								<input
+									type="file"
+									accept={TIMELINE_AUDIO_ACCEPT}
+									class="hidden"
+									data-testid="timeline-transcription-file-input"
+									on:change={(e) => {
+										void handleTranscribeAudioFile(
+											(e.target as HTMLInputElement).files
+										);
+										(e.target as HTMLInputElement).value = '';
+									}}
+								/>
+							</label>
 						{/if}
 					</div>
 				</div>
