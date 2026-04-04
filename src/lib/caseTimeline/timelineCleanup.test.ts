@@ -49,20 +49,20 @@ describe('applyTimelineComposerCleanup — empty and no-op', () => {
 
 describe('applyTimelineComposerCleanup — line endings', () => {
 	it('normalizes CRLF to LF', () => {
-		const r = clean('line one\r\nline two');
-		expect(r.cleanedText).toBe('line one\nline two');
+		const r = clean('Line one\r\nLine two');
+		expect(r.cleanedText).toBe('Line one\nLine two');
 		expect(r.changed).toBe(true);
 		expect(r.changesSummary.some((s) => s.toLowerCase().includes('line ending'))).toBe(true);
 	});
 
 	it('normalizes bare CR to LF', () => {
-		const r = clean('line one\rline two');
-		expect(r.cleanedText).toBe('line one\nline two');
+		const r = clean('Line one\rLine two');
+		expect(r.cleanedText).toBe('Line one\nLine two');
 		expect(r.changed).toBe(true);
 	});
 
 	it('leaves plain LF unchanged', () => {
-		const r = clean('line one\nline two');
+		const r = clean('Line one\nLine two');
 		expect(r.changed).toBe(false);
 	});
 });
@@ -71,32 +71,35 @@ describe('applyTimelineComposerCleanup — line endings', () => {
 
 describe('applyTimelineComposerCleanup — unicode typography', () => {
 	it('converts left/right single curly quotes to straight apostrophe', () => {
-		const r = clean('suspect\u2019s vehicle');
-		expect(r.cleanedText).toBe("suspect's vehicle");
+		// Starts uppercase to isolate the typography rule from sentence-cap.
+		const r = clean('Suspect\u2019s vehicle');
+		expect(r.cleanedText).toBe("Suspect's vehicle");
 		expect(r.changed).toBe(true);
 	});
 
 	it('converts left/right double curly quotes to straight quotes', () => {
+		// Starts with a quote character, not a letter — sentence-cap does not fire.
 		const r = clean('\u201cyes\u201d');
 		expect(r.cleanedText).toBe('"yes"');
 		expect(r.changed).toBe(true);
 	});
 
 	it('converts Unicode ellipsis to three dots', () => {
+		// Sentence-cap also fires on the lowercase 'w'; expected output capitalizes it.
 		const r = clean('waiting\u2026');
-		expect(r.cleanedText).toBe('waiting...');
+		expect(r.cleanedText).toBe('Waiting...');
 		expect(r.changed).toBe(true);
 	});
 
 	it('converts en dash to hyphen', () => {
-		const r = clean('pages 1\u20133');
-		expect(r.cleanedText).toBe('pages 1-3');
+		const r = clean('Pages 1\u20133');
+		expect(r.cleanedText).toBe('Pages 1-3');
 		expect(r.changed).toBe(true);
 	});
 
 	it('converts em dash to hyphen', () => {
-		const r = clean('arrived\u2014late');
-		expect(r.cleanedText).toBe('arrived-late');
+		const r = clean('Arrived\u2014late');
+		expect(r.cleanedText).toBe('Arrived-late');
 		expect(r.changed).toBe(true);
 	});
 
@@ -110,14 +113,15 @@ describe('applyTimelineComposerCleanup — unicode typography', () => {
 
 describe('applyTimelineComposerCleanup — trailing whitespace per line', () => {
 	it('removes trailing spaces from a line', () => {
-		const r = clean('line one   \nline two');
-		expect(r.cleanedText).toBe('line one\nline two');
+		// Starts uppercase to isolate the trailing-whitespace rule from sentence-cap.
+		const r = clean('Line one   \nline two');
+		expect(r.cleanedText).toBe('Line one\nline two');
 		expect(r.changed).toBe(true);
 	});
 
 	it('removes trailing tabs from a line', () => {
-		const r = clean('note\t\t\nend');
-		expect(r.cleanedText).toBe('note\nend');
+		const r = clean('Note\t\t\nend');
+		expect(r.cleanedText).toBe('Note\nend');
 		expect(r.changed).toBe(true);
 	});
 
@@ -131,14 +135,16 @@ describe('applyTimelineComposerCleanup — trailing whitespace per line', () => 
 
 describe('applyTimelineComposerCleanup — internal spaces', () => {
 	it('collapses multiple spaces to one', () => {
+		// Sentence-cap also fires; expected output has capital 'S'.
 		const r = clean('subject  arrived   at  3pm');
-		expect(r.cleanedText).toBe('subject arrived at 3pm');
+		expect(r.cleanedText).toBe('Subject arrived at 3pm');
 		expect(r.changed).toBe(true);
 	});
 
 	it('does not collapse spaces across lines', () => {
+		// Sentence-cap fires on first char; both outcomes are tested here.
 		const r = clean('line one\nline  two');
-		expect(r.cleanedText).toBe('line one\nline two');
+		expect(r.cleanedText).toBe('Line one\nline two');
 	});
 
 	it('summary mentions collapsed spaces', () => {
@@ -156,9 +162,10 @@ describe('applyTimelineComposerCleanup — standalone i capitalization', () => {
 		expect(r.changed).toBe(true);
 	});
 
-	it('does not alter i inside words', () => {
-		const r = clean('information identified inside');
-		expect(r.cleanedText).toBe('information identified inside');
+	it('does not alter i inside words (standalone-i rule isolation)', () => {
+		// Starts uppercase to isolate the standalone-i rule from sentence-cap.
+		const r = clean('Notes: information identified inside the building');
+		expect(r.cleanedText).toBe('Notes: information identified inside the building');
 		expect(r.changed).toBe(false);
 	});
 
@@ -176,25 +183,26 @@ describe('applyTimelineComposerCleanup — standalone i capitalization', () => {
 // ── Rule 6: Word typos ────────────────────────────────────────────────────────
 
 describe('applyTimelineComposerCleanup — word typos', () => {
-	it('fixes "teh" → "the"', () => {
+	it('fixes "teh" → "the" (sentence-cap also fires on first word)', () => {
+		// teh→the by typo rule, then first char capitalized: 'The suspect'
 		const r = clean('teh suspect');
-		expect(r.cleanedText).toBe('the suspect');
+		expect(r.cleanedText).toBe('The suspect');
 		expect(r.changed).toBe(true);
 	});
 
-	it('fixes "occured" → "occurred"', () => {
+	it('fixes "occured" → "occurred" (sentence-cap also fires)', () => {
 		const r = clean('this occured at noon');
-		expect(r.cleanedText).toBe('this occurred at noon');
+		expect(r.cleanedText).toBe('This occurred at noon');
 	});
 
-	it('fixes "recieve" → "receive"', () => {
+	it('fixes "recieve" → "receive" (sentence-cap also fires)', () => {
 		const r = clean('did not recieve response');
-		expect(r.cleanedText).toBe('did not receive response');
+		expect(r.cleanedText).toBe('Did not receive response');
 	});
 
-	it('fixes "seperate" → "separate"', () => {
+	it('fixes "seperate" → "separate" (sentence-cap also fires)', () => {
 		const r = clean('seperate vehicles');
-		expect(r.cleanedText).toBe('separate vehicles');
+		expect(r.cleanedText).toBe('Separate vehicles');
 	});
 
 	it('preserves case for capitalised typo', () => {
@@ -207,9 +215,12 @@ describe('applyTimelineComposerCleanup — word typos', () => {
 		expect(r.cleanedText).toBe('THE document');
 	});
 
-	it('does not fix substring match (e.g. "together" not touched by "teh")', () => {
+	it('does not fix substring match (e.g. "together" not mangled by "teh" rule)', () => {
+		// Sentence-cap capitalizes first char → 'Together'; but typo rule must NOT
+		// turn 'together' into 'thether' or similar. Verifies word-boundary safety.
 		const r = clean('together');
-		expect(r.cleanedText).toBe('together');
+		expect(r.cleanedText).toBe('Together');
+		expect(r.cleanedText).not.toContain('thether');
 	});
 
 	it('summary mentions spelling correction', () => {
@@ -218,18 +229,77 @@ describe('applyTimelineComposerCleanup — word typos', () => {
 	});
 });
 
-// ── Rule 7: Trailing newlines/whitespace at end ───────────────────────────────
+// ── Rule 7: Sentence-start capitalization ────────────────────────────────────
 
-describe('applyTimelineComposerCleanup — trailing newlines at end', () => {
-	it('strips trailing newlines', () => {
-		const r = clean('note\n\n\n');
-		expect(r.cleanedText).toBe('note');
+describe('applyTimelineComposerCleanup — sentence-start capitalization', () => {
+	it('capitalizes the first character of the text', () => {
+		const r = clean('suspect was seen at 14:00');
+		expect(r.cleanedText.startsWith('Suspect')).toBe(true);
 		expect(r.changed).toBe(true);
 	});
 
-	it('strips trailing spaces at end', () => {
+	it('capitalizes the first letter after a period-space', () => {
+		const r = clean('Arrived on scene. suspect fled on foot.');
+		expect(r.cleanedText).toContain('. Suspect');
+		expect(r.changed).toBe(true);
+	});
+
+	it('capitalizes the first letter after an exclamation mark-space', () => {
+		const r = clean('Stop! he ran north.');
+		expect(r.cleanedText).toContain('! He');
+		expect(r.changed).toBe(true);
+	});
+
+	it('capitalizes the first letter after a question mark-space', () => {
+		const r = clean('Unknown subject? no identification found.');
+		expect(r.cleanedText).toContain('? No');
+		expect(r.changed).toBe(true);
+	});
+
+	it('does not change text that already has correct sentence starts', () => {
+		const r = clean('Arrived at 09:00. Suspect identified. Vehicle logged.');
+		expect(r.changed).toBe(false);
+	});
+
+	it('capitalizes multiple sentences in one pass', () => {
+		const r = clean('arrived at noon. subject left. vehicle noted.');
+		expect(r.cleanedText).toBe('Arrived at noon. Subject left. Vehicle noted.');
+	});
+
+	it('correctly transforms the P39 bug-report sample text', () => {
+		const sample =
+			'plan is keep eyes on it through weekend, try to get plate numbers, maybe camera if good spot opens up. if cs checks out maybe do controlled buy. not enough for bigger move yet';
+		const r = clean(sample);
+		expect(r.changed).toBe(true);
+		expect(r.cleanedText.startsWith('Plan')).toBe(true);
+		expect(r.cleanedText).toContain('. If cs');
+		expect(r.cleanedText).toContain('. Not enough');
+	});
+
+	it('summary mentions sentence capitalization', () => {
+		const r = clean('arrived late.');
+		expect(r.changesSummary.some((s) => /capitaliz|sentence/i.test(s))).toBe(true);
+	});
+
+	it('does not double-space after punctuation', () => {
+		const r = clean('one sentence.  next sentence starts here.');
+		// Collapse-spaces rule runs first, so ". " is single-spaced before this rule
+		expect(r.cleanedText).not.toContain('.  ');
+	});
+});
+
+// ── Rule 8: Trailing newlines/whitespace at end ───────────────────────────────
+
+describe('applyTimelineComposerCleanup — trailing newlines at end', () => {
+	it('strips trailing newlines (sentence-cap also fires on first char)', () => {
+		const r = clean('note\n\n\n');
+		expect(r.cleanedText).toBe('Note');
+		expect(r.changed).toBe(true);
+	});
+
+	it('strips trailing spaces at end (sentence-cap also fires on first char)', () => {
 		const r = clean('note   ');
-		expect(r.cleanedText).toBe('note');
+		expect(r.cleanedText).toBe('Note');
 		expect(r.changed).toBe(true);
 	});
 });

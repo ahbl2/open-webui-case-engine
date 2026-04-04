@@ -30,7 +30,7 @@
 	 *
 	 * P28-37 changes:
 	 *   - "+ Log entry" button in header opens a governed inline create form
-	 *   - Fields: occurred_at (datetime-local, UTC), type, text_original (required),
+	 *   - Fields: occurred_at (datetime-local, ET), type, text_original (required),
 	 *     location_text (optional)
 	 *   - On save: POST /cases/:id/entries; created entry inserted into list in
 	 *     occurred_at order; form dismissed
@@ -66,7 +66,9 @@
 		TIMELINE_EMPTY_STATE_DESCRIPTION,
 		TIMELINE_HEADER_SUBLINE,
 		TIMELINE_LOG_ENTRY_BUTTON_TITLE,
-		TIMELINE_OFFICIAL_RECORD_BADGE_TITLE
+		TIMELINE_OFFICIAL_RECORD_BADGE_TITLE,
+		TIMELINE_TIME_ZONE_LABEL,
+		TIMELINE_TIME_ZONE_TOOLTIP
 	} from './timelineOperatorMicrocopy';
 	import {
 		TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
@@ -1259,7 +1261,7 @@
 								</select>
 							</div>
 
-							<!-- occurred_at (datetime-local, treated as UTC) -->
+							<!-- occurred_at (datetime-local, Eastern time) -->
 							<div class="flex flex-col gap-1.5 flex-1 min-w-[200px]">
 								<label
 									class="text-xs font-medium text-gray-600 dark:text-gray-300"
@@ -1267,7 +1269,7 @@
 								>
 									Occurred at
 									<span class="text-[10px] font-normal text-gray-400 dark:text-gray-500 ml-1">
-										(UTC)
+										{TIMELINE_TIME_ZONE_LABEL}
 									</span>
 								</label>
 								<input
@@ -1465,8 +1467,8 @@
 							for="composer-occurred-time"
 						>
 							Time
-							<span class="text-blue-600 dark:text-blue-400 ml-0.5" title="Required — time when this occurred (UTC)">*</span>
-							<span class="text-[10px] font-normal text-gray-400 dark:text-gray-500 ml-1">(UTC)</span>
+							<span class="text-blue-600 dark:text-blue-400 ml-0.5" title={TIMELINE_TIME_ZONE_TOOLTIP}>*</span>
+							<span class="text-[10px] font-normal text-gray-400 dark:text-gray-500 ml-1">{TIMELINE_TIME_ZONE_LABEL}</span>
 						</label>
 						<input
 							type="time"

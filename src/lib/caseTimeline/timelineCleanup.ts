@@ -12,7 +12,8 @@
  *      (also normalizes Unicode space separators, e.g. NBSP, to ASCII space first)
  *   5. Capitalize standalone lowercase 'i' → 'I' (word boundaries only)
  *   6. Correct common whole-word spelling mistakes (small, well-governed typo map)
- *   7. Strip trailing whitespace/newlines at end of text
+ *   7. Capitalize sentence starts: first character of text + first letter after '. '/'! '/'? '
+ *   8. Strip trailing whitespace/newlines at end of text
  *
  * Typo map governance (keep small — do not expand casually):
  *   Only unambiguous editorial misspellings. No slang, abbreviations, or role-specific
@@ -128,6 +129,30 @@ function applyWordTypos(s: string, summary: string[]): string {
 	return s;
 }
 
+/**
+ * Capitalize sentence starts:
+ *   - First character of the entire text, if it is a lowercase letter.
+ *   - First letter immediately after '. ', '! ', or '? ' (sentence-ending
+ *     punctuation followed by one or more spaces), if that letter is lowercase.
+ *
+ * This is deterministic and bounded: it only changes the case of letters at
+ * sentence boundaries. It does not alter spelling, wording, or meaning.
+ * Edge cases (abbreviations like "e.g. x") are accepted as a tolerable
+ * false positive for a detective field tool — consistent with the typo map
+ * governance principle of "prefer fewer rules over risky automation."
+ */
+function capitalizeAfterSentenceEnd(s: string, summary: string[]): string {
+	const before = s;
+	// Capitalize the very first letter of the text.
+	s = s.replace(/^([a-z])/, (m) => m.toUpperCase());
+	// Capitalize the first letter after sentence-ending punctuation + whitespace.
+	s = s.replace(/([.!?])\s+([a-z])/g, (_, punct, letter) => `${punct} ${letter.toUpperCase()}`);
+	if (s !== before) {
+		summary.push('Capitalized sentence starts (beginning of text and/or after sentence-ending punctuation).');
+	}
+	return s;
+}
+
 function stripTrailingWhitespaceAndNewlines(s: string, summary: string[]): string {
 	const out = s.replace(/[\s]+$/g, '');
 	if (out !== s) summary.push('Trimmed trailing whitespace or newlines at end of text.');
@@ -153,6 +178,7 @@ export function applyTimelineComposerCleanup(rawText: string): TimelineCleanupRe
 	s = collapseInternalSpacesPerLine(s, summary);
 	s = fixStandaloneI(s, summary);
 	s = applyWordTypos(s, summary);
+	s = capitalizeAfterSentenceEnd(s, summary);
 	s = stripTrailingWhitespaceAndNewlines(s, summary);
 
 	return { cleanedText: s, changesSummary: summary, changed: s !== rawText };
