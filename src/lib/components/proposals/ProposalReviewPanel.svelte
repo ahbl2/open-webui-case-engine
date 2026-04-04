@@ -1186,79 +1186,26 @@
 											{formatTimelineOccurredAtForDisplay(payload.occurred_at)}
 										</span>
 									</div>
-									<div class="flex gap-2 items-start">
+									<div class="flex gap-2 items-center flex-wrap">
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
 											When confidence
 										</span>
-										<div
-											class="text-[10px] text-gray-600 dark:text-gray-400 flex-1 space-y-0.5 rounded-r py-0.5 pl-2 border-l-2 {chronologyConf ===
+										<span
+											class="font-medium uppercase tracking-wide text-[9px] px-1.5 py-0.5 rounded {chronologyConf ===
 											'high'
-												? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20'
+												? 'bg-emerald-100/90 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100'
 												: chronologyConf === 'medium'
-													? 'border-violet-500 bg-violet-50/50 dark:bg-violet-950/25'
-													: 'border-amber-500 bg-amber-50/40 dark:bg-amber-950/20'}"
+													? 'bg-violet-200/90 text-violet-950 dark:bg-violet-900/60 dark:text-violet-100'
+													: 'bg-amber-100/90 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100'}"
+											data-testid="timeline-chronology-confidence-badge"
 										>
-											<span
-												class="font-medium uppercase tracking-wide text-[9px] px-1 py-0.5 rounded {chronologyConf ===
-												'high'
-													? 'bg-emerald-100/90 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100'
-													: chronologyConf === 'medium'
-														? 'bg-violet-200/90 text-violet-950 dark:bg-violet-900/60 dark:text-violet-100'
-														: 'bg-amber-100/90 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100'}"
-												data-testid="timeline-chronology-confidence-badge"
-											>
-												{chronologyConf}
-											</span>
-											{#if chronologyConf === 'high'}
-												<p
-													class="text-[9px] text-gray-600 dark:text-gray-400 leading-snug mt-0.5"
-													data-testid="timeline-chronology-copy-high"
-												>
-													<strong>Source-explicit:</strong> the date or time appears in the quoted source text.
-													That does not prove it is factually correct — still sanity-check before commit.
-												</p>
-											{:else if chronologyConf === 'medium'}
-												<p
-													class="text-[9px] text-gray-600 dark:text-gray-400 leading-snug mt-0.5"
-													data-testid="timeline-chronology-copy-medium"
-												>
-													<strong>Partly inferred:</strong> a timestamp is present but not fully anchored in
-													explicit calendar wording. Compare against the source carefully before you commit.
-												</p>
-											{:else}
-												<p
-													class="text-[9px] text-gray-600 dark:text-gray-400 leading-snug mt-0.5"
-													data-testid="timeline-chronology-copy-low"
-												>
-													<strong>Unreliable timing:</strong> confirm or correct below (or via document-ingest
-													fields) before commit — required for low confidence.
-												</p>
-											{/if}
-										</div>
+											{chronologyConf}
+										</span>
+										<span class="text-[9px] text-gray-500 dark:text-gray-500">
+											— expand <em class="not-italic font-medium">Technical details</em> below for full
+											diagnostics.
+										</span>
 									</div>
-									{#if proposal.proposal_type === 'timeline' && proposal.occurred_at_timestamp_reconciliation}
-										<OccurredAtTimestampReconciliationReview
-											rec={proposal.occurred_at_timestamp_reconciliation}
-										/>
-									{/if}
-									{#if proposal.proposal_type === 'timeline' && proposal.occurred_at_guidance}
-										<OccurredAtGuidanceReview guidance={proposal.occurred_at_guidance} />
-									{/if}
-									{#if isDocumentTimelineIntakePayload(payload)}
-										{@const detTsItems = parseDeterministicTimestampCandidatesFromPayload(payload)}
-										<DeterministicTimestampCandidatesReview items={detTsItems} />
-									{/if}
-									{#if proposal.status === 'approved' && proposal.proposal_type === 'timeline'}
-										<p
-											class="text-[9px] text-gray-600 dark:text-gray-400 mt-1 px-1 py-1 rounded border border-gray-200 dark:border-gray-600 bg-gray-50/80 dark:bg-gray-900/40"
-											data-testid="approved-timeline-precommit-notice"
-										>
-											<strong>Already approved.</strong> Further edits here are
-											<strong>controlled pre-commit corrections</strong> (chronology and, for document-ingest
-											rows, extracted text) — not a full redraft. Reject and re-propose if the narrative needs a
-											fresh review.
-										</p>
-									{/if}
 									<div class="flex gap-2">
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
 											Type
@@ -1322,6 +1269,17 @@
 										>
 											These proposals used only the <strong>start</strong> of the file for generation — not the
 											full extracted text. Events later in the file may be absent (see banner above).
+										</p>
+									{/if}
+									{#if proposal.status === 'approved' && proposal.proposal_type === 'timeline'}
+										<p
+											class="text-[9px] text-gray-600 dark:text-gray-400 mt-1 px-1 py-1 rounded border border-gray-200 dark:border-gray-600 bg-gray-50/80 dark:bg-gray-900/40"
+											data-testid="approved-timeline-precommit-notice"
+										>
+											<strong>Already approved.</strong> Further edits here are
+											<strong>controlled pre-commit corrections</strong> (chronology and, for document-ingest
+											rows, extracted text) — not a full redraft. Reject and re-propose if the narrative needs a
+											fresh review.
 										</p>
 									{/if}
 									{#if (canApprove(proposal.status) || canCommit(proposal.status)) && isDocumentTimelineIntakePayload(payload) && docEditById[proposal.id]}
@@ -1453,6 +1411,102 @@
 											</button>
 										</div>
 									{/if}
+									<details
+										class="mt-3 rounded border border-gray-200 dark:border-gray-600 bg-white/60 dark:bg-gray-950/40 px-2 py-1.5"
+										data-testid="proposal-review-technical-details"
+									>
+										<summary
+											class="cursor-pointer select-none text-[10px] font-medium text-gray-600 dark:text-gray-400 list-none [&::-webkit-details-marker]:hidden"
+										>
+											Technical details — diagnostics &amp; source routing (optional)
+										</summary>
+										<div class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 space-y-2">
+											<div
+												class="text-[10px] text-gray-600 dark:text-gray-400 space-y-0.5 rounded-r py-0.5 pl-2 border-l-2 {chronologyConf ===
+												'high'
+													? 'border-emerald-500 bg-emerald-50/40 dark:bg-emerald-950/20'
+													: chronologyConf === 'medium'
+														? 'border-violet-500 bg-violet-50/50 dark:bg-violet-950/25'
+														: 'border-amber-500 bg-amber-50/40 dark:bg-amber-950/20'}"
+											>
+												<p class="text-[9px] font-medium text-gray-700 dark:text-gray-300">
+													Chronology guidance (same as “When confidence” badge above)
+												</p>
+												{#if chronologyConf === 'high'}
+													<p
+														class="text-[9px] text-gray-600 dark:text-gray-400 leading-snug mt-0.5"
+														data-testid="timeline-chronology-copy-high"
+													>
+														<strong>Source-explicit:</strong> the date or time appears in the quoted source text.
+														That does not prove it is factually correct — still sanity-check before commit.
+													</p>
+												{:else if chronologyConf === 'medium'}
+													<p
+														class="text-[9px] text-gray-600 dark:text-gray-400 leading-snug mt-0.5"
+														data-testid="timeline-chronology-copy-medium"
+													>
+														<strong>Partly inferred:</strong> a timestamp is present but not fully anchored in
+														explicit calendar wording. Compare against the source carefully before you commit.
+													</p>
+												{:else}
+													<p
+														class="text-[9px] text-gray-600 dark:text-gray-400 leading-snug mt-0.5"
+														data-testid="timeline-chronology-copy-low"
+													>
+														<strong>Unreliable timing:</strong> confirm or correct below (or via document-ingest
+														fields) before commit — required for low confidence.
+													</p>
+												{/if}
+											</div>
+											{#if proposal.proposal_type === 'timeline' && proposal.occurred_at_timestamp_reconciliation}
+												<OccurredAtTimestampReconciliationReview
+													rec={proposal.occurred_at_timestamp_reconciliation}
+												/>
+											{/if}
+											{#if proposal.proposal_type === 'timeline' && proposal.occurred_at_guidance}
+												<OccurredAtGuidanceReview guidance={proposal.occurred_at_guidance} />
+											{/if}
+											{#if isDocumentTimelineIntakePayload(payload)}
+												{@const detTsItems = parseDeterministicTimestampCandidatesFromPayload(payload)}
+												<DeterministicTimestampCandidatesReview items={detTsItems} />
+											{/if}
+											<div class="pt-2 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-x-4 gap-y-0.5">
+												{#if isDocumentTimelineIntakePayload(payload)}
+													<span
+														class="text-[10px] text-gray-500 dark:text-gray-400 max-w-full"
+														data-testid="document-ingest-source-footer"
+													>
+														<span class="font-semibold">Source:</span>
+														Case file document ingest — synthetic internal thread for routing only (not chat). Ref
+														<span class="font-mono">{shortId(proposal.source_thread_id)}</span>
+														· proposal
+														<span class="font-mono">{shortId(proposal.id)}</span>
+													</span>
+												{:else}
+													<span class="text-[10px] text-gray-400 dark:text-gray-500">
+														<span class="font-semibold">Source:</span>
+														{proposal.source_scope} thread · <span class="font-mono">{shortId(proposal.source_thread_id)}</span>
+													</span>
+													{#if proposal.source_message_id}
+														<span class="text-[10px] text-gray-400 dark:text-gray-500">
+															<span class="font-semibold">Msg:</span>
+															<span class="font-mono">{shortId(proposal.source_message_id)}</span>
+														</span>
+													{/if}
+													<span class="text-[10px] text-gray-400 dark:text-gray-500">
+														<span class="font-semibold">ID:</span>
+														<span class="font-mono">{shortId(proposal.id)}</span>
+													</span>
+												{/if}
+												{#if proposal.reviewed_by}
+													<span class="text-[10px] text-gray-400 dark:text-gray-500">
+														<span class="font-semibold">Reviewed by:</span>
+														<span class="font-mono">{shortId(proposal.reviewed_by)}</span>
+													</span>
+												{/if}
+											</div>
+										</div>
+									</details>
 								</div>
 								{/if}
 
@@ -1462,42 +1516,44 @@
 {JSON.stringify(payload, null, 2)}</pre>
 							{/if}
 
-							<!-- Metadata footer -->
-							<div class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-x-4 gap-y-0.5">
-								{#if isDocumentTimelineIntakePayload(payload)}
-									<span
-										class="text-[10px] text-gray-500 dark:text-gray-400 max-w-full"
-										data-testid="document-ingest-source-footer"
-									>
-										<span class="font-semibold">Source:</span>
-										Case file document ingest — synthetic internal thread for routing only (not chat). Ref
-										<span class="font-mono">{shortId(proposal.source_thread_id)}</span>
-										· proposal
-										<span class="font-mono">{shortId(proposal.id)}</span>
-									</span>
-								{:else}
-									<span class="text-[10px] text-gray-400 dark:text-gray-500">
-										<span class="font-semibold">Source:</span>
-										{proposal.source_scope} thread · <span class="font-mono">{shortId(proposal.source_thread_id)}</span>
-									</span>
-									{#if proposal.source_message_id}
+							{#if proposal.proposal_type !== 'timeline'}
+								<!-- Metadata footer (timeline: folded into technical details disclosure) -->
+								<div class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-x-4 gap-y-0.5">
+									{#if isDocumentTimelineIntakePayload(payload)}
+										<span
+											class="text-[10px] text-gray-500 dark:text-gray-400 max-w-full"
+											data-testid="document-ingest-source-footer"
+										>
+											<span class="font-semibold">Source:</span>
+											Case file document ingest — synthetic internal thread for routing only (not chat). Ref
+											<span class="font-mono">{shortId(proposal.source_thread_id)}</span>
+											· proposal
+											<span class="font-mono">{shortId(proposal.id)}</span>
+										</span>
+									{:else}
 										<span class="text-[10px] text-gray-400 dark:text-gray-500">
-											<span class="font-semibold">Msg:</span>
-											<span class="font-mono">{shortId(proposal.source_message_id)}</span>
+											<span class="font-semibold">Source:</span>
+											{proposal.source_scope} thread · <span class="font-mono">{shortId(proposal.source_thread_id)}</span>
+										</span>
+										{#if proposal.source_message_id}
+											<span class="text-[10px] text-gray-400 dark:text-gray-500">
+												<span class="font-semibold">Msg:</span>
+												<span class="font-mono">{shortId(proposal.source_message_id)}</span>
+											</span>
+										{/if}
+										<span class="text-[10px] text-gray-400 dark:text-gray-500">
+											<span class="font-semibold">ID:</span>
+											<span class="font-mono">{shortId(proposal.id)}</span>
 										</span>
 									{/if}
-									<span class="text-[10px] text-gray-400 dark:text-gray-500">
-										<span class="font-semibold">ID:</span>
-										<span class="font-mono">{shortId(proposal.id)}</span>
-									</span>
-								{/if}
-								{#if proposal.reviewed_by}
-									<span class="text-[10px] text-gray-400 dark:text-gray-500">
-										<span class="font-semibold">Reviewed by:</span>
-										<span class="font-mono">{shortId(proposal.reviewed_by)}</span>
-									</span>
-								{/if}
-							</div>
+									{#if proposal.reviewed_by}
+										<span class="text-[10px] text-gray-400 dark:text-gray-500">
+											<span class="font-semibold">Reviewed by:</span>
+											<span class="font-mono">{shortId(proposal.reviewed_by)}</span>
+										</span>
+									{/if}
+								</div>
+							{/if}
 						</div>
 					{/if}
 				</div>

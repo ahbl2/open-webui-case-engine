@@ -122,3 +122,51 @@ describe('ProposalReviewPanel.svelte — P41-05 reconciliation surfacing', () =>
 		expect(child).not.toMatch(/apply this timestamp/i);
 	});
 });
+
+describe('ProposalReviewPanel.svelte — P41-13 operator-first layout', () => {
+	it('uses a collapsed technical <details> without open attribute', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toContain('data-testid="proposal-review-technical-details"');
+		const m = src.match(/<details[^>]*data-testid="proposal-review-technical-details"[^>]*>/);
+		expect(m?.[0], 'technical details details tag').toBeTruthy();
+		expect(m![0]).not.toMatch(/\sopen(\s|=|>)/);
+	});
+
+	it('places occurred-at display and document-ingest edit form before technical details in source order', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		const iOccurred = src.indexOf('data-testid="proposal-timeline-occurred-display"');
+		const iEditForm = src.indexOf('data-testid="document-ingest-edit-form"');
+		const iTech = src.indexOf('data-testid="proposal-review-technical-details"');
+		expect(iOccurred).toBeGreaterThan(-1);
+		expect(iTech).toBeGreaterThan(-1);
+		expect(iOccurred).toBeLessThan(iTech);
+		expect(iEditForm).toBeGreaterThan(-1);
+		expect(iEditForm).toBeLessThan(iTech);
+	});
+
+	it('folds reconciliation, guidance, deterministic review, and chronology copy inside technical details', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		const iTech = src.indexOf('data-testid="proposal-review-technical-details"');
+		const iClose = src.indexOf('</details>', iTech);
+		expect(iClose).toBeGreaterThan(iTech);
+		const inner = src.slice(iTech, iClose);
+		expect(inner).toContain('OccurredAtTimestampReconciliationReview');
+		expect(inner).toContain('OccurredAtGuidanceReview');
+		expect(inner).toContain('DeterministicTimestampCandidatesReview');
+		expect(inner).toContain('data-testid="timeline-chronology-copy-high"');
+		expect(inner).toContain('data-testid="document-ingest-source-footer"');
+	});
+
+	it('keeps approve / reject / commit controls in the panel', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toContain('data-testid="approve-btn"');
+		expect(src).toContain('data-testid="reject-btn"');
+		expect(src).toContain('data-testid="commit-btn"');
+	});
+
+	it('shows timeline metadata footer only inside technical details (not duplicated in global footer)', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toContain('proposal.proposal_type !== \'timeline\'');
+		expect(src).toMatch(/timeline: folded into technical details/i);
+	});
+});
