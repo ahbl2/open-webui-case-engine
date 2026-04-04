@@ -40,6 +40,8 @@
 	let bulkConfirmFile: CaseFile | null = null;
 	let bulkConfirmCount = 0;
 	let bulkConfirmThreshold = 0;
+	/** P40-05C: from 409 — confirm resend skips Ollama when token is still valid */
+	let bulkConfirmToken: string | null = null;
 
 	/** P38-04: nested dragenter/dragleave depth so highlight survives child boundaries */
 	let fileDragDepth = 0;
@@ -64,6 +66,9 @@
 		newTagInput = '';
 		proposingFileId = null;
 		bulkConfirmFile = null;
+		bulkConfirmCount = 0;
+		bulkConfirmThreshold = 0;
+		bulkConfirmToken = null;
 		fileDragDepth = 0;
 		loadFiles();
 	}
@@ -261,13 +266,17 @@
 		bulkConfirmFile = null;
 		bulkConfirmCount = 0;
 		bulkConfirmThreshold = 0;
+		bulkConfirmToken = null;
 	}
 
 	async function runProposeTimeline(f: CaseFile, confirmBulk: boolean) {
 		proposingFileId = f.id;
 		try {
 			const result = await proposeTimelineEntriesFromCaseFile(caseId, f.id, token, {
-				confirm_bulk: confirmBulk
+				confirm_bulk: confirmBulk,
+				...(confirmBulk && bulkConfirmToken
+					? { bulk_confirmation_token: bulkConfirmToken }
+					: {})
 			});
 			closeBulkModal();
 			toast.success(
@@ -285,11 +294,16 @@
 				code?: string;
 				proposal_count?: number;
 				threshold?: number;
+				bulk_confirmation_token?: string;
 			};
 			if (err.status === 409 && err.code === 'BULK_PROPOSAL_CONFIRMATION_REQUIRED') {
 				bulkConfirmFile = f;
 				bulkConfirmCount = err.proposal_count ?? 0;
 				bulkConfirmThreshold = err.threshold ?? 0;
+				bulkConfirmToken =
+					typeof err.bulk_confirmation_token === 'string' && err.bulk_confirmation_token.length > 0
+						? err.bulk_confirmation_token
+						: null;
 			} else {
 				toast.error(err?.message ?? 'Propose timeline entries failed');
 			}

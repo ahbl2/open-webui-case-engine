@@ -3731,13 +3731,17 @@ export async function proposeTimelineEntriesFromCaseFile(
 	caseId: string,
 	fileId: string,
 	token: string,
-	options?: { confirm_bulk?: boolean; model?: string }
+	options?: { confirm_bulk?: boolean; model?: string; bulk_confirmation_token?: string }
 ): Promise<{
 	proposals: ProposalRecord[];
 	proposal_count: number;
 	bulk_threshold: number;
 	source_text_truncated_for_model: boolean;
 }> {
+	const bulkTok =
+		typeof options?.bulk_confirmation_token === 'string' && options.bulk_confirmation_token.trim()
+			? options.bulk_confirmation_token.trim()
+			: undefined;
 	const res = await fetch(
 		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/files/${encodeURIComponent(fileId)}/propose-timeline-entries`,
 		{
@@ -3748,7 +3752,8 @@ export async function proposeTimelineEntriesFromCaseFile(
 			},
 			body: JSON.stringify({
 				confirm_bulk: options?.confirm_bulk === true,
-				...(options?.model ? { model: options.model } : {})
+				...(options?.model ? { model: options.model } : {}),
+				...(bulkTok ? { bulk_confirmation_token: bulkTok } : {})
 			})
 		}
 	);
@@ -3757,6 +3762,7 @@ export async function proposeTimelineEntriesFromCaseFile(
 		code?: string;
 		proposal_count?: number;
 		threshold?: number;
+		bulk_confirmation_token?: string;
 	};
 	if (res.status === 409) {
 		const err = new Error(
@@ -3765,11 +3771,14 @@ export async function proposeTimelineEntriesFromCaseFile(
 			code?: string;
 			proposal_count?: number;
 			threshold?: number;
+			bulk_confirmation_token?: string;
 			status?: number;
 		};
 		err.code = data?.code;
 		err.proposal_count = data?.proposal_count;
 		err.threshold = data?.threshold;
+		err.bulk_confirmation_token =
+			typeof data?.bulk_confirmation_token === 'string' ? data.bulk_confirmation_token : undefined;
 		err.status = 409;
 		throw err;
 	}
