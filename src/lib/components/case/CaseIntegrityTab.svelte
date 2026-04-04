@@ -170,6 +170,11 @@
 			Narrative lifecycle actions (saved, exported, soft-deleted) appear here when recorded — read-only,
 			with case and record ids only; narrative text is not included.
 		</p>
+		<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="case-audit-timeline-provenance-hint">
+			When a timeline row was committed from a proposal, expanding an audit row may include a short origin
+			summary (for example document ingest vs chat-typed draft) and optional case file references — the
+			timeline entry itself remains the official record.
+		</p>
 		<div class="flex flex-wrap gap-2 items-center">
 			<select
 				bind:value={actionFilter}

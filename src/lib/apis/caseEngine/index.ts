@@ -1944,6 +1944,19 @@ export interface TimelineLinkedImageFile {
 	mime_type: string | null;
 }
 
+/** P40-02: derived provenance for committed entries (Case Engine). */
+export interface TimelineEntryProvenance {
+	origin_kind: string;
+	origin_label: string;
+	lineage_explanation: string;
+	committed_via_proposal: boolean;
+	proposal_id: string | null;
+	source_case_file_id: string | null;
+	source_file_display_name: string | null;
+	ai_assisted_draft: boolean;
+	implies_chat_context_draft: boolean;
+}
+
 export interface TimelineEntry {
 	id: string;
 	case_id: string;
@@ -1960,6 +1973,8 @@ export interface TimelineEntry {
 	version_count?: number;
 	/** Image attachments linked via timeline_entry_case_files → case_files. */
 	linked_image_files?: TimelineLinkedImageFile[];
+	/** How this official row was added (explanatory; authority remains the committed timeline entry). */
+	provenance?: TimelineEntryProvenance;
 }
 
 /**
@@ -3701,6 +3716,64 @@ export interface ProposalRecord {
 	committed_at: string | null;
 	committed_record_id: string | null;
 	rejection_reason: string | null;
+}
+
+/** P40-01 — POST /cases/:caseId/files/:fileId/propose-timeline-entries */
+export async function proposeTimelineEntriesFromCaseFile(
+	caseId: string,
+	fileId: string,
+	token: string,
+	options?: { confirm_bulk?: boolean; model?: string }
+): Promise<{
+	proposals: ProposalRecord[];
+	proposal_count: number;
+	bulk_threshold: number;
+	source_text_truncated_for_model: boolean;
+}> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/files/${encodeURIComponent(fileId)}/propose-timeline-entries`,
+		{
+			method: 'POST',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${token}`
+			},
+			body: JSON.stringify({
+				confirm_bulk: options?.confirm_bulk === true,
+				...(options?.model ? { model: options.model } : {})
+			})
+		}
+	);
+	const data = (await res.json().catch(() => ({}))) as {
+		error?: string;
+		code?: string;
+		proposal_count?: number;
+		threshold?: number;
+	};
+	if (res.status === 409) {
+		const err = new Error(
+			typeof data?.error === 'string' ? data.error : 'Bulk proposal confirmation required'
+		) as Error & {
+			code?: string;
+			proposal_count?: number;
+			threshold?: number;
+			status?: number;
+		};
+		err.code = data?.code;
+		err.proposal_count = data?.proposal_count;
+		err.threshold = data?.threshold;
+		err.status = 409;
+		throw err;
+	}
+	if (!res.ok) {
+		throw new Error(data?.error ?? `Propose timeline from file failed (${res.status})`);
+	}
+	return data as {
+		proposals: ProposalRecord[];
+		proposal_count: number;
+		bulk_threshold: number;
+		source_text_truncated_for_model: boolean;
+	};
 }
 
 export interface CreateProposalParams {

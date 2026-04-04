@@ -36,6 +36,7 @@
 	import { splitTextForSearchHighlight } from '$lib/caseTimeline/timelineSearchUx';
 	import { formatCaseDateTimeWithSeconds, formatCaseDateTime } from '$lib/utils/formatDateTime';
 	import TimelineEntryLinkedImagesViewer from './TimelineEntryLinkedImagesViewer.svelte';
+	import TimelineEntryProvenanceBlock from './TimelineEntryProvenanceBlock.svelte';
 	import EllipsisVertical from '$lib/components/icons/EllipsisVertical.svelte';
 	import ClockRotateRight from '$lib/components/icons/ClockRotateRight.svelte';
 	import Download from '$lib/components/icons/Download.svelte';
@@ -98,6 +99,10 @@
 	$: tags = parseTags(entry.tags);
 	$: isDeleted = !!entry.deleted_at;
 	$: linkedImageFiles = entry.linked_image_files ?? [];
+
+	/** P40-02: hide lineage UI for direct manual logs (older APIs omit `provenance`). */
+	$: showProvenanceBlock =
+		entry.provenance != null && entry.provenance.origin_kind !== 'manual';
 
 	// ── AI-cleaned text toggle (P28-31) ────────────────────────────────────────
 	let showOriginal = false;
@@ -340,6 +345,10 @@
 		</div>
 		</div>
 
+		{#if showProvenanceBlock && entry.provenance}
+			<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
+		{/if}
+
 		<!-- Entry text — truncated and subdued; enough to identify the entry -->
 		<p
 			class="text-xs text-gray-400 dark:text-gray-600 line-clamp-2 leading-relaxed"
@@ -538,6 +547,10 @@
 				</button>
 			{/if}
 		</div>
+
+		{#if showProvenanceBlock && entry.provenance}
+			<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
+		{/if}
 
 		<!-- ── AI-cleaned indicator + toggle ────────────────────────────────────── -->
 		{#if isCleaned}
