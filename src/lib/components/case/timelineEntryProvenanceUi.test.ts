@@ -19,6 +19,8 @@ describe('P40-02 timeline provenance UI', () => {
 		expect(src).toMatch(/data-testid="timeline-entry-provenance-payload-unreadable"/);
 		expect(src).toMatch(/not from a document extract/);
 		expect(src).not.toMatch(/normal chat/);
+		expect(src).toContain('data-testid="timeline-entry-provenance-chronology"');
+		expect(src).toMatch(/When confidence \(at commit\)/);
 	});
 
 	it('TimelineEntryCard shows provenance only when not manual', () => {

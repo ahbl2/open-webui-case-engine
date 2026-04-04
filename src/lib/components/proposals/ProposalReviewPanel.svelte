@@ -21,6 +21,7 @@
 		rejectProposal,
 		commitProposal,
 		reviseChatIntakeProposal,
+		updateProposal,
 		type ProposalRecord,
 		type ProposalStatus
 	} from '$lib/apis/caseEngine';
@@ -32,6 +33,8 @@
 		isBulkApproveEnabled,
 		isBulkRejectEnabled,
 		classifyApiError,
+		timelineProposalCommitBlockedByLowChronology,
+		normalizeProposalPayloadChronologyConfidence,
 		groupByStatus,
 		statusLabel,
 		payloadPreview,
@@ -53,6 +56,20 @@
 
 	let chatIntakeRevisingId = '';
 	let chatIntakeReviseFeedback = '';
+
+	/** P40-01 — pending edits for document → timeline proposals (keyed by proposal id). */
+	let docEditById: Record<
+		string,
+		{
+			occurred_at: string;
+			type: string;
+			text_original: string;
+			text_cleaned: string;
+			occurred_at_confidence: string;
+			operator_occurred_at_confirmed: boolean;
+		}
+	> = {};
+	let documentIngestSavingId = '';
 
 	// ── Data state ─────────────────────────────────────────────────────────────
 
@@ -125,6 +142,7 @@
 		loadError = '';
 		try {
 			proposals = await listProposals(caseId, token);
+			docEditById = {};
 		} catch (err) {
 			loadError = classifyApiError(err);
 		} finally {
@@ -134,11 +152,92 @@
 
 	// ── Expansion ──────────────────────────────────────────────────────────────
 
+	function isDocumentTimelineIntakePayload(payload: Record<string, unknown>): boolean {
+		return payload._ce_document_timeline_intake === true;
+	}
+
+	function seedDocEditIfNeeded(proposalId: string, payload: Record<string, unknown>): void {
+		if (docEditById[proposalId]) return;
+		const conf = String(payload.occurred_at_confidence ?? 'medium').toLowerCase();
+		docEditById = {
+			...docEditById,
+			[proposalId]: {
+				occurred_at: payload.occurred_at != null ? String(payload.occurred_at) : '',
+				type: String(payload.type ?? ''),
+				text_original: String(payload.text_original ?? ''),
+				text_cleaned: String(payload.text_cleaned ?? ''),
+				occurred_at_confidence: ['high', 'medium', 'low'].includes(conf) ? conf : 'medium',
+				operator_occurred_at_confirmed: payload.operator_occurred_at_confirmed === true
+			}
+		};
+	}
+
 	function toggleExpand(id: string): void {
 		const next = new Set(expanded);
 		if (next.has(id)) next.delete(id);
-		else next.add(id);
+		else {
+			next.add(id);
+			const prop = proposals.find((p) => p.id === id);
+			if (prop?.proposal_type === 'timeline') {
+				const pl = parsePayload(prop.proposed_payload);
+				if (isDocumentTimelineIntakePayload(pl)) {
+					seedDocEditIfNeeded(id, pl);
+				}
+			}
+		}
 		expanded = next;
+	}
+
+	async function confirmLowChronologyForProposal(proposalId: string): Promise<void> {
+		const prop = proposals.find((p) => p.id === proposalId);
+		if (!prop || prop.proposal_type !== 'timeline') return;
+		clearProposalError(proposalId);
+		setInProgress(proposalId, true);
+		try {
+			const base = parsePayload(prop.proposed_payload);
+			const merged: Record<string, unknown> = {
+				...base,
+				operator_occurred_at_confirmed: true
+			};
+			const updated = await updateProposal(caseId, proposalId, merged, token);
+			proposals = proposals.map((p) => (p.id === proposalId ? updated : p));
+		} catch (err) {
+			setProposalError(proposalId, classifyApiError(err));
+		} finally {
+			setInProgress(proposalId, false);
+		}
+	}
+
+	async function saveDocumentIngestEdit(proposalId: string): Promise<void> {
+		const edit = docEditById[proposalId];
+		if (!edit) return;
+		const prop = proposals.find((p) => p.id === proposalId);
+		if (!prop) return;
+		clearProposalError(proposalId);
+		setInProgress(proposalId, true);
+		documentIngestSavingId = proposalId;
+		try {
+			const base = parsePayload(prop.proposed_payload);
+			const merged: Record<string, unknown> = {
+				...base,
+				occurred_at: edit.occurred_at.trim() || null,
+				type: edit.type.trim(),
+				text_original: edit.text_original,
+				text_cleaned: edit.text_cleaned,
+				occurred_at_confidence: edit.occurred_at_confidence,
+				operator_occurred_at_confirmed: edit.operator_occurred_at_confirmed
+			};
+			const updated = await updateProposal(caseId, proposalId, merged, token);
+			proposals = proposals.map((p) => (p.id === proposalId ? updated : p));
+			const { [proposalId]: _removed, ...rest } = docEditById;
+			docEditById = rest;
+			seedDocEditIfNeeded(proposalId, parsePayload(updated.proposed_payload));
+		} catch (err) {
+			setProposalError(proposalId, classifyApiError(err));
+		} finally {
+			documentIngestSavingId = '';
+			setInProgress(proposalId, false);
+		}
 	}
 
 	// ── Selection ──────────────────────────────────────────────────────────────
@@ -385,6 +484,11 @@
 		return id.slice(0, 8) + '…';
 	}
 
+	$: truncatedDocIngestOnActiveTab = activeProposals.some((p) => {
+		const pl = parsePayload(p.proposed_payload);
+		return isDocumentTimelineIntakePayload(pl) && pl.source_text_truncated_for_model === true;
+	});
+
 	// ── Mount ──────────────────────────────────────────────────────────────────
 
 	onMount(() => {
@@ -480,6 +584,20 @@
 			Committed{committedCount > 0 ? ` (${committedCount})` : ''}
 		</button>
 	</div>
+
+	<!-- P40-01A: unmistakable when model saw only a prefix of extracted text -->
+	{#if truncatedDocIngestOnActiveTab}
+		<div
+			class="shrink-0 mx-2 mt-1 mb-1 px-3 py-2.5 rounded-md border-2 border-amber-500 dark:border-amber-500 bg-amber-50 dark:bg-amber-950/60 text-[11px] leading-snug text-amber-950 dark:text-amber-50"
+			role="alert"
+			data-testid="document-ingest-truncation-banner"
+		>
+			<strong class="font-semibold block mb-1">Partial file used for these proposals</strong>
+			Only the beginning of the extracted text was sent to the model. This list does <strong>not</strong> reflect the
+			whole file — important events that appear later in the document may be missing. Open the full extracted text on
+			<strong>Case Files</strong> before you approve or commit.
+		</div>
+	{/if}
 
 	<!-- ── BULK ACTIONS BAR ────────────────────────────────────────────────── -->
 	{#if anySelectedOnTab}
@@ -612,8 +730,9 @@
 	{:else if !loading && activeProposals.length === 0}
 		<div class="px-3 py-4 text-gray-400 dark:text-gray-500 italic text-[11px]" data-testid="empty-state">
 			{#if activeTab === 'pending'}
-				No pending proposals. Create drafts from <strong>Chat</strong> (intake phrases) or use case
-				thread tools. Committed items move to Timeline (official).
+				No pending proposals. Create drafts from <strong>Chat</strong> (intake phrases),
+				<strong>Case Files</strong> (“Propose timeline entries” after extraction), or case thread tools.
+				Committed items move to Timeline (official).
 			{:else if activeTab === 'approved'}
 				No approved proposals awaiting commit.
 			{:else if activeTab === 'rejected'}
@@ -693,15 +812,26 @@
 									{proposal.proposal_type}
 								</span>
 
-								<!-- Scope badge -->
-								<span
-									class="px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0
-									       {proposal.source_scope === 'personal'
-										? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400'
-										: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-400'}"
-								>
-									{proposal.source_scope === 'personal' ? 'Personal Thread' : 'Case Thread'}
-								</span>
+								<!-- Scope / origin — document ingest is case-file–sourced, not chat (P40-01A) -->
+								{#if isDocumentTimelineIntakePayload(payload)}
+									<span
+										class="px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0
+										       bg-stone-200 text-stone-900 dark:bg-stone-800 dark:text-stone-200"
+										data-testid="proposal-origin-case-file"
+										title="Ingested from a case file — not chat thread lineage"
+									>
+										Case file
+									</span>
+								{:else}
+									<span
+										class="px-1.5 py-0.5 rounded text-[9px] font-medium shrink-0
+										       {proposal.source_scope === 'personal'
+											? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400'
+											: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-400'}"
+									>
+										{proposal.source_scope === 'personal' ? 'Personal Thread' : 'Case Thread'}
+									</span>
+								{/if}
 
 								{#if isChatIntakePayload(payload)}
 									<span
@@ -709,6 +839,15 @@
 										       bg-amber-100 text-amber-900 dark:bg-amber-900/50 dark:text-amber-200"
 									>
 										Chat intake
+									</span>
+								{/if}
+								{#if isDocumentTimelineIntakePayload(payload)}
+									<span
+										class="px-1.5 py-0.5 rounded text-[9px] font-semibold shrink-0
+										       bg-violet-100 text-violet-900 dark:bg-violet-900/50 dark:text-violet-200"
+										data-testid="document-timeline-ingest-badge"
+									>
+										Document ingest
 									</span>
 								{/if}
 
@@ -756,6 +895,16 @@
 								>
 									{thisError}
 								</div>
+							{/if}
+
+							{#if timelineProposalCommitBlockedByLowChronology(proposal)}
+								<p
+									class="text-[10px] text-amber-800 dark:text-amber-200 mb-1 px-1 rounded bg-amber-50/90 dark:bg-amber-950/40 py-1 border border-amber-200 dark:border-amber-800"
+									data-testid="timeline-commit-blocked-chronology"
+								>
+									<strong>Chronology:</strong> date/time confidence is low — confirm below (or in details)
+									before commit.
+								</p>
 							{/if}
 
 						<!-- ── ACTION FOOTER ─────────────────────────────────────────── -->
@@ -855,7 +1004,10 @@
 										class="px-2 py-0.5 rounded text-[10px] font-medium bg-green-600 hover:bg-green-700
 										       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
 										on:click={() => handleCommit(proposal.id)}
-										disabled={isInProgress}
+										disabled={isInProgress || timelineProposalCommitBlockedByLowChronology(proposal)}
+										title={timelineProposalCommitBlockedByLowChronology(proposal)
+											? 'Confirm chronology (low confidence) before commit'
+											: undefined}
 										data-testid="commit-btn"
 									>
 										{isInProgress ? 'Committing…' : '→ Commit to Case'}
@@ -938,6 +1090,7 @@
 							{:else if proposal.proposal_type === 'timeline'}
 								<!-- Timeline payload -->
 								<div class="space-y-1">
+									{@const chronologyConf = normalizeProposalPayloadChronologyConfidence(payload)}
 									<div class="flex gap-2">
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
 											Occurred At
@@ -945,6 +1098,28 @@
 										<span class="text-[11px] text-gray-700 dark:text-gray-300 font-mono">
 											{payload.occurred_at ?? '—'}
 										</span>
+									</div>
+									<div class="flex gap-2 items-start">
+										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
+											When confidence
+										</span>
+										<div class="text-[10px] text-gray-600 dark:text-gray-400 flex-1 space-y-0.5">
+											<span
+												class="font-medium uppercase tracking-wide text-[9px] px-1 py-0.5 rounded {chronologyConf ===
+												'high'
+													? 'bg-emerald-100/90 text-emerald-900 dark:bg-emerald-950/50 dark:text-emerald-100'
+													: chronologyConf === 'medium'
+														? 'bg-sky-100/90 text-sky-900 dark:bg-sky-950/50 dark:text-sky-100'
+														: 'bg-amber-100/90 text-amber-950 dark:bg-amber-950/40 dark:text-amber-100'}"
+												data-testid="timeline-chronology-confidence-badge"
+											>
+												{chronologyConf}
+											</span>
+											<p class="text-[9px] text-gray-500 dark:text-gray-500 leading-snug">
+												High = date/time spelled out in the source. Medium = we have a time but it was partly
+												inferred. Low = unreliable — confirm (below) before commit.
+											</p>
+										</div>
 									</div>
 									<div class="flex gap-2">
 										<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
@@ -992,6 +1167,129 @@
 											</span>
 										</div>
 									{/if}
+									{#if payload.source_type === 'case_file' && payload.source_reference_id}
+										<div class="flex gap-2">
+											<span class="text-[10px] font-semibold text-gray-500 dark:text-gray-400 w-24 shrink-0">
+												Source file
+											</span>
+											<span class="text-[11px] text-gray-700 dark:text-gray-300 break-all">
+												{String(payload.source_document_filename ?? payload.source_reference_id)}
+											</span>
+										</div>
+									{/if}
+									{#if payload.source_text_truncated_for_model === true}
+										<p
+											class="text-[10px] font-medium text-amber-900 dark:text-amber-100 mt-2 px-1.5 py-1 rounded border border-amber-400 dark:border-amber-600 bg-amber-50/90 dark:bg-amber-950/50"
+											data-testid="document-ingest-truncation-card-note"
+										>
+											These proposals used only the <strong>start</strong> of the file for generation — not the
+											full extracted text. Events later in the file may be absent (see banner above).
+										</p>
+									{/if}
+									{#if (canApprove(proposal.status) || canCommit(proposal.status)) && isDocumentTimelineIntakePayload(payload) && docEditById[proposal.id]}
+										{@const de = docEditById[proposal.id]}
+										{#if de.occurred_at_confidence === 'low' && !de.operator_occurred_at_confirmed}
+											<p class="text-[10px] text-amber-700 dark:text-amber-400 mt-2">
+												Low date confidence — set or verify <span class="font-mono">occurred_at</span> and
+												check “I confirm date/time” before commit.
+											</p>
+										{/if}
+										<div
+											class="mt-3 space-y-2 rounded border border-violet-200 dark:border-violet-800 bg-violet-50/40 dark:bg-violet-950/20 p-2"
+											data-testid="document-ingest-edit-form"
+										>
+											<p class="text-[10px] font-semibold text-violet-900 dark:text-violet-200">
+												Review &amp; edit (before approve or commit)
+											</p>
+											<label class="block text-[10px] text-gray-600 dark:text-gray-400">
+												occurred_at (ISO 8601 with timezone)
+												<input
+													type="text"
+													class="mt-0.5 w-full text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-1.5 py-1 font-mono"
+													bind:value={docEditById[proposal.id].occurred_at}
+													on:input={() => (docEditById = docEditById)}
+												/>
+											</label>
+											<label class="block text-[10px] text-gray-600 dark:text-gray-400">
+												type
+												<input
+													type="text"
+													class="mt-0.5 w-full text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-1.5 py-1"
+													bind:value={docEditById[proposal.id].type}
+													on:input={() => (docEditById = docEditById)}
+												/>
+											</label>
+											<label class="block text-[10px] text-gray-600 dark:text-gray-400">
+												text_original
+												<textarea
+													rows="3"
+													class="mt-0.5 w-full text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-1.5 py-1 font-mono"
+													bind:value={docEditById[proposal.id].text_original}
+													on:input={() => (docEditById = docEditById)}
+												/>
+											</label>
+											<label class="block text-[10px] text-gray-600 dark:text-gray-400">
+												text_cleaned
+												<textarea
+													rows="3"
+													class="mt-0.5 w-full text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-1.5 py-1 font-mono"
+													bind:value={docEditById[proposal.id].text_cleaned}
+													on:input={() => (docEditById = docEditById)}
+												/>
+											</label>
+											<label class="block text-[10px] text-gray-600 dark:text-gray-400">
+												occurred_at_confidence
+												<select
+													class="mt-0.5 w-full text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 px-1.5 py-1"
+													bind:value={docEditById[proposal.id].occurred_at_confidence}
+													on:change={() => (docEditById = docEditById)}
+												>
+													<option value="high">High — explicit date/time in source</option>
+													<option value="medium">Medium — inferred or partial basis</option>
+													<option value="low">Low — confirm before commit</option>
+												</select>
+											</label>
+											<label class="flex items-center gap-2 text-[10px] text-gray-700 dark:text-gray-300">
+												<input
+													type="checkbox"
+													bind:checked={docEditById[proposal.id].operator_occurred_at_confirmed}
+													on:change={() => (docEditById = docEditById)}
+												/>
+												I confirm date/time is correct for commit (required when confidence is low)
+											</label>
+											<button
+												type="button"
+												class="px-2 py-1 rounded text-[10px] font-medium bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+												disabled={documentIngestSavingId === proposal.id || isInProgress}
+												data-testid="document-ingest-save-edits"
+												on:click={() => saveDocumentIngestEdit(proposal.id)}
+											>
+												{documentIngestSavingId === proposal.id ? 'Saving…' : 'Save edits'}
+											</button>
+										</div>
+									{/if}
+									{#if !isDocumentTimelineIntakePayload(payload) && (canApprove(proposal.status) || canCommit(proposal.status)) && timelineProposalCommitBlockedByLowChronology(proposal)}
+										<div
+											class="mt-3 space-y-2 rounded border border-amber-200 dark:border-amber-800 bg-amber-50/50 dark:bg-amber-950/25 p-2"
+											data-testid="timeline-low-chronology-operator-panel"
+										>
+											<p class="text-[10px] text-amber-950 dark:text-amber-100 leading-snug">
+												<strong>Chronology responsibility:</strong> confidence is low. By confirming, you take
+												responsibility that <span class="font-mono">occurred_at</span> is correct for the official
+												timeline — or edit the proposal while it is still pending (or ask a reviewer to update
+												it once approved).
+											</p>
+											<button
+												type="button"
+												class="px-2 py-1 rounded text-[10px] font-medium bg-amber-700 text-white hover:bg-amber-800 disabled:opacity-50"
+												disabled={isInProgress}
+												data-testid="timeline-low-chronology-confirm-btn"
+												on:click={() => confirmLowChronologyForProposal(proposal.id)}
+											>
+												I confirm date/time for this entry
+											</button>
+										</div>
+									{/if}
 								</div>
 
 							{:else}
@@ -1002,20 +1300,33 @@
 
 							<!-- Metadata footer -->
 							<div class="mt-2 pt-2 border-t border-gray-200 dark:border-gray-700 flex flex-wrap gap-x-4 gap-y-0.5">
-								<span class="text-[10px] text-gray-400 dark:text-gray-500">
-									<span class="font-semibold">Source:</span>
-									{proposal.source_scope} thread · <span class="font-mono">{shortId(proposal.source_thread_id)}</span>
-								</span>
-								{#if proposal.source_message_id}
+								{#if isDocumentTimelineIntakePayload(payload)}
+									<span
+										class="text-[10px] text-gray-500 dark:text-gray-400 max-w-full"
+										data-testid="document-ingest-source-footer"
+									>
+										<span class="font-semibold">Source:</span>
+										Case file document ingest — synthetic internal thread for routing only (not chat). Ref
+										<span class="font-mono">{shortId(proposal.source_thread_id)}</span>
+										· proposal
+										<span class="font-mono">{shortId(proposal.id)}</span>
+									</span>
+								{:else}
 									<span class="text-[10px] text-gray-400 dark:text-gray-500">
-										<span class="font-semibold">Msg:</span>
-										<span class="font-mono">{shortId(proposal.source_message_id)}</span>
+										<span class="font-semibold">Source:</span>
+										{proposal.source_scope} thread · <span class="font-mono">{shortId(proposal.source_thread_id)}</span>
+									</span>
+									{#if proposal.source_message_id}
+										<span class="text-[10px] text-gray-400 dark:text-gray-500">
+											<span class="font-semibold">Msg:</span>
+											<span class="font-mono">{shortId(proposal.source_message_id)}</span>
+										</span>
+									{/if}
+									<span class="text-[10px] text-gray-400 dark:text-gray-500">
+										<span class="font-semibold">ID:</span>
+										<span class="font-mono">{shortId(proposal.id)}</span>
 									</span>
 								{/if}
-								<span class="text-[10px] text-gray-400 dark:text-gray-500">
-									<span class="font-semibold">ID:</span>
-									<span class="font-mono">{shortId(proposal.id)}</span>
-								</span>
 								{#if proposal.reviewed_by}
 									<span class="text-[10px] text-gray-400 dark:text-gray-500">
 										<span class="font-semibold">Reviewed by:</span>

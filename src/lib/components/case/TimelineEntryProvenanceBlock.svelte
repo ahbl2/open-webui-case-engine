@@ -67,5 +67,16 @@
 				Draft came from case chat intake — not from a document extract.
 			</p>
 		{/if}
+		{#if provenance.chronology_occurred_at_confidence != null && provenance.chronology_occurred_at_confidence !== ''}
+			<p data-testid="timeline-entry-provenance-chronology" class="text-gray-600 dark:text-gray-300">
+				<span class="font-medium">When confidence (at commit):</span>
+				{provenance.chronology_occurred_at_confidence}
+				{#if provenance.chronology_operator_confirmed === true}
+					<span class="text-gray-500 dark:text-gray-400">
+						— investigator confirmed date/time before commit
+					</span>
+				{/if}
+			</p>
+		{/if}
 	</div>
 </details>

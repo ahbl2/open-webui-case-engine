@@ -53,6 +53,31 @@ export function canCommit(status: ProposalStatus): boolean {
 	return getAllowedActions(status).includes('commit');
 }
 
+/** P40-03 — align with Case Engine `normalizeOccurredAtConfidenceInProposalPayload` for UI. */
+export function normalizeProposalPayloadChronologyConfidence(
+	payload: Record<string, unknown>
+): 'high' | 'medium' | 'low' {
+	const r = payload.occurred_at_confidence;
+	const s = typeof r === 'string' ? r.trim().toLowerCase() : '';
+	if (s === 'high' || s === 'medium' || s === 'low') return s;
+	const o = payload.occurred_at;
+	const has = o != null && String(o).trim() !== '';
+	return has ? 'medium' : 'low';
+}
+
+/** Timeline commit must not proceed while low confidence lacks operator confirmation. */
+export function timelineProposalCommitBlockedByLowChronology(proposal: ProposalRecord): boolean {
+	if (proposal.proposal_type !== 'timeline') return false;
+	let pl: Record<string, unknown>;
+	try {
+		pl = JSON.parse(proposal.proposed_payload) as Record<string, unknown>;
+	} catch {
+		return false;
+	}
+	if (normalizeProposalPayloadChronologyConfidence(pl) !== 'low') return false;
+	return pl.operator_occurred_at_confirmed !== true;
+}
+
 /**
  * Bulk commit is enabled when:
  *   - At least one proposal is selected.
@@ -70,6 +95,7 @@ export function isBulkCommitEnabled(
 	for (const id of selectedIds) {
 		const p = map.get(id);
 		if (!p || p.status !== 'approved') return false;
+		if (timelineProposalCommitBlockedByLowChronology(p)) return false;
 	}
 	return true;
 }

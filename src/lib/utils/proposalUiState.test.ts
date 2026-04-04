@@ -18,7 +18,9 @@ import {
 	statusLabel,
 	payloadPreview,
 	statusBadgeClasses,
-	tabClasses
+	tabClasses,
+	normalizeProposalPayloadChronologyConfidence,
+	timelineProposalCommitBlockedByLowChronology
 } from './proposalUiState';
 import type { ProposalRecord } from '$lib/apis/caseEngine';
 
@@ -47,6 +49,17 @@ function makeProposal(
 		rejection_reason: null,
 		...extra
 	};
+}
+
+function makeTimelineProposal(
+	id: string,
+	status: ProposalRecord['status'],
+	payload: Record<string, unknown>
+): ProposalRecord {
+	return makeProposal(id, status, {
+		proposal_type: 'timeline',
+		proposed_payload: JSON.stringify(payload)
+	});
 }
 
 // ─── getAllowedActions ─────────────────────────────────────────────────────────
@@ -137,6 +150,15 @@ describe('isBulkCommitEnabled', () => {
 		const proposals = [makeProposal('x', 'approved')];
 		expect(isBulkCommitEnabled(new Set(['x']), proposals)).toBe(true);
 	});
+
+	it('returns false when a selected approved timeline has low chronology without operator confirmation (P40-03)', () => {
+		const low = makeTimelineProposal('low', 'approved', {
+			occurred_at: '2024-01-01T00:00:00.000Z',
+			occurred_at_confidence: 'low'
+		});
+		const ok = makeProposal('ok', 'approved');
+		expect(isBulkCommitEnabled(new Set(['low', 'ok']), [low, ok])).toBe(false);
+	});
 });
 
 // ─── isBulkApproveEnabled ─────────────────────────────────────────────────────
@@ -176,6 +198,35 @@ describe('isBulkRejectEnabled', () => {
 		expect(isBulkRejectEnabled(new Set(['a', 'b']), proposals)).toBe(true);
 		expect(isBulkRejectEnabled(new Set(['b']), proposals)).toBe(false);
 		expect(isBulkRejectEnabled(new Set(), proposals)).toBe(false);
+	});
+});
+
+// ─── P40-03 chronology helpers ────────────────────────────────────────────────
+
+describe('P40-03 chronology helpers', () => {
+	it('normalizeProposalPayloadChronologyConfidence defaults unknown to medium when occurred_at is set', () => {
+		expect(
+			normalizeProposalPayloadChronologyConfidence({
+				occurred_at: '2024-01-01T00:00:00.000Z'
+			})
+		).toBe('medium');
+	});
+
+	it('timelineProposalCommitBlockedByLowChronology is true for low without confirmation', () => {
+		const p = makeTimelineProposal('p', 'approved', {
+			occurred_at: '2024-01-01T00:00:00.000Z',
+			occurred_at_confidence: 'low'
+		});
+		expect(timelineProposalCommitBlockedByLowChronology(p)).toBe(true);
+	});
+
+	it('timelineProposalCommitBlockedByLowChronology is false when operator confirmed', () => {
+		const p = makeTimelineProposal('p', 'approved', {
+			occurred_at: '2024-01-01T00:00:00.000Z',
+			occurred_at_confidence: 'low',
+			operator_occurred_at_confirmed: true
+		});
+		expect(timelineProposalCommitBlockedByLowChronology(p)).toBe(false);
 	});
 });
 

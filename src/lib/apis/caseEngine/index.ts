@@ -1959,6 +1959,10 @@ export interface TimelineEntryProvenance {
 	source_file_display_name: string | null;
 	ai_assisted_draft: boolean;
 	implies_chat_context_draft: boolean;
+	/** P40-03: normalized from committed proposal snapshot — separate from origin / source file */
+	chronology_occurred_at_confidence?: 'high' | 'medium' | 'low' | null;
+	/** True when operator confirmed low-confidence chronology before commit */
+	chronology_operator_confirmed?: boolean;
 }
 
 export interface TimelineEntry {
@@ -3843,7 +3847,10 @@ export async function getProposal(
 	return data as ProposalRecord;
 }
 
-/** Update the payload of a pending proposal. */
+/**
+ * Update proposal payload while **pending**, or while **approved** before commit (reviewer with
+ * `can_approve_ai_proposals`; P40-03 chronology confirmation on approved document/chat proposals).
+ */
 export async function updateProposal(
 	caseId: string,
 	proposalId: string,
