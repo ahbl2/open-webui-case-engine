@@ -19,6 +19,7 @@
 	 * P39-05 — OCR/import text from file into the bottom composer (extracted text → editable; P39-01 §5)
 	 * P39-06 — deterministic cleanup of composer text (rule-based; visible result; no auto-save; P39-01 §5)
 	 * P39-07 — audio file transcription into the bottom composer (OWUI STT backend; raw transcript → editable; P39-01 §5)
+	 * P40-04 — direct edit mutation guardrails (reason length + operator copy; server remains authoritative)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -64,6 +65,11 @@
 		isBottomComposerSaveValid,
 		type BottomComposerDraft
 	} from './timelineUnsavedDirty';
+	import {
+		TIMELINE_SENSITIVE_CHANGE_REASON_MIN_LEN,
+		TIMELINE_SENSITIVE_REASON_HINT,
+		timelineEditRequiresDetailedReason
+	} from '$lib/case/timelineEntryMutationUi';
 	import {
 		TIMELINE_EMPTY_STATE_DESCRIPTION,
 		TIMELINE_HEADER_SUBLINE,
@@ -969,6 +975,24 @@
 			return;
 		}
 
+		const baseline = entries.find((e) => e.id === editingEntryId);
+		if (!baseline) {
+			editError = 'Entry not found.';
+			return;
+		}
+		const draftOccurredAtIso = datetimeLocalToIso(editDraft.occurred_at);
+		if (
+			timelineEditRequiresDetailedReason(
+				baseline,
+				{ type: editDraft.type, text_original: text },
+				draftOccurredAtIso
+			) &&
+			reason.length < TIMELINE_SENSITIVE_CHANGE_REASON_MIN_LEN
+		) {
+			editError = TIMELINE_SENSITIVE_REASON_HINT;
+			return;
+		}
+
 		editSaving = true;
 		editError = '';
 
@@ -980,7 +1004,7 @@
 				{
 					text_original: text,
 					type: editDraft.type,
-					occurred_at: datetimeLocalToIso(editDraft.occurred_at),
+					occurred_at: draftOccurredAtIso,
 					location_text: editDraft.location_text.trim() || null,
 					change_reason: reason,
 					linked_file_ids: editDraft.linked_images.map((x) => x.id)
@@ -1367,7 +1391,7 @@
 							<div class="flex items-center justify-between gap-2 flex-wrap">
 								<div class="flex items-center gap-2">
 									<span class="text-xs font-semibold text-amber-700 dark:text-amber-400">
-										Editing entry
+										Editing official timeline entry
 									</span>
 									<span class="text-[10px] text-gray-400 dark:text-gray-500 font-mono">
 										{entry.id.slice(0, 8)}…
@@ -1377,6 +1401,20 @@
 									Prior state will be captured automatically
 								</span>
 							</div>
+							<p
+								class="text-[10px] text-gray-600 dark:text-gray-400 leading-snug"
+								data-testid="timeline-edit-official-record-notice"
+							>
+								This is the committed case timeline — changes are attributed and versioned.
+							</p>
+							{#if timelineEditRequiresDetailedReason(entry, editDraft, datetimeLocalToIso(editDraft.occurred_at))}
+								<p
+									class="text-[10px] text-amber-800/95 dark:text-amber-300/95 leading-snug"
+									data-testid="timeline-edit-sensitive-hint"
+								>
+									{TIMELINE_SENSITIVE_REASON_HINT}
+								</p>
+							{/if}
 
 						<!-- Entry text (full-width textarea) -->
 						<div class="flex flex-col gap-1.5">
