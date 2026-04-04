@@ -3708,6 +3708,10 @@ export type ProposalScope = 'case' | 'personal';
 export type ProposalType = 'note' | 'timeline';
 export type ProposalStatus = 'pending' | 'approved' | 'rejected' | 'committed';
 
+/**
+ * P41-04: `proposed_payload` JSON may include `deterministic_timestamp_candidates` (schema_version 2
+ * per P41-03) for document-ingest timeline rows — preserved verbatim on list/get/update when unchanged.
+ */
 export interface ProposalRecord {
 	id: string;
 	case_id: string;

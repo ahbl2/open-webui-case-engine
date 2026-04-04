@@ -6,6 +6,10 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const panelPath = join(process.cwd(), 'src/lib/components/proposals/ProposalReviewPanel.svelte');
+const detTsPath = join(
+	process.cwd(),
+	'src/lib/components/proposals/DeterministicTimestampCandidatesReview.svelte'
+);
 
 describe('ProposalReviewPanel.svelte — P40-01A hardening', () => {
 	it('exposes a prominent truncation banner test id and operator-facing partial-file wording', () => {
@@ -60,5 +64,24 @@ describe('ProposalReviewPanel.svelte — P40-05G timezone + timeline-aligned edi
 		expect(src).toContain('datetimeLocalToIso');
 		expect(src).toContain('data-testid="proposal-timeline-occurred-display"');
 		expect(src).not.toMatch(/occurred_at \(ISO 8601 with timezone\)/);
+	});
+});
+
+describe('ProposalReviewPanel.svelte — P41-04 deterministic timestamp candidates', () => {
+	it('wires document-ingest payload parsing into the review child component', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toContain('parseDeterministicTimestampCandidatesFromPayload');
+		expect(src).toContain('DeterministicTimestampCandidatesReview');
+		expect(src).toContain('detTsItems');
+		expect(src).toContain('isDocumentTimelineIntakePayload(payload)');
+	});
+
+	it('child component carries review-only copy and deterministic candidate test ids', () => {
+		const child = readFileSync(detTsPath, 'utf8');
+		expect(child).toContain('data-testid="deterministic-timestamp-candidates-section"');
+		expect(child).toMatch(/Deterministic time hints/i);
+		expect(child).toMatch(/<strong>not<\/strong> the official/);
+		expect(child).toContain('data-confidence-category');
+		expect(child).toContain('deterministic-candidate-ambiguous-alternates');
 	});
 });

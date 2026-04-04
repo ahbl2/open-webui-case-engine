@@ -58,6 +58,8 @@
 		TIMELINE_TIME_ZONE_TOOLTIP
 	} from '../../../routes/(app)/case/[id]/timeline/timelineOperatorMicrocopy';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+	import DeterministicTimestampCandidatesReview from './DeterministicTimestampCandidatesReview.svelte';
+	import { parseDeterministicTimestampCandidatesFromPayload } from '$lib/caseTimeline/deterministicTimestampCandidates';
 
 	// ── Props ──────────────────────────────────────────────────────────────────
 
@@ -1229,6 +1231,10 @@
 											{/if}
 										</div>
 									</div>
+									{#if isDocumentTimelineIntakePayload(payload)}
+										{@const detTsItems = parseDeterministicTimestampCandidatesFromPayload(payload)}
+										<DeterministicTimestampCandidatesReview items={detTsItems} />
+									{/if}
 									{#if proposal.status === 'approved' && proposal.proposal_type === 'timeline'}
 										<p
 											class="text-[9px] text-gray-600 dark:text-gray-400 mt-1 px-1 py-1 rounded border border-gray-200 dark:border-gray-600 bg-gray-50/80 dark:bg-gray-900/40"
