@@ -21,7 +21,11 @@
 	import { dev } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import Spinner from '$lib/components/common/Spinner.svelte';
-	import { uploadCaseFile, proposeTimelineEntriesFromCaseFile } from '$lib/apis/caseEngine';
+	import {
+		uploadCaseFile,
+		extractCaseFileText,
+		proposeTimelineEntriesFromCaseFile
+	} from '$lib/apis/caseEngine';
 
 	// ── Props ──────────────────────────────────────────────────────────────────
 
@@ -36,6 +40,7 @@
 
 	type IdleState = { step: 'idle' };
 	type UploadingState = { step: 'uploading'; filename: string };
+	type ExtractingState = { step: 'extracting'; fileId: string; filename: string };
 	type ProcessingState = { step: 'processing'; fileId: string; filename: string; abort: AbortController };
 	type BulkConfirmState = {
 		step: 'bulk_confirm';
@@ -46,7 +51,7 @@
 		bulkToken: string | null;
 		runId: string | null;
 	};
-	type Workflow = IdleState | UploadingState | ProcessingState | BulkConfirmState;
+	type Workflow = IdleState | UploadingState | ExtractingState | ProcessingState | BulkConfirmState;
 
 	let workflow: Workflow = { step: 'idle' };
 	let error = '';
@@ -57,7 +62,7 @@
 
 	// ── Derived ────────────────────────────────────────────────────────────────
 
-	$: busy = workflow.step === 'uploading' || workflow.step === 'processing';
+	$: busy = workflow.step === 'uploading' || workflow.step === 'extracting' || workflow.step === 'processing';
 	$: modalOpen = workflow.step === 'processing' || workflow.step === 'bulk_confirm';
 
 	// ── File picker ────────────────────────────────────────────────────────────
@@ -95,7 +100,26 @@
 			return;
 		}
 
-		// Step 2 — initial propose (no bulk confirmation yet)
+		// Step 2 — extract text (required before propose)
+		workflow = { step: 'extracting', fileId, filename: file.name };
+		try {
+			const extraction = await extractCaseFileText(fileId, token);
+			if (gen !== generation) return;
+			if (extraction.status !== 'EXTRACTED') {
+				workflow = { step: 'idle' };
+				error =
+					extraction.message ??
+					`Text extraction failed (status: ${extraction.status}). Only .docx, .pdf, and .txt files are supported.`;
+				return;
+			}
+		} catch (err) {
+			if (gen !== generation) return;
+			workflow = { step: 'idle' };
+			error = err instanceof Error ? err.message : 'Text extraction failed';
+			return;
+		}
+
+		// Step 3 — initial propose (no bulk confirmation yet)
 		await runPropose({ gen, fileId, filename: file.name, confirmBulk: false, bulkToken: null });
 	}
 
@@ -200,6 +224,8 @@
 >
 	{#if workflow.step === 'uploading'}
 		Uploading…
+	{:else if workflow.step === 'extracting'}
+		Extracting…
 	{:else}
 		📄 From document
 	{/if}
