@@ -24,6 +24,7 @@
 	import {
 		uploadCaseFile,
 		extractCaseFileText,
+		addFileTag,
 		proposeTimelineEntriesFromCaseFile
 	} from '$lib/apis/caseEngine';
 
@@ -99,6 +100,10 @@
 			error = err instanceof Error ? err.message : 'Upload failed';
 			return;
 		}
+
+		// Tag the file as 'timeline' so it's easily identifiable in the Files tab.
+		// Fire-and-forget — a tag failure is non-fatal; the ingest should still proceed.
+		addFileTag(caseId, fileId, 'timeline', token).catch(() => {});
 
 		// Step 2 — extract text (required before propose)
 		workflow = { step: 'extracting', fileId, filename: file.name };
