@@ -508,4 +508,24 @@ describe('CaseStructuredNotesReviewPanel narrative preview (P35-02 / P35-03)', (
 		expect(cmpBlock).toMatch(/data-testid="\{testIdPrefix\}-narrative-primary-original-note"/);
 		expect(cmpBlock).toMatch(/data-testid="\{testIdPrefix\}-narrative-text"/);
 	});
+
+	it('Structure Note panel — tooltips and aria on close, framing, narrative actions, trace, and snapshots', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toMatch(/title="Close Structure Note panel"/);
+		expect(src).toMatch(/aria-label="Close Structure Note panel"/);
+		expect(src).toMatch(/title=\{NARRATIVE_PREVIEW_REVIEW_NOTICE_SHORT\}/);
+		expect(src).toMatch(/title="Run narrative preview from your note \(does not save\)"/);
+		expect(src).toMatch(/title="Insert narrative preview into the note editor; still unsaved until you save"/);
+		expect(src).toMatch(/title="Clear preview from this panel; saved snapshots stay under Past snapshots"/);
+		expect(src).toMatch(/title="Show matching line in structured breakdown"/);
+		expect(src).toMatch(/title="Show matching paragraph in draft"/);
+		expect(src).toMatch(/title="Save narrative snapshot to the case \(append-only reference; notebook unchanged\)"/);
+		expect(src).toMatch(/title="Download this saved narrative as plain text"/);
+	});
+
+	it('RejectedAiNarrativeDebugSection — summary uses REJECTED_AI_DEBUG_SUMMARY as title', () => {
+		const rejectedPath = join(dirname(fileURLToPath(import.meta.url)), 'RejectedAiNarrativeDebugSection.svelte');
+		const rej = readFileSync(rejectedPath, 'utf8');
+		expect(rej).toMatch(/title=\{REJECTED_AI_DEBUG_SUMMARY\}/);
+	});
 });

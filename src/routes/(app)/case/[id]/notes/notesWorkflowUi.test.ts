@@ -130,6 +130,54 @@ describe('Case Notes workflow UI (+page.svelte)', () => {
 		expect(src).not.toMatch(/proposal below/);
 	});
 
+	it('composer scroll regions wire file drag/drop to the same attach handlers as the clip control', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(/case-note-composer-drop-overlay/);
+		expect(src).toMatch(/Drop files to attach/);
+		expect(src).toMatch(/createNoteComposerDropHandlers/);
+		expect(src).toMatch(/noteComposerDropHandlers\.onDrop/);
+		expect(src).toMatch(/attachDraft: \(files\) => void handleAttachFileToDraft\(files\)/);
+		expect(src).toMatch(/attachNote: \(files\) => void handleAttachFileToNote\(files\)/);
+	});
+
+	it('stabilization: duplicate seeds fresh draft attachment session; cancel create clears draft attachments', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(
+			/Fresh draft session \(same as \+ New\) so duplicate does not inherit a prior create attachment session/
+		);
+		expect(src).toMatch(/Abandon draft-session attachments so the next create\/duplicate does not inherit them/);
+	});
+
+	it('stabilization: save and cancel respect attachment upload in-flight; Structure Note pauses during upload', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(/disabled=\{creating \|\| attachmentUploading\}/);
+		expect(src).toMatch(/disabled=\{saving \|\| attachmentUploading\}/);
+		expect(src).toMatch(
+			/disabled=\{structuredNotesLoading \|\| structuredNotesActionBusy \|\| attachmentUploading\}/
+		);
+	});
+
+	it('stabilization: attachment hints mention drop zone; create empty-state copy uses Save note', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(/drop files on the note area/);
+		expect(src).toMatch(
+			/Use 📎 or drop files on the note area to attach\. Process to extract text, then insert into the draft\. <span class="font-medium not-italic">Save note<\/span>/
+		);
+	});
+
+	it('tooltip audit: aligned overflow menus, Structure Note, attach clip, dictation mic, insert/process hints', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		const structureTitle =
+			'Structure Note: preview extraction and narrative from the editor. Does not save the note.';
+		const matches = src.match(new RegExp(structureTitle.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), 'g'));
+		expect(matches?.length).toBe(2);
+		expect(src).toMatch(/title="More actions for this note"/);
+		expect(src).toMatch(/title="Attach files \(choose or drop on note area\)"/);
+		expect(src).toMatch(/title="Dictate into the note \(speech to text\)"/);
+		expect(src).toMatch(/title="Insert into the note editor \(appends if there is already text\)"/);
+		expect(src).not.toMatch(/for use in a note draft or proposal/);
+	});
+
 	it('post-delete selection: next-at-same-index, else previous, else idle; no jump to notes[0]', () => {
 		const src = readFileSync(pagePath, 'utf8');
 		expect(src).toMatch(/visibleBeforeDelete/);

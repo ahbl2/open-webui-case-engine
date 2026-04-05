@@ -55,7 +55,11 @@
 	class={detailsClass}
 	data-testid="{testIdPrefix}-rejected-ai-debug"
 >
-	<summary class={summaryClass} data-testid="{testIdPrefix}-rejected-ai-debug-summary">
+	<summary
+		class={summaryClass}
+		data-testid="{testIdPrefix}-rejected-ai-debug-summary"
+		title={REJECTED_AI_DEBUG_SUMMARY}
+	>
 		<span class={chevronClass}>▸</span>
 		{REJECTED_AI_DEBUG_SUMMARY}
 	</summary>

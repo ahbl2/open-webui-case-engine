@@ -37,6 +37,9 @@ describe('CaseFilesTab.svelte — P38-04 upload path parity', () => {
 		expect(src).toContain('dataTransferHasFiles');
 		expect(src).toContain('async function handleDroppedFiles');
 		expect(src).toContain('await uploadCaseFile(caseId, file, token)');
+		expect(src).toContain('proposeTimelineEntriesFromCaseFile');
+		expect(src).toContain('data-testid="propose-timeline-from-file-btn"');
+		expect(src).toContain('source_text_truncated_for_model');
 		expect(src).toContain('onFilesZoneDrop');
 		expect(src).toContain('onFilesZoneDragOver');
 		expect(src).toContain('data-testid="case-files-upload-dropzone"');
