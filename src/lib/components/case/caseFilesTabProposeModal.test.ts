@@ -36,7 +36,9 @@ describe('CaseFilesTab.svelte — P41-14 propose timeline modal', () => {
 	it('keeps bulk confirmation submit wired after processing phase', () => {
 		const src = readFileSync(tabPath, 'utf8');
 		expect(src).toContain('data-testid="bulk-proposal-confirm-submit"');
-		expect(src).toContain('runProposeTimeline(proposeWorkflow.file, true)');
+		expect(src).toContain(
+			'runProposeTimeline(proposeWorkflow.file, true, proposeWorkflow.token)'
+		);
 		expect(src).toContain('Many timeline proposals');
 	});
 });

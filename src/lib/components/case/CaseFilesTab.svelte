@@ -296,11 +296,21 @@
 		return proposeWorkflow.file.id === f.id;
 	}
 
-	async function runProposeTimeline(f: CaseFile, confirmBulk: boolean) {
-		const priorBulkTok =
-			confirmBulk && proposeWorkflow.step === 'bulk_confirm' && proposeWorkflow.file.id === f.id
-				? proposeWorkflow.token
+	/** P41-19 — pass `explicitBulkToken` from the bulk-confirm click so the token is not lost if `proposeWorkflow.step` flips to `processing` before the guard reads state (e.g. double-submit). */
+	async function runProposeTimeline(
+		f: CaseFile,
+		confirmBulk: boolean,
+		explicitBulkToken?: string | null
+	) {
+		const fromClick =
+			typeof explicitBulkToken === 'string' && explicitBulkToken.trim()
+				? explicitBulkToken.trim()
 				: null;
+		const priorBulkTok =
+			fromClick ??
+			(confirmBulk && proposeWorkflow.step === 'bulk_confirm' && proposeWorkflow.file.id === f.id
+				? proposeWorkflow.token
+				: null);
 
 		const gen = proposeRequestGeneration + 1;
 		proposeRequestGeneration = gen;
@@ -314,9 +324,7 @@
 			const result = await proposeTimelineEntriesFromCaseFile(caseId, f.id, token, {
 				confirm_bulk: confirmBulk,
 				signal: abort.signal,
-				...(confirmBulk && priorBulkTok
-					? { bulk_confirmation_token: priorBulkTok }
-					: {})
+				...(priorBulkTok ? { bulk_confirmation_token: priorBulkTok } : {})
 			});
 
 			if (gen !== proposeRequestGeneration) return;
@@ -649,7 +657,8 @@
 							class="px-3 py-1.5 text-sm rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
 							disabled={proposingFileId !== null}
 							data-testid="bulk-proposal-confirm-submit"
-							on:click={() => runProposeTimeline(proposeWorkflow.file, true)}
+							on:click={() =>
+								runProposeTimeline(proposeWorkflow.file, true, proposeWorkflow.token)}
 						>
 							{proposingFileId ? 'Working…' : 'Create proposals'}
 						</button>
