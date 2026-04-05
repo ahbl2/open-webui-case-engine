@@ -3800,6 +3800,8 @@ export type ProposeTimelineFromCaseFileResult =
 			proposal_count: number;
 			bulk_threshold: number;
 			source_text_truncated_for_model: boolean;
+			/** P41-20 — support/debug correlation with Case Engine trace */
+			proposal_generation_run_id?: string;
 	  }
 	| {
 			status: 'confirmation_required';
@@ -3807,6 +3809,7 @@ export type ProposeTimelineFromCaseFileResult =
 			threshold: number;
 			bulk_threshold: number;
 			bulk_confirmation_token: string;
+			proposal_generation_run_id?: string;
 	  };
 
 export async function proposeTimelineEntriesFromCaseFile(
@@ -3858,12 +3861,15 @@ export async function proposeTimelineEntriesFromCaseFile(
 					: typeof flat.bulk_threshold === 'number'
 						? flat.bulk_threshold
 						: 10;
+			const runIdLegacy =
+				typeof flat.proposal_generation_run_id === 'string' ? flat.proposal_generation_run_id.trim() : '';
 			return {
 				status: 'confirmation_required',
 				proposal_count: typeof flat.proposal_count === 'number' ? flat.proposal_count : 0,
 				threshold: th,
 				bulk_threshold: th,
-				bulk_confirmation_token: tok
+				bulk_confirmation_token: tok,
+				...(runIdLegacy ? { proposal_generation_run_id: runIdLegacy } : {})
 			};
 		}
 		throw new Error(extractApiErrorMessage(data, `Propose timeline from file failed (${res.status})`));
@@ -3892,24 +3898,30 @@ export async function proposeTimelineEntriesFromCaseFile(
 		if (!tok) {
 			throw new Error('Bulk confirmation required but server did not return bulk_confirmation_token');
 		}
+		const runIdConf =
+			typeof payload.proposal_generation_run_id === 'string' ? payload.proposal_generation_run_id.trim() : '';
 		return {
 			status: 'confirmation_required',
 			proposal_count: typeof payload.proposal_count === 'number' ? payload.proposal_count : 0,
 			threshold: th,
 			bulk_threshold: typeof payload.bulk_threshold === 'number' ? payload.bulk_threshold : th,
-			bulk_confirmation_token: tok
+			bulk_confirmation_token: tok,
+			...(runIdConf ? { proposal_generation_run_id: runIdConf } : {})
 		};
 	}
 
 	const proposals = Array.isArray(payload.proposals) ? (payload.proposals as ProposalRecord[]) : [];
 	const proposal_count =
 		typeof payload.proposal_count === 'number' ? payload.proposal_count : proposals.length;
+	const runIdCreated =
+		typeof payload.proposal_generation_run_id === 'string' ? payload.proposal_generation_run_id.trim() : '';
 	return {
 		status: 'created',
 		proposals,
 		proposal_count,
 		bulk_threshold: typeof payload.bulk_threshold === 'number' ? payload.bulk_threshold : 10,
-		source_text_truncated_for_model: payload.source_text_truncated_for_model === true
+		source_text_truncated_for_model: payload.source_text_truncated_for_model === true,
+		...(runIdCreated ? { proposal_generation_run_id: runIdCreated } : {})
 	};
 }
 

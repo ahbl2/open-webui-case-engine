@@ -1,5 +1,6 @@
 <script lang="ts">
 	import { onDestroy, tick } from 'svelte';
+	import { dev } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
 	import Spinner from '$lib/components/common/Spinner.svelte';
@@ -34,6 +35,8 @@
 				count: number;
 				threshold: number;
 				token: string | null;
+				/** P41-20 — dev/support correlation with Case Engine trace */
+				proposalGenerationRunId?: string | null;
 		  };
 
 	export let caseId: string;
@@ -345,6 +348,11 @@
 						typeof result.bulk_confirmation_token === 'string' &&
 						result.bulk_confirmation_token.length > 0
 							? result.bulk_confirmation_token
+							: null,
+					proposalGenerationRunId:
+						typeof result.proposal_generation_run_id === 'string' &&
+						result.proposal_generation_run_id.trim().length > 0
+							? result.proposal_generation_run_id.trim()
 							: null
 				};
 				/** P41-16 — flush DOM to bulk-confirm branch before finally clears proposingFileId (avoids empty modal flash / stuck processing shell). */
@@ -353,17 +361,27 @@
 			}
 
 			const n = result.proposal_count;
+			const createdRunId =
+				typeof result.proposal_generation_run_id === 'string' && result.proposal_generation_run_id.trim().length > 0
+					? result.proposal_generation_run_id.trim()
+					: '';
 			proposeWorkflow = { step: 'idle' };
 			navigateToProposalsAfter = true;
 			if (n <= 0) {
 				toast.warning(
 					'Proposal generation finished but no proposals were returned. Open the Proposals tab to verify, or run Propose timeline entries again.',
-					{ duration: 12000 }
+					{
+						duration: 12000,
+						...(dev && createdRunId ? { description: `Run ${createdRunId}` } : {})
+					}
 				);
 			} else {
 				toast.success(
 					`${n} timeline proposal${n === 1 ? '' : 's'} created. Open the Proposals tab to review and approve.`,
-					{ duration: 9000 }
+					{
+						duration: 9000,
+						...(dev && createdRunId ? { description: `Run ${createdRunId}` } : {})
+					}
 				);
 			}
 			if (result.source_text_truncated_for_model === true) {
@@ -663,6 +681,14 @@
 							{proposingFileId ? 'Working…' : 'Create proposals'}
 						</button>
 					</div>
+					{#if dev && proposeWorkflow.proposalGenerationRunId}
+						<p
+							class="text-xs text-gray-500 dark:text-gray-400 mt-3 font-mono break-all"
+							data-testid="propose-timeline-run-id-debug"
+						>
+							Run trace id (dev): {proposeWorkflow.proposalGenerationRunId}
+						</p>
+					{/if}
 				</div>
 			{/if}
 			{/key}
