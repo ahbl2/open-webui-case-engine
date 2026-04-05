@@ -171,6 +171,14 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	/** Non-fatal error from a load-more attempt; shown below the list. */
 	let loadMoreError = '';
 
+	/**
+	 * P41-45: snapshot boundary captured from the first page response.
+	 * Passed in all subsequent load-more requests so the dataset is stable
+	 * even if new entries are committed between page fetches.
+	 * null until the first page is loaded; reset to null on full reload.
+	 */
+	let scrollBoundary: { maxOccurredAt: string; maxId: string } | null = null;
+
 	/** DOM ref for the scroll container (the overflow-y-auto div). */
 	let scrollContainerEl: HTMLElement | undefined;
 	/** DOM ref for the invisible sentinel at list bottom (triggers auto-load). */
@@ -207,7 +215,9 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				{
 					limit: TIMELINE_CHUNK_SIZE,
 					offset: currentOffset,
-					includeDeleted: isAdmin && showDeleted ? true : undefined
+					includeDeleted: isAdmin && showDeleted ? true : undefined,
+					// P41-45: pass snapshot boundary to stabilise pagination under mid-scroll inserts.
+					...(scrollBoundary ?? {})
 				}
 			);
 			// Dedup by id — guards against overlap if the list changed while paginating.
@@ -263,6 +273,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		totalEntries = 0;
 		isLoadingMore = false;
 		loadMoreError = '';
+		scrollBoundary = null;
 		activeFilter = 'all';
 		filterSearchText = '';
 		filterDateFrom = '';
@@ -311,6 +322,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		hasMore = false;
 		isLoadingMore = false;
 		loadMoreError = '';
+		scrollBoundary = null;
 		try {
 			// P41-43: fetch the initial chunk via paginated endpoint.
 			const result = await listCaseTimelineEntriesPage(
@@ -326,6 +338,13 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			entries = result.entries;
 			hasMore = result.hasMore;
 			totalEntries = result.total;
+			// P41-45: capture snapshot boundary to stabilise subsequent load-more requests.
+			if (result.snapshotMaxOccurredAt && result.snapshotMaxId) {
+				scrollBoundary = {
+					maxOccurredAt: result.snapshotMaxOccurredAt,
+					maxId: result.snapshotMaxId
+				};
+			}
 			const now = new Date();
 			loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 			activeFilter = 'all'; // reset filters on each reload so counts stay honest

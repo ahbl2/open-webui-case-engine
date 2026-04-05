@@ -2009,6 +2009,10 @@ export async function listCaseTimelineEntries(
 /**
  * P41-43: Paginated timeline entries response envelope.
  * Returned by listCaseTimelineEntriesPage when limit is supplied.
+ *
+ * P41-45: snapshotMaxOccurredAt + snapshotMaxId are included on the first page
+ * (offset=0, no boundary provided). The client stores these and passes them in
+ * all subsequent load-more requests to prevent offset drift from mid-scroll inserts.
  */
 export interface TimelineEntriesPage {
 	entries: TimelineEntry[];
@@ -2016,6 +2020,16 @@ export interface TimelineEntriesPage {
 	hasMore: boolean;
 	/** Total non-deleted entries in the case (used for progress labels). */
 	total: number;
+	/**
+	 * Snapshot boundary — present only on the first page (offset=0, no boundary supplied).
+	 * Pass back as maxOccurredAt in subsequent pages to keep pagination stable.
+	 */
+	snapshotMaxOccurredAt?: string | null;
+	/**
+	 * Snapshot boundary — present only on the first page (offset=0, no boundary supplied).
+	 * Pass back as maxId in subsequent pages.
+	 */
+	snapshotMaxId?: string | null;
 }
 
 /**
@@ -2030,13 +2044,22 @@ export interface TimelineEntriesPage {
 export async function listCaseTimelineEntriesPage(
 	caseId: string,
 	token: string,
-	options: { limit: number; offset: number; includeDeleted?: boolean }
+	options: {
+		limit: number;
+		offset: number;
+		includeDeleted?: boolean;
+		/** P41-45: snapshot boundary — pass maxOccurredAt + maxId from the first page response. */
+		maxOccurredAt?: string;
+		maxId?: string;
+	}
 ): Promise<TimelineEntriesPage> {
 	const params = new URLSearchParams({
 		limit: String(options.limit),
 		offset: String(options.offset)
 	});
 	if (options.includeDeleted) params.set('includeDeleted', 'true');
+	if (options.maxOccurredAt) params.set('maxOccurredAt', options.maxOccurredAt);
+	if (options.maxId) params.set('maxId', options.maxId);
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries?${params}`, {
 		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 	});
