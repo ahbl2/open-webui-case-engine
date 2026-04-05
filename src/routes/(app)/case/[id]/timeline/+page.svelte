@@ -46,6 +46,7 @@
 	import { caseEngineToken, caseEngineUser } from '$lib/stores';
 	import {
 		listCaseTimelineEntries,
+		listCaseTimelineEntriesPage,
 		createCaseTimelineEntry,
 		updateCaseTimelineEntry,
 		softDeleteTimelineEntry,
@@ -155,6 +156,94 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	let loadError = '';
 	let loadedAt = '';
 
+	// ── P41-43: Incremental loading ────────────────────────────────────────────
+	/** Number of entries to fetch on initial page load. */
+	const TIMELINE_INITIAL_CHUNK = 50;
+	/** Number of entries to fetch per subsequent load-more request. */
+	const TIMELINE_CHUNK_SIZE = 25;
+
+	/** True when additional entries exist beyond what is currently loaded. */
+	let hasMore = false;
+	/** Total non-deleted entries in the case (from backend, used for labels). */
+	let totalEntries = 0;
+	/** True while a load-more request is in flight (prevents double-fetch). */
+	let isLoadingMore = false;
+	/** Non-fatal error from a load-more attempt; shown below the list. */
+	let loadMoreError = '';
+
+	/** DOM ref for the scroll container (the overflow-y-auto div). */
+	let scrollContainerEl: HTMLElement | undefined;
+	/** DOM ref for the invisible sentinel at list bottom (triggers auto-load). */
+	let scrollSentinelEl: HTMLElement | undefined;
+	/** IntersectionObserver watching the scroll sentinel. */
+	let scrollObserver: IntersectionObserver | undefined;
+
+	function setupScrollObserver(): void {
+		scrollObserver?.disconnect();
+		if (!scrollSentinelEl) { scrollObserver = undefined; return; }
+		scrollObserver = new IntersectionObserver(
+			(observed) => {
+				if (observed[0]?.isIntersecting && hasMore && !isLoadingMore && !loading) {
+					void loadMoreEntries();
+				}
+			},
+			{ root: scrollContainerEl ?? null, threshold: 0.1 }
+		);
+		scrollObserver.observe(scrollSentinelEl);
+	}
+
+	$: if (scrollSentinelEl) { setupScrollObserver(); }
+	   else { scrollObserver?.disconnect(); scrollObserver = undefined; }
+
+	async function loadMoreEntries(): Promise<void> {
+		if (!$caseEngineToken || !hasMore || isLoadingMore || loading) return;
+		isLoadingMore = true;
+		loadMoreError = '';
+		const currentOffset = entries.length;
+		try {
+			const result = await listCaseTimelineEntriesPage(
+				caseId,
+				$caseEngineToken,
+				{
+					limit: TIMELINE_CHUNK_SIZE,
+					offset: currentOffset,
+					includeDeleted: isAdmin && showDeleted ? true : undefined
+				}
+			);
+			// Dedup by id — guards against overlap if the list changed while paginating.
+			const existingIds = new Set(entries.map((e) => e.id));
+			const fresh = result.entries.filter((e) => !existingIds.has(e.id));
+			entries = [...entries, ...fresh];
+			hasMore = result.hasMore;
+			totalEntries = result.total;
+		} catch (e: unknown) {
+			loadMoreError = e instanceof Error ? e.message : 'Failed to load more entries.';
+		} finally {
+			isLoadingMore = false;
+		}
+	}
+
+	/** Load every remaining entry in one shot (used when filters are active). */
+	async function loadAllEntries(): Promise<void> {
+		if (!$caseEngineToken || isLoadingMore || loading) return;
+		isLoadingMore = true;
+		loadMoreError = '';
+		try {
+			const all = await listCaseTimelineEntries(
+				caseId,
+				$caseEngineToken,
+				isAdmin && showDeleted ? { includeDeleted: true } : undefined
+			);
+			entries = all;
+			hasMore = false;
+			totalEntries = all.length;
+		} catch (e: unknown) {
+			loadMoreError = e instanceof Error ? e.message : 'Failed to load all entries.';
+		} finally {
+			isLoadingMore = false;
+		}
+	}
+
 	// ── Role + deleted-entry visibility (P28-35) ───────────────────────────────
 	// isAdmin: true when the current Case Engine session is ADMIN.
 	// showDeleted: ADMIN-only toggle — when true, fetches include soft-deleted entries.
@@ -170,6 +259,10 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		entries = [];
 		loadError = '';
 		loadedAt = '';
+		hasMore = false;
+		totalEntries = 0;
+		isLoadingMore = false;
+		loadMoreError = '';
 		activeFilter = 'all';
 		filterSearchText = '';
 		filterDateFrom = '';
@@ -215,14 +308,24 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		const loadId = activeEntriesLoadId;
 		loading = true;
 		loadError = '';
+		hasMore = false;
+		isLoadingMore = false;
+		loadMoreError = '';
 		try {
-			const result = await listCaseTimelineEntries(
+			// P41-43: fetch the initial chunk via paginated endpoint.
+			const result = await listCaseTimelineEntriesPage(
 				caseId,
 				$caseEngineToken,
-				isAdmin && showDeleted ? { includeDeleted: true } : undefined
+				{
+					limit: TIMELINE_INITIAL_CHUNK,
+					offset: 0,
+					includeDeleted: isAdmin && showDeleted ? true : undefined
+				}
 			);
 			if (loadId !== activeEntriesLoadId) return;
-			entries = result;
+			entries = result.entries;
+			hasMore = result.hasMore;
+			totalEntries = result.total;
 			const now = new Date();
 			loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 			activeFilter = 'all'; // reset filters on each reload so counts stay honest
@@ -632,6 +735,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		resetTimelineTranscription();
 		improveState = 'idle';
 		improveError = '';
+		scrollObserver?.disconnect();
 	});
 
 	// ── P39-05 Bottom composer text import (file → editable text) ─────────────────
@@ -852,12 +956,18 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	$: showLargeTimelineFilterHint = shouldShowLargeTimelineFilterHint(entries.length);
 	$: searchHighlightNeedle = normalizeTimelineSearchNeedle(filterSearchText);
 
-	// Count: "12 entries" unfiltered; "3 of 12 entries" when any filter active (P39-02)
+	// Count: P39-02 "12 entries" unfiltered; "3 of 12 entries" filtered.
+	// P41-43: when hasMore is true, label reflects loaded subset vs backend total.
 	$: countLabel = (() => {
-		const total = entries.length;
-		const shown = filteredEntries.length;
-		if (total === 0) return '';
+		if (entries.length === 0) return '';
 		const unit = (n: number) => (n === 1 ? 'entry' : 'entries');
+		const total = totalEntries || entries.length;
+		const loaded = entries.length;
+		const shown = filteredEntries.length;
+		if (hasMore) {
+			if (!filtersActive) return `${loaded} of ${total} ${unit(total)} loaded`;
+			return `${shown} of ${loaded} loaded (${total} total)`;
+		}
 		if (!filtersActive) return `${total} ${unit(total)}`;
 		return `${shown} of ${total} ${unit(total)}`;
 	})();
@@ -1331,7 +1441,8 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	{/if}
 
 	<!-- ── Timeline list ───────────────────────────────────────────────────── -->
-	<div class="flex-1 px-4 pt-4 min-h-0 overflow-y-auto flex flex-col gap-4 {composerOpen ? 'pb-80' : 'pb-6'}">
+	<div class="flex-1 px-4 pt-4 min-h-0 overflow-y-auto flex flex-col gap-4 {composerOpen ? 'pb-80' : 'pb-6'}"
+		bind:this={scrollContainerEl}>
 
 		<!-- Loading / error / list states -->
 		<div class="flex-1 min-h-0 flex flex-col">
@@ -1362,14 +1473,27 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				</svelte:fragment>
 			</CaseEmptyState>
 
-		{:else if filteredEntries.length === 0}
-			<!-- P39-02: entries exist but none match current filters (type + text + dates) -->
-			<p
-				class="text-sm text-gray-400 dark:text-gray-500 text-center py-12"
-				data-testid="case-timeline-filter-empty"
-			>
-				No timeline entries match the current filters.
+	{:else if filteredEntries.length === 0}
+		<!-- P39-02: entries exist but none match current filters (type + text + dates) -->
+		<p
+			class="text-sm text-gray-400 dark:text-gray-500 text-center py-12"
+			data-testid="case-timeline-filter-empty"
+		>
+			No timeline entries match the current filters.
+		</p>
+		<!-- P41-43: prompt to load all when only a partial set is loaded -->
+		{#if hasMore}
+			<p class="text-xs text-amber-600 dark:text-amber-400 text-center pb-4">
+				Only {entries.length} of {totalEntries} entries loaded —
+				<button
+					type="button"
+					class="underline hover:text-amber-800 dark:hover:text-amber-200"
+					disabled={isLoadingMore}
+					on:click={loadAllEntries}
+					data-testid="timeline-load-all-from-filter-empty"
+				>load all to search the full timeline</button>
 			</p>
+		{/if}
 
 		{:else}
 			<!-- Chronological list — occurred_at ASC (earliest at top) -->
@@ -1649,9 +1773,61 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					{/if}
 				{/each}
 			</ol>
+	{/if}
+	</div><!-- end flex-1 loading/error/list wrapper -->
+
+	<!-- P41-43: scroll sentinel + load-more footer (inside scrollable container) -->
+	{#if !loading && !loadError}
+		{#if hasMore}
+			<!-- Invisible sentinel — IntersectionObserver triggers loadMoreEntries() -->
+			<div
+				bind:this={scrollSentinelEl}
+				class="h-4 w-full"
+				aria-hidden="true"
+				data-testid="timeline-scroll-sentinel"
+			></div>
+			<div class="flex flex-col items-center gap-1.5 py-4">
+				{#if isLoadingMore}
+					<svg class="animate-spin size-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
+					</svg>
+					<p class="text-xs text-gray-400 dark:text-gray-500">Loading more entries…</p>
+				{:else}
+					<button
+						type="button"
+						class="text-xs font-medium text-violet-600 dark:text-violet-400 hover:underline"
+						on:click={loadMoreEntries}
+						data-testid="timeline-load-more-btn"
+					>Load {TIMELINE_CHUNK_SIZE} more</button>
+					{#if filtersActive}
+						<p class="text-[11px] text-amber-600 dark:text-amber-400 text-center max-w-xs">
+							Filters apply to {entries.length} loaded entries —
+							<button
+								type="button"
+								class="underline hover:text-amber-800 dark:hover:text-amber-200"
+								on:click={loadAllEntries}
+								data-testid="timeline-load-all-btn"
+							>load all {totalEntries} to search full timeline</button>
+						</p>
+					{/if}
+				{/if}
+				{#if loadMoreError}
+					<p
+						class="text-xs text-red-500 dark:text-red-400"
+						data-testid="timeline-load-more-error"
+					>{loadMoreError}</p>
+				{/if}
+			</div>
+		{:else if entries.length > 0 && totalEntries > TIMELINE_INITIAL_CHUNK}
+			<!-- All entries are loaded and total exceeded the initial chunk — confirm end -->
+			<p
+				class="text-xs text-center text-gray-400 dark:text-gray-500 py-3"
+				data-testid="timeline-end-of-list"
+			>All {totalEntries} entries loaded</p>
 		{/if}
-		</div><!-- end flex-1 loading/error/list wrapper -->
-	</div>
+	{/if}
+</div>
 
 	<!-- ── P39-03: Bottom composer sheet ──────────────────────────────────── -->
 	<!--    Fixed to bottom of the page container; Timeline list stays visible.  -->

@@ -2007,6 +2007,45 @@ export async function listCaseTimelineEntries(
 }
 
 /**
+ * P41-43: Paginated timeline entries response envelope.
+ * Returned by listCaseTimelineEntriesPage when limit is supplied.
+ */
+export interface TimelineEntriesPage {
+	entries: TimelineEntry[];
+	/** True when more entries exist beyond this page. */
+	hasMore: boolean;
+	/** Total non-deleted entries in the case (used for progress labels). */
+	total: number;
+}
+
+/**
+ * P41-43: Fetch one page of timeline entries.
+ * Uses the same GET /cases/:id/entries endpoint but with limit + offset params,
+ * which triggers the paginated { entries, hasMore, total } envelope response.
+ * Ordering: occurred_at ASC, id ASC (stable tie-breaker).
+ *
+ * Use listCaseTimelineEntries (no limit) for one-shot full fetches needed by
+ * summary, activity, and intelligence pages that still require all entries.
+ */
+export async function listCaseTimelineEntriesPage(
+	caseId: string,
+	token: string,
+	options: { limit: number; offset: number; includeDeleted?: boolean }
+): Promise<TimelineEntriesPage> {
+	const params = new URLSearchParams({
+		limit: String(options.limit),
+		offset: String(options.offset)
+	});
+	if (options.includeDeleted) params.set('includeDeleted', 'true');
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries?${params}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to load timeline (${res.status})`);
+	return data as TimelineEntriesPage;
+}
+
+/**
  * P28-35: Soft-delete a timeline entry.
  * Endpoint: DELETE /entries/:entryId  (not case-scoped in the URL)
  * Available to any authenticated user with mutate access to the entry's case.
