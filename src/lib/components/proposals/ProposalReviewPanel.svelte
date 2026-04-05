@@ -39,6 +39,7 @@
 		groupByStatus,
 		statusLabel,
 		payloadPreview,
+		documentTimelineIngestOperatorNarrative,
 		statusBadgeClasses,
 		tabClasses,
 		summarizeProposalQueueMix,
@@ -940,14 +941,26 @@
 								</span>
 							</div>
 
-							<!-- Content preview -->
-							<div
-							class="text-[11px] text-gray-600 dark:text-gray-400 font-mono leading-relaxed
-							       bg-gray-50 dark:bg-gray-900/70 rounded px-2 py-1.5 mb-2 line-clamp-2"
-								data-testid="proposal-preview"
-							>
-								{payloadPreview(proposal.proposed_payload, proposal.proposal_type)}
-							</div>
+							<!-- Content preview: document ingest shows full paragraph (P41-38); others stay short list preview -->
+							{#if isDocumentTimelineIntakePayload(payload)}
+								<div
+									class="text-[11px] text-gray-700 dark:text-gray-300 font-mono leading-relaxed
+									       bg-gray-50 dark:bg-gray-900/70 rounded px-2 py-1.5 mb-2 whitespace-pre-wrap
+									       break-words max-h-[min(50vh,28rem)] overflow-y-auto"
+									data-testid="proposal-preview"
+									data-document-ingest-full-narrative="1"
+								>
+									{documentTimelineIngestOperatorNarrative(payload)}
+								</div>
+							{:else}
+								<div
+									class="text-[11px] text-gray-600 dark:text-gray-400 font-mono leading-relaxed
+									       bg-gray-50 dark:bg-gray-900/70 rounded px-2 py-1.5 mb-2 line-clamp-2"
+									data-testid="proposal-preview"
+								>
+									{payloadPreview(proposal.proposed_payload, proposal.proposal_type)}
+								</div>
+							{/if}
 
 							<!-- Rejection reason (only for rejected proposals) -->
 							{#if proposal.rejection_reason}

@@ -331,6 +331,18 @@ export function statusLabel(status: ProposalStatus): string {
 }
 
 /**
+ * P41-38 — Operator-visible narrative for document timeline ingest rows: full `text_original`
+ * (authoritative excerpt), never a list-preview stub. Used instead of `payloadPreview` + line-clamp
+ * for `_ce_document_timeline_intake` payloads.
+ */
+export function documentTimelineIngestOperatorNarrative(payload: Record<string, unknown>): string {
+	const o = String(payload.text_original ?? '').trim();
+	if (o.length > 0) return String(payload.text_original ?? '');
+	const c = String(payload.text_cleaned ?? '').trim();
+	return c.length > 0 ? String(payload.text_cleaned ?? '') : '—';
+}
+
+/**
  * Generates a short content preview string from a proposal payload.
  * Truncated to 140 characters for list view.
  */

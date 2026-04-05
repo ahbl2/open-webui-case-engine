@@ -94,6 +94,20 @@ describe('ProposalReviewPanel.svelte — P41-04 deterministic timestamp candidat
 	});
 });
 
+describe('ProposalReviewPanel.svelte — P41-38 document ingest full narrative', () => {
+	it('uses full-body branch for document timeline ingest (no line-clamp list preview)', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).toContain('documentTimelineIngestOperatorNarrative');
+		expect(src).toContain('data-document-ingest-full-narrative="1"');
+		expect(src).toContain('whitespace-pre-wrap');
+		expect(src).toContain('overflow-y-auto');
+		expect(src).toContain('max-h-[min(50vh,28rem)]');
+		expect(src).toMatch(
+			/\{#if isDocumentTimelineIntakePayload\(payload\)\}[\s\S]*?documentTimelineIngestOperatorNarrative[\s\S]*?\{:else\}[\s\S]*?line-clamp-2/s
+		);
+	});
+});
+
 describe('ProposalReviewPanel.svelte — P41-09 occurred_at_guidance', () => {
 	it('wires OccurredAtGuidanceReview for timeline proposals with guidance', () => {
 		const src = readFileSync(panelPath, 'utf8');

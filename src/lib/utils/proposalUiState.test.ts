@@ -17,6 +17,7 @@ import {
 	groupByStatus,
 	statusLabel,
 	payloadPreview,
+	documentTimelineIngestOperatorNarrative,
 	statusBadgeClasses,
 	tabClasses,
 	normalizeProposalPayloadChronologyConfidence,
@@ -438,6 +439,26 @@ describe('statusLabel', () => {
 		expect(statusLabel('approved')).toBe('Approved — Not Yet Committed');
 		expect(statusLabel('rejected')).toBe('Rejected');
 		expect(statusLabel('committed')).toBe('Committed to Case');
+	});
+});
+
+// ─── documentTimelineIngestOperatorNarrative (P41-38) ─────────────────────────
+
+describe('documentTimelineIngestOperatorNarrative', () => {
+	it('returns full text_original without truncation for long paragraphs', () => {
+		const long = 'A'.repeat(400);
+		const payload = { text_original: long, text_cleaned: long };
+		expect(documentTimelineIngestOperatorNarrative(payload)).toBe(long);
+		expect(documentTimelineIngestOperatorNarrative(payload).length).toBe(400);
+	});
+
+	it('falls back to text_cleaned when text_original is empty', () => {
+		const payload = { text_original: '   ', text_cleaned: 'Fallback body.' };
+		expect(documentTimelineIngestOperatorNarrative(payload)).toBe('Fallback body.');
+	});
+
+	it('returns em dash when both bodies missing', () => {
+		expect(documentTimelineIngestOperatorNarrative({})).toBe('—');
 	});
 });
 
