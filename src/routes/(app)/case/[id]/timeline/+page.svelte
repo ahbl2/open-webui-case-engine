@@ -58,6 +58,7 @@
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import TimelineEntryCard from '$lib/components/case/TimelineEntryCard.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocumentProposeButton.svelte';
 	import {
 		isDirtyTimelineEdit,
 		isoToDatetimeLocal,
@@ -1118,7 +1119,7 @@
 			</span>
 		</div>
 
-		<!-- Refresh controls + ADMIN lifecycle toggle + Log entry (P28-31, P28-35, P28-37) -->
+		<!-- Refresh controls + ADMIN lifecycle toggle + Log entry + From document (P28-31, P28-35, P28-37) -->
 		<div class="flex items-center gap-2 shrink-0 flex-wrap">
 			<!-- Log entry: opens the governed inline create form (P28-37) -->
 			<button
@@ -1135,6 +1136,16 @@
 			>
 				+ Log entry
 			</button>
+
+			<!-- Thin divider between the two entry actions -->
+			<span class="w-px h-3.5 bg-gray-300 dark:bg-gray-600 shrink-0" aria-hidden="true"></span>
+
+			<!-- From document: upload → propose → review in Proposals tab -->
+			<TimelineDocumentProposeButton
+				caseId={caseId}
+				token={$caseEngineToken ?? ''}
+				disabled={loading}
+			/>
 
 			<!-- ADMIN-only: toggle to include soft-deleted entries in the fetch -->
 			{#if isAdmin}
