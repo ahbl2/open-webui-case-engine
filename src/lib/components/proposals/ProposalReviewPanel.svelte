@@ -847,8 +847,9 @@
 				{@const thisError = proposalErrors.get(proposal.id)}
 				{@const isRejectingThis = rejectingId === proposal.id}
 
+				{@const needsDateTimeAttention = proposal.proposal_type === 'timeline' && (proposal.status === 'pending' || proposal.status === 'approved') && timelineProposalCommitBlockedByLowChronology(proposal)}
 				<div
-					class="rounded-md border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-900/50"
+					class="rounded-md border bg-white dark:bg-gray-900/50 {needsDateTimeAttention ? 'border-amber-400 dark:border-amber-600 border-l-[5px] border-l-amber-400 dark:border-l-amber-500' : 'border-gray-200 dark:border-gray-700'}"
 					data-testid="proposal-card"
 					data-proposal-id={proposal.id}
 					data-proposal-status={proposal.status}
@@ -878,15 +879,24 @@
 								>
 									{statusLabel(proposal.status)}
 								</span>
-								{#if proposal.status === 'approved' && proposal.proposal_type === 'timeline' && timelineProposalCommitBlockedByLowChronology(proposal)}
-									<span
-										class="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide shrink-0 bg-amber-200 text-amber-950 dark:bg-amber-900/55 dark:text-amber-100 border border-amber-500/50"
-										data-testid="approved-chronology-blocked-chip"
-										title="Low confidence occurred_at — confirm before commit (same rule as single-item commit)"
-									>
-										Time confirm
-									</span>
-								{/if}
+							{#if proposal.status === 'approved' && proposal.proposal_type === 'timeline' && timelineProposalCommitBlockedByLowChronology(proposal)}
+								<span
+									class="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide shrink-0 bg-amber-200 text-amber-950 dark:bg-amber-900/55 dark:text-amber-100 border border-amber-500/50"
+									data-testid="approved-chronology-blocked-chip"
+									title="Low confidence occurred_at — confirm before commit (same rule as single-item commit)"
+								>
+									Time confirm
+								</span>
+							{/if}
+							{#if proposal.status === 'pending' && proposal.proposal_type === 'timeline' && timelineProposalCommitBlockedByLowChronology(proposal)}
+								<span
+									class="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide shrink-0 bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-200 border border-amber-400/60"
+									data-testid="pending-needs-datetime-chip"
+									title="No date/time or low confidence — expand details to set before approving"
+								>
+									⚠ Needs date
+								</span>
+							{/if}
 
 								<!-- Type badge -->
 								<span
