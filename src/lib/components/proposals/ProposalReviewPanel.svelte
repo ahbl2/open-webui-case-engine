@@ -140,6 +140,8 @@
 	let bulkCommitConfirmShow = false;
 	let bulkApproveConfirmCount = 0;
 	let bulkCommitConfirmCount = 0;
+	let bulkConfirmChronologyShow = false;
+	let bulkConfirmChronologyCount = 0;
 
 	// ── Computed ───────────────────────────────────────────────────────────────
 
@@ -161,6 +163,15 @@
 	$: bulkCommitEnabled = isBulkCommitEnabled(selected, proposals);
 	$: bulkApproveEnabled = isBulkApproveEnabled(selected, proposals);
 	$: bulkRejectEnabled = isBulkRejectEnabled(selected, proposals);
+	/** Approved proposals in the selection that are blocked from commit due to low chronology. */
+	$: bulkChronologyBlockedIds = (() => {
+		const map = new Map(proposals.map((p) => [p.id, p]));
+		return [...selected].filter((id) => {
+			const p = map.get(id);
+			return p?.status === 'approved' && timelineProposalCommitBlockedByLowChronology(p);
+		});
+	})();
+	$: bulkConfirmChronologyEnabled = bulkChronologyBlockedIds.length > 0 && !bulkProcessing;
 
 	$: selectedOnTabCount = activeProposals.filter((p) => selected.has(p.id)).length;
 	$: queueMixSummary = formatProposalQueueMixSummary(summarizeProposalQueueMix(proposalsFiltered));
@@ -404,6 +415,46 @@
 			bulkCommitConfirmShow = true;
 		} else {
 			void handleBulkCommit();
+		}
+	}
+
+	function requestBulkConfirmChronology(): void {
+		if (!bulkConfirmChronologyEnabled) return;
+		bulkConfirmChronologyCount = bulkChronologyBlockedIds.length;
+		bulkConfirmChronologyShow = true;
+	}
+
+	async function handleBulkConfirmChronology(): Promise<void> {
+		bulkError = '';
+		bulkProcessing = true;
+		const targets = bulkChronologyBlockedIds;
+		const errors: string[] = [];
+		for (let i = 0; i < targets.length; i++) {
+			bulkProgressMsg = `Confirming chronology ${i + 1} of ${targets.length}…`;
+			const id = targets[i];
+			const proposal = proposals.find((p) => p.id === id);
+			if (!proposal) continue;
+			let existingPayload: Record<string, unknown>;
+			try {
+				existingPayload = JSON.parse(proposal.proposed_payload) as Record<string, unknown>;
+			} catch {
+				errors.push(`#${id.slice(0, 8)}: invalid payload`);
+				continue;
+			}
+			try {
+				const updated = await updateProposal(caseId, id, {
+					...existingPayload,
+					operator_occurred_at_confirmed: true
+				}, token);
+				proposals = proposals.map((p) => (p.id === id ? updated : p));
+			} catch (err) {
+				errors.push(`#${id.slice(0, 8)}: ${classifyApiError(err)}`);
+			}
+		}
+		bulkProcessing = false;
+		bulkProgressMsg = '';
+		if (errors.length > 0) {
+			bulkError = `${errors.length} chronology confirmation(s) failed — ${errors.join('; ')}`;
 		}
 	}
 
@@ -748,19 +799,32 @@
 								✕ Reject Selected
 							</button>
 						{/if}
+					{#if bulkConfirmChronologyEnabled}
 						<button
 							type="button"
-							class="px-2 py-0.5 rounded text-[11px] font-medium bg-green-600 hover:bg-green-700
+							class="px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500 hover:bg-amber-600
 							       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
-							on:click={requestBulkCommit}
-							disabled={!bulkCommitEnabled || bulkProcessing}
-							title={bulkCommitEnabled
-								? 'Creates official Timeline / Note records for each selected approved proposal'
-								: bulkCommitBlockedReason ?? 'Cannot commit this selection'}
-							data-testid="bulk-commit-btn"
+							on:click={requestBulkConfirmChronology}
+							disabled={bulkProcessing}
+							title="Mark occurred_at as operator-confirmed for {bulkChronologyBlockedIds.length} selected entry/entries blocked by low chronology confidence — unlocks Bulk Commit"
+							data-testid="bulk-confirm-chronology-btn"
 						>
-							{bulkProcessing ? bulkProgressMsg : '→ Commit Selected'}
+							{bulkProcessing ? bulkProgressMsg : `⏱ Confirm date/time (${bulkChronologyBlockedIds.length})`}
 						</button>
+					{/if}
+					<button
+						type="button"
+						class="px-2 py-0.5 rounded text-[11px] font-medium bg-green-600 hover:bg-green-700
+						       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+						on:click={requestBulkCommit}
+						disabled={!bulkCommitEnabled || bulkProcessing}
+						title={bulkCommitEnabled
+							? 'Creates official Timeline / Note records for each selected approved proposal'
+							: bulkCommitBlockedReason ?? 'Cannot commit this selection'}
+						data-testid="bulk-commit-btn"
+					>
+						{bulkProcessing ? bulkProgressMsg : '→ Commit Selected'}
+					</button>
 					</div>
 				</div>
 			{/if}
@@ -1602,6 +1666,15 @@
 		confirmLabel={`Commit ${bulkCommitConfirmCount}`}
 		onConfirm={() => {
 			void handleBulkCommit();
+		}}
+	/>
+	<ConfirmDialog
+		bind:show={bulkConfirmChronologyShow}
+		title="Confirm date/time for low-confidence entries?"
+		message={`You are confirming the occurred_at for **${bulkConfirmChronologyCount}** entries that do not have a detected timestamp. This records that you have reviewed and accept the date/time as shown. After confirming, Bulk Commit will be enabled for these entries.`}
+		confirmLabel={`Confirm date/time (${bulkConfirmChronologyCount})`}
+		onConfirm={() => {
+			void handleBulkConfirmChronology();
 		}}
 	/>
 </div>
