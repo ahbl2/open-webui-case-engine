@@ -51,8 +51,32 @@
 	let viewTextContent: string | null = null;
 	let viewTextLoading = false;
 	let fileInput: HTMLInputElement;
+	// ── File tag constants ─────────────────────────────────────────────────────
+
+	/** Predefined tag options shown in the tag dropdown. Order = most commonly used first. */
+	const FILE_TAGS = [
+		'timeline',      // source document feeding the case timeline
+		'evidence',      // physical or digital evidence item
+		'photo',         // photographs — scene, suspect, evidence
+		'report',        // official police, lab, or medical examiner report
+		'surveillance',  // surveillance footage log or camera report
+		'warrant',       // search or arrest warrant
+		'interview',     // interview transcript or witness statement
+		'financial',     // bank records, transactions, asset docs
+		'phone records', // call logs, CDRs, tower / ping data
+		'lab results',   // forensics or crime-lab analysis
+		'medical',       // medical records or autopsy report
+		'court',         // court filings, subpoenas, legal orders
+		'other',         // general / uncategorised reference
+	] as const;
+
+	/** Sentinel value in the <select> that switches to a free-text fallback. */
+	const CUSTOM_SENTINEL = '__custom__';
+
 	let addingTagFileId: string | null = null;
 	let newTagInput = '';
+	/** True when the user chose "Custom…" in the dropdown and is typing a free-form tag. */
+	let newTagIsCustom = false;
 	let proposingFileId: string | null = null;
 	/** P41-14 — processing modal + bulk confirm in one shell; cancel via AbortController */
 	let proposeWorkflow: ProposeWorkflowState = { step: 'idle' };
@@ -80,6 +104,7 @@
 		extractingId = null;
 		addingTagFileId = null;
 		newTagInput = '';
+		newTagIsCustom = false;
 		proposingFileId = null;
 		if (proposeWorkflow.step === 'processing') {
 			proposeRequestGeneration += 1;
@@ -118,10 +143,12 @@
 		}
 		uploading = true;
 		try {
-			await uploadCaseFile(caseId, input.files[0], token);
-			toast.success('File uploaded');
+			const uploaded = await uploadCaseFile(caseId, input.files[0], token);
+			toast.success('File uploaded — select a tag');
 			input.value = '';
 			await loadFiles();
+			// Auto-open the tag picker so the user is prompted to categorise immediately.
+			startAddTag(uploaded);
 		} catch (e: any) {
 			toast.error(e?.message ?? 'Upload failed');
 		} finally {
@@ -255,20 +282,39 @@
 		}
 	}
 
-	// Ticket 25: Evidence tags
+	// ── File tagging ───────────────────────────────────────────────────────────
+
 	function startAddTag(f: CaseFile) {
 		addingTagFileId = f.id;
 		newTagInput = '';
+		newTagIsCustom = false;
 	}
 
 	function cancelAddTag() {
 		addingTagFileId = null;
 		newTagInput = '';
+		newTagIsCustom = false;
+	}
+
+	function onTagSelectChange(e: Event) {
+		const val = (e.target as HTMLSelectElement).value;
+		if (val === CUSTOM_SENTINEL) {
+			newTagIsCustom = true;
+			newTagInput = '';
+		} else {
+			newTagIsCustom = false;
+			newTagInput = val;
+		}
 	}
 
 	async function submitAddTag(f: CaseFile) {
 		const t = newTagInput.trim().toLowerCase().replace(/\s+/g, ' ');
 		if (!t) return;
+		// Don't add a tag that the file already has.
+		if ((f.tags ?? []).includes(t)) {
+			cancelAddTag();
+			return;
+		}
 		try {
 			await addFileTag(caseId, f.id, t, token);
 			toast.success('Tag added');
@@ -554,57 +600,76 @@
 							: 'Propose timeline entries'}
 					</button>
 					</div>
-					<!-- Ticket 25: Tags -->
-					{#if (f.tags?.length ?? 0) > 0 || addingTagFileId === f.id}
-						<div class="flex flex-wrap items-center gap-1">
-							{#each f.tags ?? [] as tag (tag)}
-								<span
-									class="inline-flex items-center gap-0.5 rounded-full bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 text-xs"
-								>
-									{tag}
-									<button
-										type="button"
-										class="hover:bg-gray-300 dark:hover:bg-gray-600 rounded p-0.5"
-										on:click={() => handleRemoveTag(f, tag)}
-										aria-label="Remove tag"
-									>×</button>
-								</span>
-							{/each}
-							{#if addingTagFileId === f.id}
-								<form
-									class="inline-flex items-center gap-1"
-									on:submit|preventDefault={() => submitAddTag(f)}
-								>
-									<input
-										type="text"
-										bind:value={newTagInput}
-										placeholder="Add tag"
-										class="rounded border border-gray-300 dark:border-gray-600 bg-transparent px-1.5 py-0.5 text-xs w-24"
-										on:blur={() => newTagInput || cancelAddTag()}
-										on:keydown={(e) => e.key === 'Escape' && cancelAddTag()}
-									/>
-									<button type="submit" class="text-blue-600 dark:text-blue-400 text-xs">Add</button>
-									<button type="button" class="text-gray-500 text-xs" on:click={cancelAddTag}>Cancel</button>
-								</form>
+				<!-- Tags — required categorisation for every file -->
+				<div class="flex flex-wrap items-center gap-1">
+					{#each f.tags ?? [] as tag (tag)}
+						<span
+							class="inline-flex items-center gap-0.5 rounded-full bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 text-xs"
+						>
+							{tag}
+							<button
+								type="button"
+								class="hover:bg-gray-300 dark:hover:bg-gray-600 rounded p-0.5"
+								on:click={() => handleRemoveTag(f, tag)}
+								aria-label="Remove tag {tag}"
+							>×</button>
+						</span>
+					{/each}
+
+					{#if addingTagFileId === f.id}
+						<!-- Tag picker: dropdown of predefined options, falls back to custom text input -->
+						<form
+							class="inline-flex items-center gap-1 flex-wrap"
+							on:submit|preventDefault={() => submitAddTag(f)}
+						>
+							{#if newTagIsCustom}
+								<input
+									type="text"
+									bind:value={newTagInput}
+									placeholder="Type custom tag"
+									class="rounded border border-gray-300 dark:border-gray-600 bg-transparent px-1.5 py-0.5 text-xs w-28"
+									on:keydown={(e) => e.key === 'Escape' && cancelAddTag()}
+								/>
 							{:else}
-								<button
-									type="button"
-									class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-xs"
-									on:click={() => startAddTag(f)}
+								<select
+									class="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1.5 py-0.5 text-xs"
+									value={newTagInput || ''}
+									on:change={onTagSelectChange}
 								>
-									+ Add tag
-								</button>
+									<option value="" disabled>Select tag…</option>
+									{#each FILE_TAGS as t}
+										<option value={t} disabled={(f.tags ?? []).includes(t)}>{t}</option>
+									{/each}
+									<option value={CUSTOM_SENTINEL}>Custom…</option>
+								</select>
 							{/if}
-						</div>
+							<button
+								type="submit"
+								disabled={!newTagInput.trim()}
+								class="text-blue-600 dark:text-blue-400 text-xs disabled:opacity-40"
+							>Add</button>
+							<button type="button" class="text-gray-500 text-xs" on:click={cancelAddTag}>Cancel</button>
+						</form>
+					{:else if (f.tags?.length ?? 0) === 0}
+						<!-- No tag yet — show a prominent amber prompt -->
+						<button
+							type="button"
+							class="inline-flex items-center gap-0.5 text-xs font-medium text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200"
+							title="Tag required — select a category for this file"
+							on:click={() => startAddTag(f)}
+						>
+							⚠ Tag required
+						</button>
 					{:else}
 						<button
 							type="button"
-							class="text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 text-xs self-start"
+							class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xs"
 							on:click={() => startAddTag(f)}
 						>
-							+ Add tag
+							+ tag
 						</button>
 					{/if}
+				</div>
 				</div>
 			{/each}
 		</div>
