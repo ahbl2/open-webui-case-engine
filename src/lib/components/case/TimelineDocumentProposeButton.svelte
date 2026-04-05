@@ -299,35 +299,45 @@
 						</div>
 					</div>
 
-				{:else if workflow.step === 'bulk_confirm'}
-					<div data-testid="timeline-propose-from-doc-bulk-confirm">
-						<h3 id="tl-doc-propose-modal-title" class="font-medium text-sm mb-2">
-							Many timeline proposals
-						</h3>
-						<p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
-							Extraction would create <strong>{workflow.count}</strong> pending proposals
-							(threshold {workflow.threshold}). This stays review-first — nothing is written
-							to the official Timeline until you approve and commit each entry. Continue?
-						</p>
-						<div class="flex justify-end gap-2">
-							<button
-								type="button"
-								class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600
-								       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
-								on:click={dismiss}
-							>
-								Cancel
-							</button>
-							<button
-								type="button"
-								class="px-3 py-1.5 text-sm rounded bg-violet-600 text-white
-								       hover:bg-violet-700 transition"
-								data-testid="timeline-propose-from-doc-bulk-submit"
-								on:click={onBulkConfirm}
-							>
-								Create proposals
-							</button>
-						</div>
+			{:else if workflow.step === 'bulk_confirm'}
+				<div data-testid="timeline-propose-from-doc-bulk-confirm">
+					<h3 id="tl-doc-propose-modal-title" class="font-medium text-sm mb-2">
+						Many timeline proposals found
+					</h3>
+					<p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+						Extraction found <strong>{workflow.count}</strong> timeline entries in
+						<strong>{workflow.filename}</strong>. Clicking <em>Create proposals</em> adds
+						them to the Proposals tab for review — nothing appears on the official
+						Timeline until you commit them.
+					</p>
+					<div class="rounded bg-amber-50 dark:bg-amber-900/20 border border-amber-200 dark:border-amber-700 px-3 py-2 mb-4 text-xs text-amber-800 dark:text-amber-300 space-y-0.5">
+						<p class="font-medium">After creating proposals, to add them to the Timeline:</p>
+						<ol class="list-decimal list-inside space-y-0.5 mt-1">
+							<li>Go to <strong>Proposals</strong> tab → check the <strong>select-all</strong> box</li>
+							<li>Click <strong>Bulk approve</strong> → confirm</li>
+							<li>Switch to the <strong>Approved</strong> sub-tab → select all</li>
+							<li>Click <strong>Bulk commit</strong> → confirm → then <strong>Refresh</strong> the Timeline</li>
+						</ol>
+					</div>
+					<div class="flex justify-end gap-2">
+						<button
+							type="button"
+							class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600
+							       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+							on:click={dismiss}
+						>
+							Cancel
+						</button>
+						<button
+							type="button"
+							class="px-3 py-1.5 text-sm rounded bg-violet-600 text-white
+							       hover:bg-violet-700 transition"
+							data-testid="timeline-propose-from-doc-bulk-submit"
+							on:click={onBulkConfirm}
+						>
+							Create {workflow.count} proposals
+						</button>
+					</div>
 						{#if dev && workflow.runId}
 							<p class="text-xs text-gray-500 dark:text-gray-400 mt-3 font-mono break-all">
 								Run trace id (dev): {workflow.runId}

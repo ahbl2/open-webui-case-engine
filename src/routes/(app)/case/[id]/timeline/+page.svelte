@@ -220,12 +220,15 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					...(scrollBoundary ?? {})
 				}
 			);
-			// Dedup by id — guards against overlap if the list changed while paginating.
-			const existingIds = new Set(entries.map((e) => e.id));
-			const fresh = result.entries.filter((e) => !existingIds.has(e.id));
-			entries = [...entries, ...fresh];
-			hasMore = result.hasMore;
-			totalEntries = result.total;
+		// Dedup by id — guards against overlap if the list changed while paginating.
+		const existingIds = new Set(entries.map((e) => e.id));
+		const fresh = result.entries.filter((e) => !existingIds.has(e.id));
+		entries = [...entries, ...fresh];
+		hasMore = result.hasMore;
+		// Do NOT update totalEntries here. The boundary-filtered total from loadMore can
+		// diverge from the authoritative count (e.g. proposals with historical occurred_at
+		// committed mid-scroll enter the boundary window and inflate the count). The total
+		// captured by loadEntries() on a full Refresh is the only reliable reference.
 		} catch (e: unknown) {
 			loadMoreError = e instanceof Error ? e.message : 'Failed to load more entries.';
 		} finally {
