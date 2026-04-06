@@ -13,6 +13,7 @@
 	 * P38-07 — operator microcopy: direct + Log entry vs Proposals review/commit (copy only)
 	 * P38-08 — timeline type “note” vs Notes tab (labels/tooltips only; value stays `note`)
 	 * P39-02 — deterministic search + occurred date range + type (P39-01 §6)
+	 * P41-44-FU4 — after soft-delete (normal view), adjust `totalEntries` / `hasMore` (+ `lastKnownUnfilteredTotal` when unfiltered); restore + active filters → `loadEntries`
 	 * P41-44-FU3 — with server-side filters active, create success runs `loadEntries` instead of optimistic insert
 	 * P41-44-FU2 — after edit, re-sort loaded entries by `occurred_at ASC, id ASC` (matches CE list order)
 	 * P41-44-FU1 — load-more responses discarded after case switch or superseding `loadEntries` (stale-append guard)
@@ -127,6 +128,10 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
 	import { sortTimelineEntriesOfficialOrder } from '$lib/caseTimeline/timelineEntriesOfficialSort';
 	import { timelineListUsesServerSideFilters } from '$lib/caseTimeline/timelineServerFiltersActive';
+	import {
+		timelineLastKnownUnfilteredAfterActiveDelete,
+		timelineTotalsAfterRemoveOneFromMatchingSet
+	} from '$lib/caseTimeline/timelineTotalsAfterActiveDelete';
 	import { previewStructuredNotesExtraction } from '$lib/apis/caseEngine';
 	import {
 		isTimelineAudioFileSupported,
@@ -519,6 +524,18 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			} else {
 				// Normal view: remove the entry from the visible list.
 				entries = entries.filter((e) => e.id !== entryId);
+				const meta = timelineTotalsAfterRemoveOneFromMatchingSet(totalEntries, entries.length);
+				totalEntries = meta.totalEntries;
+				hasMore = meta.hasMore;
+				lastKnownUnfilteredTotal = timelineLastKnownUnfilteredAfterActiveDelete(
+					lastKnownUnfilteredTotal,
+					timelineListUsesServerSideFilters({
+						filterQueryForApi,
+						activeFilter,
+						filterDateFrom,
+						filterDateTo
+					})
+				);
 			}
 			// If entry was being edited, cancel the draft.
 			if (editingEntryId === entryId) cancelEdit();
@@ -543,10 +560,21 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		pendingRestoreEntry = null;
 		try {
 			await restoreTimelineEntry(caseId, entry.id, $caseEngineToken);
-			// Mark entry as active in the local list (clear deleted_at).
-			entries = entries.map((e) =>
-				e.id === entry.id ? { ...e, deleted_at: null } : e
-			);
+			if (
+				timelineListUsesServerSideFilters({
+					filterQueryForApi,
+					activeFilter,
+					filterDateFrom,
+					filterDateTo
+				})
+			) {
+				await loadEntries();
+			} else {
+				// Mark entry as active in the local list (clear deleted_at).
+				entries = entries.map((e) =>
+					e.id === entry.id ? { ...e, deleted_at: null } : e
+				);
+			}
 		} catch (e: unknown) {
 			restoreLifecycleError = e instanceof Error ? e.message : 'Restore failed. Please try again.';
 		} finally {
