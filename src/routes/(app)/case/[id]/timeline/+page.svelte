@@ -1415,7 +1415,9 @@ async function loadMoreEntries(): Promise<void> {
 	{/if}
 
 	<!-- ── Search + date range + type (P28-32 type chips; P39-02 text + dates) ── -->
-	{#if !loading && !loadError && (lastKnownUnfilteredTotal > 0 || filtersActive)}
+	<!-- Do not gate on `loading`: filter refetch sets loading=true and would unmount this bar,
+	     destroying the search input and dropping focus (debounced search). -->
+	{#if !loadError && (lastKnownUnfilteredTotal > 0 || filtersActive)}
 		<div
 			class="shrink-0 flex flex-col gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-800"
 			data-testid="case-timeline-search-filter-bar"
@@ -1528,41 +1530,42 @@ async function loadMoreEntries(): Promise<void> {
 
 		<!-- Loading / error / list states -->
 		<div class="flex-1 min-h-0 flex flex-col">
-		{#if loading}
-			<CaseLoadingState label="Loading timeline…" testId="case-timeline-loading" />
-
-		{:else if loadError}
+		{#if loadError}
 			<CaseErrorState
 				title="Failed to load timeline"
 				message={loadError}
 				onRetry={loadEntries}
 			/>
 
-		{:else if entries.length === 0}
-			<!-- Case has no entries yet -->
-			<CaseEmptyState
-				title="No official timeline entries recorded for this case."
-				description={TIMELINE_EMPTY_STATE_DESCRIPTION}
-				testId="case-timeline-empty"
-			>
-				<svelte:fragment slot="icon">
-					<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
-						stroke-width="1.5" stroke="currentColor"
-						class="size-7 text-gray-300 dark:text-gray-600">
-						<path stroke-linecap="round" stroke-linejoin="round"
-							d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-					</svg>
-				</svelte:fragment>
-			</CaseEmptyState>
+		{:else if loading && entries.length === 0}
+			<CaseLoadingState label="Loading timeline…" testId="case-timeline-loading" />
 
-	{:else if entries.length === 0}
-		<!-- P39-02: entries exist but none match current filters (type + text + dates) -->
-		<p
-			class="text-sm text-gray-400 dark:text-gray-500 text-center py-12"
-			data-testid="case-timeline-filter-empty"
-		>
-			No timeline entries match the current filters.
-		</p>
+		{:else if entries.length === 0}
+			{#if filtersActive}
+				<!-- P39-02 / P41-46: server-side filters returned no rows -->
+				<p
+					class="text-sm text-gray-400 dark:text-gray-500 text-center py-12"
+					data-testid="case-timeline-filter-empty"
+				>
+					No timeline entries match the current filters.
+				</p>
+			{:else}
+				<!-- Case has no entries yet -->
+				<CaseEmptyState
+					title="No official timeline entries recorded for this case."
+					description={TIMELINE_EMPTY_STATE_DESCRIPTION}
+					testId="case-timeline-empty"
+				>
+					<svelte:fragment slot="icon">
+						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"
+							stroke-width="1.5" stroke="currentColor"
+							class="size-7 text-gray-300 dark:text-gray-600">
+							<path stroke-linecap="round" stroke-linejoin="round"
+								d="M12 6v6h4.5m4.5 0a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+						</svg>
+					</svelte:fragment>
+				</CaseEmptyState>
+			{/if}
 		{:else}
 			<!-- Chronological list — occurred_at ASC (earliest at top) -->
 			<ol class="flex flex-col gap-3" aria-label="Official case timeline">
