@@ -13,6 +13,7 @@
 	 * P38-07 — operator microcopy: direct + Log entry vs Proposals review/commit (copy only)
 	 * P38-08 — timeline type “note” vs Notes tab (labels/tooltips only; value stays `note`)
 	 * P39-02 — deterministic search + occurred date range + type (P39-01 §6)
+	 * P41-44-FU3 — with server-side filters active, create success runs `loadEntries` instead of optimistic insert
 	 * P41-44-FU2 — after edit, re-sort loaded entries by `occurred_at ASC, id ASC` (matches CE list order)
 	 * P41-44-FU1 — load-more responses discarded after case switch or superseding `loadEntries` (stale-append guard)
 	 * P41-46 — same filter semantics enforced server-side for paginated list fetches
@@ -125,6 +126,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	import { normalizeTimelineEntryTextForSave } from '$lib/caseTimeline/timelineCleanup';
 	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
 	import { sortTimelineEntriesOfficialOrder } from '$lib/caseTimeline/timelineEntriesOfficialSort';
+	import { timelineListUsesServerSideFilters } from '$lib/caseTimeline/timelineServerFiltersActive';
 	import { previewStructuredNotesExtraction } from '$lib/apis/caseEngine';
 	import {
 		isTimelineAudioFileSupported,
@@ -359,6 +361,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		filterDateTo = '';
 		lastKnownUnfilteredTotal = 0;
 		showDeleted = false;
+		timelineCreateOutsideFiltersHint = false;
 		showDeleteConfirm = false;
 		pendingDeleteEntry = null;
 		deleteLifecycleError = '';
@@ -562,6 +565,8 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	let composerError = '';
 	let composerLinkedUploading = false;
 	let composerLinkedUploadError = '';
+	/** P41-44-FU3: after create + filtered reload, new row absent from server-filtered list. */
+	let timelineCreateOutsideFiltersHint = false;
 
 	$: composerSaveValid = isBottomComposerSaveValid(composerDraft);
 
@@ -579,6 +584,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		};
 		composerError = '';
 		composerLinkedUploadError = '';
+		timelineCreateOutsideFiltersHint = false;
 		composerOpen = true;
 	}
 
@@ -698,10 +704,21 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				location_text: composerDraft.location_text.trim() || null,
 				linked_file_ids: composerDraft.linked_images.map((x) => x.id)
 			});
-			// Insert in occurred_at order; version_count defaults to 0 in card.
-			entries = [...entries, created].sort(
-				(a, b) => new Date(a.occurred_at).getTime() - new Date(b.occurred_at).getTime()
-			);
+			if (
+				timelineListUsesServerSideFilters({
+					filterQueryForApi,
+					activeFilter,
+					filterDateFrom,
+					filterDateTo
+				})
+			) {
+				const newId = created.id;
+				await loadEntries();
+				timelineCreateOutsideFiltersHint = !entries.some((e) => e.id === newId);
+			} else {
+				entries = sortTimelineEntriesOfficialOrder([...entries, created]);
+				timelineCreateOutsideFiltersHint = false;
+			}
 			cancelComposer();
 		} catch (e: unknown) {
 			composerError = e instanceof Error ? e.message : 'Create failed. Please try again.';
@@ -1043,6 +1060,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		filterDateFrom = '';
 		filterDateTo = '';
 		activeFilter = 'all';
+		timelineCreateOutsideFiltersHint = false;
 	}
 
 	$: filtersActive =
@@ -1448,6 +1466,22 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				on:click={() => (restoreLifecycleError = '')}
 				aria-label="Dismiss error"
 			>✕</button>
+		</div>
+	{/if}
+	{#if timelineCreateOutsideFiltersHint}
+		<div
+			class="shrink-0 px-4 py-2 bg-blue-50 dark:bg-blue-900/20 border-b border-blue-200 dark:border-blue-800
+			       text-xs text-blue-800 dark:text-blue-200 flex items-center gap-2"
+			data-testid="timeline-create-outside-filters-hint"
+			role="status"
+		>
+			<span>Entry saved. It is not shown under the current filters — widen or clear filters to see it.</span>
+			<button
+				type="button"
+				class="ml-auto text-xs text-blue-600 dark:text-blue-300 hover:underline shrink-0"
+				on:click={() => (timelineCreateOutsideFiltersHint = false)}
+				aria-label="Dismiss notice"
+			>Dismiss</button>
 		</div>
 	{/if}
 
