@@ -197,7 +197,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		_dbgObserverSetupCount++;
 		const _dbgSetupN = _dbgObserverSetupCount;
 		const _dbgRect = scrollSentinelEl.getBoundingClientRect();
-		fetch('http://127.0.0.1:7903/ingest/3f890361-a0f2-433e-a45b-97308fe2ec5a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f4f431'},body:JSON.stringify({sessionId:'f4f431',location:'+page.svelte:setupScrollObserver',message:'observer setup called',hypothesisId:'A,B,E',data:{setupN:_dbgSetupN,sentinelTop:_dbgRect.top,sentinelBottom:_dbgRect.bottom,sentinelHeight:_dbgRect.height,viewportH:window.innerHeight,hasMore,entriesLen:entries.length},timestamp:Date.now()})}).catch(()=>{});
+		fetch('http://127.0.0.1:7903/ingest/3f890361-a0f2-433e-a45b-97308fe2ec5a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f4f431'},body:JSON.stringify({sessionId:'f4f431',runId:'post-fix',location:'+page.svelte:setupScrollObserver',message:'observer setup called',hypothesisId:'A,B,E',data:{setupN:_dbgSetupN,sentinelTop:_dbgRect.top,sentinelBottom:_dbgRect.bottom,sentinelHeight:_dbgRect.height,viewportH:window.innerHeight,hasMore,entriesLen:entries.length},timestamp:Date.now()})}).catch(()=>{});
 		// #endregion
 		scrollObserver = new IntersectionObserver(
 			(observed) => {
@@ -1560,8 +1560,8 @@ async function loadMoreEntries(): Promise<void> {
 		{:else}
 			<!-- Chronological list — occurred_at ASC (earliest at top) -->
 			<ol class="flex flex-col gap-3" aria-label="Official case timeline">
-				{#each filteredEntries as entry (entry.id)}
-					{#if editingEntryId === entry.id && editDraft}
+			{#each filteredEntries as entry (entry.id)}
+				{#if editingEntryId === entry.id && editDraft}
 						<!-- ── Inline governed edit form (P28-34) ──────────────────── -->
 						<li
 							class="flex flex-col gap-3 rounded-lg border-2 border-amber-300 dark:border-amber-700
@@ -1833,21 +1833,26 @@ async function loadMoreEntries(): Promise<void> {
 						onRestoreRequest={isAdmin ? () => handleRestoreEntry(entry) : null}
 					/>
 					{/if}
-				{/each}
-			</ol>
-	{/if}
-	</div><!-- end flex-1 loading/error/list wrapper -->
+			{/each}
+		</ol>
 
-	<!-- P41-43: scroll sentinel + load-more footer (inside scrollable container) -->
-	{#if !loading && !loadError}
+		<!-- P41-43: sentinel placed INSIDE the entries content flow so it sits below
+		     all loaded entry cards. When placed as a flex sibling of this inner div
+		     it was always visible at the container bottom, causing eager loading. -->
 		{#if hasMore}
-			<!-- Invisible sentinel — IntersectionObserver triggers loadMoreEntries() -->
 			<div
 				bind:this={scrollSentinelEl}
 				class="h-4 w-full"
 				aria-hidden="true"
 				data-testid="timeline-scroll-sentinel"
 			></div>
+		{/if}
+	{/if}
+	</div><!-- end flex-1 loading/error/list wrapper -->
+
+	<!-- P41-43: load-more footer (visible controls; sentinel is now inside the list above) -->
+	{#if !loading && !loadError}
+		{#if hasMore}
 			<div class="flex flex-col items-center gap-1.5 py-4">
 				{#if isLoadingMore}
 					<svg class="animate-spin size-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
