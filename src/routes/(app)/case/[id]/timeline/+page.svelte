@@ -203,11 +203,12 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	$: if (scrollSentinelEl) { setupScrollObserver(); }
 	   else { scrollObserver?.disconnect(); scrollObserver = undefined; }
 
-	async function loadMoreEntries(): Promise<void> {
+async function loadMoreEntries(): Promise<void> {
 		if (!$caseEngineToken || !hasMore || isLoadingMore || loading) return;
 		isLoadingMore = true;
 		loadMoreError = '';
 		const currentOffset = entries.length;
+		let stillHasMore = false;
 		try {
 			const result = await listCaseTimelineEntriesPage(
 				caseId,
@@ -220,19 +221,30 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					...(scrollBoundary ?? {})
 				}
 			);
-		// Dedup by id — guards against overlap if the list changed while paginating.
-		const existingIds = new Set(entries.map((e) => e.id));
-		const fresh = result.entries.filter((e) => !existingIds.has(e.id));
-		entries = [...entries, ...fresh];
-		hasMore = result.hasMore;
-		// Do NOT update totalEntries here. The boundary-filtered total from loadMore can
-		// diverge from the authoritative count (e.g. proposals with historical occurred_at
-		// committed mid-scroll enter the boundary window and inflate the count). The total
-		// captured by loadEntries() on a full Refresh is the only reliable reference.
+			// Dedup by id — guards against overlap if the list changed while paginating.
+			const existingIds = new Set(entries.map((e) => e.id));
+			const fresh = result.entries.filter((e) => !existingIds.has(e.id));
+			entries = [...entries, ...fresh];
+			hasMore = result.hasMore;
+			stillHasMore = result.hasMore;
+			// Do NOT update totalEntries here. The boundary-filtered total from loadMore can
+			// diverge from the authoritative count (e.g. proposals with historical occurred_at
+			// committed mid-scroll enter the boundary window and inflate the count). The total
+			// captured by loadEntries() on a full Refresh is the only reliable reference.
 		} catch (e: unknown) {
 			loadMoreError = e instanceof Error ? e.message : 'Failed to load more entries.';
 		} finally {
 			isLoadingMore = false;
+		}
+
+		// IntersectionObserver only fires on intersection state CHANGES (hidden→visible).
+		// If the user is already at the bottom when the previous page finishes, the sentinel
+		// stays visible and the observer does NOT re-fire for the next page automatically.
+		// Reconnecting the observer (after isLoadingMore=false) forces an immediate
+		// re-evaluation: if the sentinel is still in view, it triggers the next load.
+		if (stillHasMore) {
+			await new Promise<void>((r) => setTimeout(r, 50)); // let Svelte commit new rows to DOM
+			setupScrollObserver();
 		}
 	}
 
