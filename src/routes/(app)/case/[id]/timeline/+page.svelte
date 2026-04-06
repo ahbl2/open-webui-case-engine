@@ -13,6 +13,7 @@
 	 * P38-07 — operator microcopy: direct + Log entry vs Proposals review/commit (copy only)
 	 * P38-08 — timeline type “note” vs Notes tab (labels/tooltips only; value stays `note`)
 	 * P39-02 — deterministic search + occurred date range + type (P39-01 §6)
+	 * P41-44-FU1 — load-more responses discarded after case switch or superseding `loadEntries` (stale-append guard)
 	 * P41-46 — same filter semantics enforced server-side for paginated list fetches
 	 * P39-02A — invalid date hint, search match highlight, large-list hint
 	 * P39-03 — bottom composer shell for create entry (separate date + time; P39-01 §3–§5)
@@ -121,6 +122,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		type TimelineImproveState
 	} from '$lib/caseTimeline/timelineImproveText';
 	import { normalizeTimelineEntryTextForSave } from '$lib/caseTimeline/timelineCleanup';
+	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
 	import { previewStructuredNotesExtraction } from '$lib/apis/caseEngine';
 	import {
 		isTimelineAudioFileSupported,
@@ -140,6 +142,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	let prevLoadedCaseId: string = $page.params.id ?? '';
 	/** Incremented on each loadEntries() call; guards stale responses from writing to the new case. */
 	let activeEntriesLoadId = 0;
+	/**
+	 * P41-44-FU1: incremented on each load-more start and on timeline invalidation (case switch, loadEntries).
+	 * `myLoadMoreOp === timelineLoadMoreEpoch` in `finally` avoids clearing `isLoadingMore` for a superseded request.
+	 */
+	let timelineLoadMoreEpoch = 0;
 
 	// ── Micro-interaction: auto-focus first field when a form opens (P28-38) ──
 	function focusOnMount(node: HTMLElement): { destroy(): void } {
@@ -259,8 +266,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		}
 	}
 
-async function loadMoreEntries(): Promise<void> {
+	async function loadMoreEntries(): Promise<void> {
 		if (!$caseEngineToken || !hasMore || isLoadingMore || loading) return;
+		const fetchGeneration = activeEntriesLoadId;
+		const requestedCaseId = caseId;
+		const myLoadMoreOp = ++timelineLoadMoreEpoch;
 		isLoadingMore = true;
 		loadMoreError = '';
 		const currentOffset = entries.length;
@@ -276,6 +286,16 @@ async function loadMoreEntries(): Promise<void> {
 					...timelinePageQueryOpts()
 				}
 			);
+			if (
+				isStaleTimelineLoadMoreAppend(
+					fetchGeneration,
+					activeEntriesLoadId,
+					requestedCaseId,
+					caseId
+				)
+			) {
+				return;
+			}
 			// Dedup by id — guards against overlap if the list changed while paginating.
 			const existingIds = new Set(entries.map((e) => e.id));
 			const fresh = result.entries.filter((e) => !existingIds.has(e.id));
@@ -286,9 +306,20 @@ async function loadMoreEntries(): Promise<void> {
 			// committed mid-scroll enter the boundary window and inflate the count). The total
 			// captured by loadEntries() on a full Refresh is the only reliable reference.
 		} catch (e: unknown) {
-			loadMoreError = e instanceof Error ? e.message : 'Failed to load more entries.';
+			if (
+				!isStaleTimelineLoadMoreAppend(
+					fetchGeneration,
+					activeEntriesLoadId,
+					requestedCaseId,
+					caseId
+				)
+			) {
+				loadMoreError = e instanceof Error ? e.message : 'Failed to load more entries.';
+			}
 		} finally {
-			isLoadingMore = false;
+			if (myLoadMoreOp === timelineLoadMoreEpoch) {
+				isLoadingMore = false;
+			}
 		}
 		// No observer reconnect needed here. When new entries are appended above the
 		// sentinel, the browser reflows and pushes the sentinel below the current viewport.
@@ -307,6 +338,7 @@ async function loadMoreEntries(): Promise<void> {
 	// Clears all case-bound state immediately, then loads the new case's entries.
 	// All confirm dialogs are closed so old-case pending actions can't fire.
 	$: if (caseId && $caseEngineToken && caseId !== prevLoadedCaseId) {
+		timelineLoadMoreEpoch += 1;
 		prevLoadedCaseId = caseId;
 		entries = [];
 		loadError = '';
@@ -361,6 +393,7 @@ async function loadMoreEntries(): Promise<void> {
 			return;
 		}
 		activeEntriesLoadId += 1;
+		timelineLoadMoreEpoch += 1;
 		const loadId = activeEntriesLoadId;
 		loading = true;
 		loadError = '';

@@ -1,5 +1,6 @@
 /**
  * P41-43 — Incremental timeline loading: unit tests for listCaseTimelineEntriesPage.
+ * P41-44-FU1 — stale load-more guards: see `timelineLoadMoreStaleGuard.test.ts`.
  *
  * Tests:
  * 1. Returns { entries, hasMore, total } envelope from paginated endpoint.
