@@ -13,6 +13,7 @@
 	 * P38-07 — operator microcopy: direct + Log entry vs Proposals review/commit (copy only)
 	 * P38-08 — timeline type “note” vs Notes tab (labels/tooltips only; value stays `note`)
 	 * P39-02 — deterministic search + occurred date range + type (P39-01 §6)
+	 * P41-44-FU2 — after edit, re-sort loaded entries by `occurred_at ASC, id ASC` (matches CE list order)
 	 * P41-44-FU1 — load-more responses discarded after case switch or superseding `loadEntries` (stale-append guard)
 	 * P41-46 — same filter semantics enforced server-side for paginated list fetches
 	 * P39-02A — invalid date hint, search match highlight, large-list hint
@@ -123,6 +124,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	} from '$lib/caseTimeline/timelineImproveText';
 	import { normalizeTimelineEntryTextForSave } from '$lib/caseTimeline/timelineCleanup';
 	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
+	import { sortTimelineEntriesOfficialOrder } from '$lib/caseTimeline/timelineEntriesOfficialSort';
 	import { previewStructuredNotesExtraction } from '$lib/apis/caseEngine';
 	import {
 		isTimelineAudioFileSupported,
@@ -1226,21 +1228,23 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			// version_count is a computed column not in the PUT response,
 			// so we increment it locally (+1 for the version just captured).
 			const savedId = editingEntryId;
-			entries = entries.map((e) => {
-				if (e.id !== savedId) return e;
-				return {
-					...e,
-					text_original: (updated.text_original as string) ?? e.text_original,
-					type: (updated.type as string) ?? e.type,
-					occurred_at: (updated.occurred_at as string) ?? e.occurred_at,
-					location_text: (updated.location_text as string | null) ?? null,
-					text_cleaned: (updated.text_cleaned as string | null) ?? null,
-					version_count: (e.version_count ?? 0) + 1,
-					linked_image_files: Array.isArray(updated.linked_image_files)
-						? (updated.linked_image_files as TimelineEntry['linked_image_files'])
-						: e.linked_image_files
-				};
-			});
+			entries = sortTimelineEntriesOfficialOrder(
+				entries.map((e) => {
+					if (e.id !== savedId) return e;
+					return {
+						...e,
+						text_original: (updated.text_original as string) ?? e.text_original,
+						type: (updated.type as string) ?? e.type,
+						occurred_at: (updated.occurred_at as string) ?? e.occurred_at,
+						location_text: (updated.location_text as string | null) ?? null,
+						text_cleaned: (updated.text_cleaned as string | null) ?? null,
+						version_count: (e.version_count ?? 0) + 1,
+						linked_image_files: Array.isArray(updated.linked_image_files)
+							? (updated.linked_image_files as TimelineEntry['linked_image_files'])
+							: e.linked_image_files
+					};
+				})
+			);
 
 			cancelEdit();
 		} catch (e: unknown) {
