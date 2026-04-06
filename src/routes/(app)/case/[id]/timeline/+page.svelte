@@ -204,15 +204,26 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		scrollObserver.observe(scrollSentinelEl);
 	}
 
-	$: if (scrollSentinelEl) { setupScrollObserver(); }
-	   else { scrollObserver?.disconnect(); scrollObserver = undefined; }
+	$: {
+		const el = scrollSentinelEl;
+		if (el) {
+			// Defer until after the browser has painted the new entries so the sentinel
+			// has a real layout position. Without this, the observer fires immediately
+			// (sentinel at 0,0 before first paint) and eagerly loads all pages.
+			requestAnimationFrame(() => {
+				if (scrollSentinelEl === el) setupScrollObserver();
+			});
+		} else {
+			scrollObserver?.disconnect();
+			scrollObserver = undefined;
+		}
+	}
 
 async function loadMoreEntries(): Promise<void> {
 		if (!$caseEngineToken || !hasMore || isLoadingMore || loading) return;
 		isLoadingMore = true;
 		loadMoreError = '';
 		const currentOffset = entries.length;
-		let stillHasMore = false;
 		try {
 			const result = await listCaseTimelineEntriesPage(
 				caseId,
@@ -230,7 +241,6 @@ async function loadMoreEntries(): Promise<void> {
 			const fresh = result.entries.filter((e) => !existingIds.has(e.id));
 			entries = [...entries, ...fresh];
 			hasMore = result.hasMore;
-			stillHasMore = result.hasMore;
 			// Do NOT update totalEntries here. The boundary-filtered total from loadMore can
 			// diverge from the authoritative count (e.g. proposals with historical occurred_at
 			// committed mid-scroll enter the boundary window and inflate the count). The total
@@ -240,16 +250,10 @@ async function loadMoreEntries(): Promise<void> {
 		} finally {
 			isLoadingMore = false;
 		}
-
-		// IntersectionObserver only fires on intersection state CHANGES (hidden→visible).
-		// If the user is already at the bottom when the previous page finishes, the sentinel
-		// stays visible and the observer does NOT re-fire for the next page automatically.
-		// Reconnecting the observer (after isLoadingMore=false) forces an immediate
-		// re-evaluation: if the sentinel is still in view, it triggers the next load.
-		if (stillHasMore) {
-			await new Promise<void>((r) => setTimeout(r, 50)); // let Svelte commit new rows to DOM
-			setupScrollObserver();
-		}
+		// No observer reconnect needed here. When new entries are appended above the
+		// sentinel, the browser reflows and pushes the sentinel below the current viewport.
+		// The IntersectionObserver detects the position change and re-fires naturally
+		// when the user scrolls far enough to reveal the sentinel again.
 	}
 
 	/** Load every remaining entry in one shot (used when filters are active). */
