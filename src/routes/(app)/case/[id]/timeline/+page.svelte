@@ -186,26 +186,12 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	/** IntersectionObserver watching the scroll sentinel. */
 	let scrollObserver: IntersectionObserver | undefined;
 
-	// #region agent log
-	let _dbgObserverSetupCount = 0;
-	// #endregion
-
 	function setupScrollObserver(): void {
 		scrollObserver?.disconnect();
 		if (!scrollSentinelEl) { scrollObserver = undefined; return; }
-		// #region agent log
-		_dbgObserverSetupCount++;
-		const _dbgSetupN = _dbgObserverSetupCount;
-		const _dbgRect = scrollSentinelEl.getBoundingClientRect();
-		fetch('http://127.0.0.1:7903/ingest/3f890361-a0f2-433e-a45b-97308fe2ec5a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f4f431'},body:JSON.stringify({sessionId:'f4f431',runId:'post-fix',location:'+page.svelte:setupScrollObserver',message:'observer setup called',hypothesisId:'A,B,E',data:{setupN:_dbgSetupN,sentinelTop:_dbgRect.top,sentinelBottom:_dbgRect.bottom,sentinelHeight:_dbgRect.height,viewportH:window.innerHeight,hasMore,entriesLen:entries.length},timestamp:Date.now()})}).catch(()=>{});
-		// #endregion
 		scrollObserver = new IntersectionObserver(
 			(observed) => {
-				// #region agent log
-				const _dbgEntry = observed[0];
-				fetch('http://127.0.0.1:7903/ingest/3f890361-a0f2-433e-a45b-97308fe2ec5a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f4f431'},body:JSON.stringify({sessionId:'f4f431',location:'+page.svelte:observerCallback',message:'IO callback fired',hypothesisId:'A,B,C',data:{isIntersecting:_dbgEntry?.isIntersecting,intersectionRatio:_dbgEntry?.intersectionRatio,setupN:_dbgSetupN,hasMore,isLoadingMore,loading,entriesLen:entries.length},timestamp:Date.now()})}).catch(()=>{});
-				// #endregion
-				if (_dbgEntry?.isIntersecting && hasMore && !isLoadingMore && !loading) {
+				if (observed[0]?.isIntersecting && hasMore && !isLoadingMore && !loading) {
 					void loadMoreEntries();
 				}
 			},
@@ -221,9 +207,6 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	$: {
 		const el = scrollSentinelEl;
 		if (el) {
-			// #region agent log
-			fetch('http://127.0.0.1:7903/ingest/3f890361-a0f2-433e-a45b-97308fe2ec5a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f4f431'},body:JSON.stringify({sessionId:'f4f431',location:'+page.svelte:reactive-sentinel',message:'sentinel bound, scheduling RAF',hypothesisId:'D,E',data:{hasMore,entriesLen:entries.length,observerSetupCount:_dbgObserverSetupCount},timestamp:Date.now()})}).catch(()=>{});
-			// #endregion
 			// Defer until after the browser has painted the new entries so the sentinel
 			// has a real layout position. Without this, the observer fires immediately
 			// (sentinel at 0,0 before first paint) and eagerly loads all pages.
@@ -375,9 +358,6 @@ async function loadMoreEntries(): Promise<void> {
 				}
 			);
 			if (loadId !== activeEntriesLoadId) return;
-			// #region agent log
-			fetch('http://127.0.0.1:7903/ingest/3f890361-a0f2-433e-a45b-97308fe2ec5a',{method:'POST',headers:{'Content-Type':'application/json','X-Debug-Session-Id':'f4f431'},body:JSON.stringify({sessionId:'f4f431',location:'+page.svelte:loadEntries',message:'initial load response',hypothesisId:'D',data:{entriesReturned:result.entries.length,hasMore:result.hasMore,total:result.total,limitSent:TIMELINE_INITIAL_CHUNK},timestamp:Date.now()})}).catch(()=>{});
-			// #endregion
 			entries = result.entries;
 			hasMore = result.hasMore;
 			totalEntries = result.total;
@@ -1013,6 +993,13 @@ async function loadMoreEntries(): Promise<void> {
 		filterDateFrom !== '' ||
 		filterDateTo !== '' ||
 		activeFilter !== 'all';
+
+	// Auto-load all entries when a filter is active and there are still unloaded entries.
+	// This ensures search and type filters are always comprehensive — the user should
+	// never need to manually click "load all" just to get accurate filter results.
+	$: if (filtersActive && hasMore && !isLoadingMore && !loading) {
+		void loadAllEntries();
+	}
 
 	$: filterDateRangeInvalid = isTimelineFilterDateRangeInverted(filterDateFrom, filterDateTo);
 	$: showLargeTimelineFilterHint = shouldShowLargeTimelineFilterHint(entries.length);
