@@ -195,7 +195,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					void loadMoreEntries();
 				}
 			},
-			{ root: scrollContainerEl ?? null, threshold: 0.1 }
+			// root: null — watch against the viewport, not scrollContainerEl.
+			// If scrollContainerEl has no fixed height the parent does the actual
+			// scrolling; using scrollContainerEl as root would make the sentinel
+			// always appear "visible" inside it and trigger eager loading of all pages.
+			{ root: null, rootMargin: '0px 0px 100px 0px', threshold: 0 }
 		);
 		scrollObserver.observe(scrollSentinelEl);
 	}
