@@ -120,6 +120,24 @@ describe('listCaseTimelineEntriesPage (P41-43)', () => {
 		const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
 		expect(url).not.toContain('includeDeleted');
 	});
+
+	it('P41-46: includes query, types, occurredFrom, occurredTo when set', async () => {
+		mockFetchOk({ entries: [], hasMore: false, total: 0 });
+		const { listCaseTimelineEntriesPage } = await importPage();
+		await listCaseTimelineEntriesPage('case-1', 'tok', {
+			limit: 10,
+			offset: 0,
+			query: '  witness  ',
+			types: 'evidence',
+			occurredFrom: '2025-01-01',
+			occurredTo: '2025-12-31'
+		});
+		const [url] = (fetch as ReturnType<typeof vi.fn>).mock.calls[0] as [string];
+		expect(url).toContain('query=witness');
+		expect(url).toContain('types=evidence');
+		expect(url).toContain('occurredFrom=2025-01-01');
+		expect(url).toContain('occurredTo=2025-12-31');
+	});
 });
 
 describe('load-more dedup logic (P41-43)', () => {

@@ -12,7 +12,8 @@
 	 * P38-06 — beforeNavigate guard for unsaved create/edit (parity with Notes P28-29)
 	 * P38-07 — operator microcopy: direct + Log entry vs Proposals review/commit (copy only)
 	 * P38-08 — timeline type “note” vs Notes tab (labels/tooltips only; value stays `note`)
-	 * P39-02 — deterministic search + occurred date range + type (client-side; P39-01 §6)
+	 * P39-02 — deterministic search + occurred date range + type (P39-01 §6)
+	 * P41-46 — same filter semantics enforced server-side for paginated list fetches
 	 * P39-02A — invalid date hint, search match highlight, large-list hint
 	 * P39-03 — bottom composer shell for create entry (separate date + time; P39-01 §3–§5)
 	 * P39-04 — speech dictation into the bottom composer (raw transcript → editable text; P39-01 §5)
@@ -45,7 +46,6 @@
 	import { page } from '$app/stores';
 	import { caseEngineToken, caseEngineUser } from '$lib/stores';
 	import {
-		listCaseTimelineEntries,
 		listCaseTimelineEntriesPage,
 		createCaseTimelineEntry,
 		updateCaseTimelineEntry,
@@ -70,8 +70,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	import { datetimeLocalToIso } from '$lib/caseTimeline/timelineOccurredAtLocal';
 	import {
 		TIMELINE_ENTRY_TYPE_VALUES,
-		timelineEntryTypeOptionLabel,
-		isCanonicalTimelineEntryType
+		timelineEntryTypeOptionLabel
 	} from '$lib/caseTimeline/timelineEntryTypeOptions';
 	import {
 		TIMELINE_SENSITIVE_CHANGE_REASON_MIN_LEN,
@@ -90,10 +89,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
 		TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP
 	} from '$lib/caseTimeline/timelineTypeNoteClarity';
-	import {
-		filterTimelineEntries,
-		normalizeTimelineSearchNeedle
-	} from '$lib/caseTimeline/timelineListFilter';
+	import { normalizeTimelineSearchNeedle } from '$lib/caseTimeline/timelineListFilter';
 	import {
 		isTimelinePageShortcutTargetEditable,
 		resolveTimelinePageKeydownIntent
@@ -164,8 +160,18 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 
 	/** True when additional entries exist beyond what is currently loaded. */
 	let hasMore = false;
-	/** Total non-deleted entries in the case (from backend, used for labels). */
+	/** Matching row count for the current server query (unfiltered = full timeline in scope). */
 	let totalEntries = 0;
+	/** Last total from an unfiltered fetch — used to show the filter bar when filters yield zero rows. */
+	let lastKnownUnfilteredTotal = 0;
+	/** True after onMount — drives initial + filter reload without duplicate case-switch fetch. */
+	let timelineListMounted = false;
+	/**
+	 * P41-46: debounced search text sent to Case Engine (`query` param).
+	 * Type and date filters reload immediately; search waits for typing pause.
+	 */
+	let filterQueryForApi = '';
+	let searchDebounceHandle: ReturnType<typeof setTimeout> | undefined;
 	/** True while a load-more request is in flight (prevents double-fetch). */
 	let isLoadingMore = false;
 	/** Non-fatal error from a load-more attempt; shown below the list. */
@@ -204,6 +210,40 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		scrollObserver.observe(scrollSentinelEl);
 	}
 
+	/** P41-46: optional filters for paginated GET /cases/:id/entries (mirrors UI filter state). */
+	function timelinePageQueryOpts(): {
+		includeDeleted?: boolean;
+		query?: string;
+		types?: string;
+		occurredFrom?: string;
+		occurredTo?: string;
+	} {
+		const o: {
+			includeDeleted?: boolean;
+			query?: string;
+			types?: string;
+			occurredFrom?: string;
+			occurredTo?: string;
+		} = {};
+		if (isAdmin && showDeleted) o.includeDeleted = true;
+		const qq = filterQueryForApi.trim();
+		if (qq) o.query = qq;
+		if (activeFilter !== 'all') o.types = activeFilter;
+		const dFrom = filterDateFrom.trim();
+		const dTo = filterDateTo.trim();
+		if (dFrom) o.occurredFrom = dFrom;
+		if (dTo) o.occurredTo = dTo;
+		return o;
+	}
+
+	function onFilterSearchInput(): void {
+		clearTimeout(searchDebounceHandle);
+		searchDebounceHandle = setTimeout(() => {
+			searchDebounceHandle = undefined;
+			filterQueryForApi = filterSearchText.trim();
+		}, 300);
+	}
+
 	$: {
 		const el = scrollSentinelEl;
 		if (el) {
@@ -231,9 +271,9 @@ async function loadMoreEntries(): Promise<void> {
 				{
 					limit: TIMELINE_CHUNK_SIZE,
 					offset: currentOffset,
-					includeDeleted: isAdmin && showDeleted ? true : undefined,
 					// P41-45: pass snapshot boundary to stabilise pagination under mid-scroll inserts.
-					...(scrollBoundary ?? {})
+					...(scrollBoundary ?? {}),
+					...timelinePageQueryOpts()
 				}
 			);
 			// Dedup by id — guards against overlap if the list changed while paginating.
@@ -254,27 +294,6 @@ async function loadMoreEntries(): Promise<void> {
 		// sentinel, the browser reflows and pushes the sentinel below the current viewport.
 		// The IntersectionObserver detects the position change and re-fires naturally
 		// when the user scrolls far enough to reveal the sentinel again.
-	}
-
-	/** Load every remaining entry in one shot (used when filters are active). */
-	async function loadAllEntries(): Promise<void> {
-		if (!$caseEngineToken || isLoadingMore || loading) return;
-		isLoadingMore = true;
-		loadMoreError = '';
-		try {
-			const all = await listCaseTimelineEntries(
-				caseId,
-				$caseEngineToken,
-				isAdmin && showDeleted ? { includeDeleted: true } : undefined
-			);
-			entries = all;
-			hasMore = false;
-			totalEntries = all.length;
-		} catch (e: unknown) {
-			loadMoreError = e instanceof Error ? e.message : 'Failed to load all entries.';
-		} finally {
-			isLoadingMore = false;
-		}
 	}
 
 	// ── Role + deleted-entry visibility (P28-35) ───────────────────────────────
@@ -299,8 +318,12 @@ async function loadMoreEntries(): Promise<void> {
 		scrollBoundary = null;
 		activeFilter = 'all';
 		filterSearchText = '';
+		filterQueryForApi = '';
+		clearTimeout(searchDebounceHandle);
+		searchDebounceHandle = undefined;
 		filterDateFrom = '';
 		filterDateTo = '';
+		lastKnownUnfilteredTotal = 0;
 		showDeleted = false;
 		showDeleteConfirm = false;
 		pendingDeleteEntry = null;
@@ -329,7 +352,6 @@ async function loadMoreEntries(): Promise<void> {
 		editError = '';
 		showDiscardConfirm = false;
 		pendingDiscardAction = null;
-		loadEntries();
 	}
 
 	async function loadEntries(): Promise<void> {
@@ -346,21 +368,42 @@ async function loadMoreEntries(): Promise<void> {
 		isLoadingMore = false;
 		loadMoreError = '';
 		scrollBoundary = null;
+		const dateInverted =
+			isTimelineFilterDateRangeInverted(filterDateFrom, filterDateTo) &&
+			filterDateFrom.trim() !== '' &&
+			filterDateTo.trim() !== '';
+		if (dateInverted) {
+			if (loadId !== activeEntriesLoadId) return;
+			entries = [];
+			totalEntries = 0;
+			const now = new Date();
+			loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+			loading = false;
+			return;
+		}
 		try {
-			// P41-43: fetch the initial chunk via paginated endpoint.
+			// P41-43 + P41-46: initial chunk; filters sent as query params (server-side).
 			const result = await listCaseTimelineEntriesPage(
 				caseId,
 				$caseEngineToken,
 				{
 					limit: TIMELINE_INITIAL_CHUNK,
 					offset: 0,
-					includeDeleted: isAdmin && showDeleted ? true : undefined
+					...timelinePageQueryOpts()
 				}
 			);
 			if (loadId !== activeEntriesLoadId) return;
 			entries = result.entries;
 			hasMore = result.hasMore;
 			totalEntries = result.total;
+			const noServerFilters =
+				!filterQueryForApi.trim() &&
+				activeFilter === 'all' &&
+				!filterDateFrom.trim() &&
+				!filterDateTo.trim();
+			if (noServerFilters) {
+				lastKnownUnfilteredTotal = result.total;
+			}
 			// P41-45: capture snapshot boundary to stabilise subsequent load-more requests.
 			if (result.snapshotMaxOccurredAt && result.snapshotMaxId) {
 				scrollBoundary = {
@@ -370,10 +413,6 @@ async function loadMoreEntries(): Promise<void> {
 			}
 			const now = new Date();
 			loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
-			activeFilter = 'all'; // reset filters on each reload so counts stay honest
-			filterSearchText = '';
-			filterDateFrom = '';
-			filterDateTo = '';
 		} catch (e: unknown) {
 			if (loadId !== activeEntriesLoadId) return;
 			loadError = e instanceof Error ? e.message : 'Failed to load timeline entries.';
@@ -381,8 +420,6 @@ async function loadMoreEntries(): Promise<void> {
 			if (loadId === activeEntriesLoadId) loading = false;
 		}
 	}
-
-	onMount(() => { loadEntries(); });
 
 	// ── Client-side type filter (P28-32) ───────────────────────────────────────
 	// Canonical entry types from timeline_entries.type (see TimelineEntryCard.svelte).
@@ -398,7 +435,7 @@ async function loadMoreEntries(): Promise<void> {
 
 	let activeFilter: FilterValue = 'all';
 
-	// P39-02 — search + occurred date range (client-side; no API change)
+	// P39-02 / P41-46 — search + occurred date range (server-side when paginated)
 	let filterSearchText = '';
 	let filterDateFrom = '';
 	let filterDateTo = '';
@@ -772,6 +809,7 @@ async function loadMoreEntries(): Promise<void> {
 	}
 
 	onDestroy(() => {
+		clearTimeout(searchDebounceHandle);
 		resetTimelineDictation();
 		resetTimelineImport();
 		resetTimelineTranscription();
@@ -962,31 +1000,15 @@ async function loadMoreEntries(): Promise<void> {
 		linked_images: Array<{ id: string; original_filename: string }>;
 	}
 
-	/** P39-02 — type chip labels must match searchable display strings */
-	function timelineFilterTypeLabel(type: string): string {
-		if (isCanonicalTimelineEntryType(type)) {
-			return timelineEntryTypeOptionLabel(type);
-		}
-		return type ? `${type.charAt(0).toUpperCase()}${type.slice(1)}` : '';
-	}
-
 	function clearTimelineFilters(): void {
 		filterSearchText = '';
+		filterQueryForApi = '';
+		clearTimeout(searchDebounceHandle);
+		searchDebounceHandle = undefined;
 		filterDateFrom = '';
 		filterDateTo = '';
 		activeFilter = 'all';
 	}
-
-	$: filteredEntries = filterTimelineEntries(
-		entries,
-		{
-			searchText: filterSearchText,
-			dateFrom: filterDateFrom,
-			dateTo: filterDateTo,
-			typeFilter: activeFilter
-		},
-		timelineFilterTypeLabel
-	);
 
 	$: filtersActive =
 		normalizeTimelineSearchNeedle(filterSearchText) !== '' ||
@@ -994,32 +1016,43 @@ async function loadMoreEntries(): Promise<void> {
 		filterDateTo !== '' ||
 		activeFilter !== 'all';
 
-	// Auto-load all entries when a filter is active and there are still unloaded entries.
-	// This ensures search and type filters are always comprehensive — the user should
-	// never need to manually click "load all" just to get accurate filter results.
-	$: if (filtersActive && hasMore && !isLoadingMore && !loading) {
-		void loadAllEntries();
-	}
-
 	$: filterDateRangeInvalid = isTimelineFilterDateRangeInverted(filterDateFrom, filterDateTo);
-	$: showLargeTimelineFilterHint = shouldShowLargeTimelineFilterHint(entries.length);
+	$: showLargeTimelineFilterHint = shouldShowLargeTimelineFilterHint(
+		Math.max(lastKnownUnfilteredTotal, entries.length)
+	);
 	$: searchHighlightNeedle = normalizeTimelineSearchNeedle(filterSearchText);
 
-	// Count: P39-02 "12 entries" unfiltered; "3 of 12 entries" filtered.
-	// P41-43: when hasMore is true, label reflects loaded subset vs backend total.
+	// Count: unfiltered total; filtered = server-reported matching count (P41-46).
+	// P41-43: when hasMore, label reflects loaded subset vs backend total.
 	$: countLabel = (() => {
-		if (entries.length === 0) return '';
 		const unit = (n: number) => (n === 1 ? 'entry' : 'entries');
-		const total = totalEntries || entries.length;
+		if (loading && entries.length === 0) return '';
+		if (!filtersActive && entries.length === 0 && totalEntries === 0) return '';
+		const total = totalEntries;
 		const loaded = entries.length;
-		const shown = filteredEntries.length;
-		if (hasMore) {
-			if (!filtersActive) return `${loaded} of ${total} ${unit(total)} loaded`;
-			return `${shown} of ${loaded} loaded (${total} total)`;
+		if (filtersActive) {
+			if (hasMore) return `${loaded} of ${total} matching ${unit(total)} loaded`;
+			return `${total} matching ${unit(total)}`;
 		}
-		if (!filtersActive) return `${total} ${unit(total)}`;
-		return `${shown} of ${total} ${unit(total)}`;
+		if (entries.length === 0) return '';
+		if (hasMore) return `${loaded} of ${total} ${unit(total)} loaded`;
+		return `${total} ${unit(total)}`;
 	})();
+
+	onMount(() => {
+		timelineListMounted = true;
+	});
+
+	// P41-46: refetch page 1 when filter state or show-deleted changes (search is debounced into filterQueryForApi).
+	$: if (caseId && $caseEngineToken && prevLoadedCaseId === caseId && timelineListMounted) {
+		void activeFilter;
+		void filterDateFrom;
+		void filterDateTo;
+		void filterQueryForApi;
+		void showDeleted;
+		void isAdmin;
+		void loadEntries();
+	}
 
 	let editingEntryId: string | null = null;
 	let editDraft: EditDraft | null = null;
@@ -1315,7 +1348,6 @@ async function loadMoreEntries(): Promise<void> {
 					<input
 						type="checkbox"
 						bind:checked={showDeleted}
-						on:change={loadEntries}
 						class="rounded border-gray-300 dark:border-gray-600 text-amber-600 focus:ring-amber-500 size-3"
 						data-testid="case-timeline-show-deleted-toggle"
 					/>
@@ -1383,7 +1415,7 @@ async function loadMoreEntries(): Promise<void> {
 	{/if}
 
 	<!-- ── Search + date range + type (P28-32 type chips; P39-02 text + dates) ── -->
-	{#if !loading && !loadError && entries.length > 0}
+	{#if !loading && !loadError && (lastKnownUnfilteredTotal > 0 || filtersActive)}
 		<div
 			class="shrink-0 flex flex-col gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-800"
 			data-testid="case-timeline-search-filter-bar"
@@ -1402,6 +1434,7 @@ async function loadMoreEntries(): Promise<void> {
 					type="search"
 					bind:this={timelineFilterSearchEl}
 					bind:value={filterSearchText}
+					on:input={onFilterSearchInput}
 					placeholder="Search text, location, type…"
 					class="text-xs rounded border border-gray-300 dark:border-gray-600
 					       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100
@@ -1461,7 +1494,7 @@ async function loadMoreEntries(): Promise<void> {
 						class="text-xs text-gray-500 dark:text-gray-400 tabular-nums"
 						data-testid="case-timeline-filter-shown-count"
 					>
-						{filteredEntries.length} of {entries.length} match
+						{entries.length} of {totalEntries} match
 					</span>
 				{/if}
 			</div>
@@ -1522,7 +1555,7 @@ async function loadMoreEntries(): Promise<void> {
 				</svelte:fragment>
 			</CaseEmptyState>
 
-	{:else if filteredEntries.length === 0}
+	{:else if entries.length === 0}
 		<!-- P39-02: entries exist but none match current filters (type + text + dates) -->
 		<p
 			class="text-sm text-gray-400 dark:text-gray-500 text-center py-12"
@@ -1530,24 +1563,10 @@ async function loadMoreEntries(): Promise<void> {
 		>
 			No timeline entries match the current filters.
 		</p>
-		<!-- P41-43: prompt to load all when only a partial set is loaded -->
-		{#if hasMore}
-			<p class="text-xs text-amber-600 dark:text-amber-400 text-center pb-4">
-				Only {entries.length} of {totalEntries} entries loaded —
-				<button
-					type="button"
-					class="underline hover:text-amber-800 dark:hover:text-amber-200"
-					disabled={isLoadingMore}
-					on:click={loadAllEntries}
-					data-testid="timeline-load-all-from-filter-empty"
-				>load all to search the full timeline</button>
-			</p>
-		{/if}
-
 		{:else}
 			<!-- Chronological list — occurred_at ASC (earliest at top) -->
 			<ol class="flex flex-col gap-3" aria-label="Official case timeline">
-			{#each filteredEntries as entry (entry.id)}
+			{#each entries as entry (entry.id)}
 				{#if editingEntryId === entry.id && editDraft}
 						<!-- ── Inline governed edit form (P28-34) ──────────────────── -->
 						<li
@@ -1854,17 +1873,6 @@ async function loadMoreEntries(): Promise<void> {
 						on:click={loadMoreEntries}
 						data-testid="timeline-load-more-btn"
 					>Load {TIMELINE_CHUNK_SIZE} more</button>
-					{#if filtersActive}
-						<p class="text-[11px] text-amber-600 dark:text-amber-400 text-center max-w-xs">
-							Filters apply to {entries.length} loaded entries —
-							<button
-								type="button"
-								class="underline hover:text-amber-800 dark:hover:text-amber-200"
-								on:click={loadAllEntries}
-								data-testid="timeline-load-all-btn"
-							>load all {totalEntries} to search full timeline</button>
-						</p>
-					{/if}
 				{/if}
 				{#if loadMoreError}
 					<p

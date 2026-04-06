@@ -2018,7 +2018,7 @@ export interface TimelineEntriesPage {
 	entries: TimelineEntry[];
 	/** True when more entries exist beyond this page. */
 	hasMore: boolean;
-	/** Total non-deleted entries in the case (used for progress labels). */
+	/** Total rows matching the current query (unfiltered = all case entries in scope). */
 	total: number;
 	/**
 	 * Snapshot boundary — present only on the first page (offset=0, no boundary supplied).
@@ -2051,6 +2051,14 @@ export async function listCaseTimelineEntriesPage(
 		/** P41-45: snapshot boundary — pass maxOccurredAt + maxId from the first page response. */
 		maxOccurredAt?: string;
 		maxId?: string;
+		/** P41-46: case-insensitive text search (text_original, location_text, type display label). */
+		query?: string;
+		/** P41-46: comma-separated timeline entry types (e.g. `note` or `note,surveillance`). */
+		types?: string;
+		/** P41-46: inclusive lower bound, `YYYY-MM-DD` (UTC calendar date of occurred_at). */
+		occurredFrom?: string;
+		/** P41-46: inclusive upper bound, `YYYY-MM-DD`. */
+		occurredTo?: string;
 	}
 ): Promise<TimelineEntriesPage> {
 	const params = new URLSearchParams({
@@ -2060,6 +2068,18 @@ export async function listCaseTimelineEntriesPage(
 	if (options.includeDeleted) params.set('includeDeleted', 'true');
 	if (options.maxOccurredAt) params.set('maxOccurredAt', options.maxOccurredAt);
 	if (options.maxId) params.set('maxId', options.maxId);
+	if (options.query !== undefined && options.query.trim() !== '') {
+		params.set('query', options.query.trim());
+	}
+	if (options.types !== undefined && options.types.trim() !== '') {
+		params.set('types', options.types.trim());
+	}
+	if (options.occurredFrom !== undefined && options.occurredFrom.trim() !== '') {
+		params.set('occurredFrom', options.occurredFrom.trim());
+	}
+	if (options.occurredTo !== undefined && options.occurredTo.trim() !== '') {
+		params.set('occurredTo', options.occurredTo.trim());
+	}
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries?${params}`, {
 		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
 	});
