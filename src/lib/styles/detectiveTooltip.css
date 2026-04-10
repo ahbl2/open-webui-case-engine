@@ -1,0 +1,30 @@
+/*
+ * P74-04 — Tippy theme `detective` + trigger affordance. Uses DS tokens; pair with DetectiveTooltip.svelte (theme="detective").
+ */
+
+.tippy-box[data-theme~='detective'] {
+	background-color: var(--ds-bg-elevated);
+	color: var(--ds-text-primary);
+	border: 1px solid var(--ds-border-default);
+	border-radius: var(--ds-radius-md);
+	box-shadow: var(--ds-shadow-md);
+	font-family: var(--ds-font-sans);
+	font-size: var(--ds-type-meta-size);
+	font-weight: 400;
+	line-height: var(--ds-type-meta-leading);
+	padding: var(--ds-space-2) var(--ds-space-3);
+}
+
+.tippy-box[data-theme~='detective'] .tippy-content {
+	padding: 0;
+}
+
+@layer components {
+	.ds-tooltip-trigger {
+		cursor: help;
+	}
+
+	.ds-tooltip-trigger--dense {
+		cursor: default;
+	}
+}

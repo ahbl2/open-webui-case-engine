@@ -1,8 +1,12 @@
 <script lang="ts">
+	/**
+	 * P33-07 / P74-09 — Case Engine Ask integrity / degraded presentation (DS `ds-ask-integrity-*`).
+	 */
 	import {
 		askIntegrityPresentationMeta,
 		type AskIntegrityPresentation
 	} from '$lib/utils/askIntegrityUi';
+	import { DS_ASK_INTEGRITY_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 
 	export let integrityPresentation: AskIntegrityPresentation | undefined = undefined;
 
@@ -11,11 +15,16 @@
 
 {#if meta}
 	<div
-		class="rounded-md border px-3 py-2 text-xs leading-snug {meta.panelClass}"
+		class={meta.panelClass}
 		data-ask-integrity-presentation={integrityPresentation ?? ''}
 		role="status"
 	>
-		<div class="font-semibold tracking-tight">{meta.badgeLabel}</div>
-		<p class="mt-1 opacity-90">{meta.hint}</p>
+		<div class={DS_ASK_INTEGRITY_CLASSES.title}>{meta.badgeLabel}</div>
+		<p class={DS_ASK_INTEGRITY_CLASSES.hint}>{meta.hint}</p>
+		{#if $$slots.detail}
+			<div class={DS_ASK_INTEGRITY_CLASSES.detail}>
+				<slot name="detail" />
+			</div>
+		{/if}
 	</div>
 {/if}

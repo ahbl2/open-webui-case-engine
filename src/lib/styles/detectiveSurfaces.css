@@ -1,0 +1,88 @@
+/*
+ * P74-05 — Detective structural surfaces (panel / card / section band). Token-only; not domain-specific.
+ * Bounded scroll helpers live UNLAYERED at bottom (P71-FU6 — flex display must win over cascade).
+ * Migration: Tier L `CaseWorkspaceContentRegion` + `.ce-l-content-region` remains the case-route contract;
+ *           `ds-scroll-root` / `ds-scroll-body` is the DS-aligned equivalent for new compositions / strangler.
+ */
+
+@layer components {
+	/* Base canvas tint — use on a subtree when isolating a workspace block */
+	.ds-surface {
+		background-color: var(--ds-bg-app);
+		color: var(--ds-text-on-canvas);
+	}
+
+	/* Primary elevated panel — main work surfaces */
+	.ds-panel {
+		background-color: var(--ds-bg-elevated);
+		border: 1px solid var(--ds-border-default);
+		border-radius: var(--ds-radius-md);
+		box-shadow: var(--ds-shadow-sm);
+		padding: var(--ds-space-4);
+	}
+
+	.ds-panel-dense {
+		padding: var(--ds-space-3);
+	}
+
+	/* Secondary / nested chrome — supporting panels */
+	.ds-panel-muted {
+		background-color: var(--ds-bg-muted);
+		border: 1px solid var(--ds-border-default);
+		border-radius: var(--ds-radius-md);
+		padding: var(--ds-space-4);
+	}
+
+	/* Card — grouped facts / list rows inside a panel */
+	.ds-card {
+		background-color: var(--ds-bg-surface);
+		border: 1px solid var(--ds-border-default);
+		border-radius: var(--ds-radius-sm);
+		padding: var(--ds-space-3);
+	}
+
+	/* Structural section band — toolbar / title row (not domain chrome) */
+	.ds-section-header {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--ds-space-2);
+		flex-wrap: wrap;
+		padding: var(--ds-space-2) var(--ds-space-3);
+		border-bottom: 1px solid var(--ds-border-default);
+		background-color: var(--ds-bg-chrome);
+	}
+
+	/* Vertical rhythm stack — generic composition helper */
+	.ds-stack {
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-3);
+	}
+
+	.ds-stack-tight {
+		gap: var(--ds-space-2);
+	}
+}
+
+/*
+ * P74-05 / P71-FU6 — Bounded scroll: keep UNLAYERED so `display:flex` is not overridden by later cascade.
+ * Compose: parent supplies height/flex chain; `ds-scroll-root` clips; `ds-scroll-body` scrolls.
+ */
+.ds-scroll-root {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	flex: 1 1 0%;
+	overflow: hidden;
+}
+
+.ds-scroll-body {
+	flex: 1 1 0%;
+	min-height: 0;
+	min-width: 0;
+	overflow-y: auto;
+	-webkit-overflow-scrolling: touch;
+}

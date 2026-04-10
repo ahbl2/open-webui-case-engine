@@ -1,0 +1,184 @@
+/*
+ * P74-02 — Detective Design System tokens (canonical governed layer).
+ * P74-03 — Typography scale + semantic status consumption (classes in detectiveTypography.css / detectiveSemanticStatus.css).
+ * Source posture: FRONTEND_DESIGN_LANGUAGE.md (dark-first; light preserves hierarchy).
+ * Tier L (--ce-l-*) in caseWorkspaceTierL.css aliases these variables — CE_L_VARS API unchanged.
+ * Semantic status colors are reserved for status UI; do not use decoratively.
+ */
+
+html {
+	/* —— Surfaces (app background → elevated) —— */
+	--ds-bg-app: #ffffff;
+	--ds-bg-chrome: #f9fafb;
+	--ds-bg-surface: #ffffff;
+	--ds-bg-muted: #f9fafb;
+	--ds-bg-elevated: #ffffff;
+
+	/* —— Chrome band (sidebar-adjacent / shell bands) —— */
+	--ds-fg-chrome: #374151;
+	--ds-border-chrome: #e5e7eb;
+
+	/* —— Text hierarchy —— */
+	--ds-text-primary: #111827;
+	--ds-text-secondary: #6b7280;
+	--ds-text-muted: #9ca3af;
+	--ds-text-on-canvas: #1f2937;
+	/* Distinct from body text where canvas label needs slightly different emphasis (Tier L legacy parity). */
+	--ds-text-canvas-fg: #1f2937;
+	--ds-fg-loading: #9ca3af;
+
+	/* —— Borders —— */
+	--ds-border-subtle: #f3f4f6;
+	--ds-border-default: #e5e7eb;
+	--ds-border-strong: #d1d5db;
+
+	/* —— Shape —— */
+	--ds-radius-sm: 0.375rem;
+	--ds-radius-md: 0.5rem;
+
+	/* —— Accent / interactive (single primary accent — DL) —— */
+	--ds-accent: #2563eb;
+	--ds-accent-strong: #1d4ed8;
+	--ds-accent-muted: #93c5fd;
+	--ds-interactive: #2563eb;
+
+	/* —— Primary case tab strip (Tier L nav accent) —— */
+	--ds-nav-tab-active-border: #2563eb;
+	--ds-nav-tab-active-fg: #1d4ed8;
+
+	/* —— Elevation (premium command-center — restrained, not SaaS-floaty) —— */
+	--ds-shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.06);
+	--ds-shadow-md: 0 4px 14px rgb(15 23 42 / 0.08);
+	--ds-shadow-lg: 0 12px 28px rgb(15 23 42 / 0.12);
+
+	/* —— Focus (visible ring — DL; do not remove for aesthetics) —— */
+	--ds-focus-ring: #2563eb;
+
+	/* —— Spacing scale (predictable rhythm — DL density) —— */
+	--ds-space-1: 0.25rem;
+	--ds-space-2: 0.5rem;
+	--ds-space-3: 0.75rem;
+	--ds-space-4: 1rem;
+	--ds-space-5: 1.25rem;
+	--ds-space-6: 1.5rem;
+
+	/* —— Typography scale (P74-03) — FRONTEND_DESIGN_LANGUAGE.md hierarchy; theme-agnostic sizes —— */
+	--ds-font-sans: inherit;
+	--ds-font-mono: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, 'Liberation Mono', 'Courier New', monospace;
+	--ds-type-display-size: 1.5rem;
+	--ds-type-display-weight: 600;
+	--ds-type-display-leading: 1.3;
+	--ds-type-display-tracking: -0.02em;
+	--ds-type-section-size: 1.125rem;
+	--ds-type-section-weight: 600;
+	--ds-type-section-leading: 1.4;
+	--ds-type-panel-size: 1rem;
+	--ds-type-panel-weight: 600;
+	--ds-type-panel-leading: 1.45;
+	--ds-type-body-size: 0.875rem;
+	--ds-type-body-weight: 400;
+	--ds-type-body-leading: 1.5;
+	--ds-type-meta-size: 0.8125rem;
+	--ds-type-meta-weight: 400;
+	--ds-type-meta-leading: 1.45;
+	--ds-type-label-size: 0.75rem;
+	--ds-type-label-weight: 500;
+	--ds-type-label-leading: 1.25;
+	--ds-type-label-tracking: 0.04em;
+	--ds-type-mono-size: 0.75rem;
+	--ds-type-mono-weight: 400;
+	--ds-type-mono-leading: 1.45;
+
+	/* —— Buttons (P74-04) — text on solid accent CTA —— */
+	--ds-btn-on-primary: #ffffff;
+
+	/* —— Semantic status (non-decorative; DL semantic language) —— */
+	--ds-status-success-bg: #ecfdf5;
+	--ds-status-success-fg: #047857;
+	--ds-status-success-border: #a7f3d0;
+	--ds-status-warning-bg: #fffbeb;
+	--ds-status-warning-fg: #b45309;
+	--ds-status-warning-border: #fde68a;
+	--ds-status-danger-bg: #fef2f2;
+	--ds-status-danger-fg: #b91c1c;
+	--ds-status-danger-border: #fecaca;
+	--ds-status-info-bg: #eff6ff;
+	--ds-status-info-fg: #1d4ed8;
+	--ds-status-info-border: #bfdbfe;
+
+	/* —— Error / destructive surfaces (Tier L empty/loading/error family) —— */
+	--ds-status-error-bg: #fef2f2;
+	--ds-status-error-border: #fecaca;
+	--ds-status-error-title: #b91c1c;
+	--ds-status-error-text: #ef4444;
+	--ds-status-error-link: #dc2626;
+}
+
+html.dark {
+	/* Dark-first benchmark posture: deep canvas, cool chrome, high-trust contrast */
+	--ds-bg-app: #030712;
+	--ds-bg-chrome: #111827;
+	--ds-bg-surface: #030712;
+	--ds-bg-muted: #111827;
+	--ds-bg-elevated: #111827;
+
+	--ds-fg-chrome: #e5e7eb;
+	--ds-border-chrome: #1f2937;
+
+	--ds-text-primary: #f9fafb;
+	--ds-text-secondary: #9ca3af;
+	--ds-text-muted: #6b7280;
+	--ds-text-on-canvas: #e5e7eb;
+	--ds-text-canvas-fg: #f3f4f6;
+	--ds-fg-loading: #6b7280;
+
+	--ds-border-subtle: #1f2937;
+	--ds-border-default: #374151;
+	--ds-border-strong: #4b5563;
+
+	--ds-radius-sm: 0.375rem;
+	--ds-radius-md: 0.5rem;
+
+	--ds-accent: #60a5fa;
+	--ds-accent-strong: #93c5fd;
+	--ds-accent-muted: #60a5fa;
+	--ds-interactive: #60a5fa;
+
+	--ds-nav-tab-active-border: #60a5fa;
+	--ds-nav-tab-active-fg: #93c5fd;
+
+	--ds-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.45);
+	--ds-shadow-md: 0 8px 24px rgb(0 0 0 / 0.35);
+	--ds-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.45);
+
+	--ds-focus-ring: #60a5fa;
+
+	--ds-space-1: 0.25rem;
+	--ds-space-2: 0.5rem;
+	--ds-space-3: 0.75rem;
+	--ds-space-4: 1rem;
+	--ds-space-5: 1.25rem;
+	--ds-space-6: 1.5rem;
+
+	/* Inherit typography scale; primary CTA label on dark accent */
+	--ds-btn-on-primary: #ffffff;
+
+	--ds-status-success-bg: rgba(6, 78, 59, 0.35);
+	--ds-status-success-fg: #6ee7b7;
+	--ds-status-success-border: #047857;
+	--ds-status-warning-bg: rgba(120, 53, 15, 0.35);
+	--ds-status-warning-fg: #fcd34d;
+	--ds-status-warning-border: #b45309;
+	--ds-status-danger-bg: rgba(127, 29, 29, 0.35);
+	--ds-status-danger-fg: #fca5a5;
+	--ds-status-danger-border: #7f1d1d;
+	--ds-status-info-bg: rgba(30, 58, 138, 0.35);
+	--ds-status-info-fg: #93c5fd;
+	--ds-status-info-border: #1e40af;
+
+	--ds-status-error-bg: rgba(69, 10, 10, 0.35);
+	--ds-status-error-border: #7f1d1d;
+	--ds-status-error-title: #fca5a5;
+	--ds-status-error-text: #f87171;
+	--ds-status-error-link: #fca5a5;
+}

@@ -14,20 +14,20 @@
 
 <!--
 	Shared empty-state shell for case workspace tabs.
+	P74-06: DS classes (`ds-empty*`). Tier L `.ce-l-empty-framed` remains in `caseWorkspaceTierL.css` for other call sites; this component uses `ds-empty-framed` (same posture, token-backed).
 	Use the "icon" named slot for an optional SVG icon.
 	Use the "action" named slot for an optional CTA button.
 -->
 <div
-	class="flex flex-col items-center justify-center gap-2 text-center
-	       {framed ? 'py-10 ce-l-empty-framed' : 'py-6'}"
+	class="ds-empty {framed ? 'ds-empty-framed' : 'ds-empty-compact'}"
 	data-testid={testId || undefined}
 >
 	<slot name="icon" />
 
-	<p class="text-sm font-medium text-[color:var(--ce-l-text-secondary)]">{title}</p>
+	<p class="ds-empty-title">{title}</p>
 
 	{#if description}
-		<p class="text-xs max-w-xs text-[color:var(--ce-l-text-muted)]">{description}</p>
+		<p class="ds-empty-description">{description}</p>
 	{/if}
 
 	<slot name="action" />

@@ -1,0 +1,79 @@
+/*
+ * P74-03 — Semantic status color usage (primitive layer). All values reference --ds-status-* from detectiveDesignTokens.css.
+ * Do not duplicate hex here; use tokens only. Success / warning / danger / info / error per DL + SIP discipline.
+ */
+
+@layer components {
+	/* —— Filled surfaces (alerts, inline callouts, future badges) —— */
+	.ds-status-surface-success {
+		background-color: var(--ds-status-success-bg);
+		border: 1px solid var(--ds-status-success-border);
+		color: var(--ds-status-success-fg);
+	}
+
+	.ds-status-surface-warning {
+		background-color: var(--ds-status-warning-bg);
+		border: 1px solid var(--ds-status-warning-border);
+		color: var(--ds-status-warning-fg);
+	}
+
+	.ds-status-surface-danger {
+		background-color: var(--ds-status-danger-bg);
+		border: 1px solid var(--ds-status-danger-border);
+		color: var(--ds-status-danger-fg);
+	}
+
+	.ds-status-surface-info {
+		background-color: var(--ds-status-info-bg);
+		border: 1px solid var(--ds-status-info-border);
+		color: var(--ds-status-info-fg);
+	}
+
+	.ds-status-surface-error {
+		background-color: var(--ds-status-error-bg);
+		border: 1px solid var(--ds-status-error-border);
+		color: var(--ds-status-error-text);
+	}
+
+	/* —— Text-only (inline status, table cells, compact labels) —— */
+	.ds-status-text-success {
+		color: var(--ds-status-success-fg);
+	}
+
+	.ds-status-text-warning {
+		color: var(--ds-status-warning-fg);
+	}
+
+	.ds-status-text-danger {
+		color: var(--ds-status-danger-fg);
+	}
+
+	.ds-status-text-info {
+		color: var(--ds-status-info-fg);
+	}
+
+	.ds-status-text-error {
+		color: var(--ds-status-error-text);
+	}
+
+	/* —— Neutral / non-semantic muted callout (not a status color — uses structural tokens) —— */
+	.ds-status-surface-neutral {
+		background-color: var(--ds-bg-muted);
+		border: 1px solid var(--ds-border-default);
+		color: var(--ds-text-secondary);
+	}
+
+	/* Nested copy inherits semantic fg from surface (avoids .ds-type-body forcing canvas text color). */
+	.ds-status-surface-success .ds-status-copy,
+	.ds-status-surface-warning .ds-status-copy,
+	.ds-status-surface-danger .ds-status-copy,
+	.ds-status-surface-info .ds-status-copy,
+	.ds-status-surface-error .ds-status-copy,
+	.ds-status-surface-neutral .ds-status-copy {
+		margin: 0;
+		font-size: var(--ds-type-body-size);
+		line-height: var(--ds-type-body-leading);
+		font-weight: var(--ds-type-body-weight);
+		color: inherit;
+	}
+}

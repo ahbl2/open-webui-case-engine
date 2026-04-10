@@ -18,18 +18,18 @@ describe('askIntegrityPresentationMeta', () => {
 		expect(new Set([s?.badgeLabel, d?.badgeLabel, n?.badgeLabel]).size).toBe(3);
 	});
 
-	it('uses distinct panel classes so supported is not confused with degraded', () => {
+	it('uses distinct DS panel classes so supported is not confused with degraded (P74-09)', () => {
 		const s = askIntegrityPresentationMeta('SUPPORTED');
 		const d = askIntegrityPresentationMeta('DEGRADED');
-		expect(s?.panelClass).toContain('emerald');
-		expect(d?.panelClass).toContain('amber');
+		expect(s?.panelClass).toContain('ds-ask-integrity-supported');
+		expect(d?.panelClass).toContain('ds-ask-integrity-degraded');
 		expect(s?.panelClass).not.toEqual(d?.panelClass);
 	});
 
-	it('NOT_APPLICABLE is visually distinct from SUPPORTED (slate vs emerald)', () => {
+	it('NOT_APPLICABLE is visually distinct from SUPPORTED (neutral vs success semantic)', () => {
 		const s = askIntegrityPresentationMeta('SUPPORTED');
 		const n = askIntegrityPresentationMeta('NOT_APPLICABLE');
-		expect(n?.panelClass).toContain('slate');
+		expect(n?.panelClass).toContain('ds-ask-integrity-not-applicable');
 		expect(s?.panelClass).not.toEqual(n?.panelClass);
 	});
 

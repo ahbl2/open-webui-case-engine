@@ -1,0 +1,58 @@
+/*
+ * P74-09 — Ask read-time integrity / degraded presentation (Phase 33 doctrine).
+ * Governance-serious, integrity-specific — not a generic alert. Token-only surfaces.
+ */
+
+@layer components {
+	.ds-ask-integrity {
+		border-radius: var(--ds-radius-sm);
+		border-width: 1px;
+		border-style: solid;
+		padding: var(--ds-space-2) var(--ds-space-3);
+		font-size: var(--ds-type-meta-size);
+		line-height: var(--ds-type-meta-leading);
+	}
+
+	.ds-ask-integrity-title {
+		font-weight: 600;
+		letter-spacing: -0.01em;
+		color: inherit;
+	}
+
+	.ds-ask-integrity-hint {
+		margin: var(--ds-space-1) 0 0;
+		opacity: 0.92;
+		color: inherit;
+	}
+
+	.ds-ask-integrity-detail {
+		margin-top: var(--ds-space-2);
+		padding-top: var(--ds-space-2);
+		border-top: 1px solid color-mix(in oklab, currentColor 18%, transparent);
+		font-family: var(--ds-font-mono);
+		font-size: var(--ds-type-mono-size);
+		line-height: var(--ds-type-mono-leading);
+		opacity: 0.95;
+	}
+
+	/* Evidence-backed (success semantic) */
+	.ds-ask-integrity-supported {
+		border-color: var(--ds-status-success-border);
+		background-color: var(--ds-status-success-bg);
+		color: var(--ds-status-success-fg);
+	}
+
+	/* Degraded / caution (warning semantic) */
+	.ds-ask-integrity-degraded {
+		border-color: var(--ds-status-warning-border);
+		background-color: var(--ds-status-warning-bg);
+		color: var(--ds-status-warning-fg);
+	}
+
+	/* Not assessed — neutral structural (not decorative status color) */
+	.ds-ask-integrity-not-applicable {
+		border-color: var(--ds-border-default);
+		background-color: var(--ds-bg-muted);
+		color: var(--ds-text-secondary);
+	}
+}

@@ -9,7 +9,9 @@ import { CE_L_VARS } from './caseWorkspaceTierL';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const cssPath = join(__dirname, '../styles/caseWorkspaceTierL.css');
+const dsCssPath = join(__dirname, '../styles/detectiveDesignTokens.css');
 const tierLCss = readFileSync(cssPath, 'utf8');
+const dsCss = readFileSync(dsCssPath, 'utf8');
 
 describe('caseWorkspaceTierL (P71-02)', () => {
 	it('defines every exported CE_L_VARS entry in caseWorkspaceTierL.css', () => {
@@ -18,9 +20,15 @@ describe('caseWorkspaceTierL (P71-02)', () => {
 		}
 	});
 
-	it('declares html and html.dark Tier L surfaces for light/dark parity', () => {
+	it('declares Tier L html aliases and DS light/dark parity (P74-02)', () => {
 		expect(tierLCss).toMatch(/^html\s*\{/m);
-		expect(tierLCss).toMatch(/^html\.dark\s*\{/m);
+		expect(dsCss).toMatch(/^html\.dark\s*\{/m);
+	});
+
+	it('Tier L aliases resolve through Detective DS tokens (P74-02)', () => {
+		expect(tierLCss).toContain('--ce-l-canvas: var(--ds-bg-app)');
+		expect(tierLCss).toContain('--ce-l-error-bg: var(--ds-status-error-bg)');
+		expect(tierLCss).toContain('--ce-l-tab-active-border: var(--ds-nav-tab-active-border)');
 	});
 
 	it('includes shared component hooks for empty shell and content region', () => {

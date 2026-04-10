@@ -1,6 +1,9 @@
 /**
  * P33-07 — Read-time Ask integrity: presentation metadata for honest UI (no backend authority).
+ * P74-09 — Variant surfaces use DS classes (`ds-ask-integrity-*`) via `detectivePrimitiveFoundation`.
  */
+
+import { DS_ASK_INTEGRITY_CLASSES } from '../case/detectivePrimitiveFoundation';
 
 export type AskIntegrityPresentation = 'SUPPORTED' | 'DEGRADED' | 'NOT_APPLICABLE';
 
@@ -23,22 +26,19 @@ export type AskIntegrityPresentationMeta = {
 const SUPPORTED_META: AskIntegrityPresentationMeta = {
 	badgeLabel: 'Evidence-backed answer',
 	hint: 'Read-time checks passed; citations and structured facts align with retrieval.',
-	panelClass:
-		'border-emerald-200 dark:border-emerald-800 bg-emerald-50/90 dark:bg-emerald-950/40 text-emerald-900 dark:text-emerald-100'
+	panelClass: `${DS_ASK_INTEGRITY_CLASSES.root} ${DS_ASK_INTEGRITY_CLASSES.supported}`
 };
 
 const DEGRADED_META: AskIntegrityPresentationMeta = {
 	badgeLabel: 'Support limited',
 	hint: 'The answer is shown, but evidentiary support did not meet the full strength threshold. Treat claims cautiously.',
-	panelClass:
-		'border-amber-300 dark:border-amber-700 bg-amber-50/90 dark:bg-amber-950/35 text-amber-950 dark:text-amber-100'
+	panelClass: `${DS_ASK_INTEGRITY_CLASSES.root} ${DS_ASK_INTEGRITY_CLASSES.degraded}`
 };
 
 const NOT_APPLICABLE_META: AskIntegrityPresentationMeta = {
 	badgeLabel: 'Not assessed for evidence',
 	hint: 'This path skipped full read-time evidentiary checks. The text is not labeled as citation-backed support.',
-	panelClass:
-		'border-slate-300 dark:border-slate-600 bg-slate-50/90 dark:bg-slate-900/50 text-slate-900 dark:text-slate-100'
+	panelClass: `${DS_ASK_INTEGRITY_CLASSES.root} ${DS_ASK_INTEGRITY_CLASSES.notApplicable}`
 };
 
 export function askIntegrityPresentationMeta(

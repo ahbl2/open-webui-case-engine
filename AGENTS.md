@@ -18,6 +18,12 @@ It provides UI behavior, case navigation, scoped chat behavior, and case-aware f
 4. Prefer narrow UI changes over broad refactors.
 5. Preserve case scoping and user context behavior.
 
+## Detective DS primitives (Phase 74 — Wave 1)
+
+- **Class / token contracts:** `src/lib/case/detectivePrimitiveFoundation.ts` (`DS_*` constants); **adoption boundary** (when to use DS vs legacy, wrappers vs direct imports, strangler / rollback): [docs/phases/phase_74/P74-10_PRIMITIVE_LAYER_MIGRATION_BOUNDARY.md](docs/phases/phase_74/P74-10_PRIMITIVE_LAYER_MIGRATION_BOUNDARY.md).
+- **Layer version / CSS import contract:** `src/lib/case/detectivePrimitiveAdoption.ts` — bump `DETECTIVE_PRIMITIVE_LAYER_VERSION` only when DS primitive contracts intentionally change.
+- **Do not** mass-convert existing routes without ticket scope; Phase 74 primitive work is **additive** (hybrid coexistence per companion planning). **Wave 2** shell / page charter stays out of Phase 74 tickets.
+
 ## Security and integrity rules
 1. Never bypass the Case Engine API for case ownership logic.
 2. Do not duplicate or invent case-data authority in the UI.

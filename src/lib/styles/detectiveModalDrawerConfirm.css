@@ -1,0 +1,129 @@
+/*
+ * P74-08 — Modal, drawer (sheet), and destructive-confirm overlay primitives (token-only; non-domain).
+ * Pair with existing `Modal` / `Drawer` / `ConfirmDialog` — same portal + focus-trap engine.
+ */
+
+@layer components {
+	/* Shared modal/drawer/confirm backdrop (position + scrim + scroll) */
+	.ds-overlay-backdrop {
+		position: fixed;
+		inset: 0;
+		width: 100%;
+		height: 100%;
+		max-height: 100dvh;
+		overflow-y: auto;
+		overscroll-behavior: contain;
+		scrollbar-gutter: stable;
+		background-color: color-mix(in oklab, black 42%, transparent);
+	}
+
+	html.dark .ds-overlay-backdrop {
+		background-color: color-mix(in oklab, black 62%, transparent);
+	}
+
+	/* Centered modal / confirm host */
+	.ds-overlay-backdrop-modal {
+		display: flex;
+		justify-content: center;
+		align-items: flex-start;
+	}
+
+	/* Bottom sheet host */
+	.ds-overlay-backdrop-drawer {
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
+		align-items: stretch;
+		overflow: hidden;
+	}
+
+	/* Centered modal panel */
+	.ds-modal-panel {
+		margin: auto;
+		max-width: 100%;
+		min-height: fit-content;
+		border-radius: var(--ds-radius-md);
+		border: 1px solid var(--ds-border-default);
+		background-color: color-mix(in oklab, var(--ds-bg-elevated) 94%, transparent);
+		box-shadow: var(--ds-shadow-lg);
+		backdrop-filter: blur(10px);
+	}
+
+	/* Bottom sheet / drawer panel */
+	.ds-drawer-panel {
+		margin-top: auto;
+		width: 100%;
+		max-height: 100dvh;
+		overflow-y: auto;
+		border-top-left-radius: var(--ds-radius-md);
+		border-top-right-radius: var(--ds-radius-md);
+		border: 1px solid var(--ds-border-default);
+		border-bottom: none;
+		background-color: var(--ds-bg-elevated);
+		color: var(--ds-text-primary);
+		box-shadow: var(--ds-shadow-lg);
+	}
+
+	/* Confirm dialog card */
+	.ds-confirm-panel {
+		display: flex;
+		flex-direction: column;
+		margin: auto;
+		max-width: 100%;
+		width: 32rem;
+		padding: var(--ds-space-5) var(--ds-space-6);
+		border-radius: var(--ds-radius-md);
+		border: 1px solid var(--ds-border-default);
+		background-color: color-mix(in oklab, var(--ds-bg-elevated) 96%, transparent);
+		box-shadow: var(--ds-shadow-lg);
+		backdrop-filter: blur(10px);
+	}
+
+	.ds-confirm-panel.ds-confirm-destructive {
+		border-color: var(--ds-status-danger-border);
+		box-shadow:
+			var(--ds-shadow-lg),
+			0 0 0 1px color-mix(in oklab, var(--ds-status-danger-border) 35%, transparent);
+	}
+
+	.ds-confirm-title {
+		font-family: var(--ds-font-sans);
+		font-size: var(--ds-type-section-size);
+		font-weight: var(--ds-type-section-weight);
+		line-height: var(--ds-type-section-leading);
+		color: var(--ds-text-primary);
+		margin: 0 0 var(--ds-space-2);
+	}
+
+	.ds-confirm-body {
+		font-family: var(--ds-font-sans);
+		font-size: var(--ds-type-body-size);
+		line-height: var(--ds-type-body-leading);
+		color: var(--ds-text-secondary);
+		flex: 1 1 auto;
+	}
+
+	.ds-confirm-severity {
+		margin-bottom: var(--ds-space-2);
+		padding: var(--ds-space-2);
+		border-radius: var(--ds-radius-sm);
+		border: 1px solid var(--ds-status-danger-border);
+		background-color: var(--ds-status-danger-bg);
+		color: var(--ds-status-danger-fg);
+		font-size: var(--ds-type-meta-size);
+		line-height: var(--ds-type-meta-leading);
+	}
+
+	.ds-confirm-actions {
+		display: flex;
+		flex-direction: row;
+		justify-content: stretch;
+		gap: var(--ds-space-2);
+		margin-top: var(--ds-space-5);
+	}
+
+	.ds-confirm-actions .ds-btn {
+		flex: 1 1 0%;
+		min-width: 0;
+	}
+}

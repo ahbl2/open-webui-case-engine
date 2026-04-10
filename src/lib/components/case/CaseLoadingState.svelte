@@ -8,12 +8,10 @@
 	export let testId = '';
 </script>
 
-<div
-	class="flex flex-col items-center justify-center gap-2 py-10"
-	data-testid={testId || undefined}
->
-	<Spinner className="size-5 text-[color:var(--ce-l-loading-fg)]" />
+<!-- P74-06: DS loading primitive (`ds-loading`, `ds-loading-icon`). -->
+<div class="ds-loading" data-testid={testId || undefined}>
+	<Spinner className="size-5 ds-loading-icon" />
 	{#if label}
-		<p class="text-sm text-[color:var(--ce-l-text-muted)]">{label}</p>
+		<p class="ds-loading-label">{label}</p>
 	{/if}
 </div>

@@ -1,4 +1,9 @@
 <script lang="ts">
+	/**
+	 * P74-07 — DS error primitive (`ds-error*`); retry uses `DS_BTN_CLASSES` (no separate link dialect).
+	 */
+	import { DS_BTN_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+
 	/** Primary heading — override for context-specific wording. */
 	export let title = 'Failed to load';
 
@@ -12,12 +17,15 @@
 	export let onRetry: (() => void) | undefined = undefined;
 </script>
 
-<div
-	class="rounded-md border px-3 py-2.5 bg-[var(--ce-l-error-bg)] [border-color:var(--ce-l-error-border)]"
->
-	<p class="text-sm font-medium text-[color:var(--ce-l-error-title)]">{title}</p>
-	<p class="text-xs mt-0.5 text-[color:var(--ce-l-error-text)]">{message}</p>
+<div class="ds-error">
+	<p class="ds-error-title">{title}</p>
+	<p class="ds-error-message">{message}</p>
+	<div class="ds-error-details">
+		<slot name="details" />
+	</div>
 	{#if onRetry}
-		<button type="button" class="ce-l-error-retry-link" on:click={onRetry}>Try again</button>
+		<div class="ds-error-actions">
+			<button type="button" class={DS_BTN_CLASSES.secondary} on:click={onRetry}>Try again</button>
+		</div>
 	{/if}
 </div>

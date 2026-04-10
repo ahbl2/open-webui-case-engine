@@ -1,87 +1,46 @@
 /*
  * Phase 71 (P71-02) — Tier L semantic presentation roles for the case workspace shell.
  * Governs: P70-03 (token strategy), P70-07 §2.5 (empty/loading/error families).
+ * P74-02: --ce-l-* resolve through detectiveDesignTokens.css (--ds-*). Same API; theme-aware.
  * Tier P / P69-03 Entities surfaces remain authoritative in their scopes — do not map
  * those hex palettes here; this file is Tier L (bridged light case chrome) only.
  */
 
 html {
-	/* Surfaces (P70-03 §3.1) */
-	--ce-l-canvas: #ffffff;
-	--ce-l-canvas-fg: #1f2937;
-	--ce-l-chrome: #f9fafb;
-	--ce-l-chrome-fg: #374151;
-	--ce-l-chrome-border: #e5e7eb;
-	--ce-l-surface: #ffffff;
-	--ce-l-surface-muted: #f9fafb;
-	--ce-l-surface-elevated: #ffffff;
+	/* Surfaces — alias Detective DS tokens (P74-02) */
+	--ce-l-canvas: var(--ds-bg-app);
+	--ce-l-canvas-fg: var(--ds-text-canvas-fg);
+	--ce-l-chrome: var(--ds-bg-chrome);
+	--ce-l-chrome-fg: var(--ds-fg-chrome);
+	--ce-l-chrome-border: var(--ds-border-chrome);
+	--ce-l-surface: var(--ds-bg-surface);
+	--ce-l-surface-muted: var(--ds-bg-muted);
+	--ce-l-surface-elevated: var(--ds-bg-elevated);
 
-	/* Borders — emphasis steps (P70-03 §3.2) */
-	--ce-l-border-subtle: #f3f4f6;
-	--ce-l-border-default: #e5e7eb;
-	--ce-l-border-strong: #d1d5db;
+	--ce-l-border-subtle: var(--ds-border-subtle);
+	--ce-l-border-default: var(--ds-border-default);
+	--ce-l-border-strong: var(--ds-border-strong);
 
-	/* Text roles */
-	--ce-l-text-primary: #111827;
-	--ce-l-text-secondary: #6b7280;
-	--ce-l-text-muted: #9ca3af;
-	--ce-l-text-on-canvas: #1f2937;
+	--ce-l-text-primary: var(--ds-text-primary);
+	--ce-l-text-secondary: var(--ds-text-secondary);
+	--ce-l-text-muted: var(--ds-text-muted);
+	--ce-l-text-on-canvas: var(--ds-text-on-canvas);
 
-	/* Radius (P70-03 §3.5 — two primary steps + shared scale) */
-	--ce-l-radius-sm: 0.375rem;
-	--ce-l-radius-md: 0.5rem;
-
-	/* Semantic chrome: empty / loading / error (Tier L light) */
-	--ce-l-empty-border: var(--ce-l-border-default);
-	--ce-l-empty-surface: var(--ce-l-surface-muted);
-	--ce-l-loading-fg: #9ca3af;
-	--ce-l-error-bg: #fef2f2;
-	--ce-l-error-border: #fecaca;
-	--ce-l-error-title: #b91c1c;
-	--ce-l-error-text: #ef4444;
-	--ce-l-error-link: #dc2626;
-
-	/* Primary case tab strip (P71-04 / P70-05 §2) — Tier L nav accent */
-	--ce-l-tab-strip-bg: var(--ce-l-chrome);
-	--ce-l-tab-active-border: #2563eb;
-	--ce-l-tab-active-fg: #1d4ed8;
-}
-
-html.dark {
-	--ce-l-canvas: #030712;
-	--ce-l-canvas-fg: #f3f4f6;
-	--ce-l-chrome: #111827;
-	--ce-l-chrome-fg: #e5e7eb;
-	--ce-l-chrome-border: #1f2937;
-	--ce-l-surface: #030712;
-	--ce-l-surface-muted: #111827;
-	--ce-l-surface-elevated: #111827;
-
-	--ce-l-border-subtle: #1f2937;
-	--ce-l-border-default: #374151;
-	--ce-l-border-strong: #4b5563;
-
-	--ce-l-text-primary: #f9fafb;
-	--ce-l-text-secondary: #9ca3af;
-	--ce-l-text-muted: #6b7280;
-	--ce-l-text-on-canvas: #e5e7eb;
-
-	--ce-l-radius-sm: 0.375rem;
-	--ce-l-radius-md: 0.5rem;
+	--ce-l-radius-sm: var(--ds-radius-sm);
+	--ce-l-radius-md: var(--ds-radius-md);
 
 	--ce-l-empty-border: var(--ce-l-border-default);
 	--ce-l-empty-surface: var(--ce-l-surface-muted);
-	--ce-l-loading-fg: #6b7280;
-
-	--ce-l-error-bg: rgba(69, 10, 10, 0.35);
-	--ce-l-error-border: #7f1d1d;
-	--ce-l-error-title: #fca5a5;
-	--ce-l-error-text: #f87171;
-	--ce-l-error-link: #fca5a5;
+	--ce-l-loading-fg: var(--ds-fg-loading);
+	--ce-l-error-bg: var(--ds-status-error-bg);
+	--ce-l-error-border: var(--ds-status-error-border);
+	--ce-l-error-title: var(--ds-status-error-title);
+	--ce-l-error-text: var(--ds-status-error-text);
+	--ce-l-error-link: var(--ds-status-error-link);
 
 	--ce-l-tab-strip-bg: var(--ce-l-chrome);
-	--ce-l-tab-active-border: #60a5fa;
-	--ce-l-tab-active-fg: #93c5fd;
+	--ce-l-tab-active-border: var(--ds-nav-tab-active-border);
+	--ce-l-tab-active-fg: var(--ds-nav-tab-active-fg);
 }
 
 @layer components {

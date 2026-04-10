@@ -11,6 +11,7 @@
 	import { flyAndScale } from '$lib/utils/transitions';
 	import { marked } from 'marked';
 	import SensitiveInput from './SensitiveInput.svelte';
+	import { DS_BTN_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 
 	export let title = '';
 	export let message = '';
@@ -26,6 +27,11 @@
 	export let inputType = '';
 
 	export let show = false;
+
+	/** P74-08 — When true, confirm uses destructive styling + optional `severityHint`. */
+	export let destructive = false;
+	/** Optional governance line (e.g. irreversibility); shown when `destructive` is true. */
+	export let severityHint = '';
 
 	$: if (show) {
 		init();
@@ -74,7 +80,7 @@
 			window.addEventListener('keydown', handleKeyDown);
 			document.body.style.overflow = 'hidden';
 		} else if (modalElement) {
-			focusTrap.deactivate();
+			focusTrap?.deactivate();
 
 			window.removeEventListener('keydown', handleKeyDown);
 			document.body.removeChild(modalElement);
@@ -100,85 +106,95 @@
 	<!-- svelte-ignore a11y-no-static-element-interactions -->
 	<div
 		bind:this={modalElement}
-		class=" fixed top-0 right-0 left-0 bottom-0 bg-black/60 w-full h-screen max-h-[100dvh] flex justify-center z-99999999 overflow-hidden overscroll-contain"
+		class="ds-overlay-backdrop ds-overlay-backdrop-modal fixed top-0 right-0 left-0 bottom-0 w-full h-screen max-h-[100dvh] z-99999999 overflow-hidden overscroll-contain"
 		in:fade={{ duration: 10 }}
 		on:mousedown={() => {
 			show = false;
 		}}
 	>
 		<div
-			class=" m-auto max-w-full w-[32rem] mx-2 bg-white/95 dark:bg-gray-950/95 backdrop-blur-sm rounded-4xl max-h-[100dvh] shadow-3xl border border-white dark:border-gray-900"
+			class="modal-content m-auto max-w-full w-[32rem] mx-2 max-h-[100dvh] ds-confirm-panel {destructive
+				? 'ds-confirm-destructive'
+				: ''}"
 			in:flyAndScale
 			on:mousedown={(e) => {
 				e.stopPropagation();
 			}}
 		>
-			<div class="px-[1.75rem] py-6 flex flex-col">
-				<div class=" text-lg font-medium dark:text-gray-200 mb-2.5">
-					{#if title !== ''}
-						{title}
+			<div class="ds-confirm-title">
+				{#if title !== ''}
+					{title}
+				{:else}
+					{$i18n.t('Confirm your action')}
+				{/if}
+			</div>
+
+			{#if destructive && severityHint}
+				<div class="ds-confirm-severity">{severityHint}</div>
+			{/if}
+
+			<slot>
+				<div class="ds-confirm-body">
+					{#if message !== ''}
+						{@const html = DOMPurify.sanitize(marked.parse(message))}
+						{@html html}
 					{:else}
-						{$i18n.t('Confirm your action')}
+						{$i18n.t('This action cannot be undone. Do you wish to continue?')}
+					{/if}
+
+					{#if input}
+						{#if inputType === 'password'}
+							<div
+								class="w-full mt-2 rounded-lg px-4 py-2 text-sm border"
+								style:border-color="var(--ds-border-default)"
+								style:background="var(--ds-bg-surface)"
+								style:color="var(--ds-text-primary)"
+							>
+								<SensitiveInput
+									id="event-confirm-input"
+									placeholder={inputPlaceholder
+										? inputPlaceholder
+										: $i18n.t('Enter your message')}
+									bind:value={inputValue}
+									required={true}
+								/>
+							</div>
+						{:else}
+							<textarea
+								bind:value={inputValue}
+								placeholder={inputPlaceholder ? inputPlaceholder : $i18n.t('Enter your message')}
+								class="w-full mt-2 rounded-lg px-4 py-2 text-sm outline-hidden resize-none border"
+								style:border-color="var(--ds-border-default)"
+								style:background="var(--ds-bg-surface)"
+								style:color="var(--ds-text-primary)"
+								rows="3"
+								required
+							/>
+						{/if}
 					{/if}
 				</div>
+			</slot>
 
-				<slot>
-					<div class=" text-sm text-gray-500 flex-1">
-						{#if message !== ''}
-							{@const html = DOMPurify.sanitize(marked.parse(message))}
-							{@html html}
-						{:else}
-							{$i18n.t('This action cannot be undone. Do you wish to continue?')}
-						{/if}
-
-						{#if input}
-							{#if inputType === 'password'}
-								<div
-									class="w-full mt-2 rounded-lg px-4 py-2 text-sm dark:text-gray-300 dark:bg-gray-900"
-								>
-									<SensitiveInput
-										id="event-confirm-input"
-										placeholder={inputPlaceholder
-											? inputPlaceholder
-											: $i18n.t('Enter your message')}
-										bind:value={inputValue}
-										required={true}
-									/>
-								</div>
-							{:else}
-								<textarea
-									bind:value={inputValue}
-									placeholder={inputPlaceholder ? inputPlaceholder : $i18n.t('Enter your message')}
-									class="w-full mt-2 rounded-lg px-4 py-2 text-sm dark:text-gray-300 dark:bg-gray-900 outline-hidden resize-none"
-									rows="3"
-									required
-								/>
-							{/if}
-						{/if}
-					</div>
-				</slot>
-
-				<div class="mt-6 flex justify-between gap-1.5">
-					<button
-						class="text-sm bg-gray-100 hover:bg-gray-200 text-gray-800 dark:bg-gray-850 dark:hover:bg-gray-800 dark:text-white font-medium w-full py-2 rounded-3xl transition"
-						on:click={() => {
-							show = false;
-							dispatch('cancel');
-						}}
-						type="button"
-					>
-						{cancelLabel}
-					</button>
-					<button
-						class="text-sm bg-gray-900 hover:bg-gray-850 text-gray-100 dark:bg-gray-100 dark:hover:bg-white dark:text-gray-800 font-medium w-full py-2 rounded-3xl transition"
-						on:click={() => {
-							confirmHandler();
-						}}
-						type="button"
-					>
-						{confirmLabel}
-					</button>
-				</div>
+			<div class="ds-confirm-actions">
+				<button
+					class={DS_BTN_CLASSES.secondary}
+					on:click={() => {
+						show = false;
+						dispatch('cancel');
+					}}
+					type="button"
+				>
+					{cancelLabel}
+				</button>
+				<button
+					class={destructive ? DS_BTN_CLASSES.danger : DS_BTN_CLASSES.primary}
+					on:click={() => {
+						confirmHandler();
+					}}
+					type="button"
+				>
+					{confirmLabel}
+				</button>
 			</div>
 		</div>
 	</div>

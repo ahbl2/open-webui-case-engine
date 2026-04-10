@@ -4,7 +4,8 @@
 	import { fade, fly, slide } from 'svelte/transition';
 
 	export let show = false;
-	export let className = '';
+	/** P74-08 — Extra classes on drawer panel (defaults to DS drawer surface). */
+	export let className = 'ds-drawer-panel';
 	export let onClose = () => {};
 
 	let modalElement = null;
@@ -56,14 +57,14 @@
 {#if show}
 	<div
 		bind:this={modalElement}
-		class="modal fixed right-0 bottom-0 left-0 z-999 flex h-screen max-h-[100dvh] w-full justify-center overflow-hidden overscroll-contain bg-black/60"
+		class="modal ds-overlay-backdrop ds-overlay-backdrop-drawer z-999 flex h-screen max-h-[100dvh] w-full overflow-hidden overscroll-contain"
 		in:fly={{ y: 100, duration: 100 }}
 		on:mousedown={() => {
 			show = false;
 		}}
 	>
 		<div
-			class=" mt-auto w-full bg-gray-50 dark:bg-gray-900 dark:text-gray-100 {className} scrollbar-hidden max-h-[100dvh] overflow-y-auto"
+			class="modal-content mt-auto w-full scrollbar-hidden max-h-[100dvh] overflow-y-auto {className}"
 			on:mousedown={(e) => {
 				e.stopPropagation();
 			}}
