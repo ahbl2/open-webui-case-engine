@@ -97,7 +97,8 @@
 	}
 
 	function selectCase(c: CaseEngineCase) {
-		const target = `/case/${c.id}`;
+		// P76-08: default section is chat — match app-level entry points (avoids /case/:id → /chat redirect hop).
+		const target = `/case/${c.id}/chat`;
 		if ($page.url.pathname === target) return;
 		goto(target);
 	}

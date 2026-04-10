@@ -11,6 +11,7 @@
 		type EntityCasesResponse
 	} from '$lib/apis/caseEngine';
 	import { splitEntityEvidenceByCase, isSupportedEntityFocusType, type EntityFocusType } from '$lib/utils/entityFocus';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 
 	type FocusScope = 'THIS_CASE' | 'CID' | 'SIU' | 'ALL';
 	const ENTITY_FOCUS_TIMEOUT_MS = 45_000;
@@ -223,6 +224,7 @@
 	}
 </script>
 
+<CaseWorkspaceContentRegion testId="case-intelligence-entity-page">
 <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6">
 	<div class="mx-auto max-w-5xl space-y-4">
 		<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
@@ -374,4 +376,5 @@
 		{/if}
 	</div>
 </div>
+</CaseWorkspaceContentRegion>
 

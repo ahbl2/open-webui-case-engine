@@ -5,6 +5,10 @@
  * `/search` is a real route that opens `SearchModal` — modal-open still wins active state.
  * P75-09: `SearchModal` adds shell modes (Search / Jump / Command / Workspace) inside this same modal — no second surface.
  * Case workspace chrome stays under `/case/:id/...` only (no app-level case tab strip).
+ * P76-08 — App→case handoff: program navigation (GNAV) stays single-owner; in-case tab chrome is
+ * owned only under `/case/:id/...`. App-level `goto` targets should use the canonical default section
+ * `/case/:id/chat` so operators land without an extra client redirect; `resolveDetectiveGnavPrimaryActive`
+ * still maps any `/case/*` path to GNAV `cases` (including bare `/case/:id` when bookmarked).
  *
  * @see GLOBAL_NAVIGATION_AND_COMMAND_SPEC.md — exactly one primary app nav meaning at a time.
  *

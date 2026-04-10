@@ -2,6 +2,7 @@
 	import { page } from '$app/stores';
 	import { caseEngineToken, caseEngineAuthState, caseEngineUser, activeCaseMeta } from '$lib/stores';
 	import WarrantWorkflow from '$lib/components/case/WarrantWorkflow.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import {
 		fetchNarrativeExport,
 		getExhibits,
@@ -94,6 +95,7 @@
 	}
 </script>
 
+<CaseWorkspaceContentRegion testId="case-warrants-page">
 <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6 space-y-4">
 	{#if !$caseEngineToken}
 		<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
@@ -236,3 +238,4 @@
 		</div>
 	{/if}
 </div>
+</CaseWorkspaceContentRegion>

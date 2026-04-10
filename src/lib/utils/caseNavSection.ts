@@ -1,9 +1,9 @@
 /**
  * P19-06 — Case workspace nav section resolution.
+ * P76-05 — Deterministic first-path-segment matching after `/case/:id/` so nested routes
+ * (e.g. intelligence/entity/...) keep the parent tab active — no substring collisions.
  *
- * Determines which left-nav section is currently active based on the URL
- * pathname.  Kept as a pure function so it is independently testable and
- * can be used by both the shell layout and any future section-aware components.
+ * Pure function — safe for layout + contracts tests.
  */
 
 export type CaseNavSection =
@@ -19,34 +19,32 @@ export type CaseNavSection =
 	| 'notes'
 	| 'activity';
 
-/** All recognised section IDs in precedence order (most-specific first). */
-const CASE_SECTIONS: CaseNavSection[] = [
+const VALID_CASE_SECTIONS = new Set<string>([
+	'chat',
 	'summary',
 	'workflow',
 	'warrants',
 	'intelligence',
 	'graph',
+	'proposals',
 	'timeline',
 	'files',
 	'notes',
-	'activity',
-	'proposals',
-	'chat'
-];
+	'activity'
+]);
 
 /**
- * Returns the active CaseNavSection for the given pathname.
+ * Returns the active CaseNavSection for the given pathname (path only; no query/hash).
  *
- * The pathname is matched against each section ID as a path segment.
- * If no section segment is found the function falls back to 'chat' —
- * this covers both the bare /case/[id] route (which immediately redirects
- * to /chat) and any unknown subroutes.
+ * Uses the first segment after `/case/:caseId/` as the tab key. If that segment is not a
+ * known section, falls back to `'chat'` — covers bare `/case/[id]` (redirect pending),
+ * unknown subroutes, and empty input.
  */
 export function resolveActiveCaseSection(pathname: string): CaseNavSection {
-	for (const section of CASE_SECTIONS) {
-		if (pathname.includes(`/${section}`)) {
-			return section;
-		}
-	}
+	if (!pathname || !pathname.startsWith('/case/')) return 'chat';
+	const segments = pathname.split('/').filter(Boolean);
+	if (segments.length < 3 || segments[0] !== 'case') return 'chat';
+	const first = segments[2];
+	if (VALID_CASE_SECTIONS.has(first)) return first as CaseNavSection;
 	return 'chat';
 }

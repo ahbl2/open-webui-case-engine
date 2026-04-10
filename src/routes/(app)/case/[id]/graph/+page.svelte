@@ -10,6 +10,7 @@
 	} from '$lib/apis/caseEngine';
 	import { caseEngineToken } from '$lib/stores';
 	import GraphCanvas from '$lib/components/case/graph/GraphCanvas.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import { buildEntityFocusHref } from '$lib/utils/entityFocus';
 
 	$: caseId = $page.params.id;
@@ -126,6 +127,7 @@
 	}
 </script>
 
+<CaseWorkspaceContentRegion testId="case-graph-page">
 <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6">
 	<div class="mx-auto max-w-6xl space-y-4">
 		<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
@@ -300,3 +302,4 @@
 		{/if}
 	</div>
 </div>
+</CaseWorkspaceContentRegion>

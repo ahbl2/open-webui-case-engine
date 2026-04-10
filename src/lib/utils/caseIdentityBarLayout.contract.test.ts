@@ -33,13 +33,13 @@ describe('case identity bar layout (P71-03 / P70-04)', () => {
 		expect(headerClose).toBeLessThan(navOpen);
 	});
 
-	it('responsive collapse: unit from sm, incident from md (P70-04 §2.4)', () => {
-		expect(layoutSource).toContain('ce-l-identity-meta-chip hidden sm:inline-flex');
+	it('identity secondary row uses DS chip + incident meta (P76-04; Tier L identity bar)', () => {
+		expect(layoutSource).toContain('DS_CHIP_CLASSES.base');
+		expect(layoutSource).toContain('data-testid="case-identity-secondary"');
 		expect(layoutSource).toContain('{#if $activeCaseMeta.incident_date}');
-		expect(layoutSource).toContain('md:inline-flex');
 	});
 
 	it('exposes case title tooltip for truncated titles', () => {
-		expect(layoutSource).toContain('title={$activeCaseMeta.title}');
+		expect(layoutSource).toContain('displayCaseTitle($activeCaseMeta.title)');
 	});
 });

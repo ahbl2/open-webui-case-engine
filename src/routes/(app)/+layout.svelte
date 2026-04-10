@@ -38,8 +38,7 @@
 	mobile,
 	caseEngineAuthState,
 	caseEngineToken,
-	caseEngineUser,
-	caseModeActive
+	caseEngineUser
 } from '$lib/stores';
 	import {
 		resolveBrowserAuthOnce,
@@ -93,7 +92,11 @@
 	import { Shortcut, shortcuts } from '$lib/shortcuts';
 	import { isShortcutMatch } from '$lib/utils/isShortcutMatch';
 
-	/** Detective workspace routes: one coherent shell (P75-08 — matches `(app)/+page` → /home, /cases list, /search, case tree). */
+	/**
+	 * Detective workspace routes: one coherent shell (P75-08 — matches `(app)/+page` → /home, /cases list, /search, case tree).
+	 * P76-08: `/case/*` stays in this unified shell (Wave 2 app chrome + GNAV) while `case/[id]/+layout` owns case identity + tabs;
+	 * case-mode suppression of the OWUI sidebar is driven by `caseModeActive` in the case layout only — not duplicated here.
+	 */
 	$: isDetectiveWorkspace =
 		$page.url.pathname === '/home' ||
 		$page.url.pathname === '/cases' ||

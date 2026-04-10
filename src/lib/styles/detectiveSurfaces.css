@@ -96,6 +96,106 @@
 	}
 
 	/*
+	 * P76-02 — Case workspace shell root (Wave 3): single frame for `/case/[id]/*` inside `ds-app-shell__main`.
+	 * Tier L identity + tab chrome (`.ce-l-*`) sit above this token-aligned canvas; do not add a second outer case wrapper.
+	 * P73-02: column flex chain + overflow hidden on this root; tab pages own internal scrollports (often `.ce-l-content-region`).
+	 */
+	.ds-case-shell {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 auto;
+		min-height: 0;
+		max-height: 100%;
+		width: 100%;
+		min-width: 0;
+		overflow: hidden;
+		background-color: var(--ds-bg-app);
+		color: var(--ds-text-on-canvas);
+	}
+
+	/* Row: primary canvas column + optional shell-level right rail (spec: page-owned rail by default; chat placeholder here). */
+	.ds-case-shell__body {
+		display: flex;
+		flex-direction: row;
+		flex: 1 1 auto;
+		min-height: 0;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	/* Center stack: main workspace slot + bounded composer strip (composer height owned by Chat when active). */
+	.ds-case-shell__canvas-column {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 auto;
+		min-width: 0;
+		min-height: 0;
+	}
+
+	/*
+	 * P76-06 — Optional shell context band + chat rail framing (CASE_WORKSPACE_SHELL_SPEC §Case-level quick actions / indicators; §Rail).
+	 * Band: truthful pending-proposals signal only; rail: reserved shell column (no fabricated page content).
+	 */
+	.ds-case-shell__context-band {
+		flex-shrink: 0;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--ds-space-2);
+		min-height: 0;
+		padding: var(--ds-space-2) var(--ds-space-3);
+		border-bottom: 1px solid var(--ce-l-chrome-border);
+		background-color: var(--ce-l-surface-muted);
+	}
+
+	.ds-case-shell[data-case-shell-wave3="on"] .ds-case-shell__context-band {
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 92%, var(--ds-bg-chrome));
+		border-bottom-color: var(--ds-border-chrome);
+		box-shadow: var(--ds-shadow-sm);
+	}
+
+	.ds-case-shell__rail {
+		min-height: 0;
+		padding: var(--ds-space-2);
+	}
+
+	.ds-case-shell[data-case-shell-wave3="on"] .ds-case-shell__rail {
+		min-height: 0;
+		padding: var(--ds-space-3);
+		border-radius: var(--ds-radius-sm) 0 0 0;
+		background-color: color-mix(in oklab, var(--ce-l-surface-muted) 95%, transparent);
+	}
+
+	/*
+	 * P76-05 — Case workspace primary tab strip (Wave 3): CASE_WORKSPACE_SHELL_SPEC §Tab / navigation doctrine.
+	 * Tier L `.ce-l-tab-strip` / `.ce-l-tab-link` unchanged when Wave 3 is off; single navigator on parent `[data-case-shell-wave3="on"]`.
+	 */
+	.ds-case-shell[data-case-shell-wave3="on"] .ce-l-tab-strip {
+		background-color: var(--ds-bg-chrome);
+		border-bottom-color: var(--ds-border-chrome);
+		box-shadow: var(--ds-shadow-sm);
+	}
+
+	.ds-case-shell[data-case-shell-wave3="on"] .ce-l-tab-link {
+		font-size: var(--ds-type-label-size);
+		font-weight: var(--ds-type-label-weight);
+		letter-spacing: 0.02em;
+		color: var(--ds-text-secondary);
+	}
+
+	.ds-case-shell[data-case-shell-wave3="on"] .ce-l-tab-link:hover {
+		color: var(--ds-text-primary);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 88%, transparent);
+	}
+
+	.ds-case-shell[data-case-shell-wave3="on"] .ce-l-tab-link--active {
+		color: var(--ds-nav-tab-active-fg);
+		border-bottom-color: var(--ds-nav-tab-active-border);
+		font-weight: 600;
+		background-color: color-mix(in oklab, var(--ds-nav-tab-active-border) 10%, transparent);
+	}
+
+	/*
 	 * P75-06 — Operator Command Center outer frame (summary band + main column + right rail).
 	 */
 	.ds-occ-root {

@@ -4,6 +4,7 @@
  * P74-03 — Typography + semantic status.
  * P74-04 — Buttons, badges, chips (see detectiveButtons.css, detectiveBadgesChips.css).
  * P74-05 — Surfaces + bounded scroll (see detectiveSurfaces.css); Tier L `ce-l-content-region` unchanged for case routes.
+ * P76-02 — `DS_CASE_SHELL_*` case workspace shell root/body/canvas (Wave 3; `case/[id]/+layout.svelte`).
  * P74-06 — Empty / loading / skeleton (see detectiveEmptyLoadingSkeleton.css); `CaseEmptyState` / `CaseLoadingState` use these classes.
  * P74-07 — Error / banner / toast (see detectiveErrorBannerToast.css); `CaseErrorState` + `NotificationToast` aligned; compose banners with `DS_STATUS_SURFACE_*`.
  * P74-08 — Modal / drawer / confirm (see detectiveModalDrawerConfirm.css); `Modal` / `Drawer` / `ConfirmDialog` aligned — same portal + focus-trap engines.
@@ -94,6 +95,17 @@ export const DS_APP_SHELL_CLASSES = {
 	topContext: 'ds-app-shell-top-context',
 	topSearchTrigger: 'ds-app-shell-top-search-trigger',
 	topActions: 'ds-app-shell-top-actions'
+} as const;
+
+/** P76-02 / P76-06 — Case workspace shell frame (Wave 3); single owner `case/[id]/+layout.svelte` — pairs with Tier L `.ce-l-*` chrome */
+export const DS_CASE_SHELL_CLASSES = {
+	root: 'ds-case-shell',
+	body: 'ds-case-shell__body',
+	canvasColumn: 'ds-case-shell__canvas-column',
+	/** P76-06 — Optional §Case-level quick actions / indicators band (under tabs; truthful content only). */
+	contextBand: 'ds-case-shell__context-band',
+	/** P76-06 — Shell-level chat context column (reserved frame; page-owned content by default per spec). */
+	rail: 'ds-case-shell__rail'
 } as const;
 
 export const DS_STACK_CLASSES = {

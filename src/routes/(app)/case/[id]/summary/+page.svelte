@@ -16,6 +16,7 @@
 	} from '$lib/apis/caseEngine';
 	import CaseSummaryPanel from '$lib/components/case/CaseSummaryPanel.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import { applyStatusOntoPostSnapshot } from '$lib/case/summaryTabSnapshotMerge';
 	import {
 		mapTimelineSummaryKeyEvents,
@@ -307,6 +308,7 @@
 	});
 </script>
 
+<CaseWorkspaceContentRegion testId="case-summary-page">
 <div class="flex-1 min-h-0 overflow-auto p-4 md:p-6">
 	<div class="mx-auto max-w-4xl space-y-6">
 		<p class="text-xs text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 pb-3">
@@ -914,3 +916,4 @@
 		</div>
 	</div>
 </div>
+</CaseWorkspaceContentRegion>

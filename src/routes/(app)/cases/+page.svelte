@@ -34,7 +34,7 @@
 	function openCase(c: CaseEngineCase) {
 		activeCaseId.set(c.id);
 		activeCaseNumber.set(c.case_number);
-		goto(`/case/${c.id}`);
+		goto(`/case/${c.id}/chat`);
 	}
 
 	function openEditCase(c: CaseEngineCase) {
@@ -250,7 +250,7 @@
 		if (created?.id) {
 			activeCaseId.set(created.id);
 			activeCaseNumber.set(created.case_number);
-			goto(`/case/${created.id}`);
+			goto(`/case/${created.id}/chat`);
 		}
 	}}
 />

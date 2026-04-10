@@ -212,7 +212,7 @@
 								<button
 									type="button"
 									class="text-xs text-blue-600 dark:text-blue-400 underline hover:no-underline"
-									on:click={() => goto(`/case/${caseId}`)}
+									on:click={() => goto(`/case/${caseId}/chat`)}
 								>
 									Open Case
 								</button>

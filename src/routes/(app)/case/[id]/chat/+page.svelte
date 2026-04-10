@@ -61,6 +61,7 @@
 
 	// OWUI native Chat component — same component used by /c/[id]/+page.svelte.
 	import Chat from '$lib/components/chat/Chat.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 
 	// P19-10: Shared proposal review panel (replaces the inline P19-09 panel).
 	import ProposalReviewPanel from '$lib/components/proposals/ProposalReviewPanel.svelte';
@@ -301,7 +302,7 @@
 
 </script>
 
-<div class="flex flex-col flex-1 min-h-0 overflow-hidden" data-testid="case-chat-page">
+<CaseWorkspaceContentRegion testId="case-chat-page">
 
 	<!-- ── MAIN CHAT AREA ──────────────────────────────────────────────────── -->
 	<div class="flex flex-1 min-h-0 overflow-hidden">
@@ -699,7 +700,8 @@
 		</div>
 	{/if}
 </div>
-</div>
+
+</CaseWorkspaceContentRegion>
 
 <style>
 	/*

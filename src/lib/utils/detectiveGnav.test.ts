@@ -15,6 +15,8 @@ describe('detectiveGnav (P75-04 / P75-08)', () => {
 	it('resolves cases list and case workspace', () => {
 		expect(resolveDetectiveGnavPrimaryActive('/cases', false)).toBe('cases');
 		expect(resolveDetectiveGnavPrimaryActive('/case/abc123/chat', false)).toBe('cases');
+		// P76-08: bare case root still anchors GNAV to Cases (redirect page resolves to /chat)
+		expect(resolveDetectiveGnavPrimaryActive('/case/abc123', false)).toBe('cases');
 	});
 
 	it('admin has no core primary active', () => {

@@ -2974,7 +2974,7 @@ let warrantToolsRequestInFlight = false;
 						);
 						activeCaseId.set(created.id);
 						activeCaseNumber.set(created.case_number);
-						await goto(`/case/${created.id}`);
+						await goto(`/case/${created.id}/chat`);
 						return;
 					} catch (e) {
 						const msg = e instanceof Error ? e.message : 'Failed to create case.';

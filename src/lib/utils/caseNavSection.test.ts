@@ -38,6 +38,11 @@ describe('resolveActiveCaseSection', () => {
 		expect(resolveActiveCaseSection('/case/abc123/intelligence/entity/phone/5551234567')).toBe('intelligence');
 	});
 
+	it('does not use substring matching (first segment wins)', () => {
+		expect(resolveActiveCaseSection('/case/abc123/timeline')).toBe('timeline');
+		expect(resolveActiveCaseSection('/case/abc123/timeline/extra-segment')).toBe('timeline');
+	});
+
 	it('resolves /case/[id]/graph to graph', () => {
 		expect(resolveActiveCaseSection('/case/abc123/graph')).toBe('graph');
 	});

@@ -75,7 +75,7 @@
 				class="w-full text-left flex items-center gap-3 rounded-lg border border-gray-200
 				       dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50
 				       dark:hover:bg-gray-750 px-3 py-2.5 transition"
-				on:click={() => goto(`/case/${c.id}`)}
+				on:click={() => goto(`/case/${c.id}/chat`)}
 				data-testid="recent-case-item"
 				data-case-id={c.id}
 			>

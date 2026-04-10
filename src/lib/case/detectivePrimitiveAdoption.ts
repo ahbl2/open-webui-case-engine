@@ -9,7 +9,7 @@
  * Class / token maps: `detectivePrimitiveFoundation.ts` (import `DS_*` from there — not from this file).
  */
 
-export const DETECTIVE_PRIMITIVE_LAYER_VERSION = 2 as const;
+export const DETECTIVE_PRIMITIVE_LAYER_VERSION = 3 as const;
 
 /** Filenames under `src/lib/styles/` — order must match `app.css` DS `@import` block (Tier L follows separately). */
 export const DETECTIVE_DS_STYLE_IMPORT_ORDER = [

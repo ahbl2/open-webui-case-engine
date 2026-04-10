@@ -107,6 +107,7 @@
 		type StructuredNotesSourcePreviewPayload
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import CaseNoteEditor from '$lib/components/case/CaseNoteEditor.svelte';
@@ -2330,9 +2331,10 @@
 <!--
 	Case Notes Workspace — P28-26
 	Two-panel layout: left browser + right focused editor.
-	Renders inside the P19-06 case shell (+layout.svelte).
+	Renders inside the P19-06 case shell (+layout.svelte). P76-07: Tier L `CaseWorkspaceContentRegion` bounds the page canvas.
 -->
-<div class="flex flex-1 min-w-0 min-h-0 overflow-hidden" data-testid="case-notes-page">
+<CaseWorkspaceContentRegion testId="case-notes-page">
+<div class="flex flex-1 min-w-0 min-h-0 overflow-hidden">
 
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
 	<!-- LEFT PANEL — Note Browser                                             -->
@@ -3952,6 +3954,7 @@
 
 	</div>
 </div>
+</CaseWorkspaceContentRegion>
 
 <!-- ── Unsaved-changes confirmation dialog (P28-27) ─────────────────────── -->
 <ConfirmDialog

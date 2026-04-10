@@ -2,12 +2,14 @@
 	import { page } from '$app/stores';
 	import { caseEngineToken, caseEngineAuthState, caseEngineUser } from '$lib/stores';
 	import CaseWorkflowTab from '$lib/components/case/CaseWorkflowTab.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 
 	$: caseId = $page.params.id;
 	$: isAdmin =
 		$caseEngineUser?.role === 'ADMIN' || $caseEngineAuthState?.user?.role === 'admin';
 </script>
 
+<CaseWorkspaceContentRegion testId="case-workflow-page">
 <div class="flex flex-col flex-1 min-h-0 overflow-hidden">
 	{#if !$caseEngineToken}
 		<div class="flex-1 min-h-0 overflow-auto p-4 md:p-6">
@@ -21,3 +23,4 @@
 		<CaseWorkflowTab {caseId} token={$caseEngineToken} {isAdmin} />
 	{/if}
 </div>
+</CaseWorkspaceContentRegion>
