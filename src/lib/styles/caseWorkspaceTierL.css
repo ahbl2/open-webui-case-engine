@@ -1,0 +1,534 @@
+/*
+ * Phase 71 (P71-02) — Tier L semantic presentation roles for the case workspace shell.
+ * Governs: P70-03 (token strategy), P70-07 §2.5 (empty/loading/error families).
+ * Tier P / P69-03 Entities surfaces remain authoritative in their scopes — do not map
+ * those hex palettes here; this file is Tier L (bridged light case chrome) only.
+ */
+
+html {
+	/* Surfaces (P70-03 §3.1) */
+	--ce-l-canvas: #ffffff;
+	--ce-l-canvas-fg: #1f2937;
+	--ce-l-chrome: #f9fafb;
+	--ce-l-chrome-fg: #374151;
+	--ce-l-chrome-border: #e5e7eb;
+	--ce-l-surface: #ffffff;
+	--ce-l-surface-muted: #f9fafb;
+	--ce-l-surface-elevated: #ffffff;
+
+	/* Borders — emphasis steps (P70-03 §3.2) */
+	--ce-l-border-subtle: #f3f4f6;
+	--ce-l-border-default: #e5e7eb;
+	--ce-l-border-strong: #d1d5db;
+
+	/* Text roles */
+	--ce-l-text-primary: #111827;
+	--ce-l-text-secondary: #6b7280;
+	--ce-l-text-muted: #9ca3af;
+	--ce-l-text-on-canvas: #1f2937;
+
+	/* Radius (P70-03 §3.5 — two primary steps + shared scale) */
+	--ce-l-radius-sm: 0.375rem;
+	--ce-l-radius-md: 0.5rem;
+
+	/* Semantic chrome: empty / loading / error (Tier L light) */
+	--ce-l-empty-border: var(--ce-l-border-default);
+	--ce-l-empty-surface: var(--ce-l-surface-muted);
+	--ce-l-loading-fg: #9ca3af;
+	--ce-l-error-bg: #fef2f2;
+	--ce-l-error-border: #fecaca;
+	--ce-l-error-title: #b91c1c;
+	--ce-l-error-text: #ef4444;
+	--ce-l-error-link: #dc2626;
+
+	/* Primary case tab strip (P71-04 / P70-05 §2) — Tier L nav accent */
+	--ce-l-tab-strip-bg: var(--ce-l-chrome);
+	--ce-l-tab-active-border: #2563eb;
+	--ce-l-tab-active-fg: #1d4ed8;
+}
+
+html.dark {
+	--ce-l-canvas: #030712;
+	--ce-l-canvas-fg: #f3f4f6;
+	--ce-l-chrome: #111827;
+	--ce-l-chrome-fg: #e5e7eb;
+	--ce-l-chrome-border: #1f2937;
+	--ce-l-surface: #030712;
+	--ce-l-surface-muted: #111827;
+	--ce-l-surface-elevated: #111827;
+
+	--ce-l-border-subtle: #1f2937;
+	--ce-l-border-default: #374151;
+	--ce-l-border-strong: #4b5563;
+
+	--ce-l-text-primary: #f9fafb;
+	--ce-l-text-secondary: #9ca3af;
+	--ce-l-text-muted: #6b7280;
+	--ce-l-text-on-canvas: #e5e7eb;
+
+	--ce-l-radius-sm: 0.375rem;
+	--ce-l-radius-md: 0.5rem;
+
+	--ce-l-empty-border: var(--ce-l-border-default);
+	--ce-l-empty-surface: var(--ce-l-surface-muted);
+	--ce-l-loading-fg: #6b7280;
+
+	--ce-l-error-bg: rgba(69, 10, 10, 0.35);
+	--ce-l-error-border: #7f1d1d;
+	--ce-l-error-title: #fca5a5;
+	--ce-l-error-text: #f87171;
+	--ce-l-error-link: #fca5a5;
+
+	--ce-l-tab-strip-bg: var(--ce-l-chrome);
+	--ce-l-tab-active-border: #60a5fa;
+	--ce-l-tab-active-fg: #93c5fd;
+}
+
+@layer components {
+	/* Framed empty state card — dashed border family (P70-07 §2.5) */
+	.ce-l-empty-framed {
+		border-style: dashed;
+		border-width: 1px;
+		border-color: var(--ce-l-empty-border);
+		border-radius: var(--ce-l-radius-sm);
+		background-color: var(--ce-l-empty-surface);
+	}
+
+	/* Inline text link in error surfaces (retry affordance) */
+	.ce-l-error-retry-link {
+		margin-top: 0.375rem;
+		font-size: 0.75rem;
+		line-height: 1rem;
+		text-decoration: underline;
+		color: var(--ce-l-error-link);
+		background: transparent;
+		border: none;
+		padding: 0;
+		cursor: pointer;
+	}
+
+	.ce-l-error-retry-link:hover {
+		opacity: 0.9;
+	}
+
+	/*
+	 * P71-03 — Case identity bar (P70-04 §2): Tier L chrome band, L1 case identity.
+	 * Tab strip remains separate (P71-04).
+	 */
+	.ce-l-identity-bar {
+		background-color: var(--ce-l-chrome);
+		border-bottom: 1px solid var(--ce-l-chrome-border);
+	}
+
+	.ce-l-identity-back {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		font-size: 0.875rem;
+		line-height: 1.25rem;
+		padding: 0.25rem 0.375rem;
+		border-radius: var(--ce-l-radius-sm);
+		color: var(--ce-l-text-secondary);
+		transition:
+			background-color 0.15s ease,
+			color 0.15s ease;
+	}
+
+	.ce-l-identity-back:hover {
+		background-color: var(--ce-l-surface-muted);
+		color: var(--ce-l-text-primary);
+	}
+
+	.ce-l-identity-back:focus-visible {
+		outline: 2px solid var(--ce-l-border-strong);
+		outline-offset: 2px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.ce-l-identity-back {
+			transition: none;
+		}
+	}
+
+	.ce-l-identity-edit {
+		border-radius: var(--ce-l-radius-sm);
+		border: 1px solid var(--ce-l-border-strong);
+		background-color: var(--ce-l-surface);
+		color: var(--ce-l-text-primary);
+		font-size: 0.75rem;
+		font-weight: 500;
+		line-height: 1rem;
+		padding: 0.375rem 0.625rem;
+		transition: background-color 0.15s ease;
+	}
+
+	.ce-l-identity-edit:hover {
+		background-color: var(--ce-l-surface-muted);
+	}
+
+	.ce-l-identity-edit:focus-visible {
+		outline: 2px solid var(--ce-l-border-strong);
+		outline-offset: 2px;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.ce-l-identity-edit {
+			transition: none;
+		}
+	}
+
+	/* Neutral metadata chip (unit, incident) — Tier L, not status semantics */
+	.ce-l-identity-meta-chip {
+		display: inline-flex;
+		align-items: center;
+		border-radius: var(--ce-l-radius-sm);
+		border: 1px solid var(--ce-l-border-default);
+		background-color: var(--ce-l-surface-muted);
+		color: var(--ce-l-text-secondary);
+		font-size: 0.75rem;
+		font-weight: 500;
+		line-height: 1rem;
+		padding: 0.125rem 0.375rem;
+		white-space: nowrap;
+	}
+
+	/*
+	 * P71-04 — Primary case tab strip (P70-05): horizontal scroll, no wrap,
+	 * Tier L tokens; overflow strategy §2.3 option 1 (scroll + thin scrollbar).
+	 */
+	.ce-l-tab-strip {
+		display: flex;
+		flex-direction: row;
+		flex-wrap: nowrap;
+		align-items: stretch;
+		gap: 0;
+		min-width: 0;
+		overflow-x: auto;
+		overflow-y: hidden;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: thin;
+		scrollbar-color: var(--ce-l-border-strong) transparent;
+		background-color: var(--ce-l-tab-strip-bg);
+		border-bottom: 1px solid var(--ce-l-chrome-border);
+		padding: 0 0.25rem;
+	}
+
+	@media (min-width: 640px) {
+		.ce-l-tab-strip {
+			padding-left: 0.5rem;
+			padding-right: 0.5rem;
+		}
+	}
+
+	.ce-l-tab-strip::-webkit-scrollbar {
+		height: 6px;
+	}
+
+	.ce-l-tab-strip::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.ce-l-tab-strip::-webkit-scrollbar-thumb {
+		background-color: var(--ce-l-border-strong);
+		border-radius: 3px;
+	}
+
+	.ce-l-tab-link {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		flex-shrink: 0;
+		white-space: nowrap;
+		min-height: 2.75rem;
+		padding: 0.5rem 0.875rem;
+		font-size: 0.875rem;
+		font-weight: 500;
+		line-height: 1.25rem;
+		border-bottom: 2px solid transparent;
+		margin-bottom: -1px;
+		color: var(--ce-l-text-secondary);
+		text-decoration: none;
+		transition:
+			color 0.15s ease,
+			border-color 0.15s ease,
+			background-color 0.15s ease;
+	}
+
+	.ce-l-tab-link:hover {
+		color: var(--ce-l-text-primary);
+		background-color: color-mix(in oklab, var(--ce-l-surface-muted) 75%, transparent);
+	}
+
+	.ce-l-tab-link:focus-visible {
+		outline: 2px solid var(--ce-l-tab-active-border);
+		outline-offset: -2px;
+		z-index: 1;
+	}
+
+	.ce-l-tab-link--active {
+		color: var(--ce-l-tab-active-fg);
+		border-bottom-color: var(--ce-l-tab-active-border);
+	}
+
+	.ce-l-tab-link--disabled {
+		color: var(--ce-l-text-muted);
+		cursor: not-allowed;
+		opacity: 0.65;
+	}
+
+	@media (prefers-reduced-motion: reduce) {
+		.ce-l-tab-link {
+			transition: none;
+		}
+	}
+
+	/*
+	 * P71-05 — Timeline tab shell (P70-06 S1 internal scroll + W1 width; P70-04 B operational hero).
+	 * Root: canvas; hero: chrome band; toolbar: hairline on canvas; one primary vertical scroll (list).
+	 */
+	.ce-l-timeline-shell {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow: hidden;
+		position: relative;
+		background-color: var(--ce-l-canvas);
+		color: var(--ce-l-text-on-canvas);
+	}
+
+	.ce-l-timeline-hero {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid var(--ce-l-chrome-border);
+		background-color: var(--ce-l-chrome);
+	}
+
+	.ce-l-timeline-hero-title {
+		color: var(--ce-l-text-primary);
+	}
+
+	.ce-l-timeline-hero-meta {
+		color: var(--ce-l-text-muted);
+	}
+
+	.ce-l-timeline-toolbar {
+		flex-shrink: 0;
+		border-bottom: 1px solid var(--ce-l-chrome-border);
+		background-color: var(--ce-l-canvas);
+	}
+
+	.ce-l-timeline-primary-scroll {
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/*
+	 * P71-06 — Files tab shell (P70-06 S1 / W1; P70-04 B operational hero).
+	 * Same flex/scroll discipline as P71-05 Timeline: fixed hero, one primary list/workspace scroll.
+	 */
+	.ce-l-files-shell {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow: hidden;
+		position: relative;
+		background-color: var(--ce-l-canvas);
+		color: var(--ce-l-text-on-canvas);
+	}
+
+	.ce-l-files-hero {
+		flex-shrink: 0;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid var(--ce-l-chrome-border);
+		background-color: var(--ce-l-chrome);
+	}
+
+	.ce-l-files-hero-title {
+		color: var(--ce-l-text-primary);
+	}
+
+	.ce-l-files-hero-meta {
+		color: var(--ce-l-text-muted);
+	}
+
+	.ce-l-files-primary-scroll {
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/*
+	 * P71-07 — Proposals tab shell (P70-06 W1; P70-04 B; Wave 3 calmer chrome vs legacy page grays).
+	 * ProposalReviewPanel owns list/workspace scroll; route is overflow-hidden flex column only.
+	 */
+	.ce-l-proposals-shell {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow: hidden;
+		position: relative;
+		background-color: var(--ce-l-canvas);
+		color: var(--ce-l-text-on-canvas);
+	}
+
+	.ce-l-proposals-hero {
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.25rem;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid var(--ce-l-chrome-border);
+		background-color: var(--ce-l-chrome);
+	}
+
+	.ce-l-proposals-hero-title {
+		color: var(--ce-l-text-primary);
+	}
+
+	.ce-l-proposals-hero-intro {
+		color: var(--ce-l-text-secondary);
+	}
+
+	.ce-l-proposals-hero-intro strong {
+		color: var(--ce-l-text-primary);
+		font-weight: 600;
+	}
+
+	.ce-l-proposals-workspace {
+		flex: 1 1 0%;
+		min-height: 0;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	/*
+	 * P71-08 — Activity tab shell (P70-06 S1 / W1; P70-04 B operational hero + controls row).
+	 */
+	.ce-l-activity-shell {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow: hidden;
+		position: relative;
+		background-color: var(--ce-l-canvas);
+		color: var(--ce-l-text-on-canvas);
+	}
+
+	.ce-l-activity-hero {
+		flex-shrink: 0;
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.5rem;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid var(--ce-l-chrome-border);
+		background-color: var(--ce-l-chrome);
+	}
+
+	.ce-l-activity-hero-title {
+		color: var(--ce-l-text-primary);
+	}
+
+	.ce-l-activity-hero-meta {
+		color: var(--ce-l-text-muted);
+	}
+
+	.ce-l-activity-primary-scroll {
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	/*
+	 * P71-09 — Intelligence route shell (P70-06 W3 width cap + S2-style page scroll in primary slot;
+	 * P70-05 §3.2 secondary segmented controls demoted vs primary case tab strip).
+	 */
+	.ce-l-intelligence-shell {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow: hidden;
+		position: relative;
+		background-color: var(--ce-l-canvas);
+		color: var(--ce-l-text-on-canvas);
+	}
+
+	.ce-l-intelligence-primary-scroll {
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+	}
+
+	.ce-l-intelligence-intro {
+		border-radius: var(--ce-l-radius-md);
+		border: 1px solid var(--ce-l-border-default);
+		background-color: var(--ce-l-surface);
+		padding: 1rem;
+	}
+
+	.ce-l-intelligence-intro-title {
+		font-size: 1.125rem;
+		font-weight: 600;
+		line-height: 1.5rem;
+		color: var(--ce-l-text-primary);
+	}
+
+	.ce-l-intelligence-intro-body {
+		margin-top: 0.25rem;
+		font-size: 0.75rem;
+		line-height: 1.625;
+		color: var(--ce-l-text-secondary);
+	}
+
+	.ce-l-intelligence-intro-body strong {
+		color: var(--ce-l-text-primary);
+		font-weight: 600;
+	}
+
+	/* Secondary workspace mode — segmented group; not primary tab strip scale (P70-05 §3.2). */
+	.ce-l-intelligence-segmented {
+		display: flex;
+		flex-wrap: wrap;
+		gap: 0.25rem;
+		align-self: flex-start;
+		max-width: 100%;
+		padding: 0.25rem;
+		border-radius: var(--ce-l-radius-md);
+		border: 1px solid var(--ce-l-border-default);
+		background-color: var(--ce-l-surface-muted);
+	}
+}
+
+/*
+ * P71-FU6 — Tier L content region must be unlayered: when `.ce-l-content-region` lived in `@layer components`,
+ * later cascade could yield computed `display:block`, so route `flex-1 min-h-0 overflow-y-auto` scrollports
+ * expanded with content (~10k px) instead of bounded scroll boxes. Unlayered `display:flex` wins per cascade.
+ * CaseWorkspaceContentRegion.svelte also applies Tailwind `flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden`.
+ */
+.ce-l-content-region {
+	display: flex;
+	flex-direction: column;
+	min-height: 0;
+	min-width: 0;
+	flex: 1 1 0%;
+	overflow: hidden;
+}

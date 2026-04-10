@@ -12,8 +12,8 @@
 	class="flex flex-col items-center justify-center gap-2 py-10"
 	data-testid={testId || undefined}
 >
-	<Spinner className="size-5 text-gray-400 dark:text-gray-500" />
+	<Spinner className="size-5 text-[color:var(--ce-l-loading-fg)]" />
 	{#if label}
-		<p class="text-sm text-gray-400 dark:text-gray-500">{label}</p>
+		<p class="text-sm text-[color:var(--ce-l-text-muted)]">{label}</p>
 	{/if}
 </div>

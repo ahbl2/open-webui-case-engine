@@ -5,7 +5,7 @@
 import { describe, it, expect } from 'vitest';
 import {
 	TIMELINE_OFFICIAL_RECORD_BADGE_TITLE,
-	TIMELINE_HEADER_SUBLINE,
+	TIMELINE_HEADER_RULES_LINE,
 	TIMELINE_LOG_ENTRY_BUTTON_TITLE,
 	TIMELINE_EMPTY_STATE_DESCRIPTION,
 	TIMELINE_TIME_ZONE_LABEL,
@@ -18,10 +18,10 @@ describe('timelineOperatorMicrocopy (P38-07)', () => {
 		expect(TIMELINE_OFFICIAL_RECORD_BADGE_TITLE.toLowerCase()).toContain('proposals');
 	});
 
-	it('header subline mentions both entry paths and Notes drafts', () => {
-		expect(TIMELINE_HEADER_SUBLINE).toContain('+ Log entry');
-		expect(TIMELINE_HEADER_SUBLINE.toLowerCase()).toContain('proposals');
-		expect(TIMELINE_HEADER_SUBLINE.toLowerCase()).toContain('notes tab');
+	it('header rules line states committed timeline vs Notes drafts (P41-48)', () => {
+		expect(TIMELINE_HEADER_RULES_LINE.toLowerCase()).toContain('committed');
+		expect(TIMELINE_HEADER_RULES_LINE.toLowerCase()).toContain('drafts');
+		expect(TIMELINE_HEADER_RULES_LINE.toLowerCase()).toContain('notes');
 	});
 
 	it('log button title contrasts immediate save vs Proposals path', () => {

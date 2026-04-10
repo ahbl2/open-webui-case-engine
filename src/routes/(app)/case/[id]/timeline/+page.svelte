@@ -61,6 +61,7 @@
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import TimelineEntryCard from '$lib/components/case/TimelineEntryCard.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocumentProposeButton.svelte';
@@ -83,7 +84,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	} from '$lib/case/timelineEntryMutationUi';
 	import {
 		TIMELINE_EMPTY_STATE_DESCRIPTION,
-		TIMELINE_HEADER_SUBLINE,
+		TIMELINE_HEADER_RULES_LINE,
 		TIMELINE_LOG_ENTRY_BUTTON_TITLE,
 		TIMELINE_OFFICIAL_RECORD_BADGE_TITLE,
 		TIMELINE_TIME_ZONE_LABEL,
@@ -1103,21 +1104,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	);
 	$: searchHighlightNeedle = normalizeTimelineSearchNeedle(filterSearchText);
 
-	// Count: unfiltered total; filtered = server-reported matching count (P41-46).
-	// P41-43: when hasMore, label reflects loaded subset vs backend total.
-	$: countLabel = (() => {
-		const unit = (n: number) => (n === 1 ? 'entry' : 'entries');
+	// P41-48: header data-state line — loaded vs server total (filters use matching total).
+	$: timelineHeaderDataLine = (() => {
 		if (loading && entries.length === 0) return '';
 		if (!filtersActive && entries.length === 0 && totalEntries === 0) return '';
-		const total = totalEntries;
-		const loaded = entries.length;
-		if (filtersActive) {
-			if (hasMore) return `${loaded} of ${total} matching ${unit(total)} loaded`;
-			return `${total} matching ${unit(total)}`;
-		}
-		if (entries.length === 0) return '';
-		if (hasMore) return `${loaded} of ${total} ${unit(total)} loaded`;
-		return `${total} ${unit(total)}`;
+		return `${entries.length} of ${totalEntries} entries loaded`;
 	})();
 
 	onMount(() => {
@@ -1372,29 +1363,34 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	onConfirm={executeRestore}
 />
 
-<div class="flex flex-col flex-1 min-h-0 relative overflow-hidden" data-testid="case-timeline-page">
+<CaseWorkspaceContentRegion testId="case-timeline-page">
+<div class="ce-l-timeline-shell">
 
 	<!-- ── Section header ──────────────────────────────────────────────────── -->
-	<div class="shrink-0 flex items-center justify-between gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-		<div class="flex items-center gap-2 min-w-0 flex-wrap">
-			<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Case Timeline</h2>
-			<span
-				class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
-				       bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-				title={TIMELINE_OFFICIAL_RECORD_BADGE_TITLE}
-			>Official record</span>
-			<!-- Count: updates with active filter -->
-			{#if !loading && entries.length > 0}
-				<span class="shrink-0 text-xs text-gray-400 dark:text-gray-500" data-testid="case-timeline-count">
-					{countLabel}
-				</span>
+	<div class="ce-l-timeline-hero">
+		<div class="flex flex-col gap-0.5 min-w-0">
+			<div class="flex items-center gap-2 min-w-0 flex-wrap">
+				<h2 class="ce-l-timeline-hero-title text-sm font-semibold">Case Timeline</h2>
+				<span
+					class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
+					       bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
+					title={TIMELINE_OFFICIAL_RECORD_BADGE_TITLE}
+				>Official record</span>
+			</div>
+			{#if timelineHeaderDataLine}
+				<p
+					class="m-0 text-xs ce-l-timeline-hero-meta"
+					data-testid="case-timeline-count"
+				>
+					{timelineHeaderDataLine}
+				</p>
 			{/if}
-			<span class="shrink-0 text-[10px] text-gray-400 dark:text-gray-500">
-				{TIMELINE_HEADER_SUBLINE}
-			</span>
+			<p class="m-0 text-[10px] ce-l-timeline-hero-meta">
+				{TIMELINE_HEADER_RULES_LINE}
+			</p>
 		</div>
 
-		<!-- Refresh controls + ADMIN lifecycle toggle + Log entry + From document (P28-31, P28-35, P28-37) -->
+		<!-- Refresh controls + ADMIN lifecycle toggle + Log entry + Create from document (P28-31, P28-35, P28-37) -->
 		<div class="flex items-center gap-2 shrink-0 flex-wrap">
 			<!-- Log entry: opens the governed inline create form (P28-37) -->
 			<button
@@ -1413,9 +1409,9 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			</button>
 
 			<!-- Thin divider between the two entry actions -->
-			<span class="w-px h-3.5 bg-gray-300 dark:bg-gray-600 shrink-0" aria-hidden="true"></span>
+			<span class="w-px h-3.5 shrink-0 bg-[color:var(--ce-l-border-strong)]" aria-hidden="true"></span>
 
-			<!-- From document: upload → propose → review in Proposals tab -->
+			<!-- Create from document: upload → propose → review in Proposals tab -->
 			<TimelineDocumentProposeButton
 				caseId={caseId}
 				token={$caseEngineToken ?? ''}
@@ -1518,7 +1514,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	     destroying the search input and dropping focus (debounced search). -->
 	{#if !loadError && (lastKnownUnfilteredTotal > 0 || filtersActive)}
 		<div
-			class="shrink-0 flex flex-col gap-2 px-4 py-2 border-b border-gray-200 dark:border-gray-800"
+			class="ce-l-timeline-toolbar shrink-0 flex flex-col gap-2 px-4 py-2"
 			data-testid="case-timeline-search-filter-bar"
 		>
 			{#if showLargeTimelineFilterHint}
@@ -1536,7 +1532,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					bind:this={timelineFilterSearchEl}
 					bind:value={filterSearchText}
 					on:input={onFilterSearchInput}
-					placeholder="Search text, location, type…"
+					placeholder="Search timeline (text, location, type)"
 					class="text-xs rounded border border-gray-300 dark:border-gray-600
 					       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100
 					       px-2 py-1.5 min-w-[10rem] flex-1 max-w-md
@@ -1624,8 +1620,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	{/if}
 
 	<!-- ── Timeline list ───────────────────────────────────────────────────── -->
-	<div class="flex-1 px-4 pt-4 min-h-0 overflow-y-auto flex flex-col gap-4 {composerOpen ? 'pb-80' : 'pb-6'}"
-		bind:this={scrollContainerEl}>
+	<div
+		class="ce-l-timeline-primary-scroll px-4 pt-4 flex flex-col gap-4 {composerOpen ? 'pb-80' : 'pb-6'}"
+		data-testid="case-timeline-primary-scroll"
+		bind:this={scrollContainerEl}
+	>
 
 		<!-- Loading / error / list states -->
 		<div class="flex-1 min-h-0 flex flex-col">
@@ -2519,6 +2518,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		</section>
 	{/if}
 </div>
+</CaseWorkspaceContentRegion>
 
 <style>
 	/* Teal sheen for "Improve text" assist button — mirrors Notes workflow-shimmer.

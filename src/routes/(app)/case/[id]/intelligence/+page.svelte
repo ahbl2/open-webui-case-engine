@@ -1,4 +1,5 @@
 <script lang="ts">
+	/** P71-09 — Tier L shell / secondary nav demotion (P70-05 §3.2, P70-06); presentation only. */
 	import { onMount, tick } from 'svelte';
 	import { page } from '$app/stores';
 	import { activeCaseMeta, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
@@ -11,6 +12,8 @@
 		ackIntelligenceAlert,
 		searchCaseIntelligence,
 		searchCrossCaseIntelligence,
+		type CaseIntelligenceCommittedEntity,
+		type CaseIntelligenceEntityKind,
 		type CrossCaseCitation,
 		type IntelSearchResult,
 		type IntelligenceAlert,
@@ -28,9 +31,16 @@
 	} from '$lib/utils/intelligenceView';
 	import { buildEntityFocusHref } from '$lib/utils/entityFocus';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
+	import EntitiesFocusModeShell from '$lib/components/case/EntitiesFocusModeShell.svelte';
+	import EntitiesOverviewBoardShell from '$lib/components/case/EntitiesOverviewBoardShell.svelte';
+	import CaseIntelligenceEntityCreateModal from '$lib/components/case/CaseIntelligenceEntityCreateModal.svelte';
+	import CaseIntelligenceEntityDetailModal from '$lib/components/case/CaseIntelligenceEntityDetailModal.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
+	import type { EntitiesBoardSnapshot } from '$lib/utils/entitiesBoardTypes';
+	import { toast } from 'svelte-sonner';
 	import {
 		STRUCTURED_QUERY_ACTIONS,
 		actionById,
@@ -172,6 +182,113 @@
 
 	type IntelligenceScope = 'THIS_CASE' | 'CID' | 'SIU' | 'ALL';
 
+	/** P67-04: primary workspace mode — Entities default per IA spec */
+	type CaseIntelligenceWorkspaceMode = 'entities' | 'intelligence';
+	let workspaceMode: CaseIntelligenceWorkspaceMode = 'entities';
+	/** P67-05 / P67-06 prep: committed entity row selection (detail modal in P67-06) */
+	let selectedRegistryEntityId: string | null = null;
+	let entityDetailOpen = false;
+	let entityDetailSeed: CaseIntelligenceCommittedEntity | null = null;
+
+	/** P68-05 — direct committed create modal (POST …/intelligence/entities) */
+	let createModalOpen = false;
+	let createModalKind: CaseIntelligenceEntityKind = 'PERSON';
+	let entityRegistryRefreshNonce = 0;
+	/** P69-08 — board vs focus (Pattern X: cross-type only via back-to-board). */
+	type EntitiesWorkspaceFocusMode = 'board' | 'focus';
+	let entitiesFocusMode: EntitiesWorkspaceFocusMode = 'board';
+	let entitiesBoardSnapshot: EntitiesBoardSnapshot | null = null;
+	let entitiesBoardShell: EntitiesOverviewBoardShell | null = null;
+	let entitiesFocusSeed: CaseIntelligenceCommittedEntity | null = null;
+	let directCreateSuccessMessage: string | null = null;
+	let directCreateSuccessClearHandle: ReturnType<typeof setTimeout> | null = null;
+
+	function clearDirectCreateSuccessTimer(): void {
+		if (directCreateSuccessClearHandle !== null) {
+			clearTimeout(directCreateSuccessClearHandle);
+			directCreateSuccessClearHandle = null;
+		}
+	}
+
+	function flashDirectCreateSuccess(message: string): void {
+		directCreateSuccessMessage = message;
+		clearDirectCreateSuccessTimer();
+		directCreateSuccessClearHandle = setTimeout(() => {
+			directCreateSuccessMessage = null;
+			directCreateSuccessClearHandle = null;
+		}, 5000);
+	}
+
+	function handleIntelCreateRequest(detail: { entityKind: CaseIntelligenceEntityKind }): void {
+		createModalKind = detail.entityKind;
+		createModalOpen = true;
+	}
+
+	function requestEntityFocus(detail: { entity: CaseIntelligenceCommittedEntity }): void {
+		const k = detail.entity.entity_kind;
+		if (k !== 'PERSON' && k !== 'VEHICLE' && k !== 'LOCATION') {
+			toast.error('Focus mode is not available for this registry until the capability ships (P69-10).');
+			return;
+		}
+		if (!entitiesBoardShell) return;
+		entitiesBoardSnapshot = entitiesBoardShell.getBoardSnapshot();
+		entitiesFocusSeed = detail.entity;
+		entitiesFocusMode = 'focus';
+	}
+
+	async function exitEntityFocus(): Promise<void> {
+		entitiesFocusMode = 'board';
+		const snap = entitiesBoardSnapshot;
+		entitiesBoardSnapshot = null;
+		entitiesFocusSeed = null;
+		await tick();
+		if (entitiesBoardShell && snap) {
+			await entitiesBoardShell.applyBoardSnapshot(snap);
+		}
+	}
+
+	function handleIntelCreateModalClose(): void {
+		createModalOpen = false;
+	}
+
+	function registryRowTestIdPrefix(kind: CaseIntelligenceEntityKind): string {
+		switch (kind) {
+			case 'PERSON':
+				return 'entities-registry-people';
+			case 'VEHICLE':
+				return 'entities-registry-vehicles';
+			case 'LOCATION':
+				return 'entities-registry-locations';
+		}
+	}
+
+	async function scrollCreatedEntityRowIntoView(ent: CaseIntelligenceCommittedEntity): Promise<void> {
+		await tick();
+		const rowTestId = `${registryRowTestIdPrefix(ent.entity_kind)}-row-${ent.id}`;
+		document.querySelector<HTMLElement>(`[data-testid="${rowTestId}"]`)?.scrollIntoView({
+			block: 'nearest',
+			behavior: 'smooth'
+		});
+	}
+
+	function handleIntelDirectEntityCreated(e: CustomEvent<{ entity: CaseIntelligenceCommittedEntity }>): void {
+		const ent = e.detail.entity;
+		entityRegistryRefreshNonce += 1;
+		const kindMsg =
+			ent.entity_kind === 'PERSON'
+				? 'Person registered.'
+				: ent.entity_kind === 'VEHICLE'
+					? 'Vehicle registered.'
+					: 'Location registered.';
+		flashDirectCreateSuccess(
+			`${kindMsg} Detail opened — the new row is highlighted in the registry above.`
+		);
+		selectedRegistryEntityId = ent.id;
+		entityDetailSeed = ent;
+		entityDetailOpen = true;
+		void scrollCreatedEntityRowIntoView(ent);
+	}
+
 	$: caseId = $page.params.id;
 
 	// P28-41/P28-42: Reset all case-scoped state when the active case changes.
@@ -181,6 +298,17 @@
 	// are intentionally preserved across case switches.
 	$: if (caseId && $caseEngineToken && caseId !== prevLoadedCaseId) {
 		prevLoadedCaseId = caseId;
+		workspaceMode = 'entities';
+		selectedRegistryEntityId = null;
+		entityDetailOpen = false;
+		entityDetailSeed = null;
+		createModalOpen = false;
+		entityRegistryRefreshNonce = 0;
+		clearDirectCreateSuccessTimer();
+		directCreateSuccessMessage = null;
+		entitiesFocusMode = 'board';
+		entitiesBoardSnapshot = null;
+		entitiesFocusSeed = null;
 
 		// Alerts — reload for the new case
 		alerts = [];
@@ -501,27 +629,173 @@
 	}
 </script>
 
-<div class="flex-1 min-h-0 overflow-auto p-4 md:p-6">
-	<div class="mx-auto max-w-5xl space-y-4">
-		<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-			<h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Intelligence</h1>
-			<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-				Read-only cross-case intelligence workspace using backend evidence only. Results are grounded and citation-backed.
+<!-- P71-09 — Tier L shell; secondary mode segmented control demoted vs primary case tabs (P70-05 §3.2). -->
+<CaseWorkspaceContentRegion testId="case-intelligence-page">
+<div class="ce-l-intelligence-shell">
+	<div
+		class="ce-l-intelligence-primary-scroll mx-auto max-w-7xl w-full space-y-4 p-4 md:p-6"
+		data-testid="case-intelligence-primary-scroll"
+	>
+		<div class="ce-l-intelligence-intro">
+			<h1 class="ce-l-intelligence-intro-title">Case Intelligence</h1>
+			<p class="ce-l-intelligence-intro-body leading-relaxed">
+				<strong>Entities</strong> starts with <strong>committed registries</strong> (browse; <strong>Register</strong> with each
+				<strong>Add …</strong>). <strong>Stage&nbsp;1</strong> is for <strong>staging</strong> (intake / propose → promote), not
+				the default manual register path. <strong>Stage&nbsp;2</strong> covers association edges. Case Engine holds authority.
+				<strong>Intelligence</strong> mode adds alerts, Ask/search, and lookups (support only). <strong>P19</strong> stays on the
+				Proposals tab. Model text never replaces committed records.
 			</p>
 		</div>
 
 		{#if !$caseEngineToken}
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-				<p class="text-sm text-gray-600 dark:text-gray-300">
+			<div class="ce-l-intelligence-intro">
+				<p class="text-sm text-[color:var(--ce-l-text-secondary)]">
 					Case Engine authentication is required to load intelligence data.
 				</p>
 			</div>
 		{:else}
-			<!-- ── Cross-case entity alerts (P28-40) ──────────────────────────── -->
 			<div
-				class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
-				data-testid="intelligence-alerts-section"
+				class="ce-l-intelligence-segmented"
+				role="tablist"
+				aria-label="Case Intelligence workspace: Entities or Intelligence mode"
 			>
+				<button
+					type="button"
+					role="tab"
+					aria-selected={workspaceMode === 'entities'}
+					class="flex-1 min-w-[7rem] px-2.5 py-1.5 rounded-[var(--ce-l-radius-sm)] text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 {workspaceMode ===
+					'entities'
+						? 'bg-[var(--ce-l-surface)] text-[color:var(--ce-l-text-primary)] border border-[color:var(--ce-l-border-strong)]'
+						: 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/80'}"
+					data-testid="intelligence-workspace-mode-entities"
+					title="Registries first (Register via Add); Stage 1 staging; Stage 2 associations — Case Engine"
+					on:click={() => (workspaceMode = 'entities')}
+				>
+					Entities
+				</button>
+				<button
+					type="button"
+					role="tab"
+					aria-selected={workspaceMode === 'intelligence'}
+					class="flex-1 min-w-[7rem] px-2.5 py-1.5 rounded-[var(--ce-l-radius-sm)] text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 {workspaceMode ===
+					'intelligence'
+						? 'bg-[var(--ce-l-surface)] text-[color:var(--ce-l-text-primary)] border border-[color:var(--ce-l-border-strong)]'
+						: 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/80'}"
+					data-testid="intelligence-workspace-mode-intelligence"
+					title="Cross-case alerts, Ask/search, structured queries, analysis readouts — not a substitute for committed records"
+					on:click={() => (workspaceMode = 'intelligence')}
+				>
+					Intelligence
+				</button>
+			</div>
+
+			{#if workspaceMode === 'entities'}
+				<div class="space-y-4 -mx-2 md:-mx-4" data-testid="intelligence-workspace-entities-panel">
+					{#if directCreateSuccessMessage}
+						<div
+							class="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/90 dark:bg-emerald-950/40 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-100"
+							data-testid="intelligence-direct-create-success"
+							role="status"
+						>
+							{directCreateSuccessMessage}
+						</div>
+					{/if}
+					<div
+						class="rounded-2xl border border-slate-600/45 bg-gradient-to-r from-slate-900/95 via-slate-950/90 to-slate-950 px-4 py-3 space-y-1.5 shadow-[0_12px_40px_-20px_rgba(0,0,0,0.45)] ring-1 ring-cyan-500/10"
+						data-testid="intelligence-entities-workflow-path"
+					>
+						<p class="text-[11px] font-bold tracking-wide text-slate-100">Entities overview board</p>
+						<p class="text-[11px] text-slate-400 leading-relaxed">
+							Four registries (phone gated until P69-10). <strong class="text-slate-200">Register</strong> via panel Add or
+							toolbar — Case Engine commit. Staging: expand <strong class="text-slate-200">Intake / staging</strong>.
+							<strong class="text-slate-200">P19</strong> remains on <a class="text-cyan-400 hover:underline" href="/case/{caseId}/proposals">Proposals</a>.
+						</p>
+					</div>
+
+					<div
+						class={entitiesFocusMode === 'focus' ? 'hidden' : ''}
+						inert={entitiesFocusMode === 'focus'}
+						aria-hidden={entitiesFocusMode === 'focus' ? 'true' : 'false'}
+						data-testid="intelligence-entities-board-slot"
+					>
+						<EntitiesOverviewBoardShell
+							bind:this={entitiesBoardShell}
+							caseId={caseId ?? ''}
+							token={$caseEngineToken ?? ''}
+							caseTitle={$activeCaseMeta?.title ?? ''}
+							caseNumber={$activeCaseMeta?.case_number ?? ''}
+							refreshNonce={entityRegistryRefreshNonce}
+							selectedEntityId={selectedRegistryEntityId}
+							onFocusRequested={requestEntityFocus}
+							onRegistryRowActivate={(d) => {
+								if (entitiesFocusMode !== 'board') return;
+								selectedRegistryEntityId = d.entity.id;
+								entityDetailSeed = d.entity;
+								entityDetailOpen = true;
+							}}
+							onAddRequest={handleIntelCreateRequest}
+						/>
+					</div>
+					{#if entitiesFocusMode === 'focus' && entitiesFocusSeed && entitiesBoardSnapshot}
+						<EntitiesFocusModeShell
+							caseId={caseId ?? ''}
+							token={$caseEngineToken ?? ''}
+							focusedEntity={entitiesFocusSeed}
+							caseTitle={$activeCaseMeta?.title ?? ''}
+							caseNumber={$activeCaseMeta?.case_number ?? ''}
+							refreshNonce={entityRegistryRefreshNonce}
+							seedPanelState={entitiesBoardSnapshot.panels?.[entitiesFocusSeed.entity_kind]}
+							onBack={() => void exitEntityFocus()}
+							onAddRequest={handleIntelCreateRequest}
+							onOpenAssociationComposer={(ent) => {
+								entityDetailSeed = ent;
+								selectedRegistryEntityId = ent.id;
+								entityDetailOpen = true;
+							}}
+						/>
+					{/if}
+					<span data-testid="entities-focus-mode" class="sr-only">{entitiesFocusMode}</span>
+				</div>
+			{:else}
+				<div class="space-y-6" data-testid="intelligence-workspace-intelligence-panel">
+				<div
+					class="rounded-xl border border-indigo-200/80 dark:border-indigo-900/50 bg-indigo-50/60 dark:bg-indigo-950/25 p-4 space-y-2"
+					data-testid="intelligence-ws-framing"
+				>
+					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+						Intelligence mode — analysis &amp; non-authoritative support
+					</h2>
+					<p class="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">
+						<strong class="text-gray-800 dark:text-gray-200">Entities</strong> — registries first, then Stage&nbsp;1 staging and
+						Stage&nbsp;2 edges (Case Engine authority). This <strong class="text-gray-800 dark:text-gray-200">Intelligence</strong>
+						mode is for signals, Ask/search, and lookups. Treat outputs as support until they appear in committed registries,
+						governed proposals, or associations as appropriate.
+					</p>
+					<p class="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">
+						<strong>Governed timeline / notebook changes</strong> (P19) belong on the
+						<a
+							class="text-blue-700 dark:text-blue-400 hover:underline font-medium"
+							href="/case/{caseId}/proposals">Proposals</a>
+						tab — review and commit there; do not treat analysis text or search hits as automatic case records.
+					</p>
+				</div>
+
+				<div class="space-y-3" data-testid="intelligence-ws-signals">
+				<div class="px-0 md:px-1 space-y-0.5">
+					<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
+						Signals &amp; cross-case alerts
+					</h2>
+					<p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+						Cross-case overlap hints — triage with excerpts; they are not committed entity or association facts. For case
+						intel truth, open <strong class="text-gray-600 dark:text-gray-300">Entities</strong> (registries first).
+					</p>
+				</div>
+
+				<!-- ── Cross-case entity alerts (P28-40) ──────────────────────────── -->
+				<div
+					class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
+					data-testid="intelligence-alerts-section"
+				>
 				<div class="flex items-center justify-between gap-2 flex-wrap">
 					<div>
 						<h2
@@ -680,8 +954,21 @@
 					</ul>
 				{/if}
 			</div>
+				</div>
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
+				<div class="space-y-4" data-testid="intelligence-ws-retrieval">
+				<div class="px-0 md:px-1 space-y-0.5">
+					<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
+						Ask, search &amp; structured queries
+					</h2>
+					<p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+						Run Ask/search and structured queries here (read-only retrieval). Results do not create timeline, notebook, or intel
+						records — use <strong class="text-gray-600 dark:text-gray-300">Proposals</strong> or <strong
+							class="text-gray-600 dark:text-gray-300">Entities</strong> when something must become official.
+					</p>
+				</div>
+
+			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3" data-testid="intelligence-ws-ask-search">
 				<div class="flex flex-wrap items-end gap-2">
 					<div>
 						<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Scope</label>
@@ -756,7 +1043,7 @@
 				{/if}
 			</div>
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3">
+			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3" data-testid="intelligence-ws-structured-queries">
 				<div>
 					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Structured Queries</h2>
 					<p class="text-[11px] text-gray-500 dark:text-gray-400">
@@ -842,6 +1129,17 @@
 					{/if}
 				{/if}
 			</div>
+				</div>
+
+				<div class="px-0 md:px-1 space-y-0.5 mb-1" data-testid="intelligence-ws-results-intro">
+					<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
+						Analysis, evidence &amp; citations
+					</h2>
+					<p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+						From your last run — compare to <strong class="text-gray-600 dark:text-gray-300">Entities</strong> for who/what is
+						committed; citations support traceability only.
+					</p>
+				</div>
 
 			{#if allSectionsEmpty}
 				<div class="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
@@ -979,7 +1277,7 @@
 										>
 											{rc.caseNumber}
 										</a>
-										<span class="text-gray-500 dark:text-gray-400">{rc.title}</span>
+										<span class="text-gray-500 dark:text-gray-400">{rc.caseTitle}</span>
 										<span class="text-gray-400 dark:text-gray-500">({rc.unit})</span>
 										<span class="ml-auto text-gray-500 dark:text-gray-400">{rc.matchCount} match(es)</span>
 									</div>
@@ -989,11 +1287,16 @@
 					{/if}
 				</div>
 				<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Entity Intelligence</h2>
+					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Entity Intelligence (search)</h2>
+					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+						<strong>Read-only:</strong> entity-shaped <strong>hits from intelligence search</strong>, not the
+						<strong>committed</strong> registry entities in Entities mode above.
+					</p>
 					{#if ranSearch && !loading && entityTypeGroups.length === 0 && !allSectionsEmpty}
-						<p class="text-sm text-gray-500 dark:text-gray-400">No entity intelligence available for this query.</p>
+						<p class="text-sm text-gray-500 dark:text-gray-400">No search entity hits for this query.</p>
 						<p class="text-[11px] text-gray-500 dark:text-gray-400">
-							Entity intelligence appears when identifiable entities are returned by backend intelligence results.
+							This list appears when the backend returns identifiable entity-type matches for your search — separate
+							from the Entities workspace registries / staging panels.
 						</p>
 						{#if matchedCaseSummaries.length > 0}
 							<p class="text-[11px] text-gray-500 dark:text-gray-400">
@@ -1059,9 +1362,33 @@
 					{/if}
 				{/if}
 			</div>
+				</div>
+			{/if}
 		{/if}
 	</div>
 </div>
+</CaseWorkspaceContentRegion>
+
+<CaseIntelligenceEntityCreateModal
+	open={createModalOpen}
+	caseId={caseId ?? ''}
+	token={$caseEngineToken ?? ''}
+	entityKind={createModalKind}
+	on:close={handleIntelCreateModalClose}
+	on:created={handleIntelDirectEntityCreated}
+/>
+
+<CaseIntelligenceEntityDetailModal
+	open={entityDetailOpen}
+	caseId={caseId}
+	token={$caseEngineToken ?? ''}
+	seedEntity={entityDetailSeed}
+	on:close={async () => {
+		entityDetailOpen = false;
+		await tick();
+		entityDetailSeed = null;
+	}}
+/>
 
 <!-- P29-01: ACK confirm dialog — prevents accidental state mutation -->
 <ConfirmDialog

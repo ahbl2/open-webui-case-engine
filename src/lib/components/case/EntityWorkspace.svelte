@@ -1,7 +1,14 @@
 <script lang="ts">
 	import { toast } from 'svelte-sonner';
 	import { listWorkflowItems, type WorkflowItem } from '$lib/apis/caseEngine';
-	import { getStatusBadgeClasses, getOriginBadgeClasses, getPriorityEmoji } from '$lib/components/case/workflowStatus';
+	import {
+		getStatusBadgeClasses,
+		getOriginBadgeClasses,
+		getPriorityEmoji,
+		formatWorkflowItemTypeForDisplay,
+		formatWorkflowStatusForDisplay,
+		formatWorkflowOriginForDisplay
+	} from '$lib/components/case/workflowStatus';
 
 	export let caseId: string;
 	export let token: string;
@@ -125,7 +132,7 @@
 								: ''}"
 						>
 							<td class="px-2 py-1.5">
-								<span class="font-medium">{item.type}</span>
+								<span class="font-medium">{formatWorkflowItemTypeForDisplay(item.type)}</span>
 								{#if item.deleted_at}
 									<span class="ml-1 text-xs text-amber-600 dark:text-amber-400">(deleted)</span>
 								{/if}
@@ -142,7 +149,7 @@
 										item.status
 									)}`}
 								>
-									{item.status}
+									{formatWorkflowStatusForDisplay(item.status)}
 								</span>
 							</td>
 							<td class="px-2 py-1.5">
@@ -163,7 +170,7 @@
 										item.origin
 									)}`}
 								>
-									{item.origin}
+									{formatWorkflowOriginForDisplay(item.origin)}
 								</span>
 							</td>
 							<td class="px-2 py-1.5 text-xs">

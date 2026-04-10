@@ -14,10 +14,12 @@
 	 *   - Self-review and capability errors are distinct from generic 403s.
 	 * P40-05 — Multi-proposal confirm dialogs (≥2), queue mix summary, bulk commit disabled reasons.
 	 */
-	import { onMount } from 'svelte';
-	import { afterNavigate } from '$app/navigation';
+	import { onMount, onDestroy, tick } from 'svelte';
+	import { afterNavigate, beforeNavigate, goto } from '$app/navigation';
 	import {
-		listProposals,
+		listProposalsPaginated,
+		PROPOSALS_LOAD_MORE_CHUNK,
+		PROPOSALS_TAB_PAGE_SIZE,
 		approveProposal,
 		rejectProposal,
 		commitProposal,
@@ -36,7 +38,6 @@
 		classifyApiError,
 		timelineProposalCommitBlockedByLowChronology,
 		normalizeProposalPayloadChronologyConfidence,
-		groupByStatus,
 		statusLabel,
 		payloadPreview,
 		documentTimelineIngestOperatorNarrative,
@@ -51,7 +52,7 @@
 		formatCaseDateTime,
 		formatOperationalCaseDateTimeWithSeconds
 	} from '$lib/utils/formatDateTime';
-	import { isoToDatetimeLocal, datetimeLocalToIso } from '$lib/caseTimeline/timelineOccurredAtLocal';
+	import { datetimeLocalToIso } from '$lib/caseTimeline/timelineOccurredAtLocal';
 	import {
 		TIMELINE_ENTRY_TYPE_VALUES,
 		timelineEntryTypeOptionLabel,
@@ -66,6 +67,11 @@
 	import OccurredAtTimestampReconciliationReview from './OccurredAtTimestampReconciliationReview.svelte';
 	import OccurredAtGuidanceReview from './OccurredAtGuidanceReview.svelte';
 	import { parseDeterministicTimestampCandidatesFromPayload } from '$lib/caseTimeline/deterministicTimestampCandidates';
+	import {
+		documentIngestEditFieldsFromPayload,
+		isDocumentIngestEditDirtyForProposal
+	} from '$lib/utils/proposalDocumentIngestEditGuard';
+	import { isStaleProposalsLoadMoreAppend } from '$lib/utils/proposalListLoadMoreStaleGuard';
 
 	// ── Props ──────────────────────────────────────────────────────────────────
 
@@ -98,8 +104,33 @@
 	// ── Data state ─────────────────────────────────────────────────────────────
 
 	let proposals: ProposalRecord[] = [];
+	/** P43-08 — server totals for tab badges (same proposal_type filter as the list request when Type ≠ All). */
+	let totalsByStatus: Record<ProposalStatus, number> = {
+		pending: 0,
+		approved: 0,
+		rejected: 0,
+		committed: 0
+	};
+	/** Authoritative row count for the active status tab (with type filter). */
+	let totalForActiveTab = 0;
+	/** P43-10-FU2 — more rows exist on the server for the active list context. */
+	let hasMore = false;
+	let isLoadingMore = false;
+	let loadMoreError = '';
+	/** P43-10-FU2 — load-more op generation (Timeline `timelineLoadMoreEpoch` parity). */
+	let proposalsLoadMoreEpoch = 0;
+	let scrollSentinelEl: HTMLElement | undefined;
+	let scrollObserver: IntersectionObserver | undefined;
+	/** P43-10 — draft search text; applied search is what the server last used (guarded in load completion). */
+	let listSearchDraft = '';
+	let listSearchApplied = '';
 	let loading = false;
 	let loadError = '';
+	/** P43-07 (I-03) — superseded in-flight list fetches must not overwrite newer results (c.f. CaseFilesTab `activeLoadId`). */
+	let activeProposalsLoadId = 0;
+
+	/** P43-10-FU1 — list region used to find scroll ports (`overflow-y` on this node or ancestors; chat tool uses outer `overflow-auto`). */
+	let proposalListViewportEl: HTMLDivElement | null = null;
 
 	// ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -143,19 +174,20 @@
 	let bulkConfirmChronologyShow = false;
 	let bulkConfirmChronologyCount = 0;
 
+	/** P43-05 (I-01) — block destructive transitions while document-ingest fields are dirty. */
+	let docEditLossDialogShow = false;
+	let pendingDestructive: (() => Promise<void>) | null = null;
+	let hideGuardResolve: ((allowed: boolean) => void) | null = null;
+	let pendingGotoUrl: URL | null = null;
+
 	// ── Computed ───────────────────────────────────────────────────────────────
 
-	$: proposalsFiltered =
-		typeFilter === 'all'
-			? proposals
-			: proposals.filter((p) => p.proposal_type === typeFilter);
-	$: grouped = groupByStatus(proposalsFiltered);
-	$: pendingCount = grouped.pending.length;
-	$: approvedCount = grouped.approved.length;
-	$: rejectedCount = grouped.rejected.length;
-	$: committedCount = grouped.committed.length;
+	$: pendingCount = totalsByStatus.pending;
+	$: approvedCount = totalsByStatus.approved;
+	$: rejectedCount = totalsByStatus.rejected;
+	$: committedCount = totalsByStatus.committed;
 
-	$: activeProposals = grouped[activeTab] ?? [];
+	$: activeProposals = proposals;
 	$: allSelectedOnTab =
 		activeProposals.length > 0 && activeProposals.every((p) => selected.has(p.id));
 	$: anySelectedOnTab = activeProposals.some((p) => selected.has(p.id));
@@ -174,27 +206,318 @@
 	$: bulkConfirmChronologyEnabled = bulkChronologyBlockedIds.length > 0 && !bulkProcessing;
 
 	$: selectedOnTabCount = activeProposals.filter((p) => selected.has(p.id)).length;
-	$: queueMixSummary = formatProposalQueueMixSummary(summarizeProposalQueueMix(proposalsFiltered));
+	$: queueMixSummary = formatProposalQueueMixSummary(summarizeProposalQueueMix(activeProposals));
 	$: bulkCommitBlockedReason = bulkCommitSelectionBlockedReason(selected, proposals);
 	$: bulkPendingRejectCount = getBulkApprovePendingTargets(selected, proposals).length;
-	$: bulkApproveConfirmMessage = `You are about to approve **${bulkApproveConfirmCount}** pending proposals. They move to Approved only — nothing is written to the official Timeline or Notes until you commit. Other proposals stay on their current tabs.`;
-	$: bulkCommitConfirmMessage = `This creates **${bulkCommitConfirmCount}** official case records (Timeline entries and/or Notes). Pending or unselected proposals are unchanged. The server still enforces chronology rules on every commit.`;
+	$: bulkApproveConfirmMessage = `You are about to approve **${bulkApproveConfirmCount}** pending proposals. They move to the **Approved** workflow tab only (human-reviewed staging) — nothing is written to the official Timeline or governed Notes until you **commit**. Other proposals stay on their current tabs.`;
+	$: bulkCommitConfirmMessage = `This commits **${bulkCommitConfirmCount}** approved proposal(s) into official case records (Timeline entries and/or governed Notes). Pending or unselected proposals are unchanged. The server still enforces chronology rules on every commit.`;
 
 	// ── Data loading ───────────────────────────────────────────────────────────
 
-	export async function loadProposals(): Promise<void> {
-		if (!token) return;
-		loading = true;
-		loadError = '';
-		try {
-			proposals = await listProposals(caseId, token);
-			docEditById = {};
-		} catch (err) {
-			loadError = classifyApiError(err);
-		} finally {
-			loading = false;
+	function hasDirtyDocumentIngestEdits(): boolean {
+		for (const id of Object.keys(docEditById)) {
+			const edit = docEditById[id];
+			const prop = proposals.find((p) => p.id === id);
+			if (!prop) return true;
+			if (isDocumentIngestEditDirtyForProposal(edit, prop)) return true;
+		}
+		return false;
+	}
+
+	async function runWithDocEditGuard(destructive: () => Promise<void>): Promise<void> {
+		if (!hasDirtyDocumentIngestEdits()) {
+			await destructive();
+			return;
+		}
+		if (docEditLossDialogShow) {
+			if (hideGuardResolve != null) return;
+			pendingDestructive = destructive;
+			return;
+		}
+		pendingDestructive = destructive;
+		hideGuardResolve = null;
+		docEditLossDialogShow = true;
+	}
+
+	/** P43-10-FU1 — reset scroll for the proposals list viewport (internal + nearest `overflow-y` ancestors; stops before `document.body`). */
+	function scrollProposalListPortToTop(): void {
+		let el: HTMLElement | null = proposalListViewportEl;
+		if (!el) return;
+		for (let i = 0; el && i < 16; i++, el = el.parentElement) {
+			if (el === document.body || el === document.documentElement) break;
+			const oy = getComputedStyle(el).overflowY;
+			if (oy === 'auto' || oy === 'scroll') {
+				el.scrollTop = 0;
+			}
 		}
 	}
+
+	/** P43-10-FU1 + P44-05 — Defer `activeTab` (and search clears) until after the document-ingest guard: if the operator Cancels, tab chrome must still match the loaded list (no mismatch from setting `activeTab` before `loadProposals`). */
+	async function selectProposalStatusTab(next: ProposalStatus): Promise<void> {
+		await runWithDocEditGuard(async () => {
+			isLoadingMore = false;
+			loadMoreError = '';
+			activeTab = next;
+			selected = new Set();
+			if (next === 'rejected' || next === 'committed') {
+				listSearchDraft = '';
+				listSearchApplied = '';
+			}
+			await tick();
+			scrollProposalListPortToTop();
+			await loadProposals();
+		});
+	}
+
+	function setupScrollObserver(): void {
+		scrollObserver?.disconnect();
+		if (!scrollSentinelEl) {
+			scrollObserver = undefined;
+			return;
+		}
+		scrollObserver = new IntersectionObserver(
+			(observed) => {
+				if (
+					observed[0]?.isIntersecting &&
+					hasMore &&
+					!isLoadingMore &&
+					!loading &&
+					!loadError
+				) {
+					void executeLoadMoreProposals();
+				}
+			},
+			{ root: null, rootMargin: '200px', threshold: 0 }
+		);
+		scrollObserver.observe(scrollSentinelEl);
+	}
+
+	$: if (scrollSentinelEl) {
+		const el = scrollSentinelEl;
+		requestAnimationFrame(() => {
+			if (scrollSentinelEl === el) setupScrollObserver();
+		});
+	} else {
+		scrollObserver?.disconnect();
+		scrollObserver = undefined;
+	}
+
+	/** P43-10-FU2 — append next chunk; not behind P43-05 guard (does not replace list or clear doc edits). */
+	async function executeLoadMoreProposals(): Promise<void> {
+		if (!token || !hasMore || isLoadingMore || loading || loadError) return;
+		const fetchGen = activeProposalsLoadId;
+		const requestedCaseId = caseId;
+		const myLoadMoreOp = ++proposalsLoadMoreEpoch;
+		const loadTab = activeTab;
+		const loadType = typeFilter;
+		const loadSearch = listSearchApplied;
+		const appendBaseLen = proposals.length;
+
+		isLoadingMore = true;
+		loadMoreError = '';
+		try {
+			const proposalTypeArg =
+				loadType === 'all' ? undefined : (loadType as 'timeline' | 'note');
+			const searchTab = loadTab === 'pending' || loadTab === 'approved';
+			const page = await listProposalsPaginated(caseId, token, loadTab, {
+				limit: PROPOSALS_LOAD_MORE_CHUNK,
+				offset: appendBaseLen,
+				proposalType: proposalTypeArg,
+				...(searchTab && loadSearch.trim() ? { query: loadSearch.trim() } : {})
+			});
+			if (
+				isStaleProposalsLoadMoreAppend(fetchGen, activeProposalsLoadId, requestedCaseId, caseId)
+			) {
+				return;
+			}
+			if (activeTab !== loadTab || typeFilter !== loadType || listSearchApplied !== loadSearch) {
+				return;
+			}
+			if (proposals.length !== appendBaseLen) return;
+			if (page.offset !== appendBaseLen) return;
+			const existingIds = new Set(proposals.map((p) => p.id));
+			const fresh = page.proposals.filter((p) => !existingIds.has(p.id));
+			proposals = [...proposals, ...fresh];
+			hasMore = proposals.length < totalForActiveTab;
+		} catch (e: unknown) {
+			if (
+				!isStaleProposalsLoadMoreAppend(fetchGen, activeProposalsLoadId, requestedCaseId, caseId)
+			) {
+				loadMoreError =
+					e instanceof Error ? e.message : 'Failed to load more proposals.';
+			}
+		} finally {
+			if (myLoadMoreOp === proposalsLoadMoreEpoch) {
+				isLoadingMore = false;
+			}
+		}
+	}
+
+	async function executeLoadProposals(): Promise<void> {
+		if (!token) return;
+		activeProposalsLoadId += 1;
+		proposalsLoadMoreEpoch += 1;
+		const loadId = activeProposalsLoadId;
+		const loadCaseId = caseId;
+		const loadToken = token;
+		const loadTab = activeTab;
+		const loadType = typeFilter;
+		const loadSearchApplied = listSearchApplied;
+		loading = true;
+		loadError = '';
+		loadMoreError = '';
+		isLoadingMore = false;
+		hasMore = false;
+		try {
+			const proposalTypeArg =
+				loadType === 'all' ? undefined : (loadType as 'timeline' | 'note');
+			const searchTab = loadTab === 'pending' || loadTab === 'approved';
+			const page = await listProposalsPaginated(loadCaseId, loadToken, loadTab, {
+				limit: PROPOSALS_TAB_PAGE_SIZE,
+				offset: 0,
+				proposalType: proposalTypeArg,
+				...(searchTab && loadSearchApplied.trim()
+					? { query: loadSearchApplied.trim() }
+					: {})
+			});
+			if (loadId !== activeProposalsLoadId) return;
+			if (caseId !== loadCaseId || token !== loadToken) return;
+			if (activeTab !== loadTab || typeFilter !== loadType) return;
+			if (listSearchApplied !== loadSearchApplied) return;
+			proposals = page.proposals;
+			totalsByStatus = page.totalsByStatus;
+			totalForActiveTab = page.total;
+			hasMore = proposals.length < totalForActiveTab;
+			docEditById = {};
+			await tick();
+			scrollProposalListPortToTop();
+		} catch (err) {
+			if (loadId !== activeProposalsLoadId) return;
+			if (caseId !== loadCaseId || token !== loadToken) return;
+			if (activeTab !== loadTab || typeFilter !== loadType) return;
+			if (listSearchApplied !== loadSearchApplied) return;
+			loadError = classifyApiError(err);
+		} finally {
+			if (loadId === activeProposalsLoadId) loading = false;
+		}
+	}
+
+	/** Refetch list — prompts when document-ingest edits are unsaved (P43-05). */
+	export async function loadProposals(): Promise<void> {
+		await runWithDocEditGuard(() => executeLoadProposals());
+	}
+
+	async function onTypeFilterChange(): Promise<void> {
+		isLoadingMore = false;
+		loadMoreError = '';
+		await tick();
+		scrollProposalListPortToTop();
+		void loadProposals();
+	}
+
+	async function applyProposalSearch(): Promise<void> {
+		isLoadingMore = false;
+		loadMoreError = '';
+		listSearchApplied = listSearchDraft.trim();
+		await tick();
+		scrollProposalListPortToTop();
+		void loadProposals();
+	}
+
+	async function clearProposalSearch(): Promise<void> {
+		isLoadingMore = false;
+		loadMoreError = '';
+		listSearchDraft = '';
+		listSearchApplied = '';
+		await tick();
+		scrollProposalListPortToTop();
+		void loadProposals();
+	}
+
+	function onProposalSearchKeydown(e: KeyboardEvent): void {
+		if (e.key !== 'Enter') return;
+		e.preventDefault();
+		void applyProposalSearch();
+	}
+
+	async function completeDocEditGuardedAction(): Promise<void> {
+		const pd = pendingDestructive;
+		const hgr = hideGuardResolve;
+		pendingDestructive = null;
+		hideGuardResolve = null;
+		docEditLossDialogShow = false;
+		if (pd) await pd();
+		if (hgr) hgr(true);
+	}
+
+	function onDocEditLossDialogCancel(): void {
+		pendingGotoUrl = null;
+		pendingDestructive = null;
+		docEditLossDialogShow = false;
+		const hgr = hideGuardResolve;
+		hideGuardResolve = null;
+		hgr?.(false);
+	}
+
+	async function onDocEditLossDialogSave(): Promise<void> {
+		const dirtyIds = Object.keys(docEditById).filter((id) => {
+			const e = docEditById[id];
+			const p = proposals.find((x) => x.id === id);
+			return !!(p && isDocumentIngestEditDirtyForProposal(e, p));
+		});
+		for (const id of dirtyIds) {
+			const ok = await persistDocumentIngestEdit(id);
+			if (!ok) return;
+		}
+		pendingGotoUrl = null;
+		await completeDocEditGuardedAction();
+	}
+
+	async function onDocEditLossDialogDiscard(): Promise<void> {
+		const dirtyIds = Object.keys(docEditById).filter((id) => {
+			const e = docEditById[id];
+			const p = proposals.find((x) => x.id === id);
+			return !p || isDocumentIngestEditDirtyForProposal(e, p);
+		});
+		for (const id of dirtyIds) {
+			const { [id]: _removed, ...rest } = docEditById;
+			docEditById = rest;
+		}
+		for (const id of dirtyIds) {
+			const prop = proposals.find((p) => p.id === id);
+			if (prop?.proposal_type === 'timeline' && expanded.has(id)) {
+				const pl = parsePayload(prop.proposed_payload);
+				if (isDocumentTimelineIntakePayload(pl)) seedDocEditIfNeeded(id, pl);
+			}
+		}
+		pendingGotoUrl = null;
+		await completeDocEditGuardedAction();
+	}
+
+	/** Case Chat tool switch / panel collapse — caller awaits before unmounting this panel. */
+	export function guardBeforeHide(): Promise<boolean> {
+		if (!hasDirtyDocumentIngestEdits()) return Promise.resolve(true);
+		if (docEditLossDialogShow) return Promise.resolve(false);
+		return new Promise((resolve) => {
+			hideGuardResolve = resolve;
+			pendingDestructive = null;
+			docEditLossDialogShow = true;
+		});
+	}
+
+	beforeNavigate((nav) => {
+		if (!hasDirtyDocumentIngestEdits()) return;
+		nav.cancel();
+		if (docEditLossDialogShow) return;
+		pendingGotoUrl = nav.to?.url ?? null;
+		pendingDestructive = async () => {
+			const u = pendingGotoUrl;
+			pendingGotoUrl = null;
+			if (u) await goto(u);
+		};
+		hideGuardResolve = null;
+		docEditLossDialogShow = true;
+	});
 
 	// ── Expansion ──────────────────────────────────────────────────────────────
 
@@ -214,19 +537,9 @@
 
 	function seedDocEditIfNeeded(proposalId: string, payload: Record<string, unknown>): void {
 		if (docEditById[proposalId]) return;
-		const conf = String(payload.occurred_at_confidence ?? 'medium').toLowerCase();
-		const rawAt = payload.occurred_at != null ? String(payload.occurred_at).trim() : '';
-		docEditById = {
-			...docEditById,
-			[proposalId]: {
-				occurred_at: rawAt ? isoToDatetimeLocal(rawAt) : '',
-				type: String(payload.type ?? ''),
-				text_original: String(payload.text_original ?? ''),
-				text_cleaned: String(payload.text_cleaned ?? ''),
-				occurred_at_confidence: ['high', 'medium', 'low'].includes(conf) ? conf : 'medium',
-				operator_occurred_at_confirmed: payload.operator_occurred_at_confirmed === true
-			}
-		};
+		const fields = documentIngestEditFieldsFromPayload(payload);
+		if (!fields) return;
+		docEditById = { ...docEditById, [proposalId]: fields };
 	}
 
 	function toggleExpand(id: string): void {
@@ -265,11 +578,12 @@
 		}
 	}
 
-	async function saveDocumentIngestEdit(proposalId: string): Promise<void> {
+	/** Persist document-ingest fields — `true` on success. Used by Save edits and P43-05 dialog. */
+	async function persistDocumentIngestEdit(proposalId: string): Promise<boolean> {
 		const edit = docEditById[proposalId];
-		if (!edit) return;
+		if (!edit) return true;
 		const prop = proposals.find((p) => p.id === proposalId);
-		if (!prop) return;
+		if (!prop) return false;
 		clearProposalError(proposalId);
 		setInProgress(proposalId, true);
 		documentIngestSavingId = proposalId;
@@ -289,12 +603,18 @@
 			const { [proposalId]: _removed, ...rest } = docEditById;
 			docEditById = rest;
 			seedDocEditIfNeeded(proposalId, parsePayload(updated.proposed_payload));
+			return true;
 		} catch (err) {
 			setProposalError(proposalId, classifyApiError(err));
+			return false;
 		} finally {
 			documentIngestSavingId = '';
 			setInProgress(proposalId, false);
 		}
+	}
+
+	async function saveDocumentIngestEdit(proposalId: string): Promise<void> {
+		await persistDocumentIngestEdit(proposalId);
 	}
 
 	// ── Selection ──────────────────────────────────────────────────────────────
@@ -346,8 +666,19 @@
 		clearProposalError(id);
 		setInProgress(id, true);
 		try {
-			const updated = await approveProposal(caseId, id, token);
-			proposals = proposals.map((p) => (p.id === id ? updated : p));
+			await approveProposal(caseId, id, token);
+			proposals = proposals.filter((p) => p.id !== id);
+			if (activeTab === 'pending') {
+				totalForActiveTab = Math.max(0, totalForActiveTab - 1);
+				totalsByStatus = {
+					...totalsByStatus,
+					pending: Math.max(0, totalsByStatus.pending - 1),
+					approved: totalsByStatus.approved + 1
+				};
+			}
+			if (proposals.length === 0 && totalForActiveTab > 0 && !hasDirtyDocumentIngestEdits()) {
+				await executeLoadProposals();
+			}
 		} catch (err) {
 			setProposalError(id, classifyApiError(err));
 		} finally {
@@ -371,10 +702,21 @@
 		clearProposalError(id);
 		setInProgress(id, true);
 		try {
-			const updated = await rejectProposal(caseId, id, rejectReason, token);
-			proposals = proposals.map((p) => (p.id === id ? updated : p));
+			await rejectProposal(caseId, id, rejectReason, token);
+			proposals = proposals.filter((p) => p.id !== id);
+			if (activeTab === 'pending') {
+				totalForActiveTab = Math.max(0, totalForActiveTab - 1);
+				totalsByStatus = {
+					...totalsByStatus,
+					pending: Math.max(0, totalsByStatus.pending - 1),
+					rejected: totalsByStatus.rejected + 1
+				};
+			}
 			rejectingId = '';
 			rejectReason = '';
+			if (proposals.length === 0 && totalForActiveTab > 0 && !hasDirtyDocumentIngestEdits()) {
+				await executeLoadProposals();
+			}
 		} catch (err) {
 			setProposalError(id, classifyApiError(err));
 		} finally {
@@ -386,8 +728,19 @@
 		clearProposalError(id);
 		setInProgress(id, true);
 		try {
-			const updated = await commitProposal(caseId, id, token);
-			proposals = proposals.map((p) => (p.id === id ? updated : p));
+			await commitProposal(caseId, id, token);
+			proposals = proposals.filter((p) => p.id !== id);
+			if (activeTab === 'approved') {
+				totalForActiveTab = Math.max(0, totalForActiveTab - 1);
+				totalsByStatus = {
+					...totalsByStatus,
+					approved: Math.max(0, totalsByStatus.approved - 1),
+					committed: totalsByStatus.committed + 1
+				};
+			}
+			if (proposals.length === 0 && totalForActiveTab > 0 && !hasDirtyDocumentIngestEdits()) {
+				await executeLoadProposals();
+			}
 		} catch (err) {
 			setProposalError(id, classifyApiError(err));
 		} finally {
@@ -467,8 +820,7 @@
 			bulkProgressMsg = `Approving ${i + 1} of ${targets.length}…`;
 			const id = targets[i];
 			try {
-				const updated = await approveProposal(caseId, id, token);
-				proposals = proposals.map((p) => (p.id === id ? updated : p));
+				await approveProposal(caseId, id, token);
 			} catch (err) {
 				errors.push(`#${id.slice(0, 8)}: ${classifyApiError(err)}`);
 			}
@@ -479,6 +831,7 @@
 			bulkError = `${errors.length} approval(s) failed — ${errors.join('; ')}`;
 		} else {
 			selected = new Set();
+			void loadProposals();
 		}
 	}
 
@@ -505,8 +858,7 @@
 			bulkProgressMsg = `Rejecting ${i + 1} of ${targets.length}…`;
 			const id = targets[i];
 			try {
-				const updated = await rejectProposal(caseId, id, bulkRejectReason, token);
-				proposals = proposals.map((p) => (p.id === id ? updated : p));
+				await rejectProposal(caseId, id, bulkRejectReason, token);
 			} catch (err) {
 				errors.push(`#${id.slice(0, 8)}: ${classifyApiError(err)}`);
 			}
@@ -519,6 +871,7 @@
 			bulkError = `${errors.length} rejection(s) failed — ${errors.join('; ')}`;
 		} else {
 			selected = new Set();
+			void loadProposals();
 		}
 	}
 
@@ -569,8 +922,7 @@
 			bulkProgressMsg = `Committing ${i + 1} of ${targets.length}…`;
 			const id = targets[i];
 			try {
-				const updated = await commitProposal(caseId, id, token);
-				proposals = proposals.map((p) => (p.id === id ? updated : p));
+				await commitProposal(caseId, id, token);
 			} catch (err) {
 				errors.push(`#${id.slice(0, 8)}: ${classifyApiError(err)}`);
 			}
@@ -581,6 +933,7 @@
 			bulkError = `${errors.length} commit(s) failed — ${errors.join('; ')}`;
 		} else {
 			selected = new Set();
+			void loadProposals();
 		}
 	}
 
@@ -606,7 +959,12 @@
 	// ── Mount ──────────────────────────────────────────────────────────────────
 
 	onMount(() => {
-		loadProposals();
+		void executeLoadProposals();
+	});
+
+	onDestroy(() => {
+		scrollObserver?.disconnect();
+		scrollObserver = undefined;
 	});
 
 	afterNavigate(({ from }) => {
@@ -615,6 +973,12 @@
 		void loadProposals();
 	});
 </script>
+
+<svelte:window
+	on:keydown={(e) => {
+		if (e.key === 'Escape' && docEditLossDialogShow) onDocEditLossDialogCancel();
+	}}
+/>
 
 <div
 	class="flex flex-col text-xs {layout === 'page' ? 'h-full min-h-0 overflow-hidden' : ''}"
@@ -634,12 +998,77 @@
 		<button
 			type="button"
 			class="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50 shrink-0"
-			on:click={loadProposals}
-			disabled={loading}
+			on:click={() => void loadProposals()}
+			disabled={loading || docEditLossDialogShow}
 			data-testid="proposals-refresh-btn"
+			title="Reload proposal lists from Case Engine (this case; current tab, type filter, and search if applied)"
 		>
 			{loading ? 'Loading…' : '↻ Refresh'}
 		</button>
+	</div>
+
+	<!-- ── STATUS TAB BAR (P45-02 — workflow vs outcome visual grouping); P45-08 — before Type/Search -->
+	<div
+		class="flex shrink-0 flex-nowrap items-stretch border-b border-gray-200 dark:border-gray-700 overflow-x-auto bg-gray-50 dark:bg-gray-900"
+	>
+		<div class="flex items-stretch min-w-0" data-testid="proposal-tabs-workflow-group">
+			<button
+				type="button"
+				class={tabClasses('pending', activeTab)}
+				on:click={() => void selectProposalStatusTab('pending')}
+				data-testid="tab-pending"
+				title="Pending — proposals awaiting review (workflow queue; approve, reject, or edit before commit)"
+			>
+				Pending{pendingCount > 0 ? ` (${pendingCount})` : ''}
+			</button>
+			<button
+				type="button"
+				class={tabClasses('approved', activeTab)}
+				on:click={() => void selectProposalStatusTab('approved')}
+				data-testid="tab-approved"
+				title="Approved — human-reviewed staging only; not on the official case record until you commit"
+			>
+				Approved{approvedCount > 0 ? ` (${approvedCount})` : ''}
+			</button>
+			<button
+				type="button"
+				class={tabClasses('rejected', activeTab)}
+				on:click={() => void selectProposalStatusTab('rejected')}
+				data-testid="tab-rejected"
+				title="Rejected — removed from the review workflow (not written to the official case record via commit)"
+			>
+				Rejected{rejectedCount > 0 ? ` (${rejectedCount})` : ''}
+			</button>
+		</div>
+		<div
+			class="w-px shrink-0 self-stretch bg-gray-200 dark:bg-gray-600 mx-2 sm:mx-3"
+			aria-hidden="true"
+			data-testid="proposal-tabs-workflow-outcome-divider"
+		/>
+		<div class="flex items-stretch shrink-0" data-testid="proposal-tabs-outcome-group">
+			<button
+				type="button"
+				class={tabClasses('committed', activeTab)}
+				on:click={() => void selectProposalStatusTab('committed')}
+				data-testid="tab-committed"
+				title="Committed — outcome already saved to the case record (official Timeline or governed Note)"
+			>
+				Committed{committedCount > 0 ? ` (${committedCount})` : ''}
+			</button>
+		</div>
+	</div>
+
+	<div
+		class="shrink-0 px-3 py-2 text-[10px] leading-snug text-gray-500 dark:text-gray-500 border-b border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-950/40"
+		data-testid="proposal-status-tabs-hint"
+	>
+		<strong class="font-medium text-gray-600 dark:text-gray-400">Workflow vs outcome:</strong>
+		<strong class="font-medium text-gray-600 dark:text-gray-400">Pending</strong>, <strong
+			class="font-medium text-gray-600 dark:text-gray-400">Approved</strong
+		>, and <strong class="font-medium text-gray-600 dark:text-gray-400">Rejected</strong> — review queues only.
+		<strong class="font-medium text-gray-600 dark:text-gray-400">Commit</strong> writes the official case
+		record; <strong class="font-medium text-gray-600 dark:text-gray-400">Committed</strong> — outcomes already
+		on the record.
 	</div>
 
 	<!-- ── TYPE FILTER ─────────────────────────────────────────────────────── -->
@@ -652,8 +1081,10 @@
 		<select
 			id="proposal-type-filter-{caseId}"
 			bind:value={typeFilter}
+			on:change={() => void onTypeFilterChange()}
 			class="text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 py-0.5 px-1.5 max-w-[11rem]"
 			data-testid="proposal-type-filter"
+			title="Limit the list to all proposal types, timeline only, or note only (current status tab)"
 		>
 			<option value="all">All types</option>
 			<option value="timeline">Timeline</option>
@@ -661,51 +1092,106 @@
 		</select>
 	</div>
 
-	<!-- ── STATUS TAB BAR ──────────────────────────────────────────────────── -->
+	<!-- P43-10 search; P45-04 scope copy; P45-10 — reserved height on Rejected/Committed (no layout shift) -->
 	<div
-		class="flex shrink-0 border-b border-gray-200 dark:border-gray-700 overflow-x-auto bg-gray-50 dark:bg-gray-900"
+		class="shrink-0 flex flex-col min-h-[5.5rem] border-b border-gray-200 dark:border-gray-800 bg-white/60 dark:bg-gray-950/50"
+		data-testid="proposals-search-region"
 	>
-		<button
-			type="button"
-			class={tabClasses('pending', activeTab)}
-			on:click={() => { activeTab = 'pending'; selected = new Set(); }}
-			data-testid="tab-pending"
-		>
-			Pending{pendingCount > 0 ? ` (${pendingCount})` : ''}
-		</button>
-		<button
-			type="button"
-			class={tabClasses('approved', activeTab)}
-			on:click={() => { activeTab = 'approved'; selected = new Set(); }}
-			data-testid="tab-approved"
-		>
-			Approved{approvedCount > 0 ? ` (${approvedCount})` : ''}
-		</button>
-		<button
-			type="button"
-			class={tabClasses('rejected', activeTab)}
-			on:click={() => { activeTab = 'rejected'; selected = new Set(); }}
-			data-testid="tab-rejected"
-		>
-			Rejected{rejectedCount > 0 ? ` (${rejectedCount})` : ''}
-		</button>
-		<button
-			type="button"
-			class={tabClasses('committed', activeTab)}
-			on:click={() => { activeTab = 'committed'; selected = new Set(); }}
-			data-testid="tab-committed"
-		>
-			Committed{committedCount > 0 ? ` (${committedCount})` : ''}
-		</button>
+		{#if activeTab === 'pending' || activeTab === 'approved'}
+			<div
+				class="flex flex-col gap-1.5 px-3 py-2 shrink-0"
+				data-testid="proposals-search-row"
+				aria-label="Search proposal text on this tab for this case"
+			>
+				<div class="flex flex-wrap items-center gap-2 w-full">
+					<label for="proposals-search-{caseId}" class="text-[10px] text-gray-500 dark:text-gray-400 shrink-0"
+						>Search</label
+					>
+					<input
+						id="proposals-search-{caseId}"
+						type="search"
+						bind:value={listSearchDraft}
+						on:keydown={onProposalSearchKeydown}
+						placeholder="Substring in proposal text (this case, this tab, Type filter applies)…"
+						class="flex-1 min-w-[8rem] text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 py-0.5 px-1.5"
+						data-testid="proposals-search-input"
+						autocomplete="off"
+					/>
+					<button
+						type="button"
+						class="shrink-0 px-2 py-0.5 rounded text-[11px] font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+						on:click={() => void applyProposalSearch()}
+						disabled={loading || docEditLossDialogShow}
+						data-testid="proposals-search-submit"
+						title="Apply search: server-side case-insensitive substring on proposal payload for this tab (see scope below)"
+					>
+						Search
+					</button>
+					{#if listSearchApplied}
+						<button
+							type="button"
+							class="shrink-0 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+							on:click={() => void clearProposalSearch()}
+							disabled={loading || docEditLossDialogShow}
+							data-testid="proposals-search-clear"
+							title="Clear applied search and reload the full list for this tab"
+						>
+							Clear
+						</button>
+						<span class="text-[10px] text-gray-500 dark:text-gray-400 shrink-0" data-testid="proposals-search-active">
+							Filtering by: “{listSearchApplied}”
+						</span>
+					{/if}
+				</div>
+				<p
+					class="text-[10px] leading-snug text-gray-500 dark:text-gray-400 pl-0"
+					data-testid="proposals-search-scope-hint"
+				>
+					{#if activeTab === 'pending'}
+						<strong class="font-medium text-gray-600 dark:text-gray-300">Scope:</strong>
+						this case’s <strong class="font-medium text-gray-600 dark:text-gray-300">Pending</strong> proposals
+						only; case-insensitive substring on the saved proposal payload text. Respects the
+						<strong class="font-medium text-gray-600 dark:text-gray-300">Type</strong> row above. No search on
+						Approved (switch tab), Rejected, or Committed.
+					{:else}
+						<strong class="font-medium text-gray-600 dark:text-gray-300">Scope:</strong>
+						this case’s <strong class="font-medium text-gray-600 dark:text-gray-300">Approved</strong> proposals
+						only; case-insensitive substring on the saved proposal payload text. Respects the
+						<strong class="font-medium text-gray-600 dark:text-gray-300">Type</strong> row above. No search on
+						Pending (switch tab), Rejected, or Committed.
+					{/if}
+				</p>
+			</div>
+		{:else}
+			<div
+				class="flex-1 min-h-0 min-w-0 shrink-0"
+				aria-hidden="true"
+				data-testid="proposals-search-placeholder"
+			></div>
+		{/if}
 	</div>
 
-	{#if proposalsFiltered.length > 0}
+	{#if activeProposals.length > 0}
 		<div
 			class="shrink-0 px-3 py-1.5 text-[10px] leading-snug text-gray-600 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30"
 			data-testid="proposal-queue-mix-summary"
 		>
-			<span class="font-medium text-gray-700 dark:text-gray-300">Queue:</span>
+			<span class="font-medium text-gray-700 dark:text-gray-300">This page:</span>
 			{queueMixSummary}
+		</div>
+	{/if}
+
+	{#if !loadError && totalForActiveTab > 0}
+		<div
+			class="shrink-0 px-3 py-1.5 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950"
+			data-testid="proposals-list-progress"
+		>
+			<span class="text-[10px] text-gray-500 dark:text-gray-400">
+				Showing {activeProposals.length} of {totalForActiveTab}
+				{#if hasMore}
+					<span class="text-gray-400 dark:text-gray-500"> · scroll to load more</span>
+				{/if}
+			</span>
 		</div>
 	{/if}
 
@@ -718,8 +1204,8 @@
 		>
 			<strong class="font-semibold block mb-1">Partial file used for these proposals</strong>
 			Only the beginning of the extracted text was sent to the model. This list does <strong>not</strong> reflect the
-			whole file — important events that appear later in the document may be missing. Open the full extracted text on
-			<strong>Case Files</strong> before you approve or commit.
+			whole file — important events that appear later in the document may be missing. 									Open the full extracted text on
+			<strong>Case Files</strong> before you approve (workflow) or commit (official record).
 		</div>
 	{/if}
 
@@ -752,6 +1238,7 @@
 							on:click={handleBulkReject}
 							disabled={!bulkRejectReason.trim() || bulkProcessing}
 							data-testid="bulk-reject-confirm-btn"
+							title="Submit bulk rejection with the reason above (workflow only; not on the official case record)"
 						>
 							{bulkProcessing ? bulkProgressMsg || 'Rejecting…' : 'Confirm Rejection'}
 						</button>
@@ -781,7 +1268,7 @@
 								on:click={requestBulkApprove}
 								disabled={bulkProcessing}
 								data-testid="bulk-approve-btn"
-								title="Approve pending items in this selection (not on official record until commit)"
+								title="Review workflow: approve pending items in this selection (staging only — not on the official case record until commit)"
 							>
 								{bulkProcessing ? bulkProgressMsg : '✓ Approve Selected'}
 							</button>
@@ -795,6 +1282,7 @@
 								on:click={startBulkReject}
 								disabled={bulkProcessing}
 								data-testid="bulk-reject-btn"
+								title="Reject selected pending proposals (requires reason; not written to the official case record)"
 							>
 								✕ Reject Selected
 							</button>
@@ -819,7 +1307,7 @@
 						on:click={requestBulkCommit}
 						disabled={!bulkCommitEnabled || bulkProcessing}
 						title={bulkCommitEnabled
-							? 'Creates official Timeline / Note records for each selected approved proposal'
+							? 'Commits each selected approved proposal into the official case record (Timeline / governed Note)'
 							: bulkCommitBlockedReason ?? 'Cannot commit this selection'}
 						data-testid="bulk-commit-btn"
 					>
@@ -856,6 +1344,7 @@
 	{/if}
 
 	<div
+		bind:this={proposalListViewportEl}
 		class="{layout === 'page'
 			? 'flex-1 min-h-0 overflow-y-auto flex flex-col'
 			: 'flex flex-col'}"
@@ -863,21 +1352,38 @@
 	>
 	<!-- ── EMPTY / LOADING ─────────────────────────────────────────────────── -->
 	{#if loading && proposals.length === 0}
-		<div class="px-3 py-4 text-gray-400 dark:text-gray-500 italic text-[11px]">
-			Loading proposals…
+		<div
+			class="px-3 pt-6 pb-5 text-gray-500 dark:text-gray-400 not-italic text-[11px] leading-relaxed"
+		>
+			Loading proposals for this case…
 		</div>
-	{:else if !loading && activeProposals.length === 0}
-		<div class="px-3 py-4 text-gray-400 dark:text-gray-500 italic text-[11px]" data-testid="empty-state">
-			{#if activeTab === 'pending'}
-				No pending proposals. Create drafts from <strong>Chat</strong> (intake phrases),
-				<strong>Case Files</strong> (“Propose timeline entries” after extraction), or case thread tools.
-				Committed items move to Timeline (official).
+	{:else if !loading && !loadError && activeProposals.length === 0}
+		<div
+			class="px-3 pt-6 pb-5 text-gray-500 dark:text-gray-400 not-italic text-[11px] leading-relaxed"
+			data-testid="empty-state"
+		>
+			{#if (activeTab === 'pending' || activeTab === 'approved') && listSearchApplied}
+				<span data-testid="empty-search-no-results">
+					No matching <strong>{activeTab === 'pending' ? 'Pending' : 'Approved'}</strong> proposals for this
+					search.
+				</span>
+				This list is scoped to this tab, your search text, and the <strong>Type</strong> setting above. Try
+				different text or clear the search.
+			{:else if activeTab === 'pending'}
+				No <strong>Pending</strong> proposals in this list for this case. When <strong>Type</strong> is not
+				All, only that kind of proposal is shown. Create drafts from <strong>Chat</strong> (intake phrases),
+				<strong>Case Files</strong> (“Propose timeline entries” after extraction), or case thread tools. After
+				you <strong>approve</strong> and <strong>commit</strong>, timeline outcomes appear on the official
+				<strong>Timeline</strong> tab.
 			{:else if activeTab === 'approved'}
-				No approved proposals awaiting commit.
+				No <strong>Approved</strong> proposals in this staging queue — nothing here is waiting to
+				<strong>commit</strong> to the official case record. When <strong>Type</strong> is not All, only that
+				proposal type is shown.
 			{:else if activeTab === 'rejected'}
-				No rejected proposals.
+				No <strong>Rejected</strong> proposals in this workflow queue for this case.
 			{:else}
-				No proposals have been committed to this case yet.
+				No <strong>Committed</strong> outcomes in this list for the official case record yet. When
+				<strong>Type</strong> is not All, only that proposal type is shown.
 			{/if}
 		</div>
 	{:else if activeProposals.length > 0}
@@ -986,6 +1492,9 @@
 										       {proposal.source_scope === 'personal'
 											? 'bg-purple-100 text-purple-700 dark:bg-purple-900/40 dark:text-purple-400'
 											: 'bg-sky-100 text-sky-700 dark:bg-sky-900/40 dark:text-sky-400'}"
+										title={proposal.source_scope === 'personal'
+											? 'Sourced from a personal/desktop thread linked to this case'
+											: 'Sourced from this case’s scoped chat thread'}
 									>
 										{proposal.source_scope === 'personal' ? 'Personal Thread' : 'Case Thread'}
 									</span>
@@ -1087,6 +1596,7 @@
 									       dark:hover:text-gray-300 transition underline"
 									on:click={() => toggleExpand(proposal.id)}
 									data-testid="expand-toggle"
+									title="Show or hide full payload, editors, and technical details"
 								>
 									{isExpanded ? '▲ Collapse' : '▼ Details'}
 								</button>
@@ -1101,6 +1611,7 @@
 										on:click={() => handleApprove(proposal.id)}
 										disabled={isInProgress}
 										data-testid="approve-btn"
+										title="Review workflow — moves to Approved (staging); does not write the official case record"
 									>
 										{isInProgress ? '…' : '✓ Approve'}
 									</button>
@@ -1119,6 +1630,7 @@
 												: startChatIntakeRevise(proposal.id)}
 										disabled={isInProgress}
 										data-testid="chat-intake-revise-toggle"
+										title="Model-assisted revision for this chat-intake proposal (stays pending until you approve)"
 									>
 										{chatIntakeRevisingId === proposal.id ? 'Cancel revise' : 'AI revise'}
 									</button>
@@ -1143,6 +1655,7 @@
 											on:click={() => handleReject(proposal.id)}
 											disabled={!rejectReason.trim() || isInProgress}
 											data-testid="reject-confirm-btn"
+											title="Submit rejection with the reason above (workflow only; not committed to the official record)"
 										>
 											{isInProgress ? '…' : 'Confirm'}
 										</button>
@@ -1161,6 +1674,7 @@
 											       text-red-700 dark:bg-red-900/40 dark:text-red-300 transition"
 											on:click={() => startReject(proposal.id)}
 											data-testid="reject-btn"
+											title="Reject this pending proposal with a required reason (workflow only; not committed to the official record)"
 										>
 											✕ Reject
 										</button>
@@ -1177,7 +1691,7 @@
 										disabled={isInProgress || timelineProposalCommitBlockedByLowChronology(proposal)}
 										title={timelineProposalCommitBlockedByLowChronology(proposal)
 											? 'Confirm chronology (low confidence) before commit'
-											: undefined}
+											: 'Commits this approved proposal into the official case record (Timeline or governed Note)'}
 										data-testid="commit-btn"
 									>
 										{isInProgress ? 'Committing…' : '→ Commit to Case'}
@@ -1645,9 +2159,67 @@
 					{/if}
 				</div>
 			{/each}
+			{#if hasMore}
+				<div
+					bind:this={scrollSentinelEl}
+					class="h-4 w-full shrink-0"
+					aria-hidden="true"
+					data-testid="proposals-scroll-sentinel"
+				></div>
+			{/if}
 		</div>
 	{/if}
 	</div>
+
+	{#if !loading && !loadError}
+		{#if hasMore}
+			<div
+				class="shrink-0 flex flex-col items-center gap-1.5 py-3 border-b border-gray-100 dark:border-gray-800"
+				data-testid="proposals-load-more-footer"
+			>
+				{#if isLoadingMore}
+					<svg
+						class="animate-spin size-4 text-gray-400"
+						xmlns="http://www.w3.org/2000/svg"
+						fill="none"
+						viewBox="0 0 24 24"
+						aria-hidden="true"
+					>
+						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"
+						></circle>
+						<path
+							class="opacity-75"
+							fill="currentColor"
+							d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+						></path>
+					</svg>
+					<p class="text-[10px] text-gray-400 dark:text-gray-500">Loading more proposals…</p>
+				{:else}
+					<button
+						type="button"
+						class="text-[11px] font-medium text-violet-600 dark:text-violet-400 hover:underline"
+						on:click={() => void executeLoadMoreProposals()}
+						data-testid="proposals-load-more-btn"
+						title="Load the next page of proposals (same tab, type filter, and applied search if any)"
+					>
+						Load {PROPOSALS_LOAD_MORE_CHUNK} more
+					</button>
+				{/if}
+				{#if loadMoreError}
+					<p class="text-[11px] text-red-500 dark:text-red-400" data-testid="proposals-load-more-error">
+						{loadMoreError}
+					</p>
+				{/if}
+			</div>
+		{:else if activeProposals.length > 0 && totalForActiveTab > PROPOSALS_TAB_PAGE_SIZE}
+			<p
+				class="shrink-0 text-[10px] text-center text-gray-400 dark:text-gray-500 py-2 border-b border-gray-100 dark:border-gray-800"
+				data-testid="proposals-end-of-list"
+			>
+				All {totalForActiveTab} proposals loaded
+			</p>
+		{/if}
+	{/if}
 
 	<!-- P40-05 — explicit multi-item confirmations (single-item bulk uses same handlers without dialog) -->
 	<ConfirmDialog
@@ -1677,4 +2249,61 @@
 			void handleBulkConfirmChronology();
 		}}
 	/>
+
+	<!-- P43-05 (I-01) — block reload / teardown / SPA nav while document-ingest form is dirty -->
+	{#if docEditLossDialogShow}
+		<!-- svelte-ignore a11y-click-events-have-key-events -->
+		<!-- svelte-ignore a11y-no-static-element-interactions -->
+		<div
+			class="fixed inset-0 bg-black/60 z-[99999999] flex justify-center items-center p-4"
+			role="alertdialog"
+			aria-modal="true"
+			aria-labelledby="doc-edit-unsaved-title"
+			data-testid="doc-edit-unsaved-dialog"
+			on:mousedown={onDocEditLossDialogCancel}
+		>
+			<div
+				class="max-w-md w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 shadow-xl p-5"
+				on:mousedown|stopPropagation
+			>
+				<h3
+					id="doc-edit-unsaved-title"
+					class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2"
+				>
+					Unsaved document-ingest edits
+				</h3>
+				<p class="text-xs text-gray-600 dark:text-gray-400 leading-relaxed mb-4">
+					You have unsaved changes to document-ingest proposal fields. <strong>Save</strong> uses Case Engine
+					(the same path as <strong>Save edits</strong>). <strong>Discard</strong> drops your local changes only
+					— no server request. <strong>Cancel</strong> stays on this screen.
+				</p>
+				<div class="flex flex-col sm:flex-row gap-2 sm:justify-end">
+					<button
+						type="button"
+						class="text-xs font-medium py-2 px-3 rounded-lg border border-gray-300 dark:border-gray-600 text-gray-800 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-900"
+						data-testid="doc-edit-unsaved-cancel"
+						on:click={onDocEditLossDialogCancel}
+					>
+						Cancel
+					</button>
+					<button
+						type="button"
+						class="text-xs font-medium py-2 px-3 rounded-lg border border-red-300 dark:border-red-800 text-red-800 dark:text-red-200 hover:bg-red-50 dark:hover:bg-red-950/40"
+						data-testid="doc-edit-unsaved-discard"
+						on:click={() => void onDocEditLossDialogDiscard()}
+					>
+						Discard
+					</button>
+					<button
+						type="button"
+						class="text-xs font-medium py-2 px-3 rounded-lg bg-blue-600 hover:bg-blue-700 text-white"
+						data-testid="doc-edit-unsaved-save"
+						on:click={() => void onDocEditLossDialogSave()}
+					>
+						Save
+					</button>
+				</div>
+			</div>
+		</div>
+	{/if}
 </div>

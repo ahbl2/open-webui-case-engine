@@ -49,3 +49,45 @@ export function getPriorityEmoji(priority: number | null | undefined): string | 
 	if (priority === 1) return '🟡';
 	return null;
 }
+
+/**
+ * P57-04: Human-readable operator labels only — internal enum / API values unchanged.
+ * SCREAMING_SNAKE → Title words (e.g. IN_PROGRESS → In Progress).
+ */
+export function humanizeWorkflowScreamingSnake(raw: string): string {
+	if (!raw) return raw;
+	return raw
+		.split(/_+/)
+		.filter(Boolean)
+		.map((seg) => seg.charAt(0).toUpperCase() + seg.slice(1).toLowerCase())
+		.join(' ');
+}
+
+/** Workflow item type column / filter-adjacent copy (values remain HYPOTHESIS | GAP). */
+export function formatWorkflowItemTypeForDisplay(type: string): string {
+	const t = (type || '').toUpperCase();
+	if (t === 'HYPOTHESIS') return 'Hypothesis';
+	if (t === 'GAP') return 'Gap';
+	return humanizeWorkflowScreamingSnake(type);
+}
+
+/** Workflow item status (and workflow proposal status where shown the same way). */
+export function formatWorkflowStatusForDisplay(status: string): string {
+	return humanizeWorkflowScreamingSnake(status);
+}
+
+/** Workflow item origin badge copy (INVESTIGATOR | PROPOSAL). */
+export function formatWorkflowOriginForDisplay(origin: string): string {
+	const o = (origin || '').toUpperCase();
+	if (o === 'INVESTIGATOR') return 'Investigator';
+	if (o === 'PROPOSAL') return 'Proposal';
+	return humanizeWorkflowScreamingSnake(origin);
+}
+
+/** Workflow proposal `proposal_type` when not CREATE_HYPOTHESIS / CREATE_GAP. */
+export function formatWorkflowProposalTypeForDisplay(proposalType: string): string {
+	const p = (proposalType || '').toUpperCase();
+	if (p === 'CREATE_HYPOTHESIS') return 'Hypothesis';
+	if (p === 'CREATE_GAP') return 'Gap';
+	return humanizeWorkflowScreamingSnake(proposalType);
+}

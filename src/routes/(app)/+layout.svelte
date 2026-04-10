@@ -667,9 +667,10 @@
 				{#if loaded}
 					<!-- Main content: when unified shell, offset by full sidebar or rail (4.5rem) when collapsed; else OWUI behavior. -->
 					<div
-						class="flex-1 min-w-0 min-h-0 flex flex-col overflow-hidden {isUnifiedSidebar
+						class="flex-1 min-w-0 min-h-0 h-full flex flex-col overflow-hidden {isUnifiedSidebar
 							? ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : 'md:ml-[4.5rem]')
 							: ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : '')}"
+						data-testid="app-main-content-pane"
 					>
 						<slot />
 					</div>

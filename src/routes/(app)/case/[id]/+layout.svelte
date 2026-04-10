@@ -1,6 +1,8 @@
 <script lang="ts">
 	/**
 	 * P19-06 — Case Workspace Shell
+	 * P71-03 — Identity bar uses Tier L tokens / P70-04.
+	 * P71-04 — Primary tab strip uses Tier L tokens / P70-05 (horizontal scroll, ce-l-tab-*).
 	 *
 	 * This layout establishes the case-native workspace for all /case/[id]/* routes.
 	 *   - Loading and exposing case metadata to child routes
@@ -8,7 +10,8 @@
 	 *     main workspace slot, right context rail, bottom composer region
 	 *   - Enforcing P19-05 access gating before any case content renders
 	 */
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
+	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 
@@ -30,6 +33,10 @@
 	} from '$lib/utils/caseEngineUiState';
 	import { resolveAuthStateDecision, blockedRedirectPath } from '$lib/utils/authStateDecision';
 	import { resolveActiveCaseSection } from '$lib/utils/caseNavSection';
+	import {
+		runCaseWorkspaceScrollDiagnostics,
+		shouldRunCaseWorkspaceScrollDiagnostics
+	} from '$lib/utils/caseWorkspaceScrollDiagnostics';
 	import EditCaseModal from '$lib/components/case/EditCaseModal.svelte';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
@@ -44,6 +51,25 @@
 	let editCaseSeed: CaseEngineCase | null = null;
 	/** P20-PRE-04: classified failure for case shell load (never silent / never fake success). */
 	let loadUiState: CaseEngineUiState | null = null;
+
+	/** Primary tab strip scroll container — P70-05 §2.4 scroll active into view */
+	let caseTabNavEl: HTMLElement | null = null;
+
+	function prefersReducedMotion(): boolean {
+		if (!browser) return true;
+		return window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+	}
+
+	function scrollActiveCaseTabIntoView(): void {
+		if (!browser || !caseTabNavEl || !activeSection) return;
+		const el = caseTabNavEl.querySelector(`[data-case-tab="${activeSection}"]`);
+		if (!(el instanceof HTMLElement)) return;
+		el.scrollIntoView({
+			block: 'nearest',
+			inline: 'center',
+			behavior: prefersReducedMotion() ? 'auto' : 'smooth'
+		});
+	}
 
 	// Prevent double-loading on the reactive block below by seeding prevCaseId
 	// with the current route param before the reactive statement first evaluates.
@@ -109,6 +135,24 @@
 		activeCaseMeta.set(null);
 	});
 
+	/** P71-FU4 / P71-FU5 — non-production: subscribe always so `?caseScrollDiag=1` + sessionStorage work after tab clicks */
+	onMount(() => {
+		if (!browser || import.meta.env.PROD) return;
+		const schedule = () => {
+			if (!shouldRunCaseWorkspaceScrollDiagnostics()) return;
+			void tick().then(() => {
+				requestAnimationFrame(() => {
+					requestAnimationFrame(() => {
+						setTimeout(() => runCaseWorkspaceScrollDiagnostics(), 0);
+					});
+				});
+			});
+		};
+		schedule();
+		const unsub = page.subscribe(() => schedule());
+		return () => unsub();
+	});
+
 	// Reload case metadata when switching between cases while the layout persists.
 	$: if ($page.params.id && $caseEngineToken && $page.params.id !== prevCaseId) {
 		prevCaseId = $page.params.id;
@@ -140,6 +184,11 @@
 
 	$: activeSection = resolveActiveCaseSection($page.url.pathname);
 
+	// P70-05 §2.4 — active tab stays visible in horizontally scrolling strip
+	$: if (browser && activeSection) {
+		tick().then(() => scrollActiveCaseTabIntoView());
+	}
+
 	$: shellHeaderDataUiState = caseShellHeaderDataUiState({
 		loading,
 		hasActiveCaseMeta: !!$activeCaseMeta,
@@ -166,36 +215,36 @@
      All case routes render inside this single unified frame.
      ═══════════════════════════════════════════════════════ -->
 <div
-	class="flex flex-col h-screen max-h-[100dvh] bg-white dark:bg-gray-950 text-gray-800 dark:text-gray-100 overflow-hidden"
+	class="flex flex-col flex-1 min-h-0 max-h-[100dvh] w-full min-w-0 bg-white dark:bg-gray-950 text-gray-800 dark:text-gray-100 overflow-hidden"
 	data-testid="case-workspace-shell"
 >
-	<!-- ── TOP CASE HEADER ─────────────────────────────────── -->
+	<!-- ── TOP CASE HEADER — P70-04 identity bar (P71-03); primary tab strip is below (P71-04) ── -->
 	<header
-		class="shrink-0 flex items-center gap-3 h-11 px-3 border-b border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-950 z-10"
+		class="ce-l-identity-bar shrink-0 z-10 flex flex-wrap items-center gap-x-2 gap-y-2 px-3 py-2.5 sm:min-h-12 sm:py-2"
+		aria-label="Case identity"
+		data-testid="case-identity-bar"
 	>
 		<button
 			type="button"
-			class="flex items-center gap-1 text-sm text-gray-500 dark:text-gray-400
-			       hover:text-gray-700 dark:hover:text-gray-200 transition shrink-0
-			       py-1 px-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+			class="ce-l-identity-back shrink-0"
 			on:click={() => goto('/cases')}
 			aria-label="Back to cases"
 		>
-			<ChevronLeft className="size-4" />
+			<ChevronLeft className="size-4 shrink-0" />
 			<span class="text-xs font-medium">Cases</span>
 		</button>
 
-		<div class="w-px h-4 bg-gray-200 dark:bg-gray-700 shrink-0"></div>
+		<div class="h-4 w-px shrink-0 bg-[color:var(--ce-l-border-default)]" aria-hidden="true"></div>
 
 		{#if loading && !$activeCaseMeta}
 			<span
-				class="text-sm text-gray-400 animate-pulse"
+				class="text-sm animate-pulse text-[color:var(--ce-l-text-muted)]"
 				data-testid="case-shell-loading"
 				data-case-engine-ui-state={shellHeaderDataUiState}
 			>Loading…</span>
 		{:else if loadError}
 			<span
-				class="text-sm text-red-500"
+				class="text-sm text-red-500 dark:text-red-400"
 				data-testid="case-shell-load-error"
 				data-case-engine-ui-state={shellHeaderDataUiState}
 			>
@@ -203,57 +252,63 @@
 			</span>
 		{:else if $activeCaseMeta}
 			<div
-				class="flex items-center gap-2 min-w-0 overflow-hidden"
+				class="flex min-w-0 flex-1 flex-col gap-2 sm:flex-row sm:items-center sm:justify-between sm:gap-3"
 				data-testid="case-shell-loaded"
 				data-case-engine-ui-state={shellHeaderDataUiState}
 			>
-				<span
-					class="font-mono text-xs text-gray-400 dark:text-gray-500 shrink-0 select-all"
+				<div
+					class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2.5 gap-y-1.5"
 				>
-					{$activeCaseMeta.case_number}
-				</span>
+					<span
+						class="shrink-0 select-all font-mono text-xs tabular-nums text-[color:var(--ce-l-text-muted)]"
+					>
+						{$activeCaseMeta.case_number}
+					</span>
 
-				{#if $activeCaseMeta.title}
-					<span class="text-sm font-medium text-gray-800 dark:text-gray-200 truncate">
-						{$activeCaseMeta.title}
-					</span>
-				{/if}
+					{#if $activeCaseMeta.title}
+						<span
+							class="min-w-0 max-w-full flex-1 basis-[min(100%,12rem)] truncate text-sm font-semibold text-[color:var(--ce-l-text-primary)] sm:max-w-md md:max-w-xl"
+							title={$activeCaseMeta.title}
+						>
+							{$activeCaseMeta.title}
+						</span>
+					{/if}
 
-				{#if $activeCaseMeta.unit}
-					<span
-						class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
-						       bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400"
-					>
-						{$activeCaseMeta.unit}
-					</span>
-				{/if}
+					{#if $activeCaseMeta.unit}
+						<span class="ce-l-identity-meta-chip hidden sm:inline-flex">
+							{$activeCaseMeta.unit}
+						</span>
+					{/if}
 
-				{#if $activeCaseMeta.status}
-					<span
-						class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
-						       {statusBadgeClass($activeCaseMeta.status)}"
-					>
-						{$activeCaseMeta.status}
-					</span>
-				{/if}
-				{#if $activeCaseMeta.incident_date}
-					<span
-						class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
-						       bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-300"
-					>
-						Incident: {$activeCaseMeta.incident_date}
-					</span>
-				{:else}
-					<span
-						class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
-						       bg-amber-50/70 dark:bg-amber-900/20 text-amber-700/80 dark:text-amber-300/80"
-					>
-						Incident date missing
-					</span>
-				{/if}
+					{#if $activeCaseMeta.status}
+						<span
+							class="shrink-0 rounded px-1.5 py-0.5 text-xs font-medium
+							       {statusBadgeClass($activeCaseMeta.status)}"
+						>
+							{$activeCaseMeta.status}
+						</span>
+					{/if}
+
+					{#if $activeCaseMeta.incident_date}
+						<span
+							class="hidden shrink-0 rounded px-1.5 py-0.5 text-xs font-medium md:inline-flex
+							       bg-amber-50 text-amber-800 dark:bg-amber-900/35 dark:text-amber-200"
+						>
+							Incident: {$activeCaseMeta.incident_date}
+						</span>
+					{:else}
+						<span
+							class="hidden shrink-0 rounded px-1.5 py-0.5 text-xs font-medium md:inline-flex
+							       bg-amber-50/90 text-amber-800/95 dark:bg-amber-900/25 dark:text-amber-200/95"
+						>
+							Incident date missing
+						</span>
+					{/if}
+				</div>
+
 				<button
 					type="button"
-					class="shrink-0 text-xs font-medium px-2 py-1 rounded border border-gray-300 dark:border-gray-700 text-gray-700 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800"
+					class="ce-l-identity-edit shrink-0 self-start sm:self-center"
 					on:click={() => {
 						if (!$activeCaseMeta) return;
 						editCaseSeed = {
@@ -273,9 +328,10 @@
 		{/if}
 	</header>
 
-	<!-- ── CONTENT-LEVEL TABS (Chat, Timeline, Files, Notes, Summary, Workflow, Warrants, Intelligence, Activity, Graph) ── -->
+	<!-- ── PRIMARY CASE TAB STRIP — P70-05 / P71-04 (Intelligence sub-modes: P71-09) ── -->
 	<nav
-		class="shrink-0 flex items-center gap-0 border-b border-gray-200 dark:border-gray-800 bg-gray-50 dark:bg-gray-900 px-2"
+		class="ce-l-tab-strip shrink-0 z-[5]"
+		bind:this={caseTabNavEl}
 		aria-label="Case sections"
 		data-testid="case-workspace-nav"
 	>
@@ -283,19 +339,18 @@
 			{#if item.implemented}
 				<a
 					href={`/case/${$page.params.id}/${item.id}`}
-					class="px-4 py-2.5 text-sm font-medium border-b-2 transition-colors -mb-px
-						{activeSection === item.id
-							? 'border-blue-500 text-blue-600 dark:text-blue-400'
-							: 'border-transparent text-gray-600 dark:text-gray-400 hover:text-gray-900 dark:hover:text-gray-200'}"
+					class="ce-l-tab-link {activeSection === item.id ? 'ce-l-tab-link--active' : ''}"
+					data-case-tab={item.id}
 					aria-current={activeSection === item.id ? 'page' : undefined}
 				>
 					{item.label}
 				</a>
 			{:else}
 				<span
-					class="px-4 py-2.5 text-sm text-gray-300 dark:text-gray-600 cursor-not-allowed select-none border-b-2 border-transparent -mb-px"
+					class="ce-l-tab-link ce-l-tab-link--disabled select-none"
 					aria-disabled="true"
 					data-section={item.id}
+					data-case-tab={item.id}
 				>
 					{item.label}
 				</span>

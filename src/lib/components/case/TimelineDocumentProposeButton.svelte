@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * Timeline tab — "From document" quick-propose button.
+	 * Timeline tab — "Create from document" quick-propose button.
 	 *
 	 * Lets an investigator pick a file directly from the Timeline tab header
 	 * without navigating away to the Files tab first. The flow is:
@@ -232,7 +232,7 @@
 	{:else if workflow.step === 'extracting'}
 		Extracting…
 	{:else}
-		📄 From document
+		📄 Create from document
 	{/if}
 </button>
 

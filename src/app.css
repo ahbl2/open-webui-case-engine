@@ -1,5 +1,7 @@
 @reference "./tailwind.css";
 
+@import "./lib/styles/caseWorkspaceTierL.css";
+
 @font-face {
 	font-family: 'Inter';
 	src: url('/assets/fonts/Inter-Variable.ttf');

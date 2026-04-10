@@ -208,6 +208,11 @@
 
 	// ── Case Tools panel (legacy tabs, preserved for P19-14) ────────────────
 	let showTools = false;
+
+	/** P43-05 — guard Case Tools teardown / tab switch when document-ingest edits are dirty */
+	type ProposalPanelGuardApi = { guardBeforeHide(): Promise<boolean> };
+	let proposalPanelRef: ProposalPanelGuardApi | null = null;
+
 	let activeTool:
 		| 'files'
 		| 'ai-intake'
@@ -224,6 +229,22 @@
 
 	$: isAdmin =
 		$caseEngineUser?.role === 'ADMIN' || $caseEngineAuthState?.user?.role === 'admin';
+
+	async function setCaseToolTab(tabId: typeof activeTool): Promise<void> {
+		if (activeTool === 'proposals' && tabId !== 'proposals' && proposalPanelRef) {
+			const ok = await proposalPanelRef.guardBeforeHide();
+			if (!ok) return;
+		}
+		activeTool = tabId;
+	}
+
+	async function toggleCaseToolsPanel(): Promise<void> {
+		if (showTools && activeTool === 'proposals' && proposalPanelRef) {
+			const ok = await proposalPanelRef.guardBeforeHide();
+			if (!ok) return;
+		}
+		showTools = !showTools;
+	}
 
 	// ── Scope error display ──────────────────────────────────────────────────
 	$: bindError = $threadScopeError;
@@ -563,7 +584,7 @@
 			type="button"
 			class="w-full flex items-center justify-between px-3 py-2 text-xs font-medium
 			       text-gray-500 dark:text-gray-400 hover:bg-gray-50 dark:hover:bg-gray-900 transition"
-			on:click={() => (showTools = !showTools)}
+			on:click={() => void toggleCaseToolsPanel()}
 			aria-expanded={showTools}
 		>
 			<span class="flex items-center gap-1.5">
@@ -620,19 +641,20 @@
 						       {activeTool === tabId
 							? 'bg-gray-200 dark:bg-gray-700 font-medium text-gray-800 dark:text-gray-200'
 							: 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800'}"
-						on:click={() => (activeTool = tabId)}
+						on:click={() => void setCaseToolTab(tabId)}
 					>
 						{tabLabel}
 					</button>
 				{/each}
 			</div>
 
-			<!-- Tool content — max height to keep chat primary -->
-			<div class="max-h-96 overflow-auto flex flex-col bg-white dark:bg-gray-950">
+			<!-- Tool content — max height to keep chat primary (P57-07: min-h-0 for nested Workflow flex) -->
+			<div class="max-h-96 min-h-0 overflow-auto flex flex-col bg-white dark:bg-gray-950">
 			{#if activeTool === 'proposals'}
 				<!-- P19-10: Full proposal review panel (replaces inline P19-09 panel) -->
 				<!-- P38-03: Same refreshOnNav as /case/[id]/proposals — afterNavigate refetch when returning from other case routes -->
 				<ProposalReviewPanel
+					bind:this={proposalPanelRef}
 					{caseId}
 					token={$caseEngineToken ?? ''}
 					refreshOnNav={true}
@@ -653,7 +675,7 @@
 				{:else if activeTool === 'integrity'}
 					<CaseIntegrityTab {caseId} token={$caseEngineToken!} {isAdmin} />
 				{:else if activeTool === 'workflow'}
-					<CaseWorkflowTab {caseId} token={$caseEngineToken!} {isAdmin} />
+					<CaseWorkflowTab {caseId} token={$caseEngineToken!} {isAdmin} embedded />
 				{:else if activeTool === 'warrants'}
 					<WarrantWorkflow
 						{caseId}

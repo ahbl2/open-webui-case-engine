@@ -8,7 +8,7 @@
 	 *                     Long body text: line-clamp (~4 lines) + per-entry Show more / Show less
 	 *
 	 * Truth signals (P28-31):
-	 *   1. AI-cleaned transparency — badge + show/hide original toggle
+	 *   1. AI-assisted transparency — badge + show/hide original toggle
 	 *   2. Edited badge — derived from version_count (0 = untouched)
 	 *   3. occurred_at with seconds — prevents same-minute sequence ambiguity
 	 *   4. Retrospective signal — when entry was logged >24h after it occurred
@@ -107,7 +107,7 @@
 	$: showProvenanceBlock =
 		entry.provenance != null && entry.provenance.origin_kind !== 'manual';
 
-	// ── AI-cleaned text toggle (P28-31) ────────────────────────────────────────
+	// ── AI-assisted text toggle (P28-31) ────────────────────────────────────────
 	let showOriginal = false;
 	$: isCleaned = typeof entry.text_cleaned === 'string' && entry.text_cleaned.trim() !== '';
 	$: displayText = isCleaned && !showOriginal
@@ -225,6 +225,7 @@
 {#if isDeleted}
 	<!-- ── Compact removed-state card (P28-35) ────────────────────────────────── -->
 	<li
+		id={`ce-timeline-entry-${entry.id}`}
 		class="flex flex-col gap-1.5 rounded-lg border border-dashed
 		       border-red-200 dark:border-red-900/50
 		       bg-red-50/20 dark:bg-gray-900
@@ -432,7 +433,7 @@
 								</p>
 								{#if ver.prior_text_cleaned}
 									<p class="text-[10px] text-violet-500 dark:text-violet-400 italic">
-										AI-cleaned version also existed at this state.
+										AI-assisted (original available) text also existed at this state.
 									</p>
 								{/if}
 							</li>
@@ -453,6 +454,7 @@
 {:else}
 	<!-- ── Active entry card ─────────────────────────────────────────────────── -->
 	<li
+		id={`ce-timeline-entry-${entry.id}`}
 		class="flex flex-col gap-2 rounded-lg border border-gray-200 dark:border-gray-700
 		       bg-white dark:bg-gray-900 px-4 py-3 shadow-sm"
 		data-testid="timeline-entry"
@@ -486,7 +488,9 @@
 					       text-amber-600 dark:text-amber-400
 					       hover:bg-amber-100 dark:hover:bg-amber-900/40
 					       cursor-pointer transition"
-					title={historyExpanded ? 'Collapse version history' : 'Expand version history'}
+					title={historyExpanded
+						? 'Collapse version history'
+						: `Version ${currentVersion} — click to view history`}
 					aria-expanded={historyExpanded}
 					on:click={toggleHistory}
 					data-testid="timeline-entry-edited"
@@ -555,17 +559,17 @@
 			<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
 		{/if}
 
-		<!-- ── AI-cleaned indicator + toggle ────────────────────────────────────── -->
+		<!-- ── AI-assisted indicator + toggle ────────────────────────────────────── -->
 		{#if isCleaned}
 			<div class="flex items-center gap-2">
 				<span
 					class="text-[10px] font-medium px-1 py-0.5 rounded
 					       bg-violet-50 dark:bg-violet-900/20
 					       text-violet-600 dark:text-violet-400"
-					title="The displayed text has been processed by AI. Use the toggle to see the verbatim original."
+					title="AI-assisted text is shown. Use the toggle to see the verbatim original."
 					data-testid="timeline-entry-ai-cleaned"
 				>
-					AI-cleaned
+					AI-assisted (original available)
 				</span>
 				<button
 					type="button"
@@ -636,21 +640,12 @@
 		{#if isRetrospective}
 			<span
 				class="text-[10px] font-medium px-1 py-0.5 rounded
-				       border border-gray-300 dark:border-gray-600
-				       text-gray-500 dark:text-gray-400"
-				title="This entry was logged significantly after the event it describes."
-				data-testid="timeline-entry-delayed-logging"
-			>
-				Logged later
-			</span>
-			<span
-				class="text-[10px] font-medium px-1 py-0.5 rounded
 				       bg-gray-100 dark:bg-gray-800
 				       text-gray-500 dark:text-gray-400"
-				title="This entry was recorded approximately {retrospectiveHours} hours after the event it describes."
+				title="Logged approximately {retrospectiveHours} hours after the event occurred."
 				data-testid="timeline-entry-retrospective"
 			>
-				Logged {retrospectiveHours}h after
+				Logged +{retrospectiveHours}h after occurrence
 			</span>
 		{/if}
 
@@ -779,7 +774,7 @@
 								</p>
 								{#if ver.prior_text_cleaned}
 									<p class="text-[10px] text-violet-500 dark:text-violet-400 italic">
-										AI-cleaned version also existed at this state.
+										AI-assisted (original available) text also existed at this state.
 									</p>
 								{/if}
 							</li>

@@ -1,7 +1,11 @@
 <script lang="ts">
+	/**
+	 * P71-08 — Tier L shell / framing (P70-06 S1/W1, P70-04 B); presentation only.
+	 */
 	import { onMount } from 'svelte';
 	import { page } from '$app/stores';
 	import { caseEngineToken } from '$lib/stores';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import {
 		listCaseTimelineEntries,
 		listCaseFiles,
@@ -168,6 +172,7 @@
 		try {
 			const [timeline, files, workflowItems, workflowProposals, notes, proposals] = await Promise.all([
 				listCaseTimelineEntries(caseId, $caseEngineToken),
+				// Full file list (no pagination) — fine for small cases; large cases may need a dedicated ticket (see P42-02 audit).
 				listCaseFiles(caseId, $caseEngineToken),
 				listWorkflowItems(caseId, $caseEngineToken),
 				listWorkflowProposals(caseId, $caseEngineToken),
@@ -278,11 +283,12 @@
 	}
 </script>
 
-<div class="flex flex-col flex-1 min-h-0 overflow-y-auto" data-testid="case-activity-page">
-	<div class="shrink-0 flex flex-wrap items-center gap-2 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Activity</h2>
-		<span class="text-xs text-gray-400 dark:text-gray-500">Read-only case history, newest first</span>
-		<span class="text-xs text-gray-400 dark:text-gray-500">
+<CaseWorkspaceContentRegion testId="case-activity-page">
+<div class="ce-l-activity-shell">
+	<div class="ce-l-activity-hero">
+		<h2 class="ce-l-activity-hero-title text-sm font-semibold">Activity</h2>
+		<span class="text-xs ce-l-activity-hero-meta">Read-only case history, newest first</span>
+		<span class="text-xs ce-l-activity-hero-meta">
 			Recorded events only; review chronology here, make changes in source tabs.
 		</span>
 		{#if items.length > 0}
@@ -311,7 +317,7 @@
 		</button>
 	</div>
 
-	<div class="flex-1 px-4 pt-3 pb-4 min-h-0">
+	<div class="ce-l-activity-primary-scroll px-4 pt-3 pb-4" data-testid="case-activity-primary-scroll">
 		{#if loading}
 			<CaseLoadingState label="Loading activity..." testId="case-activity-loading" />
 		{:else if loadError}
@@ -363,3 +369,4 @@
 		{/if}
 	</div>
 </div>
+</CaseWorkspaceContentRegion>

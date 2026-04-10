@@ -2,37 +2,41 @@
 	/**
 	 * Case-scoped P19 proposal_records dashboard — persistent review surface
 	 * (same records as chat intake; no separate proposal system).
+	 * P71-07 — Tier L shell / framing (P70-06 W1, P70-04 B); presentation only.
 	 */
 	import { page } from '$app/stores';
 	import { caseEngineToken } from '$lib/stores';
 	import ProposalReviewPanel from '$lib/components/proposals/ProposalReviewPanel.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 
 	$: caseId = $page.params.id ?? '';
 </script>
 
-<div
-	class="flex flex-col flex-1 min-h-0 overflow-hidden bg-white dark:bg-gray-950"
-	data-testid="case-proposals-page"
->
-	<div class="shrink-0 px-4 py-3 border-b border-gray-200 dark:border-gray-800">
-		<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-200">Proposals</h2>
-		<p class="mt-1 text-xs text-gray-600 dark:text-gray-400 max-w-3xl leading-relaxed">
-			Governed intake from chat and other sources: pending items are <strong>not</strong> on the Timeline
-			or in official notes until you approve and commit. Timeline shows <strong>committed</strong> entries
-			only; Notes remain investigator notebook drafts.
-		</p>
-	</div>
+<CaseWorkspaceContentRegion testId="case-proposals-page">
+	<div class="ce-l-proposals-shell">
+		<div class="ce-l-proposals-hero">
+			<h2 class="ce-l-proposals-hero-title text-sm font-semibold">Proposals</h2>
+			<p class="ce-l-proposals-hero-intro text-xs font-normal max-w-3xl leading-snug">
+				Governed intake: <strong>Approve</strong> moves work to the <strong>Approved</strong> workflow tab
+				(staging — not the official record until <strong>Commit</strong>). <strong>Commit</strong> writes the
+				official Timeline entry or governed Note; the <strong>Committed</strong> tab lists outcomes already on the case
+				record. Pending rows stay off the official Timeline until then. Notes remain investigator drafts.
+			</p>
+		</div>
 
-	<div class="flex-1 min-h-0 overflow-hidden px-2 sm:px-3 pb-2">
-		{#if $caseEngineToken && caseId}
-			<ProposalReviewPanel
-				{caseId}
-				token={$caseEngineToken}
-				layout="page"
-				refreshOnNav={true}
-			/>
-		{:else}
-			<p class="text-sm text-gray-500 p-4">Connect to Case Engine to load proposals.</p>
-		{/if}
+		<div class="ce-l-proposals-workspace px-2 sm:px-3 pb-2">
+			{#if $caseEngineToken && caseId}
+				<ProposalReviewPanel
+					{caseId}
+					token={$caseEngineToken}
+					layout="page"
+					refreshOnNav={true}
+				/>
+			{:else}
+				<p class="text-sm ce-l-proposals-hero-intro p-4">
+					Case Engine connection required to load proposals for this case.
+				</p>
+			{/if}
+		</div>
 	</div>
-</div>
+</CaseWorkspaceContentRegion>

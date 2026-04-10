@@ -68,7 +68,10 @@ export default defineConfig(({ mode }) => {
 				'/case-api': {
 					target: caseEngineTarget,
 					changeOrigin: true,
-					rewrite: (path) => path.replace(/^\/case-api/, '')
+					rewrite: (path) => path.replace(/^\/case-api/, ''),
+					// P47-04: Summary AI can exceed default proxy/socket timeouts (timeline may use 2× server Ollama budget).
+					timeout: 1_260_000,
+					proxyTimeout: 1_260_000
 				},
 				'/api': { target: owuiBackendTarget, changeOrigin: true },
 				'/ollama': { target: owuiBackendTarget, changeOrigin: true },

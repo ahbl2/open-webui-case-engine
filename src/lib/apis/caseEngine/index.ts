@@ -1144,8 +1144,38 @@ export interface CaseFile {
 	[key: string]: unknown;
 }
 
-export async function listCaseFiles(caseId: string, token: string): Promise<CaseFile[]> {
-	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/files`, {
+/**
+ * Full case file list: **GET without `limit`** → server returns a **JSON array** (not `{ files, totalFiles }`).
+ * Use for callers that need every row (e.g. Activity feed merge, AI context). Large cases = large payload.
+ * For the Files tab, use {@link listCaseFilesPage} instead.
+ *
+ * Optional `query` (P42-04) matches the server’s filtered list. **Maintenance:** the underlying route already
+ * mixes a dual response shape (array vs envelope) with several optional query params (`limit`, `offset`,
+ * `query`, `mimeCategory`, `hasTags`, `includeDeleted`, …). The list route is now **multi-concern**;
+ * that is acceptable today, but avoid piling on more optional branches without a deliberate API review
+ * (e.g. unify on one envelope for all callers).
+ *
+ * P42-05: optional `mimeCategory` / `hasTags` match the server list filters. Invalid `mimeCategory` on
+ * the wire is dropped server-side (silent); TypeScript call sites should use {@link CaseFilesListMimeCategory}.
+ */
+export type CaseFilesListMimeCategory = 'image' | 'video' | 'audio' | 'document' | 'other';
+
+export async function listCaseFiles(
+	caseId: string,
+	token: string,
+	options?: { query?: string; mimeCategory?: CaseFilesListMimeCategory; hasTags?: boolean }
+): Promise<CaseFile[]> {
+	const sp = new URLSearchParams();
+	const q = options?.query?.trim();
+	if (q) sp.set('query', q);
+	if (options?.mimeCategory) sp.set('mimeCategory', options.mimeCategory);
+	if (options?.hasTags === true) sp.set('hasTags', 'true');
+	if (options?.hasTags === false) sp.set('hasTags', 'false');
+	const qs = sp.toString();
+	const url = qs
+		? `${CASE_ENGINE_BASE_URL}/cases/${caseId}/files?${qs}`
+		: `${CASE_ENGINE_BASE_URL}/cases/${caseId}/files`;
+	const res = await fetch(url, {
 		headers: {
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`
@@ -1156,6 +1186,69 @@ export async function listCaseFiles(caseId: string, token: string): Promise<Case
 		throw new Error(data?.error ?? `Failed to list files (${res.status})`);
 	}
 	return Array.isArray(data) ? data : [];
+}
+
+/**
+ * P42-03 / P42-04 — paginated list: **GET with `limit`** → **`{ files, totalFiles }`**.
+ * Optional `query` (P42-04) filters before pagination. Same route as {@link listCaseFiles}.
+ * Prefer extending file-list behavior here (and on the server list route) only with explicit contract
+ * discipline — see {@link listCaseFiles} note on dual-shape + optional-param sprawl.
+ *
+ * P42-05: optional `mimeCategory` and `hasTags` combine with `query` before pagination on the server.
+ * See {@link listCaseFiles} for contract-complexity and invalid-parameter notes.
+ */
+export type ListCaseFilesPageResult = { files: CaseFile[]; totalFiles: number };
+
+export async function listCaseFilesPage(
+	caseId: string,
+	token: string,
+	params: {
+		limit: number;
+		offset?: number;
+		query?: string;
+		mimeCategory?: CaseFilesListMimeCategory;
+		hasTags?: boolean;
+	}
+): Promise<ListCaseFilesPageResult> {
+	const sp = new URLSearchParams();
+	sp.set('limit', String(params.limit));
+	sp.set('offset', String(params.offset ?? 0));
+	const q = params.query?.trim();
+	if (q) sp.set('query', q);
+	if (params.mimeCategory) sp.set('mimeCategory', params.mimeCategory);
+	if (params.hasTags === true) sp.set('hasTags', 'true');
+	if (params.hasTags === false) sp.set('hasTags', 'false');
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/files?${sp.toString()}`, {
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to list files (${res.status})`);
+	}
+	if (!data || typeof data !== 'object' || !Array.isArray((data as ListCaseFilesPageResult).files)) {
+		throw new Error('Invalid files list response');
+	}
+	const totalRaw = (data as { totalFiles?: unknown }).totalFiles;
+	const totalFiles = typeof totalRaw === 'number' && Number.isFinite(totalRaw) ? totalRaw : 0;
+	return { files: (data as ListCaseFilesPageResult).files, totalFiles };
+}
+
+/** P42-06 — soft delete (recoverable via ADMIN restore). */
+export async function deleteCaseFile(caseId: string, fileId: string, token: string): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/files/${encodeURIComponent(fileId)}`,
+		{
+			method: 'DELETE',
+			headers: { Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Delete failed (${res.status})`);
+	}
 }
 
 export async function uploadCaseFile(caseId: string, file: File, token: string): Promise<CaseFile> {
@@ -1995,11 +2088,12 @@ export interface TimelineEntry {
 export async function listCaseTimelineEntries(
 	caseId: string,
 	token: string,
-	options?: { includeDeleted?: boolean }
+	options?: { includeDeleted?: boolean; signal?: AbortSignal }
 ): Promise<TimelineEntry[]> {
 	const qs = options?.includeDeleted ? '?includeDeleted=true' : '';
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries${qs}`, {
-		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		signal: options?.signal
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to load timeline (${res.status})`);
@@ -2604,7 +2698,7 @@ export interface TimelineIntelligenceSummaryResult {
 export async function requestCaseSummary(
 	caseId: string,
 	token: string,
-	opts?: { maxSources?: number; maxTextPerSource?: number }
+	opts?: { maxSources?: number; maxTextPerSource?: number; signal?: AbortSignal }
 ): Promise<CaseSummaryResult> {
 	const body: Record<string, unknown> = {};
 	if (opts?.maxSources != null) body.maxSources = opts.maxSources;
@@ -2615,24 +2709,41 @@ export async function requestCaseSummary(
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`
 		},
-		body: JSON.stringify(Object.keys(body).length ? body : {})
+		body: JSON.stringify(Object.keys(body).length ? body : {}),
+		signal: opts?.signal
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) {
-		throw new Error((data as { error?: string })?.error ?? `Case summary failed (${res.status})`);
+		const raw = data as {
+			error?: string;
+			code?: string;
+			details?: { failure_kind?: string; attempts?: number; terminal_stage?: string; validation_message?: string };
+		};
+		const err = new Error(raw.error ?? `Case summary failed (${res.status})`);
+		const extended = err as Error & {
+			caseEngineStatus?: number;
+			caseEngineCode?: string;
+			caseEngineDetails?: (typeof raw)['details'];
+		};
+		extended.caseEngineStatus = res.status;
+		if (raw.code) extended.caseEngineCode = raw.code;
+		if (raw.details) extended.caseEngineDetails = raw.details;
+		throw err;
 	}
 	return data as CaseSummaryResult;
 }
 
 export async function getCaseSummaryStatus(
 	caseId: string,
-	token: string
+	token: string,
+	opts?: { signal?: AbortSignal }
 ): Promise<CaseSummaryStatusResult> {
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/ai/case-summary/status`, {
 		headers: {
 			'Content-Type': 'application/json',
 			Authorization: `Bearer ${token}`
-		}
+		},
+		signal: opts?.signal
 	});
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) {
@@ -2729,7 +2840,8 @@ export async function exportCaseBriefPdf(
 export async function requestTimelineIntelligenceSummary(
 	caseId: string,
 	token: string,
-	filters?: TimelineIntelligenceSummaryRequest
+	filters?: TimelineIntelligenceSummaryRequest,
+	opts?: { signal?: AbortSignal }
 ): Promise<TimelineIntelligenceSummaryResult> {
 	const body: Record<string, unknown> = {};
 	if (typeof filters?.date_from === 'string' && filters.date_from.trim()) {
@@ -2753,11 +2865,26 @@ export async function requestTimelineIntelligenceSummary(
 			Authorization: `Bearer ${token}`,
 			'X-Request-Id': outboundRequestId
 		},
-		body: JSON.stringify(body)
+		body: JSON.stringify(body),
+		signal: opts?.signal
 	});
 	const raw = await res.json().catch(() => ({}));
 	if (!res.ok) {
-		throw new Error((raw as { error?: string })?.error ?? `Timeline summary failed (${res.status})`);
+		const body = raw as {
+			error?: string;
+			code?: string;
+			details?: { failure_kind?: string; attempts?: number; terminal_stage?: string; validation_message?: string };
+		};
+		const err = new Error(body.error ?? `Timeline summary failed (${res.status})`);
+		const extended = err as Error & {
+			caseEngineStatus?: number;
+			caseEngineCode?: string;
+			caseEngineDetails?: (typeof body)['details'];
+		};
+		extended.caseEngineStatus = res.status;
+		if (body.code) extended.caseEngineCode = body.code;
+		if (body.details) extended.caseEngineDetails = body.details;
+		throw err;
 	}
 	return raw as TimelineIntelligenceSummaryResult;
 }
@@ -3341,6 +3468,85 @@ export async function restoreWorkflowItem(
 	const data = await res.json().catch(() => ({}));
 	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Restore failed (${res.status})`);
 	return data as WorkflowItem;
+}
+
+/** P60 — workflow evidence linkage (support links); distinct from citations_json. */
+export type WorkflowSupportTargetKind = 'TIMELINE_ENTRY' | 'NOTEBOOK_NOTE' | 'CASE_FILE';
+
+export interface WorkflowSupportLink {
+	id: string;
+	workflow_item_id: string;
+	case_id: string;
+	target_kind: WorkflowSupportTargetKind;
+	target_id: string;
+	display_position: number;
+	created_by: string;
+	created_at: string;
+	target_availability?: 'ACTIVE' | 'STALE';
+}
+
+export async function listWorkflowSupportLinks(
+	caseId: string,
+	workflowItemId: string,
+	token: string
+): Promise<WorkflowSupportLink[]> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items/${workflowItemId}/support-links`,
+		{ headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new CaseEngineRequestError(
+			(data as { error?: string })?.error ?? `Failed to list support links (${res.status})`,
+			res.status
+		);
+	}
+	const links = (data as { support_links?: WorkflowSupportLink[] }).support_links;
+	return Array.isArray(links) ? links : [];
+}
+
+export async function createWorkflowSupportLink(
+	caseId: string,
+	workflowItemId: string,
+	token: string,
+	payload: { target_kind: WorkflowSupportTargetKind; target_id: string }
+): Promise<WorkflowSupportLink> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items/${workflowItemId}/support-links`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify(payload)
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new CaseEngineRequestError(
+			(data as { error?: string })?.error ?? `Failed to add support link (${res.status})`,
+			res.status
+		);
+	}
+	return data as WorkflowSupportLink;
+}
+
+export async function deleteWorkflowSupportLink(
+	caseId: string,
+	workflowItemId: string,
+	linkId: string,
+	token: string
+): Promise<WorkflowSupportLink> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items/${workflowItemId}/support-links/${linkId}`,
+		{ method: 'DELETE', headers: { Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new CaseEngineRequestError(
+			(data as { error?: string })?.error ?? `Failed to remove support link (${res.status})`,
+			res.status
+		);
+	}
+	return data as WorkflowSupportLink;
 }
 
 export interface WorkflowProposal {
@@ -4015,6 +4221,101 @@ export interface CreateProposalParams {
 	proposed_payload: Record<string, unknown>;
 }
 
+/**
+ * P43-06 (I-02): Successful list response must be a JSON array. A 200 with a non-array body is a
+ * contract violation — do not coerce to [] (false-empty queue).
+ */
+function parseCaseEngineProposalListResponseBody(data: unknown): ProposalRecord[] {
+	if (!Array.isArray(data)) {
+		throw new Error(
+			'Case Engine returned OK but the proposals response was not a JSON array. The list may not have loaded; try Refresh.'
+		);
+	}
+	return data as ProposalRecord[];
+}
+
+/** P43-08 — matches Case Engine paginated envelope when `limit` + `status` are sent. */
+export interface ProposalListPaginatedResponse {
+	proposals: ProposalRecord[];
+	total: number;
+	limit: number;
+	offset: number;
+	totalsByStatus: Record<ProposalStatus, number>;
+}
+
+/** Initial server chunk for Proposals list (incremental loading; P43-10-FU2). */
+export const PROPOSALS_TAB_PAGE_SIZE = 50;
+/** Subsequent load-more chunk size (Timeline-style; P43-10-FU2). */
+export const PROPOSALS_LOAD_MORE_CHUNK = 25;
+
+function parseProposalListPaginatedResponseBody(data: unknown): ProposalListPaginatedResponse {
+	if (data == null || typeof data !== 'object') {
+		throw new Error(
+			'Case Engine returned OK but the proposals page response was not a JSON object. Try Refresh.'
+		);
+	}
+	const d = data as Record<string, unknown>;
+	if (!Array.isArray(d.proposals)) {
+		throw new Error(
+			'Case Engine returned OK but proposals page missing a proposals array. Try Refresh.'
+		);
+	}
+	for (const key of ['total', 'limit', 'offset'] as const) {
+		const n = d[key];
+		if (typeof n !== 'number' || Number.isNaN(n)) {
+			throw new Error(
+				`Case Engine proposals page response missing numeric ${key}. Try Refresh.`
+			);
+		}
+	}
+	const ts = d.totalsByStatus;
+	if (ts == null || typeof ts !== 'object') {
+		throw new Error('Case Engine proposals page missing totalsByStatus. Try Refresh.');
+	}
+	const tso = ts as Record<string, unknown>;
+	const totalsByStatus: Record<ProposalStatus, number> = {
+		pending: typeof tso.pending === 'number' && !Number.isNaN(tso.pending) ? tso.pending : 0,
+		approved: typeof tso.approved === 'number' && !Number.isNaN(tso.approved) ? tso.approved : 0,
+		rejected: typeof tso.rejected === 'number' && !Number.isNaN(tso.rejected) ? tso.rejected : 0,
+		committed: typeof tso.committed === 'number' && !Number.isNaN(tso.committed) ? tso.committed : 0
+	};
+	return {
+		proposals: d.proposals as ProposalRecord[],
+		total: d.total as number,
+		limit: d.limit as number,
+		offset: d.offset as number,
+		totalsByStatus
+	};
+}
+
+/**
+ * P43-08 — One status tab page (server-authoritative). Optional proposal_type matches existing Type control.
+ */
+export async function listProposalsPaginated(
+	caseId: string,
+	token: string,
+	status: ProposalStatus,
+	opts: { limit: number; offset: number; proposalType?: 'timeline' | 'note'; query?: string }
+): Promise<ProposalListPaginatedResponse> {
+	const params = new URLSearchParams();
+	params.set('status', status);
+	params.set('limit', String(opts.limit));
+	params.set('offset', String(opts.offset));
+	if (opts.proposalType) params.set('proposal_type', opts.proposalType);
+	const qTrim = typeof opts.query === 'string' ? opts.query.trim() : '';
+	if (qTrim) params.set('query', qTrim);
+	const qs = `?${params.toString()}`;
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/proposals${qs}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list proposals (${res.status})`
+		);
+	return parseProposalListPaginatedResponseBody(data);
+}
+
 /** List all proposals for a case. Optionally filter by status. */
 export async function listProposals(
 	caseId: string,
@@ -4031,7 +4332,7 @@ export async function listProposals(
 		throw new Error(
 			(data as { error?: string })?.error ?? `Failed to list proposals (${res.status})`
 		);
-	return Array.isArray(data) ? (data as ProposalRecord[]) : [];
+	return parseCaseEngineProposalListResponseBody(data);
 }
 
 /** Create a proposal from chat content. */
@@ -5630,4 +5931,704 @@ export async function deleteNoteAttachment(
 		throw new Error(
 			(data as { error?: string })?.error ?? `Failed to delete attachment (${res.status})`
 		);
+}
+
+// ── P64-10: Case Intelligence Stage 1 (staging + committed entities) ─────────
+
+/** Staging / committed kinds mirror Case Engine `caseIntelligenceTypes`. */
+export type CaseIntelligenceEntityKind = 'PERSON' | 'VEHICLE' | 'LOCATION';
+export type CaseIntelligenceStagingStatus =
+	| 'draft'
+	| 'pending'
+	| 'rejected'
+	| 'committed'
+	| 'withdrawn';
+export type CaseIntelligencePersonPosture =
+	| 'IDENTIFIED'
+	| 'UNKNOWN_PARTIAL'
+	| 'UNKNOWN_PLACEHOLDER';
+
+/** Non-authoritative staging row from `GET/POST/PATCH …/intelligence/staging`. */
+export interface CaseIntelligenceStagingRecord {
+	record_class: 'case_intelligence_staging';
+	authority: 'non_authoritative';
+	non_authoritative_intel?: boolean;
+	id: string;
+	case_id: string;
+	status: CaseIntelligenceStagingStatus;
+	entity_kind: CaseIntelligenceEntityKind;
+	person_identity_posture: CaseIntelligencePersonPosture | null;
+	proposed_display_label: string;
+	proposed_core_attributes: Record<string, unknown>;
+	created_by: string;
+	created_at: string;
+	updated_by: string | null;
+	updated_at: string | null;
+	rejected_at: string | null;
+	rejected_by: string | null;
+	rejection_reason: string | null;
+	committed_at: string | null;
+	committed_by: string | null;
+	result_entity_id: string | null;
+}
+
+/** Authoritative committed entity from `GET …/intelligence/entities`. */
+export interface CaseIntelligenceCommittedEntity {
+	record_class: 'case_intelligence_entity';
+	authority: 'authoritative_case_intel';
+	id: string;
+	case_id: string;
+	entity_kind: CaseIntelligenceEntityKind;
+	person_identity_posture: CaseIntelligencePersonPosture | null;
+	display_label: string;
+	core_attributes: Record<string, unknown>;
+	committed_from_staging_id: string | null;
+	created_by: string;
+	created_at: string;
+	updated_by: string | null;
+	updated_at: string | null;
+	deleted_at: string | null;
+	deleted_by: string | null;
+}
+
+export interface CaseIntelligenceCommittedListResult {
+	authority: 'authoritative_case_intel';
+	list_scope: 'active_only' | 'include_retired';
+	entity_kind_filter: CaseIntelligenceEntityKind | null;
+	committed_entities: CaseIntelligenceCommittedEntity[];
+}
+
+export interface CaseIntelligenceCommitResponse {
+	committed_entity: CaseIntelligenceCommittedEntity;
+	staging_record: CaseIntelligenceStagingRecord;
+	staging_resolution: 'committed';
+}
+
+export async function listCaseIntelligenceStaging(
+	caseId: string,
+	token: string,
+	opts?: { status?: string }
+): Promise<CaseIntelligenceStagingRecord[]> {
+	const qp = new URLSearchParams();
+	if (opts?.status?.trim()) qp.set('status', opts.status.trim());
+	const qs = qp.toString() ? `?${qp.toString()}` : '';
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/staging${qs}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list intel staging (${res.status})`
+		);
+	const recs = (data as { staging_records?: unknown })?.staging_records;
+	if (!Array.isArray(recs)) {
+		throw new Error('Case Engine returned OK but intel staging list missing staging_records array.');
+	}
+	return recs as CaseIntelligenceStagingRecord[];
+}
+
+export async function createCaseIntelligenceStaging(
+	caseId: string,
+	token: string,
+	body: {
+		entity_kind: CaseIntelligenceEntityKind;
+		proposed_display_label: string;
+		proposed_core_attributes?: Record<string, unknown>;
+		status?: 'draft' | 'pending';
+		person_identity_posture?: CaseIntelligencePersonPosture | null;
+	}
+): Promise<CaseIntelligenceStagingRecord> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/staging`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(body)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to create intel staging (${res.status})`
+		);
+	const row = (data as { staging_record?: CaseIntelligenceStagingRecord })?.staging_record;
+	if (!row) throw new Error('Case Engine returned OK but missing staging_record.');
+	return row;
+}
+
+export async function patchCaseIntelligenceStaging(
+	caseId: string,
+	stagingId: string,
+	token: string,
+	body: Record<string, unknown>
+): Promise<CaseIntelligenceStagingRecord> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/staging/${stagingId}`,
+		{
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify(body)
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to update intel staging (${res.status})`
+		);
+	const row = (data as { staging_record?: CaseIntelligenceStagingRecord })?.staging_record;
+	if (!row) throw new Error('Case Engine returned OK but missing staging_record.');
+	return row;
+}
+
+export async function commitCaseIntelligenceStaging(
+	caseId: string,
+	stagingId: string,
+	token: string
+): Promise<CaseIntelligenceCommitResponse> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/staging/${stagingId}/commit`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({})
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to commit intel staging (${res.status})`
+		);
+	return data as CaseIntelligenceCommitResponse;
+}
+
+export async function rejectCaseIntelligenceStaging(
+	caseId: string,
+	stagingId: string,
+	token: string,
+	opts?: { rejection_reason?: string | null }
+): Promise<CaseIntelligenceStagingRecord> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/staging/${stagingId}/reject`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({ rejection_reason: opts?.rejection_reason ?? null })
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to reject intel staging (${res.status})`
+		);
+	const row = (data as { staging_record?: CaseIntelligenceStagingRecord })?.staging_record;
+	if (!row) throw new Error('Case Engine returned OK but missing staging_record.');
+	return row;
+}
+
+export async function listCaseIntelligenceCommittedEntities(
+	caseId: string,
+	token: string,
+	opts?: { includeRetired?: boolean; entityKind?: CaseIntelligenceEntityKind }
+): Promise<CaseIntelligenceCommittedListResult> {
+	const qp = new URLSearchParams();
+	if (opts?.includeRetired) qp.set('include_retired', 'true');
+	if (opts?.entityKind) qp.set('entity_kind', opts.entityKind);
+	const qs = qp.toString() ? `?${qp.toString()}` : '';
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/entities${qs}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list committed intel entities (${res.status})`
+		);
+	const ents = (data as { committed_entities?: unknown })?.committed_entities;
+	if (!Array.isArray(ents)) {
+		throw new Error('Case Engine returned OK but committed intel list missing committed_entities array.');
+	}
+	const d = data as Record<string, unknown>;
+	const ls = d.list_scope === 'include_retired' ? 'include_retired' : 'active_only';
+	const fk = d.entity_kind_filter;
+	return {
+		authority: 'authoritative_case_intel',
+		list_scope: ls,
+		entity_kind_filter:
+			fk === null || fk === undefined
+				? null
+				: (fk as CaseIntelligenceEntityKind),
+		committed_entities: ents as CaseIntelligenceCommittedEntity[]
+	};
+}
+
+/** P68-04/05: Direct operator committed create (`POST …/intelligence/entities`). */
+export interface CaseIntelligenceDirectCreateResponse {
+	authority: 'authoritative_case_intel';
+	creation_mode: 'direct';
+	committed_entity: CaseIntelligenceCommittedEntity;
+}
+
+export async function createCaseIntelligenceCommittedEntityDirect(
+	caseId: string,
+	token: string,
+	body: {
+		entity_kind: CaseIntelligenceEntityKind;
+		display_label: string;
+		core_attributes?: Record<string, unknown>;
+		person_identity_posture?: CaseIntelligencePersonPosture | null;
+	}
+): Promise<CaseIntelligenceDirectCreateResponse> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/entities`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(body)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(
+			extractApiErrorMessage(data, `Failed to create committed intel entity (${res.status})`)
+		);
+	}
+	const ent = (data as { committed_entity?: CaseIntelligenceCommittedEntity }).committed_entity;
+	if (!ent) {
+		throw new Error('Case Engine returned OK but committed intel create response missing committed_entity.');
+	}
+	return {
+		authority: 'authoritative_case_intel',
+		creation_mode: 'direct',
+		committed_entity: ent
+	};
+}
+
+/** Single committed entity from `GET …/intelligence/entities/:entityId` (P64-06). */
+export async function getCaseIntelligenceCommittedEntity(
+	caseId: string,
+	entityId: string,
+	token: string,
+	opts?: { includeRetired?: boolean }
+): Promise<{
+	authority: 'authoritative_case_intel';
+	read_scope: 'active_only' | 'include_retired';
+	committed_entity: CaseIntelligenceCommittedEntity;
+}> {
+	const qp = new URLSearchParams();
+	if (opts?.includeRetired) qp.set('include_retired', 'true');
+	const qs = qp.toString() ? `?${qp.toString()}` : '';
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/entities/${entityId}${qs}`,
+		{ headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to load intel entity (${res.status})`
+		);
+	const ent = (data as { committed_entity?: CaseIntelligenceCommittedEntity })?.committed_entity;
+	if (!ent) throw new Error('Case Engine returned OK but missing committed_entity.');
+	const rs =
+		(data as { read_scope?: string }).read_scope === 'include_retired'
+			? 'include_retired'
+			: 'active_only';
+	return {
+		authority: 'authoritative_case_intel',
+		read_scope: rs,
+		committed_entity: ent
+	};
+}
+
+export async function retireCaseIntelligenceEntity(
+	caseId: string,
+	entityId: string,
+	token: string
+): Promise<CaseIntelligenceCommittedEntity> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/entities/${entityId}/retire`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to retire intel entity (${res.status})`
+		);
+	const ent = (data as { committed_entity?: CaseIntelligenceCommittedEntity })?.committed_entity;
+	if (!ent) throw new Error('Case Engine returned OK but missing committed_entity.');
+	return ent;
+}
+
+export async function restoreCaseIntelligenceEntity(
+	caseId: string,
+	entityId: string,
+	token: string
+): Promise<CaseIntelligenceCommittedEntity> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/entities/${entityId}/restore`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to restore intel entity (${res.status})`
+		);
+	const ent = (data as { committed_entity?: CaseIntelligenceCommittedEntity })?.committed_entity;
+	if (!ent) throw new Error('Case Engine returned OK but missing committed_entity.');
+	return ent;
+}
+
+// ── P66-10: Case Intelligence Stage 2 — associations (staging + committed edges) ─
+
+export type CaseIntelligenceAssociationKind = 'ASSOCIATED_WITH' | 'KNOWS' | 'OPERATES_VEHICLE';
+
+export type CaseIntelligenceAssertionLane = 'HYPOTHESIS' | 'SETTLED';
+
+/** Read projection from `GET …/intelligence/associations` (list/detail/adjacency). */
+export interface CaseIntelligenceCommittedAssociationProjection {
+	record_class: 'case_intelligence_association';
+	authority: 'authoritative_case_intel';
+	id: string;
+	case_id: string;
+	association_kind: CaseIntelligenceAssociationKind;
+	endpoint_a_entity_id: string;
+	endpoint_b_entity_id: string;
+	assertion_lane: CaseIntelligenceAssertionLane;
+	assertion_lane_semantics?: { lane: string; interpretation: string; summary: string };
+	endpoint_a_retired?: boolean;
+	endpoint_b_retired?: boolean;
+	association_active?: boolean;
+	notes?: string | null;
+	attributes?: Record<string, unknown>;
+	committed_from_staging_id?: string | null;
+	created_by: string;
+	created_at: string;
+	updated_by?: string | null;
+	updated_at?: string | null;
+	deleted_at?: string | null;
+	deleted_by?: string | null;
+}
+
+export interface CaseIntelligenceCommittedAssociationsListResult {
+	authority: 'authoritative_case_intel';
+	record_class: 'case_intelligence_association';
+	list_scope: 'active_only' | 'include_retired';
+	association_incident_filter: string;
+	association_kind_filter: CaseIntelligenceAssociationKind | null;
+	assertion_lane_filter: CaseIntelligenceAssertionLane | null;
+	committed_associations: CaseIntelligenceCommittedAssociationProjection[];
+	non_authoritative_intel: false;
+	staging_kind: null;
+}
+
+export interface CaseIntelligenceAssociationStagingRecord {
+	record_class: 'case_intelligence_association_staging';
+	authority: 'non_authoritative';
+	non_authoritative_intel?: boolean;
+	staging_scope?: string;
+	id: string;
+	case_id: string;
+	status: CaseIntelligenceStagingStatus;
+	association_kind: CaseIntelligenceAssociationKind;
+	endpoint_a_entity_id: string;
+	endpoint_b_entity_id: string;
+	assertion_lane: CaseIntelligenceAssertionLane;
+	proposed_notes: string | null;
+	proposed_attributes: Record<string, unknown>;
+	created_by: string;
+	created_at: string;
+	updated_by: string | null;
+	updated_at: string | null;
+	rejected_at: string | null;
+	rejected_by: string | null;
+	rejection_reason: string | null;
+	committed_at: string | null;
+	committed_by: string | null;
+	result_association_id: string | null;
+}
+
+export interface CaseIntelligenceAssociationCommitResponse {
+	committed_association: CaseIntelligenceCommittedAssociationProjection;
+	staging_resolution: 'committed';
+	authoritative_graph_note?: string;
+	association_staging_record: CaseIntelligenceAssociationStagingRecord;
+}
+
+export async function listCaseIntelligenceAssociationStaging(
+	caseId: string,
+	token: string,
+	opts?: { status?: string }
+): Promise<CaseIntelligenceAssociationStagingRecord[]> {
+	const qp = new URLSearchParams();
+	if (opts?.status?.trim()) qp.set('status', opts.status.trim());
+	const qs = qp.toString() ? `?${qp.toString()}` : '';
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/association-staging${qs}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list association staging (${res.status})`
+		);
+	const recs = (data as { association_staging_records?: unknown })?.association_staging_records;
+	if (!Array.isArray(recs)) {
+		throw new Error(
+			'Case Engine returned OK but association staging list missing association_staging_records array.'
+		);
+	}
+	return recs as CaseIntelligenceAssociationStagingRecord[];
+}
+
+export async function createCaseIntelligenceAssociationStaging(
+	caseId: string,
+	token: string,
+	body: {
+		association_kind: CaseIntelligenceAssociationKind;
+		endpoint_a_entity_id: string;
+		endpoint_b_entity_id: string;
+		assertion_lane: CaseIntelligenceAssertionLane;
+		proposed_notes?: string | null;
+		proposed_attributes?: Record<string, unknown>;
+		status?: 'draft' | 'pending';
+	}
+): Promise<CaseIntelligenceAssociationStagingRecord> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/association-staging`, {
+		method: 'POST',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+		body: JSON.stringify(body)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to create association staging (${res.status})`
+		);
+	const row = (data as { association_staging_record?: CaseIntelligenceAssociationStagingRecord })
+		?.association_staging_record;
+	if (!row) throw new Error('Case Engine returned OK but missing association_staging_record.');
+	return row;
+}
+
+export async function patchCaseIntelligenceAssociationStaging(
+	caseId: string,
+	stagingId: string,
+	token: string,
+	body: Record<string, unknown>
+): Promise<CaseIntelligenceAssociationStagingRecord> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/association-staging/${stagingId}`,
+		{
+			method: 'PATCH',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify(body)
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to update association staging (${res.status})`
+		);
+	const row = (data as { association_staging_record?: CaseIntelligenceAssociationStagingRecord })
+		?.association_staging_record;
+	if (!row) throw new Error('Case Engine returned OK but missing association_staging_record.');
+	return row;
+}
+
+export async function commitCaseIntelligenceAssociationStaging(
+	caseId: string,
+	stagingId: string,
+	token: string
+): Promise<CaseIntelligenceAssociationCommitResponse> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/association-staging/${stagingId}/commit`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({})
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to commit association staging (${res.status})`
+		);
+	const d = data as CaseIntelligenceAssociationCommitResponse;
+	if (!d.association_staging_record || !d.committed_association) {
+		throw new Error('Case Engine returned OK but missing association commit payload.');
+	}
+	return d;
+}
+
+export async function rejectCaseIntelligenceAssociationStaging(
+	caseId: string,
+	stagingId: string,
+	token: string,
+	opts?: { rejection_reason?: string | null }
+): Promise<{
+	association_staging_record: CaseIntelligenceAssociationStagingRecord;
+	staging_resolution: 'rejected';
+	committed_association: null;
+	authoritative_graph_unchanged: true;
+}> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/association-staging/${stagingId}/reject`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({ rejection_reason: opts?.rejection_reason ?? null })
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to reject association staging (${res.status})`
+		);
+	const row = (data as { association_staging_record?: CaseIntelligenceAssociationStagingRecord })
+		?.association_staging_record;
+	if (!row) throw new Error('Case Engine returned OK but missing association_staging_record.');
+	return data as {
+		association_staging_record: CaseIntelligenceAssociationStagingRecord;
+		staging_resolution: 'rejected';
+		committed_association: null;
+		authoritative_graph_unchanged: true;
+	};
+}
+
+export async function listCaseIntelligenceCommittedAssociations(
+	caseId: string,
+	token: string,
+	opts?: {
+		includeRetired?: boolean;
+		associationKind?: CaseIntelligenceAssociationKind;
+		assertionLane?: CaseIntelligenceAssertionLane;
+	}
+): Promise<CaseIntelligenceCommittedAssociationsListResult> {
+	const qp = new URLSearchParams();
+	if (opts?.includeRetired) qp.set('include_retired', 'true');
+	if (opts?.associationKind) qp.set('association_kind', opts.associationKind);
+	if (opts?.assertionLane) qp.set('assertion_lane', opts.assertionLane);
+	const qs = qp.toString() ? `?${qp.toString()}` : '';
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/associations${qs}`, {
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list committed associations (${res.status})`
+		);
+	const assocs = (data as { committed_associations?: unknown })?.committed_associations;
+	if (!Array.isArray(assocs)) {
+		throw new Error(
+			'Case Engine returned OK but committed associations list missing committed_associations array.'
+		);
+	}
+	const d = data as Record<string, unknown>;
+	const ls = d.list_scope === 'include_retired' ? 'include_retired' : 'active_only';
+	const af = typeof d.association_incident_filter === 'string' ? d.association_incident_filter : 'all';
+	const kf = d.association_kind_filter;
+	const lf = d.assertion_lane_filter;
+	return {
+		authority: 'authoritative_case_intel',
+		record_class: 'case_intelligence_association',
+		list_scope: ls,
+		association_incident_filter: af,
+		association_kind_filter:
+			kf === null || kf === undefined ? null : (kf as CaseIntelligenceAssociationKind),
+		assertion_lane_filter:
+			lf === null || lf === undefined ? null : (lf as CaseIntelligenceAssertionLane),
+		committed_associations: assocs as CaseIntelligenceCommittedAssociationProjection[],
+		non_authoritative_intel: false,
+		staging_kind: null
+	};
+}
+
+export async function listCaseIntelligenceAssociationsForEntity(
+	caseId: string,
+	entityId: string,
+	token: string,
+	opts?: { includeRetired?: boolean }
+): Promise<CaseIntelligenceCommittedAssociationsListResult & { anchor_entity_id: string }> {
+	const qp = new URLSearchParams();
+	if (opts?.includeRetired) qp.set('include_retired', 'true');
+	const qs = qp.toString() ? `?${qp.toString()}` : '';
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/entities/${entityId}/associations${qs}`,
+		{
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to list entity adjacency (${res.status})`
+		);
+	const assocs = (data as { committed_associations?: unknown })?.committed_associations;
+	if (!Array.isArray(assocs)) {
+		throw new Error('Case Engine returned OK but adjacency list missing committed_associations array.');
+	}
+	const anchor = (data as { anchor_entity_id?: string }).anchor_entity_id ?? entityId;
+	const d = data as Record<string, unknown>;
+	const ls = d.list_scope === 'include_retired' ? 'include_retired' : 'active_only';
+	const af = typeof d.association_incident_filter === 'string' ? d.association_incident_filter : 'all';
+	const kf = d.association_kind_filter;
+	const lf = d.assertion_lane_filter;
+	return {
+		anchor_entity_id: anchor,
+		authority: 'authoritative_case_intel',
+		record_class: 'case_intelligence_association',
+		list_scope: ls,
+		association_incident_filter: af,
+		association_kind_filter:
+			kf === null || kf === undefined ? null : (kf as CaseIntelligenceAssociationKind),
+		assertion_lane_filter:
+			lf === null || lf === undefined ? null : (lf as CaseIntelligenceAssertionLane),
+		committed_associations: assocs as CaseIntelligenceCommittedAssociationProjection[],
+		non_authoritative_intel: false,
+		staging_kind: null
+	};
+}
+
+export async function retireCaseIntelligenceAssociation(
+	caseId: string,
+	associationId: string,
+	token: string
+): Promise<CaseIntelligenceCommittedAssociationProjection> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/associations/${associationId}/retire`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({})
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to retire association (${res.status})`
+		);
+	const row = (data as { committed_association?: CaseIntelligenceCommittedAssociationProjection })
+		?.committed_association;
+	if (!row) throw new Error('Case Engine returned OK but missing committed_association.');
+	return row;
+}
+
+export async function restoreCaseIntelligenceAssociation(
+	caseId: string,
+	associationId: string,
+	token: string
+): Promise<CaseIntelligenceCommittedAssociationProjection> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/intelligence/associations/${associationId}/restore`,
+		{
+			method: 'POST',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` },
+			body: JSON.stringify({})
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok)
+		throw new Error(
+			(data as { error?: string })?.error ?? `Failed to restore association (${res.status})`
+		);
+	const row = (data as { committed_association?: CaseIntelligenceCommittedAssociationProjection })
+		?.committed_association;
+	if (!row) throw new Error('Case Engine returned OK but missing committed_association.');
+	return row;
 }

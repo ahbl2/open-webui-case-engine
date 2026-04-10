@@ -58,6 +58,7 @@
 	 */
 	import { env } from '$env/dynamic/public';
 	import { onMount } from 'svelte';
+	import { get } from 'svelte/store';
 	import { page } from '$app/stores';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
@@ -140,6 +141,8 @@
 	let prevLoadedCaseId: string = $page.params.id ?? '';
 	/** Incremented on each loadNotes() call; guards stale responses from writing to the new case. */
 	let activeNotesLoadId = 0;
+	/** P60-05: `?note=` deep-link — re-apply when the query value changes, not on every refresh. */
+	let lastAppliedNotesUrlNoteParam: string | undefined = undefined;
 
 	// ── Note list ──────────────────────────────────────────────────────────────
 	let notes: NotebookNote[] = [];
@@ -1727,6 +1730,7 @@
 		noteMenuOpen = false;
 		listRowMenuOpenForId = null;
 		resetNoteIntegrityDraftState();
+		lastAppliedNotesUrlNoteParam = undefined;
 		loadNotes();
 	}
 
@@ -1746,6 +1750,20 @@
 			const result = await listCaseNotebookNotes(caseId, $caseEngineToken);
 			if (loadId !== activeNotesLoadId) return;
 			notes = result;
+		// P60-05: optional `?note=` from Workflow support refs (or shared links).
+		const noteParam = get(page).url.searchParams.get('note');
+		if (noteParam != null && noteParam !== '' && noteParam !== lastAppliedNotesUrlNoteParam) {
+			lastAppliedNotesUrlNoteParam = noteParam;
+			const nid = Number(noteParam);
+			if (Number.isSafeInteger(nid)) {
+				const found = notes.find((n) => n.id === nid);
+				if (found) {
+					selectedNote = found;
+					mode = 'view';
+					void loadNoteAttachments(found.id);
+				}
+			}
+		}
 		// Auto-select first note so the workspace is immediately populated.
 		// P30-22: also load its attachments immediately so the attachment panel
 		// is populated on first render, not only after the user clicks a note.

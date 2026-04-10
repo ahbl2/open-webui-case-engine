@@ -313,3 +313,8 @@ dist
 cypress/videos
 cypress/screenshots
 .vscode/settings.json
+
+# Local dev artifacts (do not publish)
+.auth-reset-backups/
+test-results/
+tmp-verify/

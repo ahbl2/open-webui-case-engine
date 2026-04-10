@@ -7,6 +7,9 @@
 
 	/** Optional data-testid forwarded to the root element. */
 	export let testId = '';
+
+	/** When false, omit the dashed outer card (for embedding inside a parent shell). Defaults true. */
+	export let framed = true;
 </script>
 
 <!--
@@ -15,17 +18,16 @@
 	Use the "action" named slot for an optional CTA button.
 -->
 <div
-	class="flex flex-col items-center justify-center gap-2 py-10 rounded-md
-	       border border-dashed border-gray-200 dark:border-gray-700
-	       bg-gray-50 dark:bg-gray-900 text-center"
+	class="flex flex-col items-center justify-center gap-2 text-center
+	       {framed ? 'py-10 ce-l-empty-framed' : 'py-6'}"
 	data-testid={testId || undefined}
 >
 	<slot name="icon" />
 
-	<p class="text-sm text-gray-500 dark:text-gray-400 font-medium">{title}</p>
+	<p class="text-sm font-medium text-[color:var(--ce-l-text-secondary)]">{title}</p>
 
 	{#if description}
-		<p class="text-xs text-gray-400 dark:text-gray-500 max-w-xs">{description}</p>
+		<p class="text-xs max-w-xs text-[color:var(--ce-l-text-muted)]">{description}</p>
 	{/if}
 
 	<slot name="action" />

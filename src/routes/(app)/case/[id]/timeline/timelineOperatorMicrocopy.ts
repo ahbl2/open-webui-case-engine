@@ -12,9 +12,9 @@
 export const TIMELINE_OFFICIAL_RECORD_BADGE_TITLE =
 	'Official timeline: + Log entry saves here; chat intake is reviewed and committed from the Proposals tab.';
 
-/** Subline beside the section header. */
-export const TIMELINE_HEADER_SUBLINE =
-	'Committed facts only · + Log entry or Proposals commit · drafts → Notes tab';
+/** Rules line below the timeline header data-state line (P41-48). */
+export const TIMELINE_HEADER_RULES_LINE =
+	'Timeline shows committed entries only. Drafts are managed in Notes.';
 
 /** + Log entry button tooltip. */
 export const TIMELINE_LOG_ENTRY_BUTTON_TITLE =

@@ -73,4 +73,28 @@ describe('listProposals', () => {
 		expect(result).toHaveLength(1);
 		expect(result[0].id).toBe('p1');
 	});
+
+	it('P43-06: 200 with non-array JSON does not return empty list — throws', async () => {
+		fetchSpy.mockResolvedValueOnce(jsonResponse({ proposals: [] }));
+
+		const { listProposals } = await import('../index');
+		await expect(listProposals('case-1', 'tok')).rejects.toThrow(/not a JSON array/);
+	});
+
+	it('P43-06: 200 with invalid JSON body (parse fallback {}) throws', async () => {
+		fetchSpy.mockResolvedValueOnce(
+			new Response('not json', { status: 200, headers: { 'Content-Type': 'text/plain' } })
+		);
+
+		const { listProposals } = await import('../index');
+		await expect(listProposals('case-1', 'tok')).rejects.toThrow(/not a JSON array/);
+	});
+
+	it('P43-06: valid empty array on 200 still succeeds', async () => {
+		fetchSpy.mockResolvedValueOnce(jsonResponse([]));
+
+		const { listProposals } = await import('../index');
+		const result = await listProposals('case-1', 'tok');
+		expect(result).toEqual([]);
+	});
 });

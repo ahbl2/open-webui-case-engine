@@ -5,16 +5,19 @@
 	import { toast } from 'svelte-sonner';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import {
-		listCaseFiles,
+		listCaseFilesPage,
 		uploadCaseFile,
 		downloadCaseFile,
+		deleteCaseFile,
 		extractCaseFileText,
 		getCaseFileText,
 		addFileTag,
 		removeFileTag,
 		proposeTimelineEntriesFromCaseFile,
-		type CaseFile
+		type CaseFile,
+		type CaseFilesListMimeCategory
 	} from '$lib/apis/caseEngine';
+	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
@@ -25,6 +28,8 @@
 		isCaseFileLikelyExtractable
 	} from '$lib/components/case/caseFilesExtractSupport';
 	import { buildCaseFileExtractedTextModalBody } from '$lib/components/case/caseFileExtractedTextModal';
+	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
+	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 
 	type ProposeWorkflowState =
 		| { step: 'idle' }
@@ -42,15 +47,44 @@
 	export let caseId: string;
 	export let token: string;
 
+	/**
+	 * P42-06 — when true, deleted rows stay in the list (e.g. ADMIN `includeDeleted`); local row is marked
+	 * instead of removed. Files tab default leaves this false.
+	 */
+	export let listIncludesDeleted = false;
+
+	/** P60-05: optional file id from `?file=` — scrolls into view when that row is on the currently loaded page. */
+	export let focusFileId: string | null = null;
+
+	/** P42-03 — matches Case Engine paginated default cap (50). */
+	const CASE_FILES_PAGE_SIZE = 50;
+
 	let files: CaseFile[] = [];
+	let totalFiles = 0;
 	let loading = true;
 	let loadError = '';
+	let isLoadingMore = false;
+	let loadMoreError = '';
+	/** P42-04 — bound input; debounced into `fileSearchApplied` for server fetches. */
+	let fileSearchDraft = '';
+	let fileSearchApplied = '';
+	let searchDebounceHandle: ReturnType<typeof setTimeout> | undefined;
+	/** P42-05 — '' = all types */
+	let mimeCategoryFilter: '' | CaseFilesListMimeCategory = '';
+	/** P42-05 — all | with | without active tags */
+	let hasTagsFilter: 'all' | 'with' | 'without' = 'all';
 	let uploading = false;
 	let extractingId: string | null = null;
+	/** P42-06 — DELETE in flight per file id */
+	let deletingFileId: string | null = null;
+	let showDeleteFileConfirm = false;
+	let pendingDeleteFile: CaseFile | null = null;
 	let viewTextFileId: string | null = null;
 	let viewTextContent: string | null = null;
 	let viewTextLoading = false;
 	let fileInput: HTMLInputElement;
+	/** P42-09 — show “hidden by filters” toast description at most once per active constraint session (reduces noise on sequential uploads). */
+	let filesFilterUploadHintShown = false;
 	// ── File tag constants ─────────────────────────────────────────────────────
 
 	/** Predefined tag options shown in the tag dropdown. Order = most commonly used first. */
@@ -93,15 +127,34 @@
 	let prevLoadedCaseId: string = caseId;
 	/** Incremented on each load; guards stale responses from writing to the wrong case. */
 	let activeLoadId = 0;
+	/** P42-03 / P41-44-FU1 pattern — invalidates in-flight load-more after full reload or case switch. */
+	let filesLoadMoreEpoch = 0;
+	/** P60-05: avoid repeated scroll for the same `focusFileId`. */
+	let lastScrolledFocusFileId: string | null = null;
 
 	$: if (caseId && token && caseId !== prevLoadedCaseId) {
 		prevLoadedCaseId = caseId;
+		filesLoadMoreEpoch += 1;
 		files = [];
+		totalFiles = 0;
 		loadError = '';
+		isLoadingMore = false;
+		loadMoreError = '';
+		if (searchDebounceHandle !== undefined) {
+			clearTimeout(searchDebounceHandle);
+			searchDebounceHandle = undefined;
+		}
+		fileSearchDraft = '';
+		fileSearchApplied = '';
+		mimeCategoryFilter = '';
+		hasTagsFilter = 'all';
 		viewTextFileId = null;
 		viewTextContent = null;
 		uploading = false;
 		extractingId = null;
+		deletingFileId = null;
+		showDeleteFileConfirm = false;
+		pendingDeleteFile = null;
 		addingTagFileId = null;
 		newTagInput = '';
 		newTagIsCustom = false;
@@ -112,28 +165,148 @@
 		}
 		proposeWorkflow = { step: 'idle' };
 		fileDragDepth = 0;
+		filesFilterUploadHintShown = false;
+		lastScrolledFocusFileId = null;
 		loadFiles();
 	}
 
+	$: if (focusFileId && files.length > 0 && focusFileId !== lastScrolledFocusFileId) {
+		const hit = files.some((f) => f.id === focusFileId);
+		if (hit) {
+			lastScrolledFocusFileId = focusFileId;
+			const id = focusFileId;
+			void tick().then(() => {
+				document.getElementById(`ce-case-file-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+			});
+		}
+	}
+
+	/** P42-05 — shared list params for initial + load-more (search + filters + pagination). */
+	function listPageFetchParams(offset: number): {
+		limit: number;
+		offset: number;
+		query?: string;
+		mimeCategory?: CaseFilesListMimeCategory;
+		hasTags?: boolean;
+	} {
+		const q = fileSearchApplied.trim();
+		const p: {
+			limit: number;
+			offset: number;
+			query?: string;
+			mimeCategory?: CaseFilesListMimeCategory;
+			hasTags?: boolean;
+		} = {
+			limit: CASE_FILES_PAGE_SIZE,
+			offset
+		};
+		if (q) p.query = q;
+		if (mimeCategoryFilter) p.mimeCategory = mimeCategoryFilter;
+		if (hasTagsFilter === 'with') p.hasTags = true;
+		if (hasTagsFilter === 'without') p.hasTags = false;
+		return p;
+	}
+
+	$: hasActiveListConstraints =
+		fileSearchApplied.trim().length > 0 ||
+		mimeCategoryFilter !== '' ||
+		hasTagsFilter !== 'all';
+
+	$: if (!hasActiveListConstraints) filesFilterUploadHintShown = false;
+
 	async function loadFiles() {
 		activeLoadId += 1;
+		filesLoadMoreEpoch += 1;
 		const loadId = activeLoadId;
 		loading = true;
 		loadError = '';
+		isLoadingMore = false;
+		loadMoreError = '';
 		try {
-			const result = await listCaseFiles(caseId, token);
+			const { files: page, totalFiles: total } = await listCaseFilesPage(
+				caseId,
+				token,
+				listPageFetchParams(0)
+			);
 			if (loadId !== activeLoadId) return;
-			files = result;
+			files = page;
+			totalFiles = total;
 		} catch (e: any) {
 			if (loadId !== activeLoadId) return;
 			loadError = e?.message ?? 'Failed to load files.';
 			files = [];
+			totalFiles = 0;
 		} finally {
 			if (loadId === activeLoadId) loading = false;
 		}
 	}
 
+	/** P42-03 — append next page; stale-safe (case switch / superseding loadFiles). */
+	async function loadMoreFiles() {
+		if (loading || isLoadingMore || files.length >= totalFiles) return;
+		const fetchGeneration = activeLoadId;
+		const requestedCaseId = caseId;
+		const myLoadMoreOp = ++filesLoadMoreEpoch;
+		isLoadingMore = true;
+		loadMoreError = '';
+		const offset = files.length;
+		try {
+			const { files: more, totalFiles: total } = await listCaseFilesPage(
+				caseId,
+				token,
+				listPageFetchParams(offset)
+			);
+			if (isStaleTimelineLoadMoreAppend(fetchGeneration, activeLoadId, requestedCaseId, caseId)) {
+				return;
+			}
+			const existingIds = new Set(files.map((f) => f.id));
+			const fresh = more.filter((f) => !existingIds.has(f.id));
+			files = [...files, ...fresh];
+			totalFiles = total;
+		} catch (e: unknown) {
+			if (!isStaleTimelineLoadMoreAppend(fetchGeneration, activeLoadId, requestedCaseId, caseId)) {
+				loadMoreError = e instanceof Error ? e.message : 'Failed to load more files.';
+			}
+		} finally {
+			if (myLoadMoreOp === filesLoadMoreEpoch) {
+				isLoadingMore = false;
+			}
+		}
+	}
+
 	loadFiles();
+
+	/** P42-04 — debounced server search; avoids stale rapid typing via `activeLoadId` in `loadFiles`. */
+	function scheduleFileSearchApply() {
+		if (searchDebounceHandle !== undefined) clearTimeout(searchDebounceHandle);
+		searchDebounceHandle = setTimeout(() => {
+			searchDebounceHandle = undefined;
+			const t = fileSearchDraft.trim();
+			if (t === fileSearchApplied) return;
+			fileSearchApplied = t;
+			void loadFiles();
+		}, 300);
+	}
+
+	function onFileSearchInput() {
+		scheduleFileSearchApply();
+	}
+
+	function onListFiltersChange() {
+		void loadFiles();
+	}
+
+	function toastUploadSuccessWithOptionalFilterHint(
+		title: string,
+		filterDescription: string
+	): void {
+		if (hasActiveListConstraints && !filesFilterUploadHintShown) {
+			filesFilterUploadHintShown = true;
+			toast.success(title, { description: filterDescription });
+			return;
+		}
+		toast.success(title);
+	}
 
 	async function handleUpload() {
 		const input = fileInput;
@@ -144,7 +317,10 @@
 		uploading = true;
 		try {
 			const uploaded = await uploadCaseFile(caseId, input.files[0], token);
-			toast.success('File uploaded — select a tag');
+			toastUploadSuccessWithOptionalFilterHint(
+				'File uploaded — select a tag',
+				'It may be hidden by current search or filters.'
+			);
 			input.value = '';
 			await loadFiles();
 			// Auto-open the tag picker so the user is prompted to categorise immediately.
@@ -171,12 +347,19 @@
 				}
 			}
 			if (ok > 0) {
+				const filterDesc =
+					ok === 1
+						? 'It may be hidden by current search or filters.'
+						: 'Some uploads may be hidden by current search or filters.';
 				if (dropped.length === 1) {
-					toast.success('File uploaded');
+					toastUploadSuccessWithOptionalFilterHint('File uploaded', filterDesc);
 				} else if (ok === dropped.length) {
-					toast.success(`${ok} files uploaded`);
+					toastUploadSuccessWithOptionalFilterHint(`${ok} files uploaded`, filterDesc);
 				} else {
-					toast.success(`${ok} of ${dropped.length} files uploaded`);
+					toastUploadSuccessWithOptionalFilterHint(
+						`${ok} of ${dropped.length} files uploaded`,
+						filterDesc
+					);
 				}
 				await loadFiles();
 			}
@@ -464,6 +647,10 @@
 	}
 
 	onDestroy(() => {
+		if (searchDebounceHandle !== undefined) {
+			clearTimeout(searchDebounceHandle);
+			searchDebounceHandle = undefined;
+		}
 		if (proposeWorkflow.step === 'processing') {
 			proposeRequestGeneration += 1;
 			proposeWorkflow.abort.abort();
@@ -480,12 +667,53 @@
 			toast.error(e?.message ?? 'Remove tag failed');
 		}
 	}
+
+	function requestDeleteFile(f: CaseFile) {
+		pendingDeleteFile = f;
+		showDeleteFileConfirm = true;
+	}
+
+	async function executeDeleteFile() {
+		const f = pendingDeleteFile;
+		pendingDeleteFile = null;
+		if (!f) return;
+		deletingFileId = f.id;
+		try {
+			await deleteCaseFile(caseId, f.id, token);
+			if (viewTextFileId === f.id) closeViewText();
+			if (listIncludesDeleted) {
+				files = files.map((x) =>
+					x.id === f.id ? { ...x, deleted_at: new Date().toISOString() } : x
+				);
+			} else {
+				files = files.filter((x) => x.id !== f.id);
+				totalFiles = Math.max(0, totalFiles - 1);
+			}
+			toast.success('File removed');
+		} catch (e: unknown) {
+			toast.error(e instanceof Error ? e.message : 'Delete failed');
+		} finally {
+			deletingFileId = null;
+		}
+	}
 </script>
 
+<ConfirmDialog
+	bind:show={showDeleteFileConfirm}
+	title="Delete file"
+	message="Delete this file? This can be restored later."
+	cancelLabel="Cancel"
+	confirmLabel="Delete"
+	onConfirm={executeDeleteFile}
+/>
+
 <div class="flex flex-col gap-4 p-4">
+	<!-- P42-09 — upload section label -->
+	<div class="flex flex-col gap-1.5 -mx-1">
+		<h3 class="text-sm font-medium text-gray-800 dark:text-gray-200 px-1">Add file to case</h3>
 	<!-- P38-04: drop target shares uploadCaseFile path with picker (Notes-style entry parity) -->
 	<div
-		class="rounded-lg border-2 border-dashed transition-colors p-3 -mx-1
+		class="rounded-lg border-2 border-dashed transition-colors p-3
 		       {fileDragDepth > 0
 			? 'border-blue-500 dark:border-blue-400 bg-blue-50/80 dark:bg-blue-950/40'
 			: 'border-gray-200 dark:border-gray-700'}"
@@ -521,13 +749,68 @@
 			</button>
 		</form>
 	</div>
+	</div>
 
-	<!-- Files list -->
-	<div class="text-xs text-gray-500 dark:text-gray-400">
+	<!-- Files list — P42-11: lighter help line + margin so it reads apart from search row and count line -->
+	<div
+		class="text-xs text-gray-400 dark:text-gray-500 mb-3"
+		data-testid="case-files-extraction-help"
+	>
 		Text extraction supported for: <span class="font-mono" data-testid="case-files-supported-extract-types"
 			>{CASE_FILES_SUPPORTED_EXTRACT_TYPES_LABEL}</span
 		>
 	</div>
+
+	<div
+		class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end max-w-4xl"
+		data-testid="case-files-list-controls"
+	>
+		<div class="flex-1 min-w-[12rem]">
+			<input
+				type="search"
+				bind:value={fileSearchDraft}
+				on:input={onFileSearchInput}
+				placeholder="Search files by name, type, or tag"
+				aria-label="Search case files"
+				autocomplete="off"
+				data-testid="case-files-search-input"
+				class="w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100"
+			/>
+		</div>
+		<div class="flex flex-wrap gap-2 items-center">
+			<select
+				bind:value={mimeCategoryFilter}
+				on:change={onListFiltersChange}
+				aria-label="Filter by file type category"
+				data-testid="case-files-filter-mime-category"
+				class="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm min-w-[9rem]"
+			>
+				<option value="">All types</option>
+				<option value="image">Image</option>
+				<option value="video">Video</option>
+				<option value="audio">Audio</option>
+				<option value="document">Document</option>
+				<option value="other">Other</option>
+			</select>
+			<select
+				bind:value={hasTagsFilter}
+				on:change={onListFiltersChange}
+				aria-label="Filter by tags"
+				data-testid="case-files-filter-has-tags"
+				class="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm min-w-[9rem]"
+			>
+				<option value="all">All files</option>
+				<option value="with">With tags</option>
+				<option value="without">Without tags</option>
+			</select>
+		</div>
+	</div>
+
+	{#if !loadError && !loading && (files.length > 0 || totalFiles > 0)}
+		<p class="text-xs text-gray-600 dark:text-gray-400 mt-2" data-testid="case-files-loaded-count">
+			{files.length} of {totalFiles} files loaded
+		</p>
+	{/if}
 
 	{#if loading}
 		<CaseLoadingState label="Loading files…" />
@@ -535,14 +818,17 @@
 		<CaseErrorState title="Failed to load files" message={loadError} onRetry={loadFiles} />
 	{:else if files.length === 0}
 		<CaseEmptyState
-			title="No files yet."
-			description="Choose a file or drag files into the upload area above."
+			title={hasActiveListConstraints ? 'No matching files.' : 'No files yet.'}
+			description={hasActiveListConstraints
+				? 'Try adjusting search or filters, or reset them to see all files in this case.'
+				: 'Choose a file or drag files into the upload area above.'}
 		/>
 	{:else}
-		<div class="flex flex-col gap-2">
+		<div class="flex flex-col gap-4">
 			{#each files as f (f.id)}
 				<div
-					class="flex flex-col gap-1 rounded border border-gray-200 dark:border-gray-700 p-2 text-sm"
+					id={`ce-case-file-${f.id}`}
+					class="flex flex-col gap-2 rounded border border-gray-200 dark:border-gray-700 p-3 text-sm"
 				>
 				<div class="flex flex-wrap items-center gap-2">
 					<span class="font-medium truncate flex-1 min-w-0">{f.original_filename}</span>
@@ -558,34 +844,52 @@
 					<span class="text-gray-500 text-xs shrink-0"
 						>{f.file_size_bytes != null ? `${Math.round(f.file_size_bytes / 1024)} KB` : ''}</span
 					>
-						<button
+				</div>
+				<!-- `uploaded_at`: canonical case datetime (formatCaseDateTime — align with other case tabs; see formatDateTime.ts). -->
+				<p class="text-xs text-gray-500 dark:text-gray-400">
+					Uploaded: {formatCaseDateTime(String(f.uploaded_at ?? ''))}
+				</p>
+				<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
+					<button
 						type="button"
-						class="text-blue-600 dark:text-blue-400 hover:underline text-xs"
+						class="text-blue-700 dark:text-blue-300 hover:underline text-xs font-medium"
 						on:click={() => handleDownload(f)}
 					>
 						Download
 					</button>
+					<span class="w-px h-3.5 shrink-0 bg-gray-300 dark:bg-gray-600" aria-hidden="true"></span>
 					<button
 						type="button"
-						class="text-blue-600 dark:text-blue-400 hover:underline text-xs disabled:opacity-50"
-						disabled={extractingId === f.id}
+						class="text-red-600 dark:text-red-400 hover:underline text-xs font-medium disabled:opacity-50"
+						disabled={deletingFileId === f.id}
+						data-testid="case-file-delete-btn"
+						on:click={() => requestDeleteFile(f)}
+					>
+						{deletingFileId === f.id ? 'Deleting…' : 'Delete'}
+					</button>
+					<span class="w-px h-3.5 shrink-0 bg-gray-300 dark:bg-gray-600 mx-0.5" aria-hidden="true"></span>
+					<span class="flex flex-wrap items-center gap-x-2 gap-y-1">
+					<button
+						type="button"
+						class="text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-xs disabled:opacity-50"
+						disabled={!isCaseFileLikelyExtractable(f.original_filename, f.mime_type) || extractingId === f.id}
+						title={!isCaseFileLikelyExtractable(f.original_filename, f.mime_type)
+							? 'Text extraction is not supported for this file type'
+							: undefined}
 						on:click={() => handleExtract(f)}
 					>
 						{extractingId === f.id ? 'Extracting...' : 'Extract text'}
 					</button>
-					{#if !isCaseFileLikelyExtractable(f.original_filename, f.mime_type)}
-						<span class="text-xs text-amber-600 dark:text-amber-400">(type not supported)</span>
-					{/if}
 					<button
 						type="button"
-						class="text-blue-600 dark:text-blue-400 hover:underline text-xs"
+						class="text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-xs"
 						on:click={() => handleViewText(f)}
 					>
 						View extracted text
 					</button>
 					<button
 						type="button"
-						class="text-violet-600 dark:text-violet-400 hover:underline text-xs disabled:opacity-50"
+						class="text-violet-600/90 dark:text-violet-400/90 hover:text-violet-700 dark:hover:text-violet-300 hover:underline text-xs disabled:opacity-50"
 						disabled={isFileProposeLocked(f) || f.extraction_status !== 'extracted'}
 						title={f.extraction_status !== 'extracted'
 							? 'Extract text first, then propose timeline entries'
@@ -599,12 +903,14 @@
 								: 'Pending…'
 							: 'Propose timeline entries'}
 					</button>
+					</span>
 					</div>
 				<!-- Tags — required categorisation for every file -->
-				<div class="flex flex-wrap items-center gap-1">
+				<div class="flex flex-wrap items-center gap-1.5">
+					<span class="text-xs font-medium text-gray-700 dark:text-gray-300 shrink-0">Tags:</span>
 					{#each f.tags ?? [] as tag (tag)}
 						<span
-							class="inline-flex items-center gap-0.5 rounded-full bg-gray-200 dark:bg-gray-700 px-1.5 py-0.5 text-xs"
+							class="inline-flex items-center gap-0.5 rounded-full bg-gray-300 text-gray-800 dark:bg-gray-600 dark:text-gray-100 px-2 py-0.5 text-xs font-medium"
 						>
 							{tag}
 							<button
@@ -672,6 +978,24 @@
 				</div>
 				</div>
 			{/each}
+			{#if loadMoreError}
+				<p class="text-xs text-red-600 dark:text-red-400 px-1" data-testid="case-files-load-more-error">
+					{loadMoreError}
+				</p>
+			{/if}
+			{#if files.length < totalFiles}
+				<div class="flex justify-center pt-2">
+					<button
+						type="button"
+						class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+						disabled={isLoadingMore}
+						data-testid="case-files-load-more"
+						on:click={loadMoreFiles}
+					>
+						{isLoadingMore ? 'Loading…' : 'Load more'}
+					</button>
+				</div>
+			{/if}
 		</div>
 	{/if}
 </div>

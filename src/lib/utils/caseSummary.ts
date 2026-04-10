@@ -1,4 +1,44 @@
-import type { CaseSummaryResult } from '$lib/apis/caseEngine';
+import type { CaseSummaryEvidenceItem, CaseSummaryResult } from '$lib/apis/caseEngine';
+
+/** Truncate excerpts for compact citation chips (P56-04). */
+const CITATION_EXCERPT_MAX = 56;
+
+/**
+ * Map evidence pack items by `id` for citation label resolution. Uses only data already on the summary result.
+ */
+export function caseSummaryEvidenceByIdMap(result: CaseSummaryResult): Map<string, CaseSummaryEvidenceItem> {
+	return new Map((result.evidencePack?.items ?? []).map((item) => [item.id, item]));
+}
+
+function citationKindLabel(kind: CaseSummaryEvidenceItem['kind']): string {
+	return kind === 'timeline_entry' ? 'Entry' : 'File';
+}
+
+/**
+ * Operator-scannable labels for citation `evidenceItemIds`: kind · sourceId, optional clipped excerpt.
+ * Unknown ids fall back to the raw id string (no guessing).
+ */
+export function formatCaseSummaryCitationEvidenceLabels(
+	ids: string[] | undefined,
+	byId: Map<string, CaseSummaryEvidenceItem>
+): string {
+	const list = (ids ?? []).map((id) => String(id ?? '').trim()).filter(Boolean);
+	if (list.length === 0) return '';
+
+	return list
+		.map((id) => {
+			const item = byId.get(id);
+			if (!item) return id;
+
+			const head = `${citationKindLabel(item.kind)} · ${item.sourceId}`;
+			const ex = String(item.excerpt ?? '').trim();
+			if (!ex) return head;
+
+			const clip = ex.length > CITATION_EXCERPT_MAX ? `${ex.slice(0, CITATION_EXCERPT_MAX - 1)}…` : ex;
+			return `${head} · ${clip}`;
+		})
+		.join('; ');
+}
 
 export function detectCaseSummaryIntent(text: string): boolean {
 	const q = String(text ?? '').toLowerCase().trim();

@@ -565,4 +565,20 @@ describe('tabClasses', () => {
 	it('inactive tab contains transparent border', () => {
 		expect(tabClasses('pending', 'approved')).toContain('transparent');
 	});
+
+	it('P45-03 — inactive rejected tab uses muted text vs other inactive tabs', () => {
+		const inactiveRejected = tabClasses('rejected', 'pending');
+		const inactivePending = tabClasses('pending', 'approved');
+		expect(inactiveRejected).toContain('text-gray-400');
+		expect(inactiveRejected).toContain('dark:text-gray-500');
+		expect(inactivePending).toContain('text-gray-500');
+		expect(inactivePending).toContain('dark:text-gray-400');
+	});
+
+	it('P45-03 — active rejected tab keeps full red emphasis', () => {
+		const active = tabClasses('rejected', 'rejected');
+		expect(active).toContain('border-red-500');
+		expect(active).toContain('text-red-700');
+		expect(active).toContain('dark:text-red-400');
+	});
 });

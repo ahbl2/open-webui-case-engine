@@ -390,10 +390,14 @@ export function statusBadgeClasses(status: ProposalStatus): string {
 
 /**
  * Returns Tailwind classes for a status tab (active vs inactive).
+ * P45-03 — inactive Rejected uses softer text than other inactive tabs (still interactive; active state unchanged).
  */
 export function tabClasses(tab: ProposalStatus, activeTab: ProposalStatus): string {
 	const base = 'px-3 py-2 text-xs font-medium border-b-2 whitespace-nowrap transition-colors';
 	if (tab !== activeTab) {
+		if (tab === 'rejected') {
+			return `${base} border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300`;
+		}
 		return `${base} border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300`;
 	}
 	switch (tab) {

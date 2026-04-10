@@ -1,110 +1,67 @@
 import { describe, expect, it } from 'vitest';
 import {
-	caseSummarySections,
-	detectCaseSummaryIntent,
-	formatCaseSummaryForChat,
-	hasLimitedCaseSummaryData
+	caseSummaryEvidenceByIdMap,
+	formatCaseSummaryCitationEvidenceLabels
 } from './caseSummary';
 import type { CaseSummaryResult } from '$lib/apis/caseEngine';
 
-describe('caseSummary helpers', () => {
-	it('detects explicit case summary intent', () => {
-		expect(detectCaseSummaryIntent('summarize this case')).toBe(true);
-		expect(detectCaseSummaryIntent('Generate case summary')).toBe(true);
-		expect(detectCaseSummaryIntent('What happened yesterday?')).toBe(false);
+function makeResult(partial: Partial<CaseSummaryResult> & { items: CaseSummaryResult['evidencePack']['items'] }): CaseSummaryResult {
+	return {
+		caseId: 'c1',
+		generatedAt: '2020-01-01T00:00:00.000Z',
+		params: { maxSources: 10, maxTextPerSource: 100 },
+		evidencePack: { packVersion: 1, items: partial.items },
+		summary: partial.summary ?? {
+			primarySuspects: [],
+			keyEvents: [],
+			evidenceHighlights: [],
+			recommendedNextSteps: [],
+			openQuestions: []
+		},
+		citations: partial.citations ?? []
+	};
+}
+
+describe('formatCaseSummaryCitationEvidenceLabels', () => {
+	it('uses evidence pack for kind, sourceId, and clipped excerpt', () => {
+		const r = makeResult({
+			items: [
+				{
+					id: 'ev-a',
+					kind: 'timeline_entry',
+					sourceId: 'ent-1',
+					type: 'OBSERVATION',
+					createdAt: '2020-01-01T00:00:00.000Z',
+					excerpt: 'Short line'
+				}
+			]
+		});
+		const map = caseSummaryEvidenceByIdMap(r);
+		expect(formatCaseSummaryCitationEvidenceLabels(['ev-a'], map)).toBe(
+			'Entry · ent-1 · Short line'
+		);
 	});
 
-	it('formats summary sections and citations for chat', () => {
-		const payload: CaseSummaryResult = {
-			caseId: 'c1',
-			generatedAt: '2026-03-23T10:00:00.000Z',
-			params: { maxSources: 200, maxTextPerSource: 800 },
-			evidencePack: {
-				packVersion: 1,
-				items: [
-					{
-						id: 'ev1',
-						kind: 'timeline_entry',
-						sourceId: 'entry-1',
-						type: 'OBS',
-						createdAt: '2026-03-20T12:00:00.000Z',
-						excerpt: 'x'
-					}
-				]
-			},
-			summary: {
-				primarySuspects: ['A'],
-				keyEvents: ['B'],
-				evidenceHighlights: [],
-				recommendedNextSteps: ['C'],
-				openQuestions: []
-			},
-			citations: [{ evidenceItemIds: ['ev1'], note: 'Supports event B' }]
-		};
-		const out = formatCaseSummaryForChat(payload);
-		expect(out).toContain('Primary suspects');
-		expect(out).toContain('- A');
-		expect(out).toContain('Recommended next steps');
-		expect(out).toContain('Citations');
-		expect(out).toContain('ev1 (Entry:entry-1)');
+	it('falls back to raw id when pack has no entry', () => {
+		const r = makeResult({ items: [] });
+		const map = caseSummaryEvidenceByIdMap(r);
+		expect(formatCaseSummaryCitationEvidenceLabels(['missing-id'], map)).toBe('missing-id');
 	});
 
-	it('returns empty-state message when sections are empty', () => {
-		const payload: CaseSummaryResult = {
-			caseId: 'c1',
-			generatedAt: '2026-03-23T10:00:00.000Z',
-			params: { maxSources: 200, maxTextPerSource: 800 },
-			evidencePack: { packVersion: 1, items: [] },
-			summary: {
-				primarySuspects: [],
-				keyEvents: [],
-				evidenceHighlights: [],
-				recommendedNextSteps: [],
-				openQuestions: []
-			},
-			citations: []
-		};
-		expect(formatCaseSummaryForChat(payload)).toBe('No summary data returned.');
-	});
-
-	it('exposes the same section set used by panel and chat', () => {
-		const payload: CaseSummaryResult = {
-			caseId: 'c1',
-			generatedAt: '2026-03-23T10:00:00.000Z',
-			params: { maxSources: 200, maxTextPerSource: 800 },
-			evidencePack: { packVersion: 1, items: [] },
-			summary: {
-				primarySuspects: ['A'],
-				keyEvents: ['B'],
-				evidenceHighlights: [],
-				recommendedNextSteps: ['C'],
-				openQuestions: []
-			},
-			citations: []
-		};
-		expect(caseSummarySections(payload).map((s) => s.title)).toEqual([
-			'Primary suspects',
-			'Key events',
-			'Recommended next steps'
-		]);
-		expect(hasLimitedCaseSummaryData(payload)).toBe(false);
-	});
-
-	it('flags limited summaries for low-data cases', () => {
-		const payload: CaseSummaryResult = {
-			caseId: 'c1',
-			generatedAt: '2026-03-23T10:00:00.000Z',
-			params: { maxSources: 200, maxTextPerSource: 800 },
-			evidencePack: { packVersion: 1, items: [] },
-			summary: {
-				primarySuspects: ['A'],
-				keyEvents: [],
-				evidenceHighlights: [],
-				recommendedNextSteps: [],
-				openQuestions: []
-			},
-			citations: []
-		};
-		expect(hasLimitedCaseSummaryData(payload)).toBe(true);
+	it('uses File kind label for case_file', () => {
+		const r = makeResult({
+			items: [
+				{
+					id: 'f1',
+					kind: 'case_file',
+					sourceId: 'file-uuid',
+					type: 'pdf',
+					createdAt: '2020-01-01T00:00:00.000Z',
+					excerpt: ''
+				}
+			]
+		});
+		const map = caseSummaryEvidenceByIdMap(r);
+		expect(formatCaseSummaryCitationEvidenceLabels(['f1'], map)).toBe('File · file-uuid');
 	});
 });
