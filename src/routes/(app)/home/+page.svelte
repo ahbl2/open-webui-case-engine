@@ -21,7 +21,13 @@
 	 *   - No personal thread IDs or metadata are exposed to case views.
 	 *   - activeThreadScope is set to 'personal' on successful binding.
 	 */
-	import { onMount } from 'svelte';
+	import { onMount, getContext } from 'svelte';
+	import OperatorCommandCenterFrame from '$lib/components/operator/OperatorCommandCenterFrame.svelte';
+	import OccSummaryKpiTiles from '$lib/components/operator/OccSummaryKpiTiles.svelte';
+	import OccRightRailModules from '$lib/components/operator/OccRightRailModules.svelte';
+	import HomeDesktopPanels from './HomeDesktopPanels.svelte';
+	import OccMainColumnHome from './OccMainColumnHome.svelte';
+	import { isDetectiveWave2AppShellEnabled } from '$lib/case/detectiveWave2Shell';
 	import { goto } from '$app/navigation';
 	import { v4 as uuidv4 } from 'uuid';
 
@@ -45,8 +51,13 @@
 		type CaseEngineCase
 	} from '$lib/apis/caseEngine';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
-	import CaseThreadList, { type ThreadListItem } from '$lib/components/case/CaseThreadList.svelte';
+	import type { ThreadListItem } from '$lib/components/case/CaseThreadList.svelte';
 	import { activeUiThread } from '$lib/stores/activeUiThread';
+
+	const i18n = getContext('i18n');
+
+	/** P75-06-FU: OCC frame only when Wave 2 shell flag is on — legacy /home layout on rollback. */
+	$: wave2ShellChrome = isDetectiveWave2AppShellEnabled();
 
 	// ── Personal thread list ─────────────────────────────────────────────────
 	let threads: PersonalThreadAssociation[] = [];
@@ -162,6 +173,8 @@
 	// ── Your Cases widget ────────────────────────────────────────────────────
 	const MAX_CASES = 5;
 	let recentCases: CaseEngineCase[] = [];
+	/** Full `listCases` result for KPI metrics (same unit scope as recentCases). */
+	let allCasesForMetrics: CaseEngineCase[] = [];
 	let casesLoading = false;
 	let casesError = '';
 
@@ -178,16 +191,27 @@
 		return STATUS_COLORS[status?.toLowerCase()] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400';
 	}
 
+	$: activeOpenCaseCount = allCasesForMetrics.filter((c) => {
+		const s = String(c.status ?? '').toLowerCase();
+		return s === 'active' || s === 'open';
+	}).length;
+
 	async function loadCases(): Promise<void> {
-		if (!$caseEngineToken) return;
+		if (!$caseEngineToken) {
+			recentCases = [];
+			allCasesForMetrics = [];
+			return;
+		}
 		casesLoading = true;
 		casesError = '';
 		try {
 			const all = await listCases(resolvedUnit, $caseEngineToken);
+			allCasesForMetrics = all;
 			recentCases = all.slice(0, MAX_CASES);
 		} catch (err) {
 			casesError = err instanceof Error ? err.message : 'Failed to load cases.';
 			recentCases = [];
+			allCasesForMetrics = [];
 		} finally {
 			casesLoading = false;
 		}
@@ -198,235 +222,118 @@
 	}
 </script>
 
-<div class="flex-1 flex flex-col w-full min-w-0 h-full overflow-y-auto px-4 py-6 md:px-8 md:py-8">
-	<div class="max-w-4xl w-full mx-auto">
-
-		<!-- Header -->
-		<div class="flex items-center gap-3 mb-6">
-			<svg
-				xmlns="http://www.w3.org/2000/svg"
-				fill="none"
-				viewBox="0 0 24 24"
-				stroke-width="1.5"
-				stroke="currentColor"
-				class="size-6 text-gray-600 dark:text-gray-300"
-			>
-				<path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"
-				/>
-			</svg>
-			<h1 class="text-xl font-semibold text-gray-800 dark:text-gray-100">My Desktop</h1>
+{#if wave2ShellChrome}
+	<OperatorCommandCenterFrame>
+		<div class="contents" slot="summary">
+			<OccSummaryKpiTiles
+				hasToken={Boolean($caseEngineToken && String($caseEngineToken).trim() !== '')}
+				{casesLoading}
+				{casesError}
+				totalCasesInScope={allCasesForMetrics.length}
+				activeOpenCount={activeOpenCaseCount}
+				{threadsLoading}
+				threadCount={threads.length}
+			/>
 		</div>
-
-		<!-- ── Personal Threads ────────────────────────────────────────────── -->
-		<div class="mb-8">
-			<div class="flex items-center justify-between mb-3">
-				<div class="flex items-center gap-2">
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						fill="none"
-						viewBox="0 0 24 24"
-						stroke-width="1.5"
-						stroke="currentColor"
-						class="size-4 text-gray-500 dark:text-gray-400"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M8.625 9.75a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H8.25m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0H12m4.125 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Zm0 0h-.375m-13.5 3.01c0 1.6 1.123 2.994 2.707 3.227 1.087.16 2.185.283 3.293.369V21l4.184-4.183a1.14 1.14 0 0 1 .778-.332 48.294 48.294 0 0 0 5.83-.498c1.585-.233 2.708-1.626 2.708-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0 0 12 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018Z"
-						/>
-					</svg>
-					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">
-						Personal Threads
-					</h2>
-					<span
-						class="text-xs px-1.5 py-0.5 rounded-full bg-gray-100 dark:bg-gray-800
-						       text-gray-500 dark:text-gray-400"
-					>
-						Personal Desktop
-					</span>
-				</div>
-
-				<button
-					type="button"
-					class="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-blue-600 hover:bg-blue-700
-					       text-white text-sm transition disabled:opacity-50 disabled:cursor-not-allowed"
-					on:click={newChat}
-					disabled={bindingInProgress || !$caseEngineToken}
-					data-testid="new-personal-chat-btn"
-				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						fill="none"
-						viewBox="0 0 24 24"
-						stroke-width="1.5"
-						stroke="currentColor"
-						class="size-4"
-					>
-						<path stroke-linecap="round" stroke-linejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-					</svg>
-					{bindingInProgress ? 'Binding…' : 'New Chat'}
-				</button>
-			</div>
-
-			<!-- Binding error banner -->
-			{#if localBindError}
-				<div
-					class="mb-3 rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3"
-					data-testid="personal-bind-error"
-				>
-					<div class="flex items-start justify-between gap-2">
-						<p class="text-xs text-red-700 dark:text-red-400">{localBindError}</p>
-						<button
-							type="button"
-							class="text-xs text-red-400 hover:text-red-600 shrink-0 underline"
-							on:click={() => (localBindError = null)}
-						>
-							Dismiss
-						</button>
-					</div>
-				</div>
-			{/if}
-
-			{#if !$caseEngineToken}
-				<div
-					class="rounded-xl border border-dashed border-gray-300 dark:border-gray-700
-					       bg-gray-50 dark:bg-gray-900 p-6 text-center"
-				>
-					<p class="text-sm text-gray-500 dark:text-gray-400">
-						Case Engine session not active. Personal threads require an active connection.
-					</p>
-				</div>
-			{:else if threadsLoading}
-				<p class="text-sm text-gray-400 dark:text-gray-500 italic py-2">Loading threads…</p>
-			{:else if threadsLoadError}
-				<div class="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3 mb-2">
-					<p class="text-xs text-red-700 dark:text-red-400">{threadsLoadError}</p>
-					<button class="mt-1 text-xs text-red-600 underline" on:click={loadThreads}>
-						Try again
-					</button>
-				</div>
-			{:else if threads.length === 0}
-				<div
-					class="rounded-xl border border-dashed border-gray-200 dark:border-gray-700
-					       bg-gray-50 dark:bg-gray-900 p-6 text-center"
-				>
-					<p class="text-sm text-gray-400 dark:text-gray-500 italic">
-						No personal threads yet. Click "New Chat" to start one.
-					</p>
-				</div>
-		{:else}
-			<div data-testid="personal-thread-list">
-				<CaseThreadList
-					threads={normalizedThreads}
-					activeThreadId={activePersonalThreadId}
-					{bindingInProgress}
-					scrollKey="personal"
-					containerClass="flex flex-col"
-					on:open={(e) => openPersonalThread(e.detail)}
-				/>
-			</div>
-		{/if}
+		<div class="contents" slot="rail">
+			<OccRightRailModules {newChat} {bindingInProgress} hasToken={Boolean($caseEngineToken)} {goToCases} />
 		</div>
-
-		<!-- ── Your Cases ────────────────────────────────────────────────── -->
-		<div class="mb-6">
-			<div class="flex items-center justify-between mb-3">
-				<div class="flex items-center gap-2">
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						fill="none"
-						viewBox="0 0 24 24"
-						stroke-width="1.5"
-						stroke="currentColor"
-						class="size-4 text-gray-500 dark:text-gray-400"
-					>
-						<path
-							stroke-linecap="round"
-							stroke-linejoin="round"
-							d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
-						/>
-					</svg>
-					<h2 class="text-sm font-semibold text-gray-700 dark:text-gray-300">Your Cases</h2>
-				</div>
-				<button
-					type="button"
-					class="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-					on:click={goToCases}
+		<div class="max-w-4xl w-full mx-auto">
+			<!-- Header — OCC landing (P75-06); P75-06-FU: gated by Wave 2 shell flag. -->
+			<div class="flex items-center gap-3 mb-6">
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					fill="none"
+					viewBox="0 0 24 24"
+					stroke-width="1.5"
+					stroke="currentColor"
+					class="size-6 text-gray-600 dark:text-gray-300"
 				>
-					View all →
-				</button>
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"
+					/>
+				</svg>
+				<div class="min-w-0">
+					<h1 class="text-xl font-semibold text-gray-800 dark:text-gray-100">
+						{$i18n.t('Operator Command Center')}
+					</h1>
+					<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+						{$i18n.t('Personal workspace and case shortcuts')}
+					</p>
+				</div>
 			</div>
 
-			{#if !$caseEngineToken}
-				<p class="text-sm text-gray-400 dark:text-gray-500 italic py-2">
-					Case Engine session not active.
-				</p>
-			{:else if casesLoading}
-				<p class="text-sm text-gray-400 dark:text-gray-500 italic py-2">Loading cases…</p>
-			{:else if casesError}
-				<div class="rounded-lg border border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 p-3">
-					<p class="text-xs text-red-700 dark:text-red-400">{casesError}</p>
-					<button class="mt-1 text-xs text-red-600 dark:text-red-400 underline" on:click={loadCases}>
-						Try again
-					</button>
-				</div>
-			{:else if recentCases.length === 0}
-				<div
-					class="rounded-xl border border-dashed border-gray-200 dark:border-gray-700
-					       bg-gray-50 dark:bg-gray-900 p-5 text-center"
+			<OccMainColumnHome
+				{newChat}
+				{bindingInProgress}
+				localBindError={localBindError}
+				onDismissBindError={() => {
+					localBindError = null;
+				}}
+				{threadsLoading}
+				{threadsLoadError}
+				{loadThreads}
+				threads={threads}
+				{normalizedThreads}
+				{activePersonalThreadId}
+				openPersonalThread={openPersonalThread}
+				{casesLoading}
+				{casesError}
+				{loadCases}
+				{recentCases}
+				{goToCases}
+				{statusColor}
+			/>
+		</div>
+	</OperatorCommandCenterFrame>
+{:else}
+	<!-- P75-06-FU: legacy pre–Wave-2 / pre-OCC home shell (no OCC summary band / right rail). -->
+	<div
+		class="flex-1 flex flex-col w-full min-w-0 h-full overflow-y-auto px-4 py-6 md:px-8 md:py-8"
+		data-testid="home-legacy-shell"
+	>
+		<div class="max-w-4xl w-full mx-auto">
+			<div class="flex items-center gap-3 mb-6">
+				<svg
+					xmlns="http://www.w3.org/2000/svg"
+					fill="none"
+					viewBox="0 0 24 24"
+					stroke-width="1.5"
+					stroke="currentColor"
+					class="size-6 text-gray-600 dark:text-gray-300"
 				>
-					<p class="text-sm text-gray-400 dark:text-gray-500">
-						No cases available under your current scope.
-					</p>
-					<button
-						type="button"
-						class="mt-2 text-xs text-blue-600 dark:text-blue-400 hover:underline"
-						on:click={goToCases}
-					>
-						Go to Cases →
-					</button>
-				</div>
-			{:else}
-				<div class="flex flex-col gap-1.5" data-testid="recent-cases-list">
-					{#each recentCases as c (c.id)}
-						<button
-							type="button"
-							class="w-full text-left flex items-center gap-3 rounded-lg border border-gray-200
-							       dark:border-gray-700 bg-white dark:bg-gray-800 hover:bg-gray-50
-							       dark:hover:bg-gray-750 px-3 py-2.5 transition"
-							on:click={() => goto(`/case/${c.id}`)}
-							data-testid="recent-case-item"
-							data-case-id={c.id}
-						>
-							<div class="flex-1 min-w-0">
-								<div class="flex items-center gap-2 mb-0.5">
-									<span class="text-xs font-mono text-gray-500 dark:text-gray-400 shrink-0">
-										#{c.case_number}
-									</span>
-									<span class="text-[10px] px-1 py-0.5 rounded font-medium shrink-0 {statusColor(c.status)}">
-										{c.status}
-									</span>
-									<span class="text-[10px] text-gray-400 dark:text-gray-600 shrink-0">{c.unit}</span>
-								</div>
-								<p class="text-sm text-gray-800 dark:text-gray-100 truncate">{c.title}</p>
-							</div>
-							<svg
-								xmlns="http://www.w3.org/2000/svg"
-								fill="none"
-								viewBox="0 0 24 24"
-								stroke-width="1.5"
-								stroke="currentColor"
-								class="size-4 text-gray-400 shrink-0"
-							>
-								<path stroke-linecap="round" stroke-linejoin="round" d="m8.25 4.5 7.5 7.5-7.5 7.5" />
-							</svg>
-						</button>
-					{/each}
-				</div>
-			{/if}
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"
+					/>
+				</svg>
+				<h1 class="text-xl font-semibold text-gray-800 dark:text-gray-100">My Desktop</h1>
+			</div>
+
+			<HomeDesktopPanels
+				{newChat}
+				{bindingInProgress}
+				localBindError={localBindError}
+				onDismissBindError={() => {
+					localBindError = null;
+				}}
+				{threadsLoading}
+				{threadsLoadError}
+				{loadThreads}
+				threads={threads}
+				{normalizedThreads}
+				{activePersonalThreadId}
+				openPersonalThread={openPersonalThread}
+				{casesLoading}
+				{casesError}
+				{loadCases}
+				{recentCases}
+				{goToCases}
+				{statusColor}
+			/>
 		</div>
 	</div>
-</div>
+{/if}

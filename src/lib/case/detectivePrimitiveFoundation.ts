@@ -85,6 +85,17 @@ export const DS_SCROLL_CLASSES = {
 	body: 'ds-scroll-body'
 } as const;
 
+/** P75-02 / P75-05 — App shell frame (sidebar is separate; top strip content in `DetectiveAppShellTopBar`) */
+export const DS_APP_SHELL_CLASSES = {
+	root: 'ds-app-shell',
+	top: 'ds-app-shell__top',
+	topRow: 'ds-app-shell__top-row',
+	main: 'ds-app-shell__main',
+	topContext: 'ds-app-shell-top-context',
+	topSearchTrigger: 'ds-app-shell-top-search-trigger',
+	topActions: 'ds-app-shell-top-actions'
+} as const;
+
 export const DS_STACK_CLASSES = {
 	stack: 'ds-stack',
 	tight: 'ds-stack ds-stack-tight'

@@ -215,7 +215,7 @@
      All case routes render inside this single unified frame.
      ═══════════════════════════════════════════════════════ -->
 <div
-	class="flex flex-col flex-1 min-h-0 max-h-[100dvh] w-full min-w-0 bg-white dark:bg-gray-950 text-gray-800 dark:text-gray-100 overflow-hidden"
+	class="flex flex-col flex-1 min-h-0 max-h-full w-full min-w-0 bg-white dark:bg-gray-950 text-gray-800 dark:text-gray-100 overflow-hidden"
 	data-testid="case-workspace-shell"
 >
 	<!-- ── TOP CASE HEADER — P70-04 identity bar (P71-03); primary tab strip is below (P71-04) ── -->

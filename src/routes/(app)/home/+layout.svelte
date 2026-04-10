@@ -1,18 +1,21 @@
 <script lang="ts">
 	import { onMount, getContext } from 'svelte';
 	import { WEBUI_NAME, showSidebar, functions, mobile } from '$lib/stores';
-	import { page } from '$app/stores';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Sidebar from '$lib/components/icons/Sidebar.svelte';
+	import { isDetectiveWave2AppShellEnabled } from '$lib/case/detectiveWave2Shell';
 
 	const i18n = getContext('i18n');
+
+	/** P75-06-FU: document title matches OCC vs legacy home shell. */
+	$: wave2ShellChrome = isDetectiveWave2AppShellEnabled();
 
 	onMount(async () => {});
 </script>
 
 <svelte:head>
 	<title>
-		{$i18n.t('Home')} • {$WEBUI_NAME}
+		{wave2ShellChrome ? $i18n.t('Operator Command Center') : $i18n.t('Home')} • {$WEBUI_NAME}
 	</title>
 </svelte:head>
 

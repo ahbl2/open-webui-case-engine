@@ -1,4 +1,9 @@
 <script lang="ts">
+	/**
+	 * P75-09 — Wave 2 global search / command foundation (single `showSearch` + `SearchModal` path).
+	 * Chat list + preview remain the only backed search results (OWUI API). Jump links are real navigation.
+	 * Full command palette / cross-case Case Engine search: deferred per P73-05 §8 S4 (Wave 7+), not duplicated here.
+	 */
 	import { toast } from 'svelte-sonner';
 	import { getContext, onDestroy, onMount, tick } from 'svelte';
 	const i18n = getContext('i18n');
@@ -13,16 +18,48 @@
 	import calendar from 'dayjs/plugin/calendar';
 	import Loader from '../common/Loader.svelte';
 	import { createMessagesList } from '$lib/utils';
-	import { config, user } from '$lib/stores';
+	import { config, user, showShortcuts } from '$lib/stores';
 	import Messages from '../chat/Messages.svelte';
 	import { goto } from '$app/navigation';
 	import PencilSquare from '../icons/PencilSquare.svelte';
 	import PageEdit from '../icons/PageEdit.svelte';
+	import {
+		DS_TYPE_CLASSES,
+		DS_PANEL_CLASSES,
+		DS_EMPTY_CLASSES,
+		DS_CHIP_CLASSES,
+		DS_BTN_CLASSES,
+		DS_SECTION_HEADER_CLASSES
+	} from '$lib/case/detectivePrimitiveFoundation';
 	dayjs.extend(calendar);
 	dayjs.extend(localizedFormat);
 
 	export let show = false;
 	export let onClose = () => {};
+
+	type SearchSurfaceMode = 'search' | 'jump' | 'command' | 'workspace';
+
+	let surfaceMode: SearchSurfaceMode = 'search';
+	let searchModalWasOpen = false;
+
+	function setSurfaceMode(mode: SearchSurfaceMode) {
+		surfaceMode = mode;
+		selectedIdx = null;
+		messages = null;
+		selectedChat = null;
+	}
+
+	$: {
+		if (show && !searchModalWasOpen) {
+			surfaceMode = 'search';
+		}
+		searchModalWasOpen = show;
+	}
+
+	$: if (surfaceMode !== 'search' && searchDebounceTimeout) {
+		clearTimeout(searchDebounceTimeout);
+		searchDebounceTimeout = undefined;
+	}
 
 	let actions = [
 		{
@@ -44,7 +81,7 @@
 	let chatListLoading = false;
 	let allChatsLoaded = false;
 
-	let searchDebounceTimeout;
+	let searchDebounceTimeout: ReturnType<typeof setTimeout> | undefined;
 
 	let selectedIdx = null;
 	let selectedChat = null;
@@ -53,7 +90,7 @@
 	let history = null;
 	let messages = null;
 
-	$: if (!chatListLoading && chatList) {
+	$: if (!chatListLoading && chatList && surfaceMode === 'search') {
 		loadChatPreview(selectedIdx);
 	}
 
@@ -111,7 +148,7 @@
 	};
 
 	const searchHandler = async () => {
-		if (!show) {
+		if (!show || surfaceMode !== 'search') {
 			return;
 		}
 
@@ -169,13 +206,21 @@
 		chatListLoading = false;
 	};
 
-	$: if (show) {
+	$: if (show && surfaceMode === 'search') {
 		searchHandler();
 	}
 
 	const onKeyDown = (e) => {
 		const searchOptions = document.getElementById('search-options-container');
 		if (searchOptions || !show) {
+			return;
+		}
+
+		if (surfaceMode !== 'search') {
+			if (e.code === 'Escape') {
+				show = false;
+				onClose();
+			}
 			return;
 		}
 
@@ -252,99 +297,153 @@
 		}
 		document.removeEventListener('keydown', onKeyDown);
 	});
+
+	const surfaceModes: { id: SearchSurfaceMode; label: string }[] = [
+		{ id: 'search', label: 'Search' },
+		{ id: 'jump', label: 'Jump' },
+		{ id: 'command', label: 'Command' },
+		{ id: 'workspace', label: 'Workspace' }
+	];
+
+	function chipClass(id: SearchSurfaceMode): string {
+		return surfaceMode === id ? DS_CHIP_CLASSES.active : DS_CHIP_CLASSES.base;
+	}
+
+	async function closeAfterNavigate() {
+		show = false;
+		onClose();
+	}
 </script>
 
 <Modal size="xl" bind:show>
-	<div class="py-3 dark:text-gray-300 text-gray-700">
-		<div class="px-4 pb-1.5">
-			<SearchInput
-				bind:value={query}
-				on:input={searchHandler}
-				placeholder={$i18n.t('Search')}
-				showClearButton={true}
-				onFocus={() => {
-					selectedIdx = null;
-					messages = null;
-				}}
-				onKeydown={(e) => {
-					console.log('e', e);
-
-					if (e.code === 'Enter' && (chatList ?? []).length > 0) {
-						const item = document.querySelector(`[data-arrow-selected="true"]`);
-						if (item) {
-							item?.click();
-						}
-
-						show = false;
-						return;
-					} else if (e.code === 'ArrowDown') {
-						selectedIdx = Math.min(selectedIdx + 1, (chatList ?? []).length - 1 + actions.length);
-					} else if (e.code === 'ArrowUp') {
-						selectedIdx = Math.max(selectedIdx - 1, 0);
-					} else {
-						selectedIdx = 0;
-					}
-
-					const item = document.querySelector(`[data-arrow-selected="true"]`);
-					item?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
-				}}
-			/>
-		</div>
-
-		<!-- <hr class="border-gray-50 dark:border-gray-850/30 my-1" /> -->
-
-		<div class="flex px-4 pb-1">
+	<div
+		class="py-3 dark:text-gray-300 text-gray-700"
+		data-testid="global-search-modal"
+		aria-label={$i18n.t('Global search and command')}
+	>
+		<div class="px-4 pb-3 border-b border-gray-100 dark:border-gray-800/80">
+			<div class="mb-2">
+				<h2
+					class="{DS_TYPE_CLASSES.section} text-[length:var(--ds-type-section-size,1rem)] font-semibold text-[color:var(--ds-text-primary)]"
+				>
+					{$i18n.t('Global search & command')}
+				</h2>
+				<p class="{DS_TYPE_CLASSES.meta} text-[color:var(--ds-text-muted)] mt-0.5 leading-snug">
+					{$i18n.t(
+						'Search chat history here. Jump to app destinations. Case-wide tools stay on each case — a full command palette is future work (see P73-05).'
+					)}
+				</p>
+			</div>
 			<div
-				class="flex flex-col overflow-y-auto h-96 md:h-[40rem] max-h-full scrollbar-hidden w-full flex-1 pr-2"
+				class="flex flex-wrap gap-1.5"
+				role="tablist"
+				aria-label={$i18n.t('Search and command modes')}
 			>
-				<div class="w-full text-xs text-gray-500 dark:text-gray-500 font-medium pb-2 px-2">
-					{$i18n.t('Actions')}
-				</div>
-
-				{#each actions as action, idx (action.label)}
+				{#each surfaceModes as m (m.id)}
 					<button
-						class=" w-full flex items-center rounded-xl text-sm py-2 px-3 hover:bg-gray-50 dark:hover:bg-gray-850 {selectedIdx ===
-						idx
-							? 'bg-gray-50 dark:bg-gray-850'
-							: ''}"
-						data-arrow-selected={selectedIdx === idx ? 'true' : undefined}
-						dragabble="false"
-						on:mouseenter={() => {
-							selectedIdx = idx;
-						}}
-						on:click={async () => {
-							await action.onClick();
-						}}
+						type="button"
+						role="tab"
+						aria-selected={surfaceMode === m.id}
+						class="{chipClass(m.id)} text-xs font-medium"
+						data-surface-mode={m.id}
+						on:click={() => setSurfaceMode(m.id)}
 					>
-						<div class="pr-2">
-							<svelte:component this={action.icon} />
-						</div>
-						<div class=" flex-1 text-left">
-							<div class="text-ellipsis line-clamp-1 w-full">
-								{$i18n.t(action.label)}
-							</div>
-						</div>
+						{$i18n.t(m.label)}
 					</button>
 				{/each}
+			</div>
+		</div>
 
-				{#if chatList}
-					<hr class="border-gray-50 dark:border-gray-850/30 my-3" />
+		{#if surfaceMode === 'search'}
+			<div class="px-4 pb-1.5 pt-3">
+				<SearchInput
+					bind:value={query}
+					on:input={searchHandler}
+					placeholder={$i18n.t('Search conversations…')}
+					showClearButton={true}
+					onFocus={() => {
+						selectedIdx = null;
+						messages = null;
+					}}
+					onKeydown={(e) => {
+						if (e.code === 'Enter' && (chatList ?? []).length > 0) {
+							const item = document.querySelector(`[data-arrow-selected="true"]`);
+							if (item) {
+								item?.click();
+							}
 
-					{#if chatList.length === 0}
-						<div class="text-xs text-gray-500 dark:text-gray-400 text-center px-5 py-4">
-							{$i18n.t('No results found')}
+							show = false;
+							return;
+						} else if (e.code === 'ArrowDown') {
+							selectedIdx = Math.min(selectedIdx + 1, (chatList ?? []).length - 1 + actions.length);
+						} else if (e.code === 'ArrowUp') {
+							selectedIdx = Math.max(selectedIdx - 1, 0);
+						} else {
+							selectedIdx = 0;
+						}
+
+						const item = document.querySelector(`[data-arrow-selected="true"]`);
+						item?.scrollIntoView({ block: 'center', inline: 'nearest', behavior: 'instant' });
+					}}
+				/>
+			</div>
+
+			<div class="flex px-4 pb-1">
+				<div
+					class="flex flex-col overflow-y-auto h-96 md:h-[40rem] max-h-full scrollbar-hidden w-full flex-1 pr-2"
+				>
+					<div class="w-full text-xs text-gray-500 dark:text-gray-500 font-medium pb-2 px-2">
+						{$i18n.t('Quick actions')}
+					</div>
+
+					{#each actions as action, idx (action.label)}
+						<button
+							class=" w-full flex items-center rounded-xl text-sm py-2 px-3 hover:bg-gray-50 dark:hover:bg-gray-850 {selectedIdx ===
+							idx
+								? 'bg-gray-50 dark:bg-gray-850'
+								: ''}"
+							data-arrow-selected={selectedIdx === idx ? 'true' : undefined}
+							dragabble="false"
+							on:mouseenter={() => {
+								selectedIdx = idx;
+							}}
+							on:click={async () => {
+								await action.onClick();
+							}}
+						>
+							<div class="pr-2">
+								<svelte:component this={action.icon} />
+							</div>
+							<div class=" flex-1 text-left">
+								<div class="text-ellipsis line-clamp-1 w-full">
+									{$i18n.t(action.label)}
+								</div>
+							</div>
+						</button>
+					{/each}
+
+					{#if chatList}
+						<hr class="border-gray-50 dark:border-gray-850/30 my-3" />
+
+						<div class="w-full text-xs text-gray-500 dark:text-gray-500 font-medium pb-2 px-2">
+							{$i18n.t('Conversations')}
 						</div>
-					{/if}
 
-					{#each chatList as chat, idx (chat.id)}
-						{#if idx === 0 || (idx > 0 && chat.time_range !== chatList[idx - 1].time_range)}
-							<div
-								class="w-full text-xs text-gray-500 dark:text-gray-500 font-medium {idx === 0
-									? ''
-									: 'pt-5'} pb-2 px-2"
-							>
-								{$i18n.t(chat.time_range)}
-								<!-- localisation keys for time_range to be recognized from the i18next parser (so they don't get automatically removed):
+						{#if chatList.length === 0}
+							<div class="text-xs text-gray-500 dark:text-gray-400 text-center px-5 py-4">
+								{$i18n.t('No results found')}
+							</div>
+						{/if}
+
+						{#each chatList as chat, idx (chat.id)}
+							{#if idx === 0 || (idx > 0 && chat.time_range !== chatList[idx - 1].time_range)}
+								<div
+									class="w-full text-xs text-gray-500 dark:text-gray-500 font-medium {idx === 0
+										? ''
+										: 'pt-5'} pb-2 px-2"
+								>
+									{$i18n.t(chat.time_range)}
+									<!-- localisation keys for time_range to be recognized from the i18next parser (so they don't get automatically removed):
 							{$i18n.t('Today')}
 							{$i18n.t('Yesterday')}
 							{$i18n.t('Previous 7 days')}
@@ -362,95 +461,192 @@
 							{$i18n.t('November')}
 							{$i18n.t('December')}
 							-->
-							</div>
-						{/if}
-
-						<a
-							class=" w-full flex justify-between items-center rounded-xl text-sm py-2 px-3 hover:bg-gray-50 dark:hover:bg-gray-850 {selectedIdx ===
-							idx + actions.length
-								? 'bg-gray-50 dark:bg-gray-850'
-								: ''}"
-							href="/c/{chat.id}"
-							draggable="false"
-							data-arrow-selected={selectedIdx === idx + actions.length ? 'true' : undefined}
-							on:mouseenter={() => {
-								selectedIdx = idx + actions.length;
-							}}
-							on:click={async () => {
-								await goto(`/c/${chat.id}`);
-								show = false;
-								onClose();
-							}}
-						>
-							<div class=" flex-1">
-								<div class="text-ellipsis line-clamp-1 w-full">
-									{chat?.title}
 								</div>
-							</div>
+							{/if}
 
-							<div class=" pl-3 shrink-0 text-gray-500 dark:text-gray-400 text-xs">
-								{$i18n.t(
-									dayjs(chat?.updated_at * 1000).calendar(null, {
-										sameDay: '[Today]',
-										nextDay: '[Tomorrow]',
-										nextWeek: 'dddd',
-										lastDay: '[Yesterday]',
-										lastWeek: '[Last] dddd',
-										sameElse: 'L' // use localized format, otherwise dayjs.calendar() defaults to DD/MM/YYYY
-									})
-								)}
-							</div>
-						</a>
-					{/each}
+							<a
+								class=" w-full flex justify-between items-center rounded-xl text-sm py-2 px-3 hover:bg-gray-50 dark:hover:bg-gray-850 {selectedIdx ===
+								idx + actions.length
+									? 'bg-gray-50 dark:bg-gray-850'
+									: ''}"
+								href="/c/{chat.id}"
+								draggable="false"
+								data-arrow-selected={selectedIdx === idx + actions.length ? 'true' : undefined}
+								on:mouseenter={() => {
+									selectedIdx = idx + actions.length;
+								}}
+								on:click={async () => {
+									await goto(`/c/${chat.id}`);
+									show = false;
+									onClose();
+								}}
+							>
+								<div class=" flex-1">
+									<div class="text-ellipsis line-clamp-1 w-full">
+										{chat?.title}
+									</div>
+								</div>
 
-					{#if !allChatsLoaded}
-						<Loader
-							on:visible={(e) => {
-								if (!chatListLoading) {
-									loadMoreChats();
-								}
-							}}
-						>
-							<div class="w-full flex justify-center py-4 text-xs animate-pulse items-center gap-2">
-								<Spinner className=" size-4" />
-								<div class=" ">{$i18n.t('Loading...')}</div>
-							</div>
-						</Loader>
+								<div class=" pl-3 shrink-0 text-gray-500 dark:text-gray-400 text-xs">
+									{$i18n.t(
+										dayjs(chat?.updated_at * 1000).calendar(null, {
+											sameDay: '[Today]',
+											nextDay: '[Tomorrow]',
+											nextWeek: 'dddd',
+											lastDay: '[Yesterday]',
+											lastWeek: '[Last] dddd',
+											sameElse: 'L' // use localized format, otherwise dayjs.calendar() defaults to DD/MM/YYYY
+										})
+									)}
+								</div>
+							</a>
+						{/each}
+
+						{#if !allChatsLoaded}
+							<Loader
+								on:visible={(e) => {
+									if (!chatListLoading) {
+										loadMoreChats();
+									}
+								}}
+							>
+								<div class="w-full flex justify-center py-4 text-xs animate-pulse items-center gap-2">
+									<Spinner className=" size-4" />
+									<div class=" ">{$i18n.t('Loading...')}</div>
+								</div>
+							</Loader>
+						{/if}
+					{:else}
+						<div class="w-full h-full flex justify-center items-center">
+							<Spinner className="size-5" />
+						</div>
 					{/if}
-				{:else}
-					<div class="w-full h-full flex justify-center items-center">
-						<Spinner className="size-5" />
-					</div>
-				{/if}
+				</div>
+				<div
+					id="chat-preview"
+					class="hidden md:flex md:flex-1 w-full overflow-y-auto h-96 md:h-[40rem] scrollbar-hidden"
+				>
+					{#if messages === null}
+						<div
+							class="w-full h-full flex justify-center items-center text-gray-500 dark:text-gray-400 text-sm"
+						>
+							{$i18n.t('Select a conversation to preview')}
+						</div>
+					{:else}
+						<div class="w-full h-full flex flex-col">
+							<Messages
+								className="h-full flex pt-4 pb-8 w-full"
+								chatId={`chat-preview-${selectedChat?.id ?? ''}`}
+								user={$user}
+								readOnly={true}
+								{selectedModels}
+								bind:history
+								bind:messages
+								autoScroll={true}
+								sendMessage={() => {}}
+								continueResponse={() => {}}
+								regenerateResponse={() => {}}
+							/>
+						</div>
+					{/if}
+				</div>
 			</div>
-			<div
-				id="chat-preview"
-				class="hidden md:flex md:flex-1 w-full overflow-y-auto h-96 md:h-[40rem] scrollbar-hidden"
-			>
-				{#if messages === null}
-					<div
-						class="w-full h-full flex justify-center items-center text-gray-500 dark:text-gray-400 text-sm"
+		{:else if surfaceMode === 'jump'}
+			<div class="px-4 py-4 min-h-[14rem] space-y-3">
+				<div class="{DS_SECTION_HEADER_CLASSES.header}">
+					<span class="{DS_TYPE_CLASSES.meta} font-semibold uppercase tracking-wide text-[color:var(--ds-text-muted)]">
+						{$i18n.t('Navigate')}
+					</span>
+				</div>
+				<p class="{DS_EMPTY_CLASSES.description}">
+					{$i18n.t('Open a destination in the app shell. Case detail routes open from Cases or the sidebar.')}
+				</p>
+				<div class="flex flex-col gap-2 max-w-md">
+					<button
+						type="button"
+						class="{DS_BTN_CLASSES.secondary} w-full justify-start gap-2"
+						data-testid="global-search-jump-home"
+						on:click={async () => {
+							await goto('/home');
+							await closeAfterNavigate();
+						}}
 					>
-						{$i18n.t('Select a conversation to preview')}
-					</div>
-				{:else}
-					<div class="w-full h-full flex flex-col">
-						<Messages
-							className="h-full flex pt-4 pb-8 w-full"
-							chatId={`chat-preview-${selectedChat?.id ?? ''}`}
-							user={$user}
-							readOnly={true}
-							{selectedModels}
-							bind:history
-							bind:messages
-							autoScroll={true}
-							sendMessage={() => {}}
-							continueResponse={() => {}}
-							regenerateResponse={() => {}}
-						/>
-					</div>
-				{/if}
+						{$i18n.t('Home — Operator Command Center')}
+					</button>
+					<button
+						type="button"
+						class="{DS_BTN_CLASSES.secondary} w-full justify-start gap-2"
+						data-testid="global-search-jump-cases"
+						on:click={async () => {
+							await goto('/cases');
+							await closeAfterNavigate();
+						}}
+					>
+						{$i18n.t('Cases — browse investigations')}
+					</button>
+					<button
+						type="button"
+						class="{DS_BTN_CLASSES.ghost} w-full justify-start gap-2"
+						on:click={() => {
+							showShortcuts.set(true);
+							void closeAfterNavigate();
+						}}
+					>
+						{$i18n.t('Keyboard shortcuts')}
+					</button>
+				</div>
 			</div>
-		</div>
+		{:else if surfaceMode === 'command'}
+			<div class="px-4 py-4 min-h-[14rem]">
+				<div class="{DS_PANEL_CLASSES.muted} ds-panel-dense">
+					<div class="{DS_SECTION_HEADER_CLASSES.header}">
+						<span class="{DS_TYPE_CLASSES.meta} font-semibold uppercase tracking-wide text-[color:var(--ds-text-muted)]">
+							{$i18n.t('Command palette')}
+						</span>
+					</div>
+					<p class="{DS_EMPTY_CLASSES.description} mt-2 leading-snug">
+						{$i18n.t(
+							'A full command palette (scriptable actions, cross-surface commands) is not implemented in this build. Use Keyboard shortcuts for the shortcut list, or stay on Search for chat lookup.'
+						)}
+					</p>
+					<button
+						type="button"
+						class="{DS_BTN_CLASSES.primary} w-full max-w-md mt-3 justify-center"
+						on:click={() => {
+							showShortcuts.set(true);
+							void closeAfterNavigate();
+						}}
+					>
+						{$i18n.t('Open keyboard shortcuts')}
+					</button>
+				</div>
+			</div>
+		{:else}
+			<div class="px-4 py-4 min-h-[14rem]">
+				<div class="{DS_PANEL_CLASSES.muted} ds-panel-dense">
+					<div class="{DS_SECTION_HEADER_CLASSES.header}">
+						<span class="{DS_TYPE_CLASSES.meta} font-semibold uppercase tracking-wide text-[color:var(--ds-text-muted)]">
+							{$i18n.t('Case & workspace')}
+						</span>
+					</div>
+					<p class="{DS_EMPTY_CLASSES.description} mt-2 leading-snug">
+						{$i18n.t(
+							'Case timeline, files, proposals, and case-scoped Ask are opened inside each case workspace. This modal does not search Case Engine records — only chat history on the Search tab.'
+						)}
+					</p>
+					<button
+						type="button"
+						class="{DS_BTN_CLASSES.secondary} w-full max-w-md mt-3 justify-center"
+						data-testid="global-search-workspace-cases"
+						on:click={async () => {
+							await goto('/cases');
+							await closeAfterNavigate();
+						}}
+					>
+						{$i18n.t('Go to Cases')}
+					</button>
+				</div>
+			</div>
+		{/if}
 	</div>
 </Modal>

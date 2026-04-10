@@ -85,21 +85,26 @@
 
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
 	import DetectiveWorkspaceSidebar from '$lib/components/layout/DetectiveWorkspaceSidebar.svelte';
-
-	/** Detective workspace routes: one coherent shell. */
-	$: isDetectiveWorkspace =
-		$page.url.pathname === '/home' ||
-		$page.url.pathname === '/cases' ||
-		$page.url.pathname === '/search' ||
-		$page.url.pathname.startsWith('/case/');
-	/** Unified sidebar shell: detective + admin. Same custom sidebar, no OWUI sidebar. */
-	$: isUnifiedSidebar =
-		isDetectiveWorkspace || $page.url.pathname.startsWith('/admin');
+	import DetectiveAppShellFrame from '$lib/components/layout/DetectiveAppShellFrame.svelte';
+	import { isDetectiveWave2AppShellEnabled } from '$lib/case/detectiveWave2Shell';
 	import SettingsModal from '$lib/components/chat/SettingsModal.svelte';
 	import AccountPending from '$lib/components/layout/Overlay/AccountPending.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { Shortcut, shortcuts } from '$lib/shortcuts';
 	import { isShortcutMatch } from '$lib/utils/isShortcutMatch';
+
+	/** Detective workspace routes: one coherent shell (P75-08 — matches `(app)/+page` → /home, /cases list, /search, case tree). */
+	$: isDetectiveWorkspace =
+		$page.url.pathname === '/home' ||
+		$page.url.pathname === '/cases' ||
+		$page.url.pathname === '/search' ||
+		$page.url.pathname.startsWith('/search/') ||
+		$page.url.pathname.startsWith('/case/');
+	/** Unified sidebar shell: detective + admin. Same custom sidebar, no OWUI sidebar. */
+	$: isUnifiedSidebar =
+		isDetectiveWorkspace || $page.url.pathname.startsWith('/admin');
+	/** P75-03 / P75-04-FU: `PUBLIC_DETECTIVE_WAVE2_APP_SHELL=0` disables Wave 2 app shell frame + GNAV sidebar chrome (rollback). */
+	$: wave2AppShellEnabled = isDetectiveWave2AppShellEnabled();
 
 	const i18n = getContext('i18n');
 
@@ -672,7 +677,14 @@
 							: ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : '')}"
 						data-testid="app-main-content-pane"
 					>
-						<slot />
+						{#if isUnifiedSidebar && wave2AppShellEnabled}
+							<!-- P75-02 / P75-03: DS app shell regions (top strip + main); sidebar is sibling. -->
+							<DetectiveAppShellFrame>
+								<slot />
+							</DetectiveAppShellFrame>
+						{:else}
+							<slot />
+						{/if}
 					</div>
 				{:else}
 					<div

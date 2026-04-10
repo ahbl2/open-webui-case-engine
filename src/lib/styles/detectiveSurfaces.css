@@ -64,6 +64,244 @@
 	.ds-stack-tight {
 		gap: var(--ds-space-2);
 	}
+
+	/*
+	 * P75-02 — App shell frame (Wave 2): persistent top utility strip + main canvas.
+	 * Sidebar remains `DetectiveWorkspaceSidebar` (fixed); this wraps routed content only.
+	 * Case routes suppress the top strip in Svelte to avoid stacking chrome with case identity + tab strip.
+	 */
+	.ds-app-shell {
+		background-color: var(--ds-bg-app);
+		color: var(--ds-text-on-canvas);
+	}
+
+	.ds-app-shell__top {
+		border-bottom: 1px solid var(--ds-border-default);
+		background-color: var(--ds-bg-chrome);
+		box-shadow: var(--ds-shadow-sm);
+		padding: 0 var(--ds-space-3);
+	}
+
+	.ds-app-shell__top-row {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--ds-space-2);
+		min-height: 2.75rem;
+	}
+
+	.ds-app-shell__main {
+		background-color: var(--ds-bg-app);
+	}
+
+	/*
+	 * P75-06 — Operator Command Center outer frame (summary band + main column + right rail).
+	 */
+	.ds-occ-root {
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-4);
+		width: 100%;
+		min-height: 0;
+		flex: 1 1 auto;
+		padding: var(--ds-space-4);
+	}
+
+	@media (min-width: 768px) {
+		.ds-occ-root {
+			padding: var(--ds-space-5) var(--ds-space-6);
+		}
+	}
+
+	.ds-occ-summary-band {
+		display: grid;
+		grid-template-columns: repeat(auto-fit, minmax(9.5rem, 1fr));
+		gap: var(--ds-space-3);
+	}
+
+	.ds-occ-summary-slot {
+		min-height: 4.5rem;
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-start;
+		gap: var(--ds-space-1);
+	}
+
+	.ds-occ-main-grid {
+		display: grid;
+		grid-template-columns: 1fr;
+		gap: var(--ds-space-4);
+		align-items: start;
+		min-height: 0;
+		flex: 1 1 auto;
+	}
+
+	@media (min-width: 1024px) {
+		.ds-occ-main-grid {
+			grid-template-columns: minmax(0, 1fr) minmax(18rem, 20rem);
+			gap: var(--ds-space-5);
+		}
+	}
+
+	.ds-occ-rail {
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-3);
+		min-width: 0;
+	}
+
+	/*
+	 * P75-05 — App shell top utility bar (search affordance, route context, scope, shortcuts entry).
+	 */
+	.ds-app-shell-top-context {
+		display: flex;
+		flex-direction: column;
+		gap: 0.0625rem;
+		min-width: 0;
+	}
+
+	.ds-app-shell-top-search-trigger {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: var(--ds-space-2);
+		width: 100%;
+		max-width: 28rem;
+		min-height: 2rem;
+		padding: var(--ds-space-1) var(--ds-space-3);
+		border-radius: var(--ds-radius-md);
+		border: 1px solid var(--ds-border-default);
+		background-color: var(--ds-bg-muted);
+		color: var(--ds-text-on-canvas);
+		font-size: var(--ds-type-meta-size);
+		font-weight: 500;
+		text-align: left;
+		cursor: pointer;
+		transition:
+			border-color 0.15s ease,
+			box-shadow 0.15s ease,
+			background-color 0.15s ease;
+	}
+
+	.ds-app-shell-top-search-trigger:hover {
+		background-color: var(--ds-bg-elevated);
+		border-color: var(--ds-accent);
+		box-shadow: var(--ds-shadow-sm);
+	}
+
+	.ds-app-shell-top-search-trigger:focus-visible {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.ds-app-shell-top-actions {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: var(--ds-space-1);
+		flex-shrink: 0;
+	}
+
+	/*
+	 * P75-04 — Primary app sidebar (GNAV) link rows — token-backed; icon-first tactical density.
+	 */
+	.ds-gnav-group-label {
+		font-size: var(--ds-type-meta-size);
+		font-weight: 600;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ds-text-muted);
+		padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-1);
+	}
+
+	.ds-gnav-link {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: var(--ds-space-2);
+		width: 100%;
+		text-align: left;
+		border-radius: var(--ds-radius-md);
+		padding: var(--ds-space-2) var(--ds-space-3);
+		font-size: var(--ds-type-body-size);
+		font-weight: 500;
+		color: var(--ds-text-on-canvas);
+		border: 1px solid transparent;
+		transition:
+			background-color 0.15s ease,
+			border-color 0.15s ease,
+			box-shadow 0.15s ease;
+	}
+
+	.ds-gnav-link:hover {
+		background-color: var(--ds-bg-muted);
+	}
+
+	.ds-gnav-link:focus-visible {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.ds-gnav-link--active {
+		background-color: var(--ds-bg-elevated);
+		border-color: var(--ds-border-default);
+		box-shadow: var(--ds-shadow-sm);
+		color: var(--ds-text-on-canvas);
+	}
+
+	.ds-gnav-link__icon {
+		flex-shrink: 0;
+		width: 1.125rem;
+		height: 1.125rem;
+		opacity: 0.92;
+	}
+
+	.ds-gnav-link--active .ds-gnav-link__icon {
+		opacity: 1;
+		color: var(--ds-accent);
+	}
+
+	.ds-gnav-utility-cluster {
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-2);
+		border-top: 1px solid var(--ds-border-default);
+		padding-top: var(--ds-space-2);
+		margin-top: var(--ds-space-1);
+	}
+
+	.ds-gnav-utility-row {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: flex-start;
+		gap: var(--ds-space-1);
+		padding: 0 var(--ds-space-1);
+	}
+
+	.ds-gnav-utility-icon {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: var(--ds-radius-sm);
+		color: var(--ds-text-muted);
+		border: 1px solid transparent;
+		text-decoration: none;
+		transition: background-color 0.15s ease, border-color 0.15s ease, color 0.15s ease;
+	}
+
+	.ds-gnav-utility-icon:hover {
+		background-color: var(--ds-bg-muted);
+		color: var(--ds-text-on-canvas);
+	}
+
+	.ds-gnav-utility-icon:focus-visible {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 2px;
+	}
 }
 
 /*

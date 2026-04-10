@@ -10,6 +10,7 @@ import {
 	DS_ASK_INTEGRITY_CLASSES,
 	DS_BADGE_CLASSES,
 	DS_BANNER_CLASSES,
+	DS_APP_SHELL_CLASSES,
 	DS_BTN_CLASSES,
 	DS_CARD_CLASSES,
 	DS_CHIP_CLASSES,
@@ -143,6 +144,11 @@ describe('detectivePrimitiveFoundation (P74-05)', () => {
 			}
 		}
 		for (const compound of Object.values(DS_SCROLL_CLASSES)) {
+			for (const cls of compound.split(' ')) {
+				expect(surfacesCss).toContain(`.${cls}`);
+			}
+		}
+		for (const compound of Object.values(DS_APP_SHELL_CLASSES)) {
 			for (const cls of compound.split(' ')) {
 				expect(surfacesCss).toContain(`.${cls}`);
 			}

@@ -108,11 +108,12 @@
 
 	const BREAKPOINT = 768;
 
-	/** Detective workspace: use one shell; do not show OWUI AppSidebar. */
+	/** Detective workspace: use one shell; do not show OWUI AppSidebar (P75-08 — include /search/*). */
 	$: isDetectiveWorkspace =
 		$page?.url?.pathname === '/home' ||
 		$page?.url?.pathname === '/cases' ||
 		$page?.url?.pathname === '/search' ||
+		($page?.url?.pathname || '').startsWith('/search/') ||
 		($page?.url?.pathname || '').startsWith('/case/');
 	/** Unified shell: detective + admin; hide OWUI AppSidebar for both. */
 	$: isUnifiedShell = isDetectiveWorkspace || ($page?.url?.pathname || '').startsWith('/admin');

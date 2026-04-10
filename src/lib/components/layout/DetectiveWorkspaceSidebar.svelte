@@ -1,25 +1,20 @@
 <script lang="ts">
 	/**
 	 * Unified workspace sidebar (detective + admin).
-	 * Used for /home, /cases, /search, /case/[id]/..., /admin — retractable, state persisted in localStorage.
+	 * Used for /home, /cases, /search (route + modal), /case/[id]/..., /admin — retractable, state persisted in localStorage.
 	 */
 	import { onMount, getContext } from 'svelte';
-	import { goto } from '$app/navigation';
-	import {
-		showSidebar,
-		sidebarWidth,
-		mobile,
-		user,
-		config,
-		showSearch
-	} from '$lib/stores';
+	import { showSidebar, sidebarWidth, mobile, showSearch, user, config } from '$lib/stores';
 	import { slide } from 'svelte/transition';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
+	import DetectiveGnavPrimaryNav from '$lib/components/layout/DetectiveGnavPrimaryNav.svelte';
+	import DetectiveGnavUtilityCluster from '$lib/components/layout/DetectiveGnavUtilityCluster.svelte';
 	import CasesSection from '$lib/components/layout/Sidebar/CasesSection.svelte';
 	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
 	import SearchModal from '$lib/components/layout/SearchModal.svelte';
 	import SidebarIcon from '$lib/components/icons/Sidebar.svelte';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
+	import { isDetectiveWave2AppShellEnabled } from '$lib/case/detectiveWave2Shell';
 
 	const i18n = getContext('i18n');
 
@@ -36,6 +31,9 @@
 	function itemClickHandler() {
 		if ($mobile) showSidebar.set(false);
 	}
+
+	/** P75-03 + P75-04-FU: same flag as `DetectiveAppShellFrame` — full Wave 2 chrome vs legacy sidebar nav. */
+	$: wave2ShellChrome = isDetectiveWave2AppShellEnabled();
 
 	const resizeStartHandler = (e: MouseEvent) => {
 		if ($mobile) return;
@@ -172,76 +170,123 @@
 					scrollTop = (e.target as HTMLElement).scrollTop;
 				}}
 			>
-				<div class="px-[0.4375rem] mt-1 mb-0.5">
-					<div class="text-xs text-gray-400 dark:text-gray-600 font-medium uppercase tracking-wide px-2.5 pb-1 pt-0.5 select-none">
-						Navigation
+				{#if wave2ShellChrome}
+					<DetectiveGnavPrimaryNav onItemActivate={itemClickHandler} />
+				{:else}
+					<div class="px-[0.4375rem] mt-1 mb-0.5">
+						<div
+							class="text-xs text-gray-400 dark:text-gray-600 font-medium uppercase tracking-wide px-2.5 pb-1 pt-0.5 select-none"
+						>
+							Navigation
+						</div>
+						<a
+							href="/home"
+							on:click={itemClickHandler}
+							draggable="false"
+							class="flex items-center space-x-3 rounded-2xl px-2.5 py-2 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+							aria-label="My Desktop"
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke-width="2"
+								stroke="currentColor"
+								class="size-4.5 shrink-0"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"
+								/>
+							</svg>
+							<span class="self-center text-sm font-primary">My Desktop</span>
+						</a>
+						<a
+							href="/cases"
+							on:click={itemClickHandler}
+							draggable="false"
+							class="flex items-center space-x-3 rounded-2xl px-2.5 py-2 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
+							aria-label="Cases"
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke-width="2"
+								stroke="currentColor"
+								class="size-4.5 shrink-0"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+								/>
+							</svg>
+							<span class="self-center text-sm font-primary">Cases</span>
+						</a>
+						<button
+							class="w-full flex items-center space-x-3 rounded-2xl px-2.5 py-2 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900 transition text-left"
+							type="button"
+							on:click={() => {
+								showSearch.set(true);
+								itemClickHandler();
+							}}
+							aria-label="Search"
+						>
+							<svg
+								xmlns="http://www.w3.org/2000/svg"
+								fill="none"
+								viewBox="0 0 24 24"
+								stroke-width="2"
+								stroke="currentColor"
+								class="size-4.5 shrink-0"
+							>
+								<path
+									stroke-linecap="round"
+									stroke-linejoin="round"
+									d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 15.803a7.5 7.5 0 0 0 10.607 0Z"
+								/>
+							</svg>
+							<span class="self-center text-sm font-primary">Search</span>
+						</button>
 					</div>
-					<a
-						href="/home"
-						on:click={itemClickHandler}
-						draggable="false"
-						class="flex items-center space-x-3 rounded-2xl px-2.5 py-2 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
-						aria-label="My Desktop"
-					>
-						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4.5 shrink-0">
-							<path stroke-linecap="round" stroke-linejoin="round" d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25" />
-						</svg>
-						<span class="self-center text-sm font-primary">My Desktop</span>
-					</a>
-					<a
-						href="/cases"
-						on:click={itemClickHandler}
-						draggable="false"
-						class="flex items-center space-x-3 rounded-2xl px-2.5 py-2 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900 transition"
-						aria-label="Cases"
-					>
-						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4.5 shrink-0">
-							<path stroke-linecap="round" stroke-linejoin="round" d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z" />
-						</svg>
-						<span class="self-center text-sm font-primary">Cases</span>
-					</a>
-					<button
-						class="w-full flex items-center space-x-3 rounded-2xl px-2.5 py-2 text-gray-800 dark:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-900 transition text-left"
-						on:click={() => showSearch.set(true)}
-						aria-label="Search"
-					>
-						<svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="2" stroke="currentColor" class="size-4.5 shrink-0">
-							<path stroke-linecap="round" stroke-linejoin="round" d="m21 21-5.197-5.197m0 0A7.5 7.5 0 1 0 5.196 15.803a7.5 7.5 0 0 0 10.607 0Z" />
-						</svg>
-						<span class="self-center text-sm font-primary">Search</span>
-					</button>
-				</div>
+				{/if}
 
 				<CasesSection />
 			</div>
 
-			<!-- User section (bottom) -->
+			<!-- GNAV utility cluster + profile (bottom) — Wave 2 GNAV gated by same flag as app shell frame (P75-04-FU). -->
 			<div class="px-1.5 pt-1.5 pb-2 sticky bottom-0 z-10 -mt-3 sidebar">
 				<div
 					class="sidebar-bg-gradient-to-t bg-linear-to-t from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mt-6"
 				></div>
 				<div class="flex flex-col font-primary">
-					{#if $user !== undefined && $user !== null}
-						<UserMenu
-							role={$user?.role}
-							profile={$config?.features?.enable_user_status ?? true}
-							showActiveUsers={false}
-							className="max-w-[calc(var(--sidebar-width)-1rem)]"
-						>
-							<div
-								class="flex items-center rounded-2xl py-2 px-1.5 w-full hover:bg-gray-100/50 dark:hover:bg-gray-900/50 transition"
+					{#if wave2ShellChrome}
+						<DetectiveGnavUtilityCluster onUtilityActivate={itemClickHandler} />
+					{:else}
+						{#if $user !== undefined && $user !== null}
+							<UserMenu
+								role={$user?.role}
+								profile={$config?.features?.enable_user_status ?? true}
+								showActiveUsers={false}
+								className="max-w-[calc(var(--sidebar-width)-1rem)]"
 							>
-								<div class="self-center mr-3 relative">
-									<img
-										src={`${WEBUI_API_BASE_URL}/users/${$user?.id}/profile/image`}
-										class="size-7 object-cover rounded-full"
-										alt={$i18n.t('Open User Profile Menu')}
-										aria-label={$i18n.t('Open User Profile Menu')}
-									/>
+								<div
+									class="flex items-center rounded-2xl py-2 px-1.5 w-full hover:bg-gray-100/50 dark:hover:bg-gray-900/50 transition"
+								>
+									<div class="self-center mr-3 relative">
+										<img
+											src={`${WEBUI_API_BASE_URL}/users/${$user?.id}/profile/image`}
+											class="size-7 object-cover rounded-full"
+											alt={$i18n.t('Open User Profile Menu')}
+											aria-label={$i18n.t('Open User Profile Menu')}
+										/>
+									</div>
+									<div class="self-center font-medium">{$user?.name}</div>
 								</div>
-								<div class="self-center font-medium">{$user?.name}</div>
-							</div>
-						</UserMenu>
+							</UserMenu>
+						{/if}
 					{/if}
 				</div>
 			</div>
