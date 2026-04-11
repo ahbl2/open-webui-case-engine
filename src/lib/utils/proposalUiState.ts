@@ -370,46 +370,47 @@ export function payloadPreview(proposedPayload: string, proposalType: string): s
 }
 
 /**
- * Returns Tailwind classes for the status badge background + text.
+ * Returns DS badge classes for proposal status (P77-06 — Wave 4 primitives).
  * Pure — safe to call in template expressions.
  */
 export function statusBadgeClasses(status: ProposalStatus): string {
 	switch (status) {
 		case 'pending':
-			return 'bg-amber-100 text-amber-800 dark:bg-amber-900/40 dark:text-amber-300';
+			return 'ds-badge ds-badge-warning';
 		case 'approved':
-			return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-300';
+			return 'ds-badge ds-badge-info';
 		case 'rejected':
-			return 'bg-red-100 text-red-700 dark:bg-red-900/40 dark:text-red-300';
+			return 'ds-badge ds-badge-danger';
 		case 'committed':
-			return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-300';
+			return 'ds-badge ds-badge-success';
 		default:
-			return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300';
+			return 'ds-badge ds-badge-neutral';
 	}
 }
 
 /**
- * Returns Tailwind classes for a status tab (active vs inactive).
+ * Returns DS tab classes for a status tab (active vs inactive).
  * P45-03 — inactive Rejected uses softer text than other inactive tabs (still interactive; active state unchanged).
+ * P77-06 — token-backed `.ds-proposals-tab*` in detectiveSurfaces.css.
  */
 export function tabClasses(tab: ProposalStatus, activeTab: ProposalStatus): string {
-	const base = 'px-3 py-2 text-xs font-medium border-b-2 whitespace-nowrap transition-colors';
+	const base = 'ds-proposals-tab';
 	if (tab !== activeTab) {
 		if (tab === 'rejected') {
-			return `${base} border-transparent text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-300`;
+			return `${base} ds-proposals-tab--inactive-muted`;
 		}
-		return `${base} border-transparent text-gray-500 dark:text-gray-400 hover:text-gray-700 dark:hover:text-gray-300`;
+		return `${base} ds-proposals-tab--inactive`;
 	}
 	switch (tab) {
 		case 'pending':
-			return `${base} border-amber-500 text-amber-700 dark:text-amber-400`;
+			return `${base} ds-proposals-tab--active-pending`;
 		case 'approved':
-			return `${base} border-blue-500 text-blue-700 dark:text-blue-400`;
+			return `${base} ds-proposals-tab--active-approved`;
 		case 'rejected':
-			return `${base} border-red-500 text-red-700 dark:text-red-400`;
+			return `${base} ds-proposals-tab--active-rejected`;
 		case 'committed':
-			return `${base} border-green-600 text-green-700 dark:text-green-400`;
+			return `${base} ds-proposals-tab--active-committed`;
 		default:
-			return `${base} border-gray-500 text-gray-700 dark:text-gray-400`;
+			return `${base} ds-proposals-tab--active-neutral`;
 	}
 }

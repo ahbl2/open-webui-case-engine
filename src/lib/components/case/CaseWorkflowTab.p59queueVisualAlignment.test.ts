@@ -36,13 +36,12 @@ describe('CaseWorkflowTab P59-06 / P59-11 proposal queue presentation', () => {
 	});
 
 	it('loads proposals with items and counts (no toggle gate)', () => {
-		expect(tabSource).toMatch(
-			/\$: if \(caseId && token\) \{[\s\S]*?loadItems\(\);[\s\S]*?loadProposalCount\(\);[\s\S]*?loadProposals\(\);/
-		);
+		expect(tabSource).toMatch(/\$: if \(caseId && token\) \{[\s\S]*?loadItems\(\);[\s\S]*?loadProposals\(\);/);
+		expect(tabSource).not.toContain('loadProposalCount');
 		expect(tabSource).not.toContain('toggleProposals');
 	});
 
 	it('gives the panel clearer border separation from the items list', () => {
-		expect(tabSource).toMatch(/workflow-proposals-panel[\s\S]*?border-t border-gray-200/);
+		expect(tabSource).toMatch(/workflow-proposals-panel[\s\S]*?DS_WORKFLOW_CLASSES\.proposalsPanel/);
 	});
 });

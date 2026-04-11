@@ -1,15 +1,16 @@
 <script lang="ts">
 	/**
 	 * P75-07 — OCC main column: sectioned personal workspace, cases, and honest activity placeholder.
+	 * P77-02 — Command-center panel shells (`DS_OCC_CLASSES.mainSection`).
 	 */
 	import { getContext } from 'svelte';
 
 	import {
 		DS_TYPE_CLASSES,
-		DS_PANEL_CLASSES,
 		DS_EMPTY_CLASSES,
 		DS_STACK_CLASSES,
-		DS_SECTION_HEADER_CLASSES
+		DS_SECTION_HEADER_CLASSES,
+		DS_OCC_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
 	import type { ThreadListItem } from '$lib/components/case/CaseThreadList.svelte';
 	import type { CaseEngineCase, PersonalThreadAssociation } from '$lib/apis/caseEngine';
@@ -37,11 +38,11 @@
 	export let loadCases: () => void;
 	export let recentCases: CaseEngineCase[];
 	export let goToCases: () => void;
-	export let statusColor: (status: string) => string;
+	export let statusBadgeClass: (status: string) => string;
 </script>
 
 <div class="{DS_STACK_CLASSES.stack}">
-	<section class="{DS_PANEL_CLASSES.primaryDense} min-w-0" data-testid="occ-main-personal">
+	<section class="{DS_OCC_CLASSES.mainSection} min-w-0" data-testid="occ-main-personal">
 		<HomeDesktopPersonalThreads
 			{newChat}
 			{bindingInProgress}
@@ -57,18 +58,18 @@
 		/>
 	</section>
 
-	<section class="{DS_PANEL_CLASSES.primaryDense} min-w-0" data-testid="occ-main-cases">
+	<section class="{DS_OCC_CLASSES.mainSection} min-w-0" data-testid="occ-main-cases">
 		<HomeDesktopYourCases
 			{casesLoading}
 			{casesError}
 			{loadCases}
 			{recentCases}
 			{goToCases}
-			{statusColor}
+			{statusBadgeClass}
 		/>
 	</section>
 
-	<section class="{DS_PANEL_CLASSES.muted} ds-panel-dense min-w-0" data-testid="occ-main-activity">
+	<section class="{DS_OCC_CLASSES.mainSection} min-w-0" data-testid="occ-main-activity">
 		<div class="{DS_SECTION_HEADER_CLASSES.header}">
 			<span
 				class="{DS_TYPE_CLASSES.meta} font-semibold uppercase tracking-wide text-[color:var(--ds-text-muted)]"

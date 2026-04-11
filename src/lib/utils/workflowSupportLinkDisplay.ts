@@ -50,14 +50,11 @@ export const supportLinkKindShortLabel: Record<WorkflowSupportTargetKind, string
 	CASE_FILE: 'File'
 };
 
-/** Shared chip/badge tones for table + panel. */
+/** Shared chip/badge tones for table + panel (P77-08 — DS badges). */
 export const supportLinkKindBadgeClass: Record<WorkflowSupportTargetKind, string> = {
-	TIMELINE_ENTRY:
-		'bg-sky-50 text-sky-900 dark:bg-sky-950/50 dark:text-sky-100 border-sky-200 dark:border-sky-800/60',
-	NOTEBOOK_NOTE:
-		'bg-violet-50 text-violet-900 dark:bg-violet-950/45 dark:text-violet-100 border-violet-200 dark:border-violet-800/60',
-	CASE_FILE:
-		'bg-amber-50 text-amber-950 dark:bg-amber-950/35 dark:text-amber-100 border-amber-200 dark:border-amber-800/55'
+	TIMELINE_ENTRY: 'ds-badge ds-badge-info',
+	NOTEBOOK_NOTE: 'ds-badge ds-badge-warning',
+	CASE_FILE: 'ds-badge ds-badge-neutral'
 };
 
 /** Loads label maps for active (non-deleted) targets — same surfaces as the add-link pickers. */

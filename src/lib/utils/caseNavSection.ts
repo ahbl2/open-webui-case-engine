@@ -17,7 +17,8 @@ export type CaseNavSection =
 	| 'timeline'
 	| 'files'
 	| 'notes'
-	| 'activity';
+	| 'activity'
+	| 'entities';
 
 const VALID_CASE_SECTIONS = new Set<string>([
 	'chat',
@@ -30,7 +31,8 @@ const VALID_CASE_SECTIONS = new Set<string>([
 	'timeline',
 	'files',
 	'notes',
-	'activity'
+	'activity',
+	'entities'
 ]);
 
 /**

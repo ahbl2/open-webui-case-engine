@@ -18,11 +18,11 @@ describe('CaseWorkflowTab P59-03 attention signals', () => {
 		expect(tabSource).toMatch(/\$: attentionFilterScopeLabel =[\s\S]*?filter === 'all'/);
 	});
 
-	it('resets proposal count on case switch so attention is not cross-case stale', () => {
+	it('clears proposals on case switch so derived pending count is not cross-case stale', () => {
 		const caseSwitch = tabSource.indexOf('caseId !== prevWorkflowCaseId');
 		expect(caseSwitch).toBeGreaterThan(-1);
 		const slice = tabSource.slice(caseSwitch, caseSwitch + 1200);
-		expect(slice).toMatch(/proposalCount = 0/);
+		expect(slice).toMatch(/proposals = \[\];[\s\S]*?proposalError = null/);
 	});
 
 	it('renders attention chips with stable test ids and list load branches', () => {

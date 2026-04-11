@@ -16,7 +16,7 @@ describe('case intelligence shell (P71-09 / P70-05 / P70-06)', () => {
 		expect(pageSource).toContain('testId="case-intelligence-page"');
 		expect(pageSource).toContain('ce-l-intelligence-shell');
 		expect(pageSource).toContain('ce-l-intelligence-primary-scroll');
-		expect(pageSource).toContain('max-w-7xl');
+		expect(pageSource).toContain('DS_INTELLIGENCE_CLASSES.primaryInner');
 		expect(pageSource).toContain('data-testid="case-intelligence-primary-scroll"');
 		expect(pageSource).toContain('ce-l-intelligence-intro');
 		expect(pageSource).toContain('ce-l-intelligence-segmented');
@@ -24,7 +24,7 @@ describe('case intelligence shell (P71-09 / P70-05 / P70-06)', () => {
 
 	it('demotes workspace mode control: segmented group + smaller tab labels (not primary strip scale)', () => {
 		expect(pageSource).toContain('ce-l-intelligence-segmented');
-		expect(pageSource).toMatch(/text-xs font-medium/);
+		expect(pageSource).toContain('DS_INTELLIGENCE_CLASSES.workspaceTab');
 		expect(pageSource).not.toMatch(/ce-l-tab-link/);
 	});
 

@@ -36,8 +36,8 @@ describe('CaseWorkflowTab source contracts', () => {
 	it('proposalStatusBadgeClasses branches exist in component source', () => {
 		expect(tabSource).toContain("s === 'PENDING'");
 		expect(tabSource).toContain("s === 'ACCEPTED'");
-		expect(tabSource).toContain('bg-amber-100');
-		expect(tabSource).toContain('bg-green-100');
+		expect(tabSource).toContain('DS_BADGE_CLASSES.warning');
+		expect(tabSource).toContain('DS_BADGE_CLASSES.success');
 	});
 
 	it('hasWorkflowLink logic: workflow_item_id presence', () => {

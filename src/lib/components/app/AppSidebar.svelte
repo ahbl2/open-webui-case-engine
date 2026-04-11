@@ -8,7 +8,7 @@
 
 <nav
 	aria-label="App navigation"
-	class="min-w-[4.5rem] bg-gray-50 dark:bg-gray-950 flex gap-2.5 flex-col pt-8"
+	class="min-w-[var(--sidebar-rail-width)] bg-gray-50 dark:bg-gray-950 flex gap-2.5 flex-col pt-8"
 >
 	<div class="flex justify-center relative">
 		{#if selected === 'home'}

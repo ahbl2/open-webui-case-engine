@@ -1,5 +1,7 @@
+import { caseIntelligenceHubHref, INTELLIGENCE_ENTRY_COPY } from '$lib/utils/caseDestinationLabels';
+
 export function buildIntelligenceHandoffMessage(caseId: string): string {
-	return `Cross-case analysis is available in the Intelligence tab: /case/${caseId}/intelligence`;
+	return `${INTELLIGENCE_ENTRY_COPY.chatHandoffLead} ${caseIntelligenceHubHref(caseId, 'intelligence')}`;
 }
 
 export function detectCrossCaseSignal(input: string): boolean {
@@ -55,7 +57,7 @@ export function resolveIntelligenceHandoff(input: {
 	const resolvedCaseId = String(input.caseId ?? '').trim();
 	const handoff = resolvedCaseId
 		? buildIntelligenceHandoffMessage(resolvedCaseId)
-		: 'Cross-case analysis is available in the Intelligence tab: /case/<id>/intelligence';
+		: INTELLIGENCE_ENTRY_COPY.chatHandoffNoCaseId;
 	if (hasThisCaseSignal && hasCrossCaseSignal) {
 		// Conservative boundary: mixed this-case + cross-case prompts route to Intelligence only.
 		return handoff;

@@ -1,6 +1,6 @@
 /**
  * P71-03 — Case identity bar layout contract (P70-04 §2).
- * Source-based checks: identity bar is centralized in case +layout; tab strip is separate.
+ * P82-02 — Identity markup lives in `CaseWorkspaceHeader.svelte`; layout mounts the header component.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -9,37 +9,41 @@ import { describe, expect, it } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const layoutPath = join(__dirname, '../../routes/(app)/case/[id]/+layout.svelte');
+const headerPath = join(__dirname, '../components/case/CaseWorkspaceHeader.svelte');
 const layoutSource = readFileSync(layoutPath, 'utf8');
+const headerSource = readFileSync(headerPath, 'utf8');
 
 describe('case identity bar layout (P71-03 / P70-04)', () => {
-	it('uses Tier L identity bar hooks and test ids for shell states', () => {
-		expect(layoutSource).toContain('ce-l-identity-bar');
-		expect(layoutSource).toContain('data-testid="case-identity-bar"');
-		expect(layoutSource).toContain('data-testid="case-shell-loaded"');
-		expect(layoutSource).toContain('data-testid="case-shell-loading"');
-		expect(layoutSource).toContain('data-testid="case-shell-load-error"');
+	it('mounts CaseWorkspaceHeader from the case layout', () => {
+		expect(layoutSource).toContain('CaseWorkspaceHeader');
+	});
+
+	it('uses Tier L identity bar hooks and test ids for shell states (header component)', () => {
+		expect(headerSource).toContain('ce-l-identity-bar');
+		expect(headerSource).toContain('data-testid="case-identity-bar"');
+		expect(headerSource).toContain('data-testid="case-shell-loaded"');
+		expect(headerSource).toContain('data-testid="case-shell-loading"');
+		expect(headerSource).toContain('data-testid="case-shell-load-error"');
 	});
 
 	it('keeps Edit Case as a global identity action (P70-04 §2.3)', () => {
-		expect(layoutSource).toContain('Edit Case');
-		expect(layoutSource).toContain('ce-l-identity-edit');
+		expect(headerSource).toContain('Edit Case');
+		expect(headerSource).toContain('ce-l-identity-edit');
 	});
 
-	it('closes the identity header before the primary tab nav (no tab strip in the identity bar)', () => {
-		const headerClose = layoutSource.indexOf('</header>');
-		const navOpen = layoutSource.indexOf('data-testid="case-workspace-nav"');
-		expect(headerClose).toBeGreaterThan(-1);
-		expect(navOpen).toBeGreaterThan(-1);
-		expect(headerClose).toBeLessThan(navOpen);
+	it('declares CaseWorkspaceHeader before CaseWorkspaceNav in layout template', () => {
+		const afterScript = layoutSource.indexOf('</script>');
+		const tmpl = layoutSource.slice(afterScript + 1);
+		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceNav'));
 	});
 
 	it('identity secondary row uses DS chip + incident meta (P76-04; Tier L identity bar)', () => {
-		expect(layoutSource).toContain('DS_CHIP_CLASSES.base');
-		expect(layoutSource).toContain('data-testid="case-identity-secondary"');
-		expect(layoutSource).toContain('{#if $activeCaseMeta.incident_date}');
+		expect(headerSource).toContain('DS_CHIP_CLASSES.base');
+		expect(headerSource).toContain('data-testid="case-identity-secondary"');
+		expect(headerSource).toContain('{#if meta.incident_date}');
 	});
 
 	it('exposes case title tooltip for truncated titles', () => {
-		expect(layoutSource).toContain('displayCaseTitle($activeCaseMeta.title)');
+		expect(headerSource).toContain('displayCaseTitle(meta.title)');
 	});
 });

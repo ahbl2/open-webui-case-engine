@@ -33,7 +33,7 @@ describe('CaseWorkflowTab hierarchy and filter grouping (P57-03)', () => {
 		expect(tabSource).toContain('workflowListViewState === \'loading\'');
 		expect(tabSource).toContain('workflowListViewState === \'empty\'');
 		expect(tabSource).toContain('{#each items as item (item.id)}');
-		expect(tabSource).toContain('{#each proposals as p (p.id)}');
+		expect(tabSource).toContain('{#each pendingProposals as p (p.id)}');
 		expect(tabSource).toContain('async function loadProposals()');
 	});
 });

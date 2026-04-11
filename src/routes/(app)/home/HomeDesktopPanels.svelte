@@ -26,7 +26,7 @@
 	export let loadCases: () => void;
 	export let recentCases: CaseEngineCase[];
 	export let goToCases: () => void;
-	export let statusColor: (status: string) => string;
+	export let statusBadgeClass: (status: string) => string;
 </script>
 
 <!-- ── Personal Threads ────────────────────────────────────────────── -->
@@ -54,6 +54,6 @@
 		{loadCases}
 		{recentCases}
 		{goToCases}
-		{statusColor}
+		{statusBadgeClass}
 	/>
 </div>

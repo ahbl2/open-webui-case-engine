@@ -1,6 +1,8 @@
 <script lang="ts">
 	/** P71-09 — Tier L shell / secondary nav demotion (P70-05 §3.2, P70-06); presentation only. */
 	import { onMount, tick } from 'svelte';
+	import { get } from 'svelte/store';
+	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import { activeCaseMeta, caseEngineAuthState, caseEngineToken, caseEngineUser } from '$lib/stores';
 	import {
@@ -29,7 +31,11 @@
 		mapCaseSearchResultToEvidenceItem,
 		mapIntelResultToEvidenceItem
 	} from '$lib/utils/intelligenceView';
-	import { buildEntityFocusHref } from '$lib/utils/entityFocus';
+	import {
+		buildEntityFocusHref,
+		entityEvidenceFocusControlLabel,
+		looksLikePhoneDigitsQuery
+	} from '$lib/utils/entityFocus';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import EntitiesFocusModeShell from '$lib/components/case/EntitiesFocusModeShell.svelte';
 	import EntitiesOverviewBoardShell from '$lib/components/case/EntitiesOverviewBoardShell.svelte';
@@ -51,6 +57,22 @@
 		type StructuredQueryActionId,
 		type StructuredQueryResultItem
 	} from '$lib/utils/structuredQueries';
+	import { INTELLIGENCE_UNSUPPORTED_COPY } from '$lib/utils/intelligenceUnsupportedCopy';
+	import {
+		CASE_DESTINATION_HINTS,
+		CASE_DESTINATION_LABELS,
+		CASE_DESTINATION_TITLES
+	} from '$lib/utils/caseDestinationLabels';
+	import {
+		DS_INTELLIGENCE_CLASSES,
+		DS_TYPE_CLASSES,
+		DS_BTN_CLASSES,
+		DS_BADGE_CLASSES,
+		DS_STATUS_SURFACE_CLASSES,
+		DS_STATUS_TEXT_CLASSES,
+		DS_STACK_CLASSES,
+		DS_TIMELINE_CLASSES
+	} from '$lib/case/detectivePrimitiveFoundation';
 
 	// ── Cross-case entity alerts (P28-40 load, P28-41 case-switch reliability) ─
 	// Read-only surface for ENTITY_OVERLAP alerts produced by the backend.
@@ -185,6 +207,33 @@
 	/** P67-04: primary workspace mode — Entities default per IA spec */
 	type CaseIntelligenceWorkspaceMode = 'entities' | 'intelligence';
 	let workspaceMode: CaseIntelligenceWorkspaceMode = 'entities';
+
+	/** P78-15 — `/case/:id/intelligence` only (not entity focus sub-routes). */
+	function isCaseIntelligenceWorkspacePath(pathname: string): boolean {
+		return /\/case\/[^/]+\/intelligence$/.test(pathname);
+	}
+
+	function setWorkspaceMode(next: CaseIntelligenceWorkspaceMode): void {
+		workspaceMode = next;
+		const p = get(page);
+		const id = p.params.id;
+		if (id && isCaseIntelligenceWorkspacePath(p.url.pathname)) {
+			void goto(`/case/${id}/intelligence?mode=${next}`, {
+				replaceState: true,
+				noScroll: true,
+				keepFocus: true
+			});
+		}
+	}
+
+	afterNavigate(() => {
+		const p = get(page);
+		if (!isCaseIntelligenceWorkspacePath(p.url.pathname)) return;
+		const m = p.url.searchParams.get('mode');
+		if (m === 'intelligence' || m === 'entities') {
+			workspaceMode = m;
+		}
+	});
 	/** P67-05 / P67-06 prep: committed entity row selection (detail modal in P67-06) */
 	let selectedRegistryEntityId: string | null = null;
 	let entityDetailOpen = false;
@@ -453,17 +502,12 @@
 		return `${c.source_type}:${c.case_id}:${c.id}`;
 	}
 
-	function sourceBadgeClass(type: string): string {
-		if (type === 'timeline') {
-			return 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300';
-		}
-		if (type === 'file') {
-			return 'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300';
-		}
-		if (type === 'entity') {
-			return 'bg-emerald-50 dark:bg-emerald-900/30 text-emerald-700 dark:text-emerald-300';
-		}
-		return 'bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-300';
+	function sourceBadgeClasses(type: string): string {
+		const { base, neutral, info, warning, success } = DS_BADGE_CLASSES;
+		if (type === 'timeline') return `${base} ${info}`;
+		if (type === 'file') return `${base} ${warning}`;
+		if (type === 'entity') return `${base} ${success}`;
+		return `${base} ${neutral}`;
 	}
 
 	function entityFocusHref(item: {
@@ -632,12 +676,11 @@
 <!-- P71-09 — Tier L shell; secondary mode segmented control demoted vs primary case tabs (P70-05 §3.2). -->
 <CaseWorkspaceContentRegion testId="case-intelligence-page">
 <div class="ce-l-intelligence-shell">
-	<div
-		class="ce-l-intelligence-primary-scroll mx-auto max-w-7xl w-full space-y-4 p-4 md:p-6"
-		data-testid="case-intelligence-primary-scroll"
-	>
+	<div class="ce-l-intelligence-primary-scroll" data-testid="case-intelligence-primary-scroll">
+		<div class="{DS_INTELLIGENCE_CLASSES.primaryInner}">
 		<div class="ce-l-intelligence-intro">
-			<h1 class="ce-l-intelligence-intro-title">Case Intelligence</h1>
+			<p class={DS_INTELLIGENCE_CLASSES.identityEyebrow}>Investigation · entity context</p>
+			<h1 class="ce-l-intelligence-intro-title {DS_TYPE_CLASSES.display}">Entity Intelligence</h1>
 			<p class="ce-l-intelligence-intro-body leading-relaxed">
 				<strong>Entities</strong> starts with <strong>committed registries</strong> (browse; <strong>Register</strong> with each
 				<strong>Add …</strong>). <strong>Stage&nbsp;1</strong> is for <strong>staging</strong> (intake / propose → promote), not
@@ -649,7 +692,7 @@
 
 		{#if !$caseEngineToken}
 			<div class="ce-l-intelligence-intro">
-				<p class="text-sm text-[color:var(--ce-l-text-secondary)]">
+				<p class={DS_INTELLIGENCE_CLASSES.noAuthNote}>
 					Case Engine authentication is required to load intelligence data.
 				</p>
 			</div>
@@ -663,13 +706,12 @@
 					type="button"
 					role="tab"
 					aria-selected={workspaceMode === 'entities'}
-					class="flex-1 min-w-[7rem] px-2.5 py-1.5 rounded-[var(--ce-l-radius-sm)] text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 {workspaceMode ===
-					'entities'
-						? 'bg-[var(--ce-l-surface)] text-[color:var(--ce-l-text-primary)] border border-[color:var(--ce-l-border-strong)]'
-						: 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/80'}"
+					class="{DS_INTELLIGENCE_CLASSES.workspaceTab} {workspaceMode === 'entities'
+						? DS_INTELLIGENCE_CLASSES.workspaceTabActive
+						: DS_INTELLIGENCE_CLASSES.workspaceTabInactive}"
 					data-testid="intelligence-workspace-mode-entities"
 					title="Registries first (Register via Add); Stage 1 staging; Stage 2 associations — Case Engine"
-					on:click={() => (workspaceMode = 'entities')}
+					on:click={() => setWorkspaceMode('entities')}
 				>
 					Entities
 				</button>
@@ -677,13 +719,12 @@
 					type="button"
 					role="tab"
 					aria-selected={workspaceMode === 'intelligence'}
-					class="flex-1 min-w-[7rem] px-2.5 py-1.5 rounded-[var(--ce-l-radius-sm)] text-xs font-medium transition focus:outline-none focus-visible:ring-2 focus-visible:ring-blue-500 {workspaceMode ===
-					'intelligence'
-						? 'bg-[var(--ce-l-surface)] text-[color:var(--ce-l-text-primary)] border border-[color:var(--ce-l-border-strong)]'
-						: 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800/80'}"
+					class="{DS_INTELLIGENCE_CLASSES.workspaceTab} {workspaceMode === 'intelligence'
+						? DS_INTELLIGENCE_CLASSES.workspaceTabActive
+						: DS_INTELLIGENCE_CLASSES.workspaceTabInactive}"
 					data-testid="intelligence-workspace-mode-intelligence"
 					title="Cross-case alerts, Ask/search, structured queries, analysis readouts — not a substitute for committed records"
-					on:click={() => (workspaceMode = 'intelligence')}
+					on:click={() => setWorkspaceMode('intelligence')}
 				>
 					Intelligence
 				</button>
@@ -693,22 +734,24 @@
 				<div class="space-y-4 -mx-2 md:-mx-4" data-testid="intelligence-workspace-entities-panel">
 					{#if directCreateSuccessMessage}
 						<div
-							class="rounded-lg border border-emerald-200 dark:border-emerald-800 bg-emerald-50/90 dark:bg-emerald-950/40 px-3 py-2 text-sm text-emerald-900 dark:text-emerald-100"
+							class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.success}"
 							data-testid="intelligence-direct-create-success"
 							role="status"
 						>
-							{directCreateSuccessMessage}
+							<p class="ds-status-copy">{directCreateSuccessMessage}</p>
 						</div>
 					{/if}
-					<div
-						class="rounded-2xl border border-slate-600/45 bg-gradient-to-r from-slate-900/95 via-slate-950/90 to-slate-950 px-4 py-3 space-y-1.5 shadow-[0_12px_40px_-20px_rgba(0,0,0,0.45)] ring-1 ring-cyan-500/10"
-						data-testid="intelligence-entities-workflow-path"
-					>
-						<p class="text-[11px] font-bold tracking-wide text-slate-100">Entities overview board</p>
-						<p class="text-[11px] text-slate-400 leading-relaxed">
-							Four registries (phone gated until P69-10). <strong class="text-slate-200">Register</strong> via panel Add or
-							toolbar — Case Engine commit. Staging: expand <strong class="text-slate-200">Intake / staging</strong>.
-							<strong class="text-slate-200">P19</strong> remains on <a class="text-cyan-400 hover:underline" href="/case/{caseId}/proposals">Proposals</a>.
+					<div class="{DS_INTELLIGENCE_CLASSES.entitiesRibbon} {DS_STACK_CLASSES.tight}" data-testid="intelligence-entities-workflow-path">
+						<p class="{DS_TYPE_CLASSES.label} text-[var(--ds-text-primary)]">Entities overview board</p>
+						<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
+							Four registries (phone column is placeholder until P69-10 — use Intelligence mode search for phone evidence focus). <strong class="text-[var(--ds-text-primary)]">Register</strong> via panel Add or
+							toolbar — Case Engine commit. Staging: expand <strong class="text-[var(--ds-text-primary)]">Intake / staging</strong>.
+							<strong class="text-[var(--ds-text-primary)]">P19</strong> remains on <a
+								class={DS_INTELLIGENCE_CLASSES.inlineLink}
+								href="/case/{caseId}/proposals"
+								title={CASE_DESTINATION_TITLES.caseProposals}
+								>{CASE_DESTINATION_LABELS.caseProposals}</a
+							>.
 						</p>
 					</div>
 
@@ -757,62 +800,58 @@
 					<span data-testid="entities-focus-mode" class="sr-only">{entitiesFocusMode}</span>
 				</div>
 			{:else}
-				<div class="space-y-6" data-testid="intelligence-workspace-intelligence-panel">
-				<div
-					class="rounded-xl border border-indigo-200/80 dark:border-indigo-900/50 bg-indigo-50/60 dark:bg-indigo-950/25 p-4 space-y-2"
-					data-testid="intelligence-ws-framing"
-				>
-					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">
+				<div class="{DS_INTELLIGENCE_CLASSES.panelSectionStack}" data-testid="intelligence-workspace-intelligence-panel">
+				<div class="{DS_INTELLIGENCE_CLASSES.modeBanner} {DS_STACK_CLASSES.tight}" data-testid="intelligence-ws-framing">
+					<h2 class="{DS_TYPE_CLASSES.panel}">
 						Intelligence mode — analysis &amp; non-authoritative support
 					</h2>
-					<p class="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">
-						<strong class="text-gray-800 dark:text-gray-200">Entities</strong> — registries first, then Stage&nbsp;1 staging and
-						Stage&nbsp;2 edges (Case Engine authority). This <strong class="text-gray-800 dark:text-gray-200">Intelligence</strong>
+					<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
+						<strong class="font-semibold text-[var(--ds-text-primary)]">Entities</strong> — registries first, then Stage&nbsp;1 staging and
+						Stage&nbsp;2 edges (Case Engine authority). This <strong class="font-semibold text-[var(--ds-text-primary)]">Intelligence</strong>
 						mode is for signals, Ask/search, and lookups. Treat outputs as support until they appear in committed registries,
 						governed proposals, or associations as appropriate.
 					</p>
-					<p class="text-[11px] text-gray-600 dark:text-gray-300 leading-relaxed">
-						<strong>Governed timeline / notebook changes</strong> (P19) belong on the
+					<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
+						<strong class="font-semibold">Governed timeline / notebook changes</strong> (P19) belong on the
 						<a
-							class="text-blue-700 dark:text-blue-400 hover:underline font-medium"
-							href="/case/{caseId}/proposals">Proposals</a>
+							class={DS_INTELLIGENCE_CLASSES.inlineLink}
+							href="/case/{caseId}/proposals"
+							title={CASE_DESTINATION_TITLES.caseProposals}
+							>{CASE_DESTINATION_LABELS.caseProposals}</a
+						>
 						tab — review and commit there; do not treat analysis text or search hits as automatic case records.
 					</p>
 				</div>
 
-				<div class="space-y-3" data-testid="intelligence-ws-signals">
-				<div class="px-0 md:px-1 space-y-0.5">
-					<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
+				<div class={DS_STACK_CLASSES.stack} data-testid="intelligence-ws-signals">
+				<div class="{DS_INTELLIGENCE_CLASSES.sectionIntro} {DS_STACK_CLASSES.tight}">
+					<h2 class={DS_TYPE_CLASSES.label}>
 						Signals &amp; cross-case alerts
 					</h2>
-					<p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+					<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
 						Cross-case overlap hints — triage with excerpts; they are not committed entity or association facts. For case
-						intel truth, open <strong class="text-gray-600 dark:text-gray-300">Entities</strong> (registries first).
+						intel truth, open <strong class="font-semibold">Entities</strong> (registries first).
 					</p>
 				</div>
 
 				<!-- ── Cross-case entity alerts (P28-40) ──────────────────────────── -->
-				<div
-					class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3"
-					data-testid="intelligence-alerts-section"
-				>
-				<div class="flex items-center justify-between gap-2 flex-wrap">
+				<div class="{DS_INTELLIGENCE_CLASSES.panel} {DS_STACK_CLASSES.tight}" data-testid="intelligence-alerts-section">
+				<div class="flex flex-wrap items-center justify-between gap-2">
 					<div>
 						<h2
 							bind:this={alertsHeadingEl}
 							tabindex="-1"
-							class="text-sm font-semibold text-gray-900 dark:text-gray-100 focus:outline-none"
+							class="{DS_TYPE_CLASSES.panel} focus:outline-none"
 						>
 							Cross-case entity alerts
 						</h2>
-						<p class="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
+						<p class="mt-0.5 {DS_TYPE_CLASSES.meta}">
 							Automated signal: text overlap detected across cases. Review supporting excerpts before drawing conclusions.
 						</p>
 					</div>
 					{#if alertViewState === 'success'}
 						<span
-							class="shrink-0 text-xs font-medium px-2 py-0.5 rounded-full
-							       bg-amber-50 dark:bg-amber-900/20 text-amber-700 dark:text-amber-400"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.warning} shrink-0"
 							data-testid="intelligence-alerts-count"
 						>
 							{alerts.length} open
@@ -822,14 +861,14 @@
 
 				{#if alertActionFeedback && alertViewState !== 'error'}
 					<div
-						class={`rounded-md border px-3 py-2 text-xs ${
+						class={`rounded-md px-3 py-2 text-xs ${
 							alertActionFeedback.kind === 'success'
-								? 'border-green-200 dark:border-green-900 bg-green-50 dark:bg-green-950/30 text-green-700 dark:text-green-300'
-								: 'border-red-200 dark:border-red-900 bg-red-50 dark:bg-red-950/30 text-red-700 dark:text-red-300'
+								? DS_STATUS_SURFACE_CLASSES.success
+								: DS_STATUS_SURFACE_CLASSES.error
 						}`}
 						data-testid="intelligence-alerts-action-feedback"
 					>
-						{alertActionFeedback.message}
+						<p class="ds-status-copy">{alertActionFeedback.message}</p>
 					</div>
 				{/if}
 
@@ -852,17 +891,17 @@
 						testId="intelligence-alerts-empty"
 					/>
 				{:else}
-					<ul class="flex flex-col divide-y divide-gray-100 dark:divide-gray-800" data-testid="intelligence-alerts-list">
+					<ul class={DS_INTELLIGENCE_CLASSES.alertList} data-testid="intelligence-alerts-list">
 						{#each alerts as alert (alert.id)}
 							{@const isSubmittingThisAlert = isAckSubmitting && selectedAlertId === alert.id}
 							<li
-								class="py-3 flex flex-col gap-1.5 {isSubmittingThisAlert ? 'opacity-70' : ''}"
+								class="{DS_INTELLIGENCE_CLASSES.alertItem} {isSubmittingThisAlert ? 'opacity-70' : ''}"
 								aria-busy={isSubmittingThisAlert ? 'true' : undefined}
 								data-testid="intelligence-alert-{alert.id}"
 							>
 
 								<!-- Summary (backend text — verbatim) -->
-								<p class="text-sm text-gray-800 dark:text-gray-100" data-testid="intelligence-alert-summary">
+								<p class="{DS_TYPE_CLASSES.body}" data-testid="intelligence-alert-summary">
 									{alert.summary}
 								</p>
 
@@ -870,8 +909,7 @@
 								<div class="flex flex-wrap items-center gap-2">
 									<!-- Entity badge -->
 									<span
-										class="text-[11px] font-medium px-1.5 py-0.5 rounded
-										       bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300"
+										class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
 										title="Matched entity"
 									>
 										{alert.match.entity_kind === 'PHONE' ? 'Phone' : 'Address'}:
@@ -882,7 +920,7 @@
 									{#if alert.source_case?.case_number}
 										<a
 											href="/case/{alert.source_case.id}/timeline"
-											class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline {isSubmittingThisAlert ? 'pointer-events-none opacity-60' : ''}"
+											class="{DS_TYPE_CLASSES.meta} {DS_INTELLIGENCE_CLASSES.inlineLink} {isSubmittingThisAlert ? 'pointer-events-none opacity-60' : ''}"
 											title="Source case: {alert.source_case.title || alert.source_case.case_number}"
 											tabindex={isSubmittingThisAlert ? -1 : undefined}
 											aria-disabled={isSubmittingThisAlert ? 'true' : undefined}
@@ -891,13 +929,13 @@
 										</a>
 									{/if}
 
-									<span class="text-[11px] text-gray-400 dark:text-gray-500">↔</span>
+									<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">↔</span>
 
 									<!-- Target case reference -->
 									{#if alert.target_case?.case_number}
 										<a
 											href="/case/{alert.target_case.id}/timeline"
-											class="text-[11px] text-blue-600 dark:text-blue-400 hover:underline {isSubmittingThisAlert ? 'pointer-events-none opacity-60' : ''}"
+											class="{DS_TYPE_CLASSES.meta} {DS_INTELLIGENCE_CLASSES.inlineLink} {isSubmittingThisAlert ? 'pointer-events-none opacity-60' : ''}"
 											title="Target case: {alert.target_case.title || alert.target_case.case_number}"
 											tabindex={isSubmittingThisAlert ? -1 : undefined}
 											aria-disabled={isSubmittingThisAlert ? 'true' : undefined}
@@ -906,21 +944,21 @@
 										</a>
 									{/if}
 
-									<span class="text-[11px] text-gray-400 dark:text-gray-500 font-mono">
+									<span class="{DS_TYPE_CLASSES.mono} text-[var(--ds-text-muted)]">
 										{new Date(alert.created_at).toLocaleDateString()}
 									</span>
 								</div>
 
 								<!-- Citations: compact excerpts from explanation_json -->
 								{#if alert.explanation_json?.target?.citations?.length > 0}
-									<div class="mt-0.5 pl-2 border-l-2 border-gray-200 dark:border-gray-700 flex flex-col gap-1">
+									<div class={DS_INTELLIGENCE_CLASSES.alertExcerptRail}>
 										{#each alert.explanation_json.target.citations.slice(0, 2) as citation}
 											<p
-												class="text-[11px] text-gray-500 dark:text-gray-400 italic leading-snug"
+												class="{DS_TYPE_CLASSES.meta} italic leading-snug text-[var(--ds-text-secondary)]"
 												data-testid="intelligence-alert-excerpt"
 											>
 												"{citation.excerpt}"
-												<span class="not-italic text-gray-400 dark:text-gray-500 ml-1">
+												<span class="not-italic ml-1 text-[var(--ds-text-muted)]">
 													— {citation.case_number}, {citation.source_kind === 'timeline_entry' ? 'timeline' : 'file'}
 												</span>
 											</p>
@@ -929,14 +967,10 @@
 								{/if}
 
 								<!-- Acknowledge action -->
-								<div class="flex items-center gap-3 mt-0.5">
+								<div class="mt-0.5 flex items-center gap-3">
 									<button
 										type="button"
-										class="text-xs text-gray-400 dark:text-gray-500
-										       hover:text-gray-700 dark:hover:text-gray-200
-										       px-1.5 py-0.5 rounded
-										       hover:bg-gray-100 dark:hover:bg-gray-800
-										       disabled:opacity-40 transition"
+										class="{DS_INTELLIGENCE_CLASSES.ackButton}"
 										disabled={isAckSubmitting || showAckConfirm}
 										on:click|stopPropagation={() => handleAck(alert.id)}
 										title="Mark this alert as reviewed. This does not confirm or dismiss any investigative finding."
@@ -945,7 +979,7 @@
 									>
 										{isSubmittingThisAlert ? 'Acknowledging…' : 'Acknowledge'}
 									</button>
-									<span class="text-[10px] text-gray-400 dark:text-gray-500">
+									<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">
 										Marking acknowledged does not confirm a connection.
 									</span>
 								</div>
@@ -956,24 +990,25 @@
 			</div>
 				</div>
 
-				<div class="space-y-4" data-testid="intelligence-ws-retrieval">
-				<div class="px-0 md:px-1 space-y-0.5">
-					<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
+				<div class="{DS_INTELLIGENCE_CLASSES.panelSectionStack}" data-testid="intelligence-ws-retrieval">
+				<div class="{DS_INTELLIGENCE_CLASSES.sectionIntro} {DS_STACK_CLASSES.tight}">
+					<h2 class={DS_TYPE_CLASSES.label}>
 						Ask, search &amp; structured queries
 					</h2>
-					<p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
+					<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
 						Run Ask/search and structured queries here (read-only retrieval). Results do not create timeline, notebook, or intel
-						records — use <strong class="text-gray-600 dark:text-gray-300">Proposals</strong> or <strong
-							class="text-gray-600 dark:text-gray-300">Entities</strong> when something must become official.
+						records — use <strong class="font-semibold">Proposals</strong> or <strong
+							class="font-semibold">Entities</strong> when something must become official.
 					</p>
 				</div>
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3" data-testid="intelligence-ws-ask-search">
-				<div class="flex flex-wrap items-end gap-2">
+			<div class="{DS_INTELLIGENCE_CLASSES.panel} {DS_STACK_CLASSES.tight}" data-testid="intelligence-ws-ask-search">
+				<div class={DS_INTELLIGENCE_CLASSES.formToolbar}>
 					<div>
-						<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Scope</label>
+						<label class="mb-1 block {DS_TYPE_CLASSES.meta} font-semibold" for="intel-scope-select">Scope</label>
 						<select
-							class="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+							id="intel-scope-select"
+							class={DS_TIMELINE_CLASSES.formControl}
 							bind:value={selectedScope}
 						>
 							{#each allowedScopes as item}
@@ -981,11 +1016,12 @@
 							{/each}
 						</select>
 					</div>
-					<div class="flex-1 min-w-[240px]">
-						<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Ask / Search</label>
+					<div class="min-w-[240px] flex-1">
+						<label class="mb-1 block {DS_TYPE_CLASSES.meta} font-semibold" for="intel-ask-input">Ask / Search</label>
 						<input
+							id="intel-ask-input"
 							type="text"
-							class="w-full px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+							class="{DS_TIMELINE_CLASSES.formControl} w-full"
 							bind:value={query}
 							placeholder="Ask an intelligence question or search term"
 							on:keydown={(e) => {
@@ -998,63 +1034,73 @@
 					</div>
 					<button
 						type="button"
-						class="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+						class="{DS_BTN_CLASSES.primary} disabled:opacity-60"
 						on:click={runIntelligenceQuery}
 						disabled={loading}
 					>
 						{loading ? 'Running…' : 'Run Intelligence'}
 					</button>
 				</div>
-				<p class="text-[11px] text-gray-500 dark:text-gray-400">{currentScopeDescription}</p>
+				<p class={DS_TYPE_CLASSES.meta}>{currentScopeDescription}</p>
+				{#if looksLikePhoneDigitsQuery(query.trim())}
+					<p
+						class="mt-2 rounded-md border border-dashed border-[var(--ds-border-subtle)] bg-[var(--ds-surface-raised)]/50 px-3 py-2 text-sm {DS_TYPE_CLASSES.meta}"
+						data-testid="intelligence-ws-phone-search-hint"
+						role="note"
+					>
+						<strong class="text-[var(--ds-text-primary)]">Phone tip:</strong> For evidence-backed phone focus in this case,
+						use <strong>Structured Queries</strong> → <strong>Phone mentions</strong>, enter this number, run the query, then
+						use the phone evidence focus control below — not the Entities board phone column.
+					</p>
+				{/if}
 				{#if selectedScope === 'THIS_CASE'}
-					<p class="text-[11px] text-gray-500 dark:text-gray-400">
-						This Case scope is case-limited. Cross-case analysis is shown only in CID, SIU, or All scope.
+					<p class={DS_TYPE_CLASSES.meta} data-testid="intelligence-scope-this-case-ribbon">
+						{INTELLIGENCE_UNSUPPORTED_COPY.thisCaseScopeRibbon}
 					</p>
 				{/if}
 				{#if loading}
-					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+					<p class={DS_TYPE_CLASSES.meta}>
 						Running query "{lastExecutedQuery || query.trim()}" in {selectedScopeLabel} scope...
 					</p>
 				{/if}
 				{#if intelScopeApplied && !loading && selectedScope !== 'THIS_CASE' && lastExecutedScope === selectedScope}
-					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+					<p class={DS_TYPE_CLASSES.meta}>
 						Applied scope: {intelScopeApplied}
 					</p>
 				{/if}
 				{#if ranSearch && !loading && lastExecutedScope !== null && lastExecutedScope !== selectedScope}
-					<p class="text-[11px] text-amber-700 dark:text-amber-300">
+					<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.warning}">
 						Scope changed. Run Intelligence to refresh results for {selectedScopeLabel}.
 					</p>
 				{/if}
 				{#if askCrossIntegrityRefusal}
 					<div
-						class="rounded border border-amber-300 dark:border-amber-700 bg-amber-50 dark:bg-amber-950/40 p-3 text-sm text-amber-950 dark:text-amber-50"
+						class={DS_INTELLIGENCE_CLASSES.integrityRefusalBox}
 						data-ask-integrity-refusal=""
 						role="alert"
 					>
-						<p class="text-xs font-semibold uppercase tracking-wide text-amber-800 dark:text-amber-200">
-							Integrity refusal
-						</p>
+						<p class="{DS_TYPE_CLASSES.meta} font-semibold uppercase tracking-wide {DS_STATUS_TEXT_CLASSES.warning}">Integrity refusal</p>
 						<p class="mt-2 whitespace-pre-wrap">{askCrossIntegrityRefusal}</p>
 					</div>
 				{/if}
 				{#if error}
-					<p class="text-xs text-red-600 dark:text-red-400">{error}</p>
+					<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.error}">{error}</p>
 				{/if}
 			</div>
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-3" data-testid="intelligence-ws-structured-queries">
+			<div class="{DS_INTELLIGENCE_CLASSES.panel} {DS_STACK_CLASSES.tight}" data-testid="intelligence-ws-structured-queries">
 				<div>
-					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Structured Queries</h2>
-					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+					<h2 class={DS_TYPE_CLASSES.panel}>Structured Queries</h2>
+					<p class={DS_TYPE_CLASSES.meta}>
 						Current case only. Explicit investigator queries using existing backend endpoints.
 					</p>
 				</div>
-				<div class="flex flex-wrap items-end gap-2">
+				<div class={DS_INTELLIGENCE_CLASSES.formToolbar}>
 					<div>
-						<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Query</label>
+						<label class="mb-1 block {DS_TYPE_CLASSES.meta} font-semibold" for="intel-structured-query">Query</label>
 						<select
-							class="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+							id="intel-structured-query"
+							class={DS_TIMELINE_CLASSES.formControl}
 							bind:value={structuredActionId}
 						>
 							{#each STRUCTURED_QUERY_ACTIONS as action}
@@ -1062,13 +1108,14 @@
 							{/each}
 						</select>
 					</div>
-					<div class="flex-1 min-w-[240px]">
-						<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">
+					<div class="min-w-[240px] flex-1">
+						<label class="mb-1 block {DS_TYPE_CLASSES.meta} font-semibold" for="intel-structured-input">
 							{structuredAction.inputLabel ?? 'Input'}
 						</label>
 						<input
+							id="intel-structured-input"
 							type="text"
-							class="w-full px-3 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm disabled:opacity-60"
+							class="{DS_TIMELINE_CLASSES.formControl} w-full disabled:opacity-60"
 							bind:value={structuredInput}
 							placeholder={structuredAction.inputPlaceholder ?? 'No input required'}
 							disabled={!structuredAction.requiresInput}
@@ -1082,47 +1129,87 @@
 					</div>
 					<button
 						type="button"
-						class="px-3 py-1.5 rounded bg-blue-600 text-white text-sm hover:bg-blue-700 disabled:opacity-60"
+						class="{DS_BTN_CLASSES.primary} disabled:opacity-60"
 						on:click={runStructuredQuery}
 						disabled={structuredLoading}
 					>
 						{structuredLoading ? 'Running…' : 'Run Query'}
 					</button>
 				</div>
-				<p class="text-[11px] text-gray-500 dark:text-gray-400">
+				<p class={DS_TYPE_CLASSES.meta}>
 					Use the value you expect to find in timeline or file text. Runs an explicit structured query and does not infer missing details.
 				</p>
+				{#if structuredActionId === 'phone_mentions'}
+					<p class="{DS_TYPE_CLASSES.meta} mt-2" data-testid="intelligence-ws-phone-structured-hint">
+						<strong class="font-semibold text-[var(--ds-text-primary)]">Next step:</strong> Run the query, then use
+						<strong>Phone evidence focus</strong> below — opens the evidence-backed entity focus route for this number (not the
+						board registry).
+					</p>
+				{/if}
 				{#if structuredError}
-					<p class="text-xs text-red-600 dark:text-red-400">{structuredError}</p>
+					<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.error}">{structuredError}</p>
 				{/if}
 				{#if structuredRan && !structuredLoading}
-					<p class="text-[11px] text-gray-500 dark:text-gray-400">Ran: {structuredQueryLabel}</p>
+					<p class={DS_TYPE_CLASSES.meta}>Ran: {structuredQueryLabel}</p>
 					{#if structuredEntityFocusHref}
-						<p class="text-[11px] text-gray-500 dark:text-gray-400">
-							<a class="text-blue-700 dark:text-blue-400 hover:underline" href={structuredEntityFocusHref}>
-								Open Entity Focus for this query value
-							</a>
-						</p>
+						{#if structuredActionId === 'phone_mentions'}
+							<div
+								class="mt-3 rounded-lg border border-[var(--ds-border-default)] bg-[var(--ds-surface-raised)]/60 px-3 py-3 {DS_STACK_CLASSES.tight}"
+								data-testid="intelligence-ws-phone-focus-cta"
+							>
+								<p class="{DS_TYPE_CLASSES.body} font-semibold text-[var(--ds-text-primary)]">
+									Phone evidence focus (this number)
+								</p>
+								<p class="{DS_TYPE_CLASSES.meta} opacity-95">
+									Goes to case entity intelligence for this phone — evidence-backed profile and timeline. Not the board
+									registry.
+								</p>
+								<a
+									class="{DS_BTN_CLASSES.primary} !mt-2 inline-flex !no-underline"
+									href={structuredEntityFocusHref}
+									data-testid="intelligence-ws-phone-focus-cta-link"
+								>
+									Phone evidence focus
+								</a>
+							</div>
+						{:else}
+							<p class={DS_TYPE_CLASSES.meta}>
+								<a class={DS_INTELLIGENCE_CLASSES.inlineLink} href={structuredEntityFocusHref}>
+									{CASE_DESTINATION_LABELS.entityIntelligenceFocusDrillDown} for this query value
+								</a>
+							</p>
+						{/if}
 					{/if}
 					{#if structuredResults.length === 0}
-						<p class="text-sm text-gray-500 dark:text-gray-400">No results found for this query.</p>
+						<p
+							class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]"
+							data-testid="intelligence-empty-structured"
+						>
+							{INTELLIGENCE_UNSUPPORTED_COPY.noStructuredResults}
+						</p>
 					{:else}
-						<ul class="space-y-2">
+						<ul class="{DS_STACK_CLASSES.tight} list-none p-0">
 							{#each structuredResults as row (row.type + ':' + row.id)}
-								<li class="rounded border border-gray-200 dark:border-gray-800 p-2 text-xs">
+								<li class={DS_INTELLIGENCE_CLASSES.resultCard} data-testid="intelligence-structured-result-row">
 									<div class="flex items-center gap-2">
-										<span class={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${sourceBadgeClass(row.type)}`}>
+										<span class={sourceBadgeClasses(row.type)}>
 											{row.type === 'file' ? 'File' : 'Timeline'}
 										</span>
-										<span class="text-[11px] text-gray-500 dark:text-gray-400">{row.id}</span>
+										<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">{row.id}</span>
 										{#if row.timestamp}
-											<span class="ml-auto text-[11px] text-gray-500 dark:text-gray-400">{row.timestamp}</span>
+											<span class="ml-auto {DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">{row.timestamp}</span>
 										{/if}
 									</div>
-									<p class="mt-1 text-gray-600 dark:text-gray-400">{row.excerpt}</p>
-									<p class="mt-1">
-										<a class="text-blue-700 dark:text-blue-400 hover:underline" href={row.sourcePath}>Open source</a>
+									<p class="mt-1.5">
+										<a
+											class="{DS_INTELLIGENCE_CLASSES.inlineLink} font-semibold text-[var(--ds-text-primary)]"
+											href={row.sourcePath}
+											data-testid="intelligence-structured-open-source"
+										>
+											Open source
+										</a>
 									</p>
+									<p class="mt-1 {DS_TYPE_CLASSES.body} text-[var(--ds-text-secondary)]">{row.excerpt}</p>
 								</li>
 							{/each}
 						</ul>
@@ -1131,122 +1218,144 @@
 			</div>
 				</div>
 
-				<div class="px-0 md:px-1 space-y-0.5 mb-1" data-testid="intelligence-ws-results-intro">
-					<h2 class="text-xs font-semibold uppercase tracking-wide text-gray-700 dark:text-gray-300">
+				<div class="{DS_INTELLIGENCE_CLASSES.sectionIntro} {DS_STACK_CLASSES.tight} mb-1" data-testid="intelligence-ws-results-intro">
+					<h2 class={DS_TYPE_CLASSES.label}>
 						Analysis, evidence &amp; citations
 					</h2>
-					<p class="text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-						From your last run — compare to <strong class="text-gray-600 dark:text-gray-300">Entities</strong> for who/what is
+					<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
+						From your last run — compare to <strong class="font-semibold">Entities</strong> for who/what is
 						committed; citations support traceability only.
 					</p>
 				</div>
 
 			{#if allSectionsEmpty}
-				<div class="rounded-xl border border-dashed border-gray-300 dark:border-gray-700 bg-gray-50 dark:bg-gray-900 p-4">
-					<p class="text-sm text-gray-600 dark:text-gray-300">No intelligence results found for this query.</p>
-					<p class="mt-1 text-[11px] text-gray-500 dark:text-gray-400">
-						Try a broader term or change scope.
+				<div class={DS_INTELLIGENCE_CLASSES.emptyDashed} data-testid="intelligence-empty-all-sections">
+					<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-secondary)]">
+						{INTELLIGENCE_UNSUPPORTED_COPY.noResultsThisSearch}
+					</p>
+					<p class="mt-1 {DS_TYPE_CLASSES.meta}">
+						{INTELLIGENCE_UNSUPPORTED_COPY.allSectionsEmptyHint}
 					</p>
 				</div>
 			{/if}
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Cross-case analysis</h2>
+			<div class="{DS_INTELLIGENCE_CLASSES.panel} {DS_STACK_CLASSES.tight}">
+				<h2 class={DS_TYPE_CLASSES.panel}>Cross-case analysis</h2>
 				{#if loading}
-					<p class="text-sm text-gray-500 dark:text-gray-400">Loading intelligence results...</p>
+					<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]">Loading intelligence results...</p>
 				{:else if !ranSearch}
-					<p class="text-sm text-gray-500 dark:text-gray-400">Run a query to load intelligence results.</p>
+					<p
+						class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]"
+						data-testid="intelligence-empty-cross-case-no-run"
+					>
+						{INTELLIGENCE_UNSUPPORTED_COPY.runSearchFirst}
+					</p>
 				{:else if selectedScope === 'THIS_CASE'}
-					<p class="text-sm text-gray-500 dark:text-gray-400">
-						Cross-case analysis is available for CID, SIU, or All scope.
+					<p
+						class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]"
+						data-testid="intelligence-empty-cross-case-scope"
+					>
+						{INTELLIGENCE_UNSUPPORTED_COPY.crossCaseNotInThisScope}
 					</p>
 				{:else}
 					{#if groundedAnswer}
-						<div class="space-y-3">
+						<div class={DS_STACK_CLASSES.stack}>
 							<CaseEngineAskIntegrityBanner integrityPresentation={askIntegrityPresentation} />
-							<div class="text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap">{groundedAnswer}</div>
+							<div class="{DS_TYPE_CLASSES.body} whitespace-pre-wrap">{groundedAnswer}</div>
 							<CaseEngineAskStructuredSections facts={askFacts} inferences={askInferences} />
 						</div>
 						{#if evidenceItems.length === 0}
-							<p class="text-[11px] text-gray-500 dark:text-gray-400">
-								No supporting evidence rows were returned for this analysis text.
+							<p class={DS_TYPE_CLASSES.meta} data-testid="intelligence-empty-analysis-no-evidence-rows">
+								{INTELLIGENCE_UNSUPPORTED_COPY.noSupportingEvidenceRowsForAnalysis}
 							</p>
 						{/if}
 					{:else if !allSectionsEmpty}
-						<p class="text-sm text-gray-500 dark:text-gray-400">
-							No analysis text was returned.
+						<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]" data-testid="intelligence-empty-no-analysis-text">
+							{INTELLIGENCE_UNSUPPORTED_COPY.noAnalysisText}
 							{#if evidenceItems.length > 0}
-								Review supporting evidence below.
+								{' '}{INTELLIGENCE_UNSUPPORTED_COPY.noAnalysisTextReviewEvidence}
 							{/if}
 						</p>
 					{/if}
 				{/if}
 			</div>
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Supporting evidence</h2>
-				<p class="text-[11px] text-gray-500 dark:text-gray-400">
+			<div class="{DS_INTELLIGENCE_CLASSES.panel} {DS_STACK_CLASSES.tight}">
+				<h2 class={DS_TYPE_CLASSES.panel}>Supporting evidence</h2>
+				<p class={DS_TYPE_CLASSES.meta}>
 					These backend evidence matches support the analysis; they are not the analysis itself.
 				</p>
+				<p class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-secondary)]" data-testid="intelligence-supporting-evidence-action-hint">
+					<strong class="text-[var(--ds-text-primary)]">Row order:</strong> entity hits show evidence focus (drill-down) first, then the excerpt.
+					Timeline and file hits show source metadata first, then the excerpt (no entity focus on those rows).
+				</p>
 				{#if loading}
-					<p class="text-sm text-gray-500 dark:text-gray-400">Loading supporting evidence...</p>
+					<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]">Loading supporting evidence...</p>
 				{:else if !ranSearch}
-					<p class="text-sm text-gray-500 dark:text-gray-400">Run a query to load supporting evidence.</p>
+					<p
+						class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]"
+						data-testid="intelligence-empty-supporting-no-run"
+					>
+						{INTELLIGENCE_UNSUPPORTED_COPY.runSearchFirst}
+					</p>
 				{:else if evidenceCaseGroups.length === 0 && !allSectionsEmpty}
-					<p class="text-sm text-gray-500 dark:text-gray-400">
-						No supporting evidence found for this query.
+					<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]" data-testid="intelligence-empty-supporting-no-rows">
+						{INTELLIGENCE_UNSUPPORTED_COPY.noSupportingEvidenceForSearch}
 						{#if groundedAnswer}
-							The analysis text above was returned without evidence rows.
+							{' '}{INTELLIGENCE_UNSUPPORTED_COPY.supportingEvidenceAnalysisWithoutRows}
 						{/if}
 					</p>
 				{:else}
-					<div class="space-y-3">
+					<div class={DS_STACK_CLASSES.stack}>
 						{#each evidenceCaseGroups as caseGroup}
-							<div class="rounded border border-gray-200 dark:border-gray-800 p-3 space-y-2">
+							<div class="{DS_INTELLIGENCE_CLASSES.evidenceCaseCard} {DS_STACK_CLASSES.tight}">
 								<div class="flex flex-wrap items-center gap-2">
-									<span class="font-medium text-sm text-gray-900 dark:text-gray-100">
+									<span class="{DS_TYPE_CLASSES.body} font-semibold">
 										{caseGroup.caseNumber}
 									</span>
 									{#if caseGroup.caseTitle}
-										<span class="text-xs text-gray-500 dark:text-gray-400">{caseGroup.caseTitle}</span>
+										<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">{caseGroup.caseTitle}</span>
 									{/if}
 									{#if caseGroup.unit}
-										<span class="text-[11px] text-gray-500 dark:text-gray-400">({caseGroup.unit})</span>
+										<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">({caseGroup.unit})</span>
 									{/if}
-									<span class="ml-auto text-[11px] text-gray-500 dark:text-gray-400">
+									<span class="ml-auto {DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">
 										{caseGroup.matchCount} match(es)
 									</span>
 								</div>
 
 								{#each caseGroup.typeGroups as typeGroup}
-									<div class="space-y-1">
+									<div class={DS_STACK_CLASSES.tight}>
 										<div class="flex items-center gap-2">
-											<span class="text-[11px] font-medium text-gray-600 dark:text-gray-300">{typeGroup.label}</span>
-											<span class="text-[11px] text-gray-500 dark:text-gray-400">{typeGroup.items.length}</span>
+											<span class="{DS_TYPE_CLASSES.meta} font-semibold">{typeGroup.label}</span>
+											<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">{typeGroup.items.length}</span>
 										</div>
-										<ul class="space-y-1">
+										<ul class="{DS_STACK_CLASSES.tight} list-none p-0">
 											{#each typeGroup.items.slice(0, 8) as item}
-												<li class="rounded border border-gray-100 dark:border-gray-800 p-2 text-xs">
+												<li class={DS_INTELLIGENCE_CLASSES.evidenceHitRow}>
 													<div class="flex items-center gap-2">
-														<span class={`inline-flex items-center px-1.5 py-0.5 rounded text-[11px] font-medium ${sourceBadgeClass(item.sourceType)}`}>
+														<span class={sourceBadgeClasses(item.sourceType)}>
 															{item.label}
 														</span>
-														<span class="text-[11px] text-gray-500 dark:text-gray-400">{item.id}</span>
+														<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">{item.id}</span>
 														{#if item.timestamp}
-															<span class="ml-auto text-[11px] text-gray-500 dark:text-gray-400">{item.timestamp}</span>
+															<span class="ml-auto {DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">{item.timestamp}</span>
 														{/if}
 													</div>
-													<p class="mt-1 text-gray-600 dark:text-gray-400">{item.excerpt}</p>
 													{#if item.sourceType === 'entity'}
 														{@const href = entityFocusHref(item)}
 														{#if href}
-															<p class="mt-1">
-																<a class="text-blue-700 dark:text-blue-400 hover:underline" href={href}>
-																	Open Entity Focus
+															<p class="mt-1.5" data-testid="intelligence-supporting-evidence-primary-action">
+																<a
+																	class="{DS_INTELLIGENCE_CLASSES.inlineLink} font-semibold text-[var(--ds-text-primary)]"
+																	href={href}
+																>
+																	{entityEvidenceFocusControlLabel(item.entityType)}
 																</a>
 															</p>
 														{/if}
 													{/if}
+													<p class="mt-1 {DS_TYPE_CLASSES.body} text-[var(--ds-text-secondary)]">{item.excerpt}</p>
 												</li>
 											{/each}
 										</ul>
@@ -1259,71 +1368,142 @@
 			</div>
 
 			{#if selectedScope !== 'THIS_CASE'}
-				<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Cases matching this query</h2>
-					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+				<div class="{DS_INTELLIGENCE_CLASSES.panel} {DS_STACK_CLASSES.tight}">
+					<h2 class={DS_TYPE_CLASSES.panel}>Cases matching this query</h2>
+					<p class={DS_TYPE_CLASSES.meta}>
 						Listed from backend evidence matches. This is not a confirmed relationship model.
 					</p>
+					<p class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-secondary)]" data-testid="intelligence-cases-match-action-hint">
+						{CASE_DESTINATION_HINTS.crossCaseMatches}
+					</p>
 					{#if ranSearch && !loading && matchedCaseSummaries.length === 0 && !allSectionsEmpty}
-						<p class="text-sm text-gray-500 dark:text-gray-400">No cases matched this query.</p>
+						<p
+							class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]"
+							data-testid="intelligence-empty-cases-matched"
+						>
+							{INTELLIGENCE_UNSUPPORTED_COPY.noCasesMatched}
+						</p>
 					{:else}
-						<ul class="space-y-2">
+						<ul class="{DS_STACK_CLASSES.tight} list-none p-0">
 							{#each matchedCaseSummaries.slice(0, 8) as rc}
-								<li class="rounded border border-gray-200 dark:border-gray-800 p-2 text-xs">
-									<div class="flex flex-wrap items-center gap-2">
-										<a
-											class="font-medium text-blue-700 dark:text-blue-400 hover:underline"
-											href={`/case/${rc.caseId}/chat`}
+								<li class={DS_INTELLIGENCE_CLASSES.resultCard} data-testid="intelligence-cases-match-row">
+									<div class="flex flex-col gap-2.5">
+										<div
+											class="flex min-w-0 flex-wrap items-baseline gap-x-2 gap-y-1"
+											data-testid="intelligence-cases-match-identity"
 										>
-											{rc.caseNumber}
-										</a>
-										<span class="text-gray-500 dark:text-gray-400">{rc.caseTitle}</span>
-										<span class="text-gray-400 dark:text-gray-500">({rc.unit})</span>
-										<span class="ml-auto text-gray-500 dark:text-gray-400">{rc.matchCount} match(es)</span>
+											<span class="{DS_TYPE_CLASSES.body} font-semibold text-[var(--ds-text-primary)]">{rc.caseNumber}</span>
+											<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">{rc.caseTitle}</span>
+											<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">({rc.unit})</span>
+											<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">{rc.matchCount} match(es)</span>
+										</div>
+										<div
+											class="flex flex-wrap items-center gap-x-2 gap-y-1"
+											data-testid="intelligence-cases-match-actions"
+											role="group"
+											aria-label="Case entry actions for this match"
+										>
+											<a
+												class="{DS_INTELLIGENCE_CLASSES.inlineLink} font-semibold text-[var(--ds-text-primary)]"
+												href={`/case/${rc.caseId}/summary`}
+												data-testid="intelligence-cases-match-open-case"
+												title={CASE_DESTINATION_TITLES.overview}
+											>
+												{CASE_DESTINATION_LABELS.overview}
+											</a>
+											<span
+												class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)] select-none"
+												aria-hidden="true"
+											>
+												·
+											</span>
+											<a
+												class="{DS_INTELLIGENCE_CLASSES.inlineLink} font-semibold text-[var(--ds-text-primary)]"
+												href={`/case/${rc.caseId}/chat`}
+												data-testid="intelligence-cases-match-open-chat"
+												title={CASE_DESTINATION_TITLES.aiWorkspace}
+											>
+												{CASE_DESTINATION_LABELS.aiWorkspace}
+											</a>
+										</div>
 									</div>
 								</li>
 							{/each}
 						</ul>
 					{/if}
 				</div>
-				<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-					<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Entity Intelligence (search)</h2>
-					<p class="text-[11px] text-gray-500 dark:text-gray-400">
+				<div class="{DS_INTELLIGENCE_CLASSES.panel} {DS_STACK_CLASSES.tight}">
+					<h2 class={DS_TYPE_CLASSES.panel}>Entity Intelligence (search)</h2>
+					<p class={DS_TYPE_CLASSES.meta}>
 						<strong>Read-only:</strong> entity-shaped <strong>hits from intelligence search</strong>, not the
 						<strong>committed</strong> registry entities in Entities mode above.
 					</p>
+					<p class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-secondary)]" data-testid="intelligence-ws-entity-search-action-hint">
+						<strong class="text-[var(--ds-text-primary)]">Row order:</strong> entity drill-down link first (when present), then
+						the match excerpt.
+					</p>
+					{#if entityTypeGroups.some((g) => String(g.type).toLowerCase() === 'phone')}
+						<p
+							class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-secondary)]"
+							data-testid="intelligence-ws-entity-search-phone-note"
+						>
+							<strong class="text-[var(--ds-text-primary)]">Phone matches:</strong> use the phone evidence focus link on
+							the row for the supported evidence-backed view — not the Entities board phone column.
+						</p>
+					{/if}
 					{#if ranSearch && !loading && entityTypeGroups.length === 0 && !allSectionsEmpty}
-						<p class="text-sm text-gray-500 dark:text-gray-400">No search entity hits for this query.</p>
-						<p class="text-[11px] text-gray-500 dark:text-gray-400">
+						<p
+							class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]"
+							data-testid="intelligence-empty-entity-search-hits"
+						>
+							{INTELLIGENCE_UNSUPPORTED_COPY.noEntityHits}
+						</p>
+						<p class={DS_TYPE_CLASSES.meta}>
 							This list appears when the backend returns identifiable entity-type matches for your search — separate
 							from the Entities workspace registries / staging panels.
 						</p>
 						{#if matchedCaseSummaries.length > 0}
-							<p class="text-[11px] text-gray-500 dark:text-gray-400">
+							<p class={DS_TYPE_CLASSES.meta}>
 								Cases matching this query can exist even when no entity-type rows are returned.
 							</p>
 						{/if}
 					{:else}
-						<div class="space-y-3">
+						<div class={DS_STACK_CLASSES.stack}>
 							{#each entityTypeGroups as entityGroup}
-								<div class="rounded border border-gray-200 dark:border-gray-800 p-2">
-									<p class="text-xs font-medium text-gray-700 dark:text-gray-300">
+								<div class={DS_INTELLIGENCE_CLASSES.entitySearchGroup}>
+									<p class="{DS_TYPE_CLASSES.meta} font-semibold">
 										{entityGroup.type} ({entityGroup.items.length})
 									</p>
-									<ul class="mt-1 space-y-1">
+									<ul class="mt-1 {DS_STACK_CLASSES.tight} list-none p-0">
 										{#each entityGroup.items.slice(0, 8) as item}
-											<li class="text-xs text-gray-600 dark:text-gray-400">
-												• {item.caseNumber} {#if item.unit}({item.unit}){/if}:
+											<li
+												class="{DS_INTELLIGENCE_CLASSES.resultCard} {DS_TYPE_CLASSES.meta} text-left"
+												data-testid="intelligence-entity-search-hit-row"
+											>
+												<p class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">
+													{item.caseNumber}{#if item.unit}
+														<span> ({item.unit})</span>{/if}
+												</p>
 												{#if entityFocusHref(item)}
-													<a
-														class="text-blue-700 dark:text-blue-400 hover:underline"
-														href={entityFocusHref(item) ?? '#'}
-													>
-														{item.entityValue || item.entityNormalized || 'Entity'}
-													</a>
-													- {item.excerpt}
+													<p class="mt-1" data-testid="intelligence-entity-search-primary-action">
+														<a
+															class="{DS_INTELLIGENCE_CLASSES.inlineLink} font-semibold text-[var(--ds-text-primary)]"
+															href={entityFocusHref(item) ?? '#'}
+														>
+															{#if String(item.entityType ?? '').toLowerCase() === 'phone'}
+																{entityEvidenceFocusControlLabel(item.entityType)} — {item.entityValue ||
+																	item.entityNormalized ||
+																	'phone'}
+															{:else}
+																{entityEvidenceFocusControlLabel(item.entityType)}: {item.entityValue ||
+																	item.entityNormalized ||
+																	'Entity'}
+															{/if}
+														</a>
+													</p>
+													<p class="mt-1 {DS_TYPE_CLASSES.body} text-[var(--ds-text-secondary)]">{item.excerpt}</p>
 												{:else}
-													{item.excerpt}
+													<p class="mt-1 {DS_TYPE_CLASSES.body} text-[var(--ds-text-secondary)]">{item.excerpt}</p>
 												{/if}
 											</li>
 										{/each}
@@ -1335,14 +1515,19 @@
 				</div>
 			{/if}
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Citations / Evidence</h2>
+			<div class="{DS_INTELLIGENCE_CLASSES.panel} {DS_STACK_CLASSES.tight}">
+				<h2 class={DS_TYPE_CLASSES.panel}>Citations / Evidence</h2>
 				{#if ranSearch && !loading && uniqueAskCitations.length === 0 && uniqueIntelCitations.length === 0 && !allSectionsEmpty}
-					<p class="text-sm text-gray-500 dark:text-gray-400">No citations returned for this query.</p>
+					<p
+						class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]"
+						data-testid="intelligence-empty-citations"
+					>
+						{INTELLIGENCE_UNSUPPORTED_COPY.noCitations}
+					</p>
 				{:else}
 					{#if uniqueAskCitations.length > 0}
-						<p class="text-xs font-medium text-gray-700 dark:text-gray-300">Cross-case ask citations</p>
-						<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
+						<p class="{DS_TYPE_CLASSES.meta} font-semibold">Cross-case ask citations</p>
+						<ul class={DS_INTELLIGENCE_CLASSES.citationList}>
 							{#each uniqueAskCitations as c}
 								<li>
 									• {c.case_number} — {c.source_type} — {c.id}
@@ -1351,8 +1536,8 @@
 						</ul>
 					{/if}
 					{#if uniqueIntelCitations.length > 0}
-						<p class="text-xs font-medium text-gray-700 dark:text-gray-300">Intelligence search citations</p>
-						<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
+						<p class="{DS_TYPE_CLASSES.meta} font-semibold">Intelligence search citations</p>
+						<ul class={DS_INTELLIGENCE_CLASSES.citationList}>
 							{#each uniqueIntelCitations as c}
 								<li>
 									• {c.label} — {c.source_kind} — {c.source_id}
@@ -1365,6 +1550,7 @@
 				</div>
 			{/if}
 		{/if}
+		</div>
 	</div>
 </div>
 </CaseWorkspaceContentRegion>

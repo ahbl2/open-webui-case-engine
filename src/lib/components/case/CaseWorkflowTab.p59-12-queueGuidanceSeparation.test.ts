@@ -24,24 +24,20 @@ describe('CaseWorkflowTab P59-12 proposal queue / guidance separation', () => {
 
 	it('renders the proposal queue as a self-contained rounded panel (P59-14: light elevation)', () => {
 		expect(tabSource).toMatch(
-			/data-testid="workflow-proposals-panel"[\s\S]*?rounded-lg border border-gray-200\/90/
+			/data-testid="workflow-proposals-panel"[\s\S]*?DS_WORKFLOW_CLASSES\.proposalsPanel/
 		);
-		expect(tabSource).toMatch(/data-testid="workflow-proposals-panel"[\s\S]*?shadow-sm/);
-		expect(tabSource).toContain('bg-gray-50/70 dark:bg-gray-900/40');
 	});
 
 	it('uses a footer-like dashed top rule and transparent background when guidance is collapsed', () => {
 		expect(tabSource).toMatch(/data-workflow-guidance-footer=\{guidanceExpanded \? undefined : 'true'\}/);
 		expect(tabSource).toMatch(
-			/data-testid="workflow-guidance-placeholder"[\s\S]*?guidanceExpanded[\s\S]*?border-t border-dashed[\s\S]*?bg-transparent/
+			/data-testid="workflow-guidance-placeholder"[\s\S]*?guidanceExpanded[\s\S]*?guidanceZoneCollapsed/
 		);
 	});
 
 	it('keeps expanded guidance as a bordered card with tighter top spacing below the proposal panel (P59-16)', () => {
-		expect(tabSource).toMatch(
-			/guidanceExpanded\s*\?[\s\S]*?'mt-2 rounded-md border border-gray-200\/90/
-		);
-		expect(tabSource).toMatch(/:\s*'mt-3 rounded-md border border-gray-200\/90/);
+		expect(tabSource).toMatch(/guidanceExpanded\s*\?[\s\S]*?guidanceZoneOpenEmbed/);
+		expect(tabSource).toMatch(/guidanceZoneOpenFull/);
 	});
 
 	it('preserves embedded vs full spacing hooks on both regions (P59-16: slightly tighter panel pb)', () => {

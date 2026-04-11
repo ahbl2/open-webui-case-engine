@@ -28,7 +28,7 @@ describe('detectIntelligenceIntent', () => {
 
 	it('builds deterministic handoff message', () => {
 		expect(buildIntelligenceHandoffMessage('case-123')).toBe(
-			'Cross-case analysis is available in the Intelligence tab: /case/case-123/intelligence'
+			'Cross-case analysis: open Entity intelligence in Intelligence mode (search & Ask): /case/case-123/intelligence?mode=intelligence'
 		);
 	});
 
@@ -38,7 +38,7 @@ describe('detectIntelligenceIntent', () => {
 				prompt: 'where else does this person appear',
 				caseId: 'abc-123'
 			})
-		).toBe('Cross-case analysis is available in the Intelligence tab: /case/abc-123/intelligence');
+		).toBe('Cross-case analysis: open Entity intelligence in Intelligence mode (search & Ask): /case/abc-123/intelligence?mode=intelligence');
 	});
 
 	it('keeps case-scoped prompts out of handoff', () => {
@@ -56,19 +56,19 @@ describe('detectIntelligenceIntent', () => {
 				prompt: 'Summarize this case and tell me where else this phone appears',
 				caseId: 'abc-123'
 			})
-		).toBe('Cross-case analysis is available in the Intelligence tab: /case/abc-123/intelligence');
+		).toBe('Cross-case analysis: open Entity intelligence in Intelligence mode (search & Ask): /case/abc-123/intelligence?mode=intelligence');
 		expect(
 			resolveIntelligenceHandoff({
 				prompt: 'What do we know about John in this case and any others',
 				caseId: 'abc-123'
 			})
-		).toBe('Cross-case analysis is available in the Intelligence tab: /case/abc-123/intelligence');
+		).toBe('Cross-case analysis: open Entity intelligence in Intelligence mode (search & Ask): /case/abc-123/intelligence?mode=intelligence');
 		expect(
 			resolveIntelligenceHandoff({
 				prompt: 'List the timeline mentions here and compare them to other cases',
 				caseId: 'abc-123'
 			})
-		).toBe('Cross-case analysis is available in the Intelligence tab: /case/abc-123/intelligence');
+		).toBe('Cross-case analysis: open Entity intelligence in Intelligence mode (search & Ask): /case/abc-123/intelligence?mode=intelligence');
 	});
 
 	it('prefers conservative handoff whenever cross-case language appears', () => {
@@ -78,7 +78,7 @@ describe('detectIntelligenceIntent', () => {
 				prompt: 'what do we know about this person in any others',
 				caseId: 'abc-123'
 			})
-		).toBe('Cross-case analysis is available in the Intelligence tab: /case/abc-123/intelligence');
+		).toBe('Cross-case analysis: open Entity intelligence in Intelligence mode (search & Ask): /case/abc-123/intelligence?mode=intelligence');
 	});
 
 	it('returns handoff message only (no hybrid text)', () => {
@@ -86,7 +86,7 @@ describe('detectIntelligenceIntent', () => {
 			prompt: 'compare this against other cases',
 			caseId: 'abc-123'
 		});
-		expect(handoff).toBe('Cross-case analysis is available in the Intelligence tab: /case/abc-123/intelligence');
+		expect(handoff).toBe('Cross-case analysis: open Entity intelligence in Intelligence mode (search & Ask): /case/abc-123/intelligence?mode=intelligence');
 		expect(handoff?.includes('\n')).toBe(false);
 	});
 });

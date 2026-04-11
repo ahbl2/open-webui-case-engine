@@ -1,17 +1,6 @@
 @reference "./tailwind.css";
 
-@import "./lib/styles/detectiveDesignTokens.css";
-@import "./lib/styles/detectiveTypography.css";
-@import "./lib/styles/detectiveSemanticStatus.css";
-@import "./lib/styles/detectiveButtons.css";
-@import "./lib/styles/detectiveBadgesChips.css";
-@import "./lib/styles/detectiveTooltip.css";
-@import "./lib/styles/detectiveSurfaces.css";
-@import "./lib/styles/detectiveEmptyLoadingSkeleton.css";
-@import "./lib/styles/detectiveErrorBannerToast.css";
-@import "./lib/styles/detectiveModalDrawerConfirm.css";
-@import "./lib/styles/detectiveAskIntegrity.css";
-@import "./lib/styles/caseWorkspaceTierL.css";
+/* DS stack: see `src/tailwind.css` (imported before this file in `+layout.svelte`) — avoids Tailwind v4 @reference entry dropping or splitting DS @layer output. */
 
 @font-face {
 	font-family: 'Inter';
@@ -48,6 +37,8 @@
 :root {
 	--app-text-scale: 1;
 	--sidebar-width: 260px;
+	/* Collapsed detective rail: fixed px so UI text scale does not inflate shell chrome vs --sidebar-width */
+	--sidebar-rail-width: 72px;
 }
 
 html {

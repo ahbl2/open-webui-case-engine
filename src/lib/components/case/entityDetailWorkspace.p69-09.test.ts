@@ -33,6 +33,8 @@ describe('EntityDetailWorkspace (P69-09)', () => {
 
 	it('implements quick-link pills and deferred deep-tab shells', () => {
 		expect(source).toContain('data-testid="entity-detail-quick-pills"');
+		expect(source).toContain('data-testid="entity-detail-quick-pills-workspace"');
+		expect(source).toContain('data-testid="entity-detail-quick-pills-governed-route"');
 		expect(source).toContain('data-testid="entity-detail-pill-proposals"');
 		expect(source).toContain('data-testid="entity-detail-deep-timeline"');
 		expect(source).toContain('data-testid="entity-detail-deep-history"');

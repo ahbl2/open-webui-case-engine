@@ -30,6 +30,13 @@
 	import { buildCaseFileExtractedTextModalBody } from '$lib/components/case/caseFileExtractedTextModal';
 	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
+	import {
+		DS_BTN_CLASSES,
+		DS_FILES_CLASSES,
+		DS_MODAL_CLASSES,
+		DS_STATUS_TEXT_CLASSES,
+		DS_TYPE_CLASSES
+	} from '$lib/case/detectivePrimitiveFoundation';
 
 	type ProposeWorkflowState =
 		| { step: 'idle' }
@@ -707,16 +714,13 @@
 	onConfirm={executeDeleteFile}
 />
 
-<div class="flex flex-col gap-4 p-4">
+<div class="{DS_FILES_CLASSES.workspace}">
 	<!-- P42-09 — upload section label -->
 	<div class="flex flex-col gap-1.5 -mx-1">
-		<h3 class="text-sm font-medium text-gray-800 dark:text-gray-200 px-1">Add file to case</h3>
+		<h3 class="{DS_FILES_CLASSES.sectionLabel}">Add file to case</h3>
 	<!-- P38-04: drop target shares uploadCaseFile path with picker (Notes-style entry parity) -->
 	<div
-		class="rounded-lg border-2 border-dashed transition-colors p-3
-		       {fileDragDepth > 0
-			? 'border-blue-500 dark:border-blue-400 bg-blue-50/80 dark:bg-blue-950/40'
-			: 'border-gray-200 dark:border-gray-700'}"
+		class="{DS_FILES_CLASSES.dropzone} {fileDragDepth > 0 ? DS_FILES_CLASSES.dropzoneActive : ''}"
 		role="region"
 		aria-label="Case file upload"
 		data-testid="case-files-upload-dropzone"
@@ -726,7 +730,7 @@
 		on:drop={onFilesZoneDrop}
 	>
 		{#if fileDragDepth > 0}
-			<p class="text-xs font-medium text-blue-700 dark:text-blue-300 mb-2" aria-live="polite">
+			<p class="{DS_FILES_CLASSES.dropzoneHint}" aria-live="polite">
 				Drop files to upload to this case
 			</p>
 		{/if}
@@ -738,12 +742,12 @@
 			<input
 				type="file"
 				bind:this={fileInput}
-				class="flex-1 rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-sm file:mr-2 file:rounded file:border-0 file:bg-gray-100 dark:file:bg-gray-700 file:px-3 file:py-1 file:text-sm"
+				class="{DS_FILES_CLASSES.nativeFileInput}"
 			/>
 			<button
 				type="submit"
 				disabled={uploading}
-				class="rounded bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900 px-3 py-1.5 text-sm font-medium hover:bg-gray-700 dark:hover:bg-gray-300 disabled:opacity-50"
+				class="{DS_BTN_CLASSES.primary}"
 			>
 				{uploading ? 'Uploading...' : 'Upload'}
 			</button>
@@ -752,20 +756,14 @@
 	</div>
 
 	<!-- Files list — P42-11: lighter help line + margin so it reads apart from search row and count line -->
-	<div
-		class="text-xs text-gray-400 dark:text-gray-500 mb-3"
-		data-testid="case-files-extraction-help"
-	>
-		Text extraction supported for: <span class="font-mono" data-testid="case-files-supported-extract-types"
+	<div class="{DS_FILES_CLASSES.doctrineHelp}" data-testid="case-files-extraction-help">
+		Text extraction supported for: <span class="{DS_TYPE_CLASSES.mono}" data-testid="case-files-supported-extract-types"
 			>{CASE_FILES_SUPPORTED_EXTRACT_TYPES_LABEL}</span
 		>
 	</div>
 
-	<div
-		class="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-end max-w-4xl"
-		data-testid="case-files-list-controls"
-	>
-		<div class="flex-1 min-w-[12rem]">
+	<div class="{DS_FILES_CLASSES.listControls}" data-testid="case-files-list-controls">
+		<div class="min-w-[12rem] flex-1">
 			<input
 				type="search"
 				bind:value={fileSearchDraft}
@@ -774,16 +772,16 @@
 				aria-label="Search case files"
 				autocomplete="off"
 				data-testid="case-files-search-input"
-				class="w-full rounded border border-gray-200 dark:border-gray-700 bg-transparent px-2 py-1.5 text-sm text-gray-900 dark:text-gray-100"
+				class="w-full {DS_FILES_CLASSES.formControl}"
 			/>
 		</div>
-		<div class="flex flex-wrap gap-2 items-center">
+		<div class="flex flex-wrap items-center gap-2">
 			<select
 				bind:value={mimeCategoryFilter}
 				on:change={onListFiltersChange}
 				aria-label="Filter by file type category"
 				data-testid="case-files-filter-mime-category"
-				class="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm min-w-[9rem]"
+				class="min-w-[9rem] {DS_FILES_CLASSES.formControl} py-1.5 text-sm"
 			>
 				<option value="">All types</option>
 				<option value="image">Image</option>
@@ -797,7 +795,7 @@
 				on:change={onListFiltersChange}
 				aria-label="Filter by tags"
 				data-testid="case-files-filter-has-tags"
-				class="rounded border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 px-2 py-1.5 text-sm min-w-[9rem]"
+				class="min-w-[9rem] {DS_FILES_CLASSES.formControl} py-1.5 text-sm"
 			>
 				<option value="all">All files</option>
 				<option value="with">With tags</option>
@@ -807,7 +805,7 @@
 	</div>
 
 	{#if !loadError && !loading && (files.length > 0 || totalFiles > 0)}
-		<p class="text-xs text-gray-600 dark:text-gray-400 mt-2" data-testid="case-files-loaded-count">
+		<p class="{DS_FILES_CLASSES.loadedCount}" data-testid="case-files-loaded-count">
 			{files.length} of {totalFiles} files loaded
 		</p>
 	{/if}
@@ -828,50 +826,50 @@
 			{#each files as f (f.id)}
 				<div
 					id={`ce-case-file-${f.id}`}
-					class="flex flex-col gap-2 rounded border border-gray-200 dark:border-gray-700 p-3 text-sm"
+					class="{DS_FILES_CLASSES.fileCard}"
 				>
 				<div class="flex flex-wrap items-center gap-2">
-					<span class="font-medium truncate flex-1 min-w-0">{f.original_filename}</span>
+					<span class="min-w-0 flex-1 truncate font-semibold {DS_TYPE_CLASSES.section}">{f.original_filename}</span>
 					<span
-						class="shrink-0 font-mono text-xs px-1.5 py-0.5 rounded {isCaseFileLikelyExtractable(
+						class="{DS_FILES_CLASSES.extBadge} {isCaseFileLikelyExtractable(
 							f.original_filename,
 							f.mime_type
 						)
-							? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300'
-							: 'bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400'}"
+							? DS_FILES_CLASSES.extBadgeExtractable
+							: DS_FILES_CLASSES.extBadgeNeutral}"
 						title={f.mime_type ?? undefined}
 					>{caseFileExtLabel(f.original_filename, f.mime_type)}</span>
-					<span class="text-gray-500 text-xs shrink-0"
+					<span class="shrink-0 text-xs {DS_TYPE_CLASSES.meta}"
 						>{f.file_size_bytes != null ? `${Math.round(f.file_size_bytes / 1024)} KB` : ''}</span
 					>
 				</div>
 				<!-- `uploaded_at`: canonical case datetime (formatCaseDateTime — align with other case tabs; see formatDateTime.ts). -->
-				<p class="text-xs text-gray-500 dark:text-gray-400">
+				<p class="text-xs {DS_TYPE_CLASSES.meta}">
 					Uploaded: {formatCaseDateTime(String(f.uploaded_at ?? ''))}
 				</p>
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
 					<button
 						type="button"
-						class="text-blue-700 dark:text-blue-300 hover:underline text-xs font-medium"
+						class="{DS_FILES_CLASSES.actionLink}"
 						on:click={() => handleDownload(f)}
 					>
 						Download
 					</button>
-					<span class="w-px h-3.5 shrink-0 bg-gray-300 dark:bg-gray-600" aria-hidden="true"></span>
+					<span class="{DS_FILES_CLASSES.actionsDivider}" aria-hidden="true"></span>
 					<button
 						type="button"
-						class="text-red-600 dark:text-red-400 hover:underline text-xs font-medium disabled:opacity-50"
+						class="{DS_FILES_CLASSES.actionLink} {DS_FILES_CLASSES.actionLinkDanger}"
 						disabled={deletingFileId === f.id}
 						data-testid="case-file-delete-btn"
 						on:click={() => requestDeleteFile(f)}
 					>
 						{deletingFileId === f.id ? 'Deleting…' : 'Delete'}
 					</button>
-					<span class="w-px h-3.5 shrink-0 bg-gray-300 dark:bg-gray-600 mx-0.5" aria-hidden="true"></span>
+					<span class="{DS_FILES_CLASSES.actionsDivider} mx-0.5" aria-hidden="true"></span>
 					<span class="flex flex-wrap items-center gap-x-2 gap-y-1">
 					<button
 						type="button"
-						class="text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-xs disabled:opacity-50"
+						class="{DS_FILES_CLASSES.actionLink}"
 						disabled={!isCaseFileLikelyExtractable(f.original_filename, f.mime_type) || extractingId === f.id}
 						title={!isCaseFileLikelyExtractable(f.original_filename, f.mime_type)
 							? 'Text extraction is not supported for this file type'
@@ -882,14 +880,14 @@
 					</button>
 					<button
 						type="button"
-						class="text-gray-600 dark:text-gray-400 hover:text-blue-600 dark:hover:text-blue-400 hover:underline text-xs"
+						class="{DS_FILES_CLASSES.actionLink}"
 						on:click={() => handleViewText(f)}
 					>
 						View extracted text
 					</button>
 					<button
 						type="button"
-						class="text-violet-600/90 dark:text-violet-400/90 hover:text-violet-700 dark:hover:text-violet-300 hover:underline text-xs disabled:opacity-50"
+						class="{DS_FILES_CLASSES.actionLink} {DS_FILES_CLASSES.actionLinkPropose}"
 						disabled={isFileProposeLocked(f) || f.extraction_status !== 'extracted'}
 						title={f.extraction_status !== 'extracted'
 							? 'Extract text first, then propose timeline entries'
@@ -906,16 +904,14 @@
 					</span>
 					</div>
 				<!-- Tags — required categorisation for every file -->
-				<div class="flex flex-wrap items-center gap-1.5">
-					<span class="text-xs font-medium text-gray-700 dark:text-gray-300 shrink-0">Tags:</span>
+				<div class="{DS_FILES_CLASSES.tagRow}">
+					<span class="shrink-0 text-xs font-semibold {DS_TYPE_CLASSES.label}">Tags:</span>
 					{#each f.tags ?? [] as tag (tag)}
-						<span
-							class="inline-flex items-center gap-0.5 rounded-full bg-gray-300 text-gray-800 dark:bg-gray-600 dark:text-gray-100 px-2 py-0.5 text-xs font-medium"
-						>
+						<span class="{DS_FILES_CLASSES.tagChip}">
 							{tag}
 							<button
 								type="button"
-								class="hover:bg-gray-300 dark:hover:bg-gray-600 rounded p-0.5"
+								class="{DS_FILES_CLASSES.tagChipRemove}"
 								on:click={() => handleRemoveTag(f, tag)}
 								aria-label="Remove tag {tag}"
 							>×</button>
@@ -925,7 +921,7 @@
 					{#if addingTagFileId === f.id}
 						<!-- Tag picker: dropdown of predefined options, falls back to custom text input -->
 						<form
-							class="inline-flex items-center gap-1 flex-wrap"
+							class="inline-flex flex-wrap items-center gap-1"
 							on:submit|preventDefault={() => submitAddTag(f)}
 						>
 							{#if newTagIsCustom}
@@ -933,12 +929,12 @@
 									type="text"
 									bind:value={newTagInput}
 									placeholder="Type custom tag"
-									class="rounded border border-gray-300 dark:border-gray-600 bg-transparent px-1.5 py-0.5 text-xs w-28"
+									class="w-28 {DS_FILES_CLASSES.formControl} px-1.5 py-0.5 text-xs"
 									on:keydown={(e) => e.key === 'Escape' && cancelAddTag()}
 								/>
 							{:else}
 								<select
-									class="rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-800 text-gray-800 dark:text-gray-200 px-1.5 py-0.5 text-xs"
+									class="{DS_FILES_CLASSES.formControl} px-1.5 py-0.5 text-xs"
 									value={newTagInput || ''}
 									on:change={onTagSelectChange}
 								>
@@ -952,15 +948,15 @@
 							<button
 								type="submit"
 								disabled={!newTagInput.trim()}
-								class="text-blue-600 dark:text-blue-400 text-xs disabled:opacity-40"
+								class="{DS_FILES_CLASSES.actionLink} disabled:opacity-40"
 							>Add</button>
-							<button type="button" class="text-gray-500 text-xs" on:click={cancelAddTag}>Cancel</button>
+							<button type="button" class="{DS_BTN_CLASSES.ghost} min-h-0 px-1 py-0 text-xs" on:click={cancelAddTag}>Cancel</button>
 						</form>
 					{:else if (f.tags?.length ?? 0) === 0}
 						<!-- No tag yet — show a prominent amber prompt -->
 						<button
 							type="button"
-							class="inline-flex items-center gap-0.5 text-xs font-medium text-amber-700 dark:text-amber-400 hover:text-amber-900 dark:hover:text-amber-200"
+							class="{DS_BTN_CLASSES.ghost} inline-flex min-h-0 items-center gap-0.5 px-1 py-0 text-xs font-semibold {DS_STATUS_TEXT_CLASSES.warning}"
 							title="Tag required — select a category for this file"
 							on:click={() => startAddTag(f)}
 						>
@@ -969,7 +965,7 @@
 					{:else}
 						<button
 							type="button"
-							class="text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 text-xs"
+							class="{DS_BTN_CLASSES.ghost} min-h-0 px-1 py-0 text-xs {DS_TYPE_CLASSES.meta}"
 							on:click={() => startAddTag(f)}
 						>
 							+ tag
@@ -979,7 +975,7 @@
 				</div>
 			{/each}
 			{#if loadMoreError}
-				<p class="text-xs text-red-600 dark:text-red-400 px-1" data-testid="case-files-load-more-error">
+				<p class="px-1 text-xs {DS_STATUS_TEXT_CLASSES.danger}" data-testid="case-files-load-more-error">
 					{loadMoreError}
 				</p>
 			{/if}
@@ -987,7 +983,7 @@
 				<div class="flex justify-center pt-2">
 					<button
 						type="button"
-						class="rounded border border-gray-300 dark:border-gray-600 px-3 py-1.5 text-sm text-gray-700 dark:text-gray-200 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
+						class="{DS_BTN_CLASSES.secondary}"
 						disabled={isLoadingMore}
 						data-testid="case-files-load-more"
 						on:click={loadMoreFiles}
@@ -1003,7 +999,7 @@
 <!-- P40-01 bulk confirm + P41-14 processing (same modal shell). P41-16: explicit steps so idle never renders an empty overlay. -->
 {#if proposeWorkflow.step === 'processing' || proposeWorkflow.step === 'bulk_confirm'}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+		class="{DS_FILES_CLASSES.modalOverlay}"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="propose-timeline-modal-title"
@@ -1013,29 +1009,29 @@
 		data-testid="propose-timeline-modal"
 	>
 		<div
-			class="max-w-md w-full rounded-lg bg-white dark:bg-gray-850 shadow-xl mx-4 p-4"
+			class="{DS_MODAL_CLASSES.panel} mx-4 w-full max-w-md p-4"
 			on:click|stopPropagation
 		>
 			{#key proposeWorkflow.step}
 			{#if proposeWorkflow.step === 'processing'}
 				<div data-testid="propose-timeline-processing">
-					<h3 id="propose-timeline-modal-title" class="font-medium text-sm mb-2">
+					<h3 id="propose-timeline-modal-title" class="mb-2 text-sm font-semibold {DS_TYPE_CLASSES.section}">
 						Processing document for timeline proposals
 					</h3>
-					<p class="text-sm text-gray-600 dark:text-gray-400 mb-3">
+					<p class="mb-3 text-sm {DS_TYPE_CLASSES.body}">
 						Analyzing extracted text and generating pending proposals. This may take a moment. Nothing is
 						committed to the official timeline until you review and approve in the Proposals tab.
 					</p>
-					<div class="flex items-center gap-3 mb-4" aria-live="polite">
+					<div class="mb-4 flex items-center gap-3" aria-live="polite">
 						<Spinner className="size-6 text-violet-600 dark:text-violet-400" />
-						<span class="text-sm text-gray-700 dark:text-gray-300" data-testid="propose-timeline-processing-label"
+						<span class="text-sm {DS_TYPE_CLASSES.body}" data-testid="propose-timeline-processing-label"
 							>Working…</span
 						>
 					</div>
 					<div class="flex justify-end">
 						<button
 							type="button"
-							class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600"
+							class="{DS_BTN_CLASSES.secondary}"
 							data-testid="propose-timeline-cancel-btn"
 							on:click={dismissProposeModal}
 						>
@@ -1045,8 +1041,8 @@
 				</div>
 			{:else if proposeWorkflow.step === 'bulk_confirm'}
 				<div data-testid="bulk-proposal-confirm-modal">
-					<h3 id="propose-timeline-modal-title" class="font-medium text-sm mb-2">Many timeline proposals</h3>
-					<p class="text-sm text-gray-600 dark:text-gray-400 mb-4">
+					<h3 id="propose-timeline-modal-title" class="mb-2 text-sm font-semibold {DS_TYPE_CLASSES.section}">Many timeline proposals</h3>
+					<p class="mb-4 text-sm {DS_TYPE_CLASSES.body}">
 						Extraction would create <strong>{proposeWorkflow.count}</strong> pending proposals (threshold
 						{proposeWorkflow.threshold}). This stays review-first — nothing is written to the official Timeline until
 						you approve and commit each entry. Continue?
@@ -1054,14 +1050,14 @@
 					<div class="flex justify-end gap-2">
 						<button
 							type="button"
-							class="px-3 py-1.5 text-sm rounded border border-gray-300 dark:border-gray-600"
+							class="{DS_BTN_CLASSES.secondary}"
 							on:click={dismissProposeModal}
 						>
 							Cancel
 						</button>
 						<button
 							type="button"
-							class="px-3 py-1.5 text-sm rounded bg-violet-600 text-white hover:bg-violet-700 disabled:opacity-50"
+							class="{DS_BTN_CLASSES.primary}"
 							disabled={proposingFileId !== null}
 							data-testid="bulk-proposal-confirm-submit"
 							on:click={() =>
@@ -1072,7 +1068,7 @@
 					</div>
 					{#if dev && proposeWorkflow.proposalGenerationRunId}
 						<p
-							class="text-xs text-gray-500 dark:text-gray-400 mt-3 font-mono break-all"
+							class="mt-3 break-all font-mono text-xs {DS_TYPE_CLASSES.meta}"
 							data-testid="propose-timeline-run-id-debug"
 						>
 							Run trace id (dev): {proposeWorkflow.proposalGenerationRunId}
@@ -1088,7 +1084,7 @@
 <!-- View extracted text modal -->
 {#if viewTextFileId}
 	<div
-		class="fixed inset-0 z-50 flex items-center justify-center bg-black/50"
+		class="{DS_FILES_CLASSES.modalOverlay}"
 		role="dialog"
 		aria-modal="true"
 		on:click={(e) => e.target === e.currentTarget && closeViewText()}
@@ -1096,14 +1092,14 @@
 		tabindex="-1"
 	>
 		<div
-			class="max-w-2xl w-full max-h-[80vh] flex flex-col rounded-lg bg-white dark:bg-gray-850 shadow-xl mx-4"
+			class="{DS_FILES_CLASSES.extractedPanel}"
 			on:click|stopPropagation
 		>
-			<div class="flex items-center justify-between px-4 py-2 border-b border-gray-200 dark:border-gray-700">
-				<h3 class="font-medium">Extracted text</h3>
+			<div class="{DS_FILES_CLASSES.extractedHeader}">
+				<h3 class="font-semibold {DS_TYPE_CLASSES.section}">Extracted text</h3>
 				<button
 					type="button"
-					class="p-1 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+					class="{DS_BTN_CLASSES.ghost} min-h-0 rounded p-1"
 					on:click={closeViewText}
 					aria-label="Close"
 				>
@@ -1112,12 +1108,12 @@
 					</svg>
 				</button>
 			</div>
-			<div class="flex-1 overflow-auto p-4">
+			<div class="{DS_FILES_CLASSES.extractedBody}">
 				{#if viewTextLoading}
-					<div class="text-gray-500">Loading...</div>
+					<div class="{DS_TYPE_CLASSES.meta}">Loading...</div>
 				{:else if viewTextContent !== null}
 					<pre
-						class="whitespace-pre-wrap text-sm font-sans"
+						class="{DS_FILES_CLASSES.extractedPre}"
 						data-testid="case-file-extracted-text-body">{viewTextContent}</pre>
 				{/if}
 			</div>

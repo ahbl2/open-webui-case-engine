@@ -1,11 +1,12 @@
 <script lang="ts">
 	/**
 	 * P75-09 — Wave 2 global search / command foundation (single `showSearch` + `SearchModal` path).
-	 * Chat list + preview remain the only backed search results (OWUI API). Jump links are real navigation.
-	 * Full command palette / cross-case Case Engine search: deferred per P73-05 §8 S4 (Wave 7+), not duplicated here.
+	 * P78-05 — Workspace mode: case lookup by number/title via Case Engine `listCases` + client filter (no writes).
+	 * Chat list + preview on Search tab remain OWUI-backed. Jump links are real navigation.
 	 */
 	import { toast } from 'svelte-sonner';
 	import { getContext, onDestroy, onMount, tick } from 'svelte';
+	import { get } from 'svelte/store';
 	const i18n = getContext('i18n');
 
 	import Modal from '$lib/components/common/Modal.svelte';
@@ -18,7 +19,9 @@
 	import calendar from 'dayjs/plugin/calendar';
 	import Loader from '../common/Loader.svelte';
 	import { createMessagesList } from '$lib/utils';
-	import { config, user, showShortcuts } from '$lib/stores';
+	import { config, user, showShortcuts, caseEngineToken, activeCaseId, activeCaseNumber } from '$lib/stores';
+	import { listCases, type CaseEngineCase } from '$lib/apis/caseEngine';
+	import { applyCaseBrowse } from '$lib/utils/casesBrowse';
 	import Messages from '../chat/Messages.svelte';
 	import { goto } from '$app/navigation';
 	import PencilSquare from '../icons/PencilSquare.svelte';
@@ -29,7 +32,8 @@
 		DS_EMPTY_CLASSES,
 		DS_CHIP_CLASSES,
 		DS_BTN_CLASSES,
-		DS_SECTION_HEADER_CLASSES
+		DS_SECTION_HEADER_CLASSES,
+		DS_BADGE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
 	dayjs.extend(calendar);
 	dayjs.extend(localizedFormat);
@@ -47,6 +51,10 @@
 		selectedIdx = null;
 		messages = null;
 		selectedChat = null;
+		if (workspaceDebounceTimeout) {
+			clearTimeout(workspaceDebounceTimeout);
+			workspaceDebounceTimeout = undefined;
+		}
 	}
 
 	$: {
@@ -82,6 +90,73 @@
 	let allChatsLoaded = false;
 
 	let searchDebounceTimeout: ReturnType<typeof setTimeout> | undefined;
+
+	/** P78-05: Workspace tab — Case Engine case directory (read-only), debounced load + client filter. */
+	let workspaceQuery = '';
+	let workspaceListCache: CaseEngineCase[] | null = null;
+	let workspaceLoading = false;
+	let workspaceError = '';
+	let workspaceDebounceTimeout: ReturnType<typeof setTimeout> | undefined;
+	const WORKSPACE_CASE_MAX = 25;
+
+	function workspaceUnitBadgeClass(unit: string): string {
+		const u = String(unit ?? '').toUpperCase();
+		if (u === 'CID') return DS_BADGE_CLASSES.unitCid;
+		if (u === 'SIU') return DS_BADGE_CLASSES.unitSiu;
+		return DS_BADGE_CLASSES.neutral;
+	}
+
+	function scheduleWorkspaceCaseLoad() {
+		if (workspaceDebounceTimeout) clearTimeout(workspaceDebounceTimeout);
+		workspaceDebounceTimeout = setTimeout(async () => {
+			const q = workspaceQuery.trim();
+			if (q.length < 2) return;
+			const token = get(caseEngineToken);
+			if (!token) return;
+			if (workspaceListCache !== null) return;
+			workspaceLoading = true;
+			workspaceError = '';
+			try {
+				const rows = await listCases('ALL', token);
+				if (!show) return;
+				workspaceListCache = rows;
+			} catch (e) {
+				if (!show) return;
+				workspaceError = (e as Error).message ?? 'Failed to load cases';
+				workspaceListCache = null;
+			} finally {
+				if (show) workspaceLoading = false;
+			}
+		}, 300);
+	}
+
+	$: workspaceFilteredCases =
+		workspaceListCache && workspaceQuery.trim().length >= 2
+			? applyCaseBrowse(workspaceListCache, {
+					unit: 'ALL',
+					status: 'ALL',
+					searchQuery: workspaceQuery,
+					sortBy: 'case_number_asc'
+				}).slice(0, WORKSPACE_CASE_MAX)
+			: [];
+
+	$: if (!show) {
+		workspaceQuery = '';
+		workspaceListCache = null;
+		workspaceError = '';
+		workspaceLoading = false;
+		if (workspaceDebounceTimeout) {
+			clearTimeout(workspaceDebounceTimeout);
+			workspaceDebounceTimeout = undefined;
+		}
+	}
+
+	async function openWorkspaceCase(c: CaseEngineCase) {
+		activeCaseId.set(c.id);
+		activeCaseNumber.set(c.case_number);
+		await goto(`/case/${c.id}/summary`);
+		await closeAfterNavigate();
+	}
 
 	let selectedIdx = null;
 	let selectedChat = null;
@@ -294,6 +369,9 @@
 	onDestroy(() => {
 		if (searchDebounceTimeout) {
 			clearTimeout(searchDebounceTimeout);
+		}
+		if (workspaceDebounceTimeout) {
+			clearTimeout(workspaceDebounceTimeout);
 		}
 		document.removeEventListener('keydown', onKeyDown);
 	});
@@ -631,12 +709,77 @@
 					</div>
 					<p class="{DS_EMPTY_CLASSES.description} mt-2 leading-snug">
 						{$i18n.t(
-							'Case timeline, files, proposals, and case-scoped Ask are opened inside each case workspace. This modal does not search Case Engine records — only chat history on the Search tab.'
+							'Search Case Engine cases by number or title below. Chat history stays on the Search tab. Opening a case goes to its summary workspace.'
 						)}
 					</p>
+					<div class="mt-3 max-w-md">
+						<SearchInput
+							bind:value={workspaceQuery}
+							on:input={scheduleWorkspaceCaseLoad}
+							placeholder={$i18n.t('Search cases by number or title…')}
+							showClearButton={true}
+						/>
+					</div>
+					{#if !$caseEngineToken}
+						<p class="{DS_EMPTY_CLASSES.description} mt-3 text-sm">
+							{$i18n.t('Case Engine session required — sign in with Case Engine linked to use case search.')}
+						</p>
+					{:else if workspaceLoading && !workspaceListCache && workspaceQuery.trim().length >= 2}
+						<div class="mt-4 flex justify-center py-6">
+							<Spinner className="size-5" />
+						</div>
+					{:else if workspaceError}
+						<p class="mt-3 text-sm text-red-600 dark:text-red-400">{workspaceError}</p>
+					{:else if workspaceQuery.trim().length < 2}
+						<p class="{DS_TYPE_CLASSES.meta} text-[color:var(--ds-text-muted)] mt-3 text-sm">
+							{$i18n.t('Type at least two characters to match case number or title (Case Engine).')}
+						</p>
+					{:else if workspaceFilteredCases.length === 0}
+						<p class="{DS_EMPTY_CLASSES.description} mt-3 text-sm">
+							{$i18n.t('No matching cases')}
+						</p>
+					{:else}
+						<div class="mt-4 space-y-2">
+							<div class="w-full text-xs font-medium pb-1 px-0.5 text-[color:var(--ds-text-muted)]">
+								{$i18n.t('Cases')}
+								<span class="text-gray-400 dark:text-gray-500 font-normal"> — {$i18n.t('Case Engine')}</span>
+							</div>
+							<ul class="flex flex-col gap-1.5 max-h-64 overflow-y-auto pr-0.5" role="list">
+								{#each workspaceFilteredCases as c (c.id)}
+									<li>
+										<button
+											type="button"
+											class="{DS_BTN_CLASSES.ghost} w-full justify-start text-left gap-2 h-auto py-2 px-2 normal-case font-normal"
+											data-testid="global-search-workspace-case-row"
+											data-case-id={c.id}
+											on:click={() => void openWorkspaceCase(c)}
+										>
+											<span
+												class="{DS_BADGE_CLASSES.neutral} shrink-0 text-[0.65rem] uppercase tracking-wide"
+												aria-hidden="true"
+											>
+												{$i18n.t('Case')}
+											</span>
+											<span class="flex-1 min-w-0">
+												<span class="block text-sm font-medium text-[color:var(--ds-text-primary)] truncate">
+													{c.case_number}
+													<span class="font-normal text-[color:var(--ds-text-muted)]"> — {c.title}</span>
+												</span>
+											</span>
+											{#if c.unit}
+												<span class="{workspaceUnitBadgeClass(c.unit)} shrink-0 text-[0.65rem]">
+													{String(c.unit).toUpperCase()}
+												</span>
+											{/if}
+										</button>
+									</li>
+								{/each}
+							</ul>
+						</div>
+					{/if}
 					<button
 						type="button"
-						class="{DS_BTN_CLASSES.secondary} w-full max-w-md mt-3 justify-center"
+						class="{DS_BTN_CLASSES.secondary} w-full max-w-md mt-4 justify-center"
 						data-testid="global-search-workspace-cases"
 						on:click={async () => {
 							await goto('/cases');

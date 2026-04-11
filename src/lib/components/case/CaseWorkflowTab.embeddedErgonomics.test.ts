@@ -29,8 +29,8 @@ describe('CaseWorkflowTab embedded ergonomics (P57-07)', () => {
 		expect(tabSource).toContain('{#if !embedded}');
 		expect(tabSource).toContain('data-testid="workflow-narrative-intro"');
 		expect(tabSource).toContain('Workflow is your');
-		expect(tabSource).toContain('Planning:</span> hypotheses');
-		expect(tabSource).toContain('gap-5 p-4');
+		expect(tabSource).toContain('Planning (this tab):</span> hypotheses');
+		expect(tabSource).toContain('DS_WORKFLOW_CLASSES.workspaceFull');
 		expect(tabSource).toContain('max-h-[min(50vh,36rem)]');
 	});
 
@@ -44,6 +44,6 @@ describe('CaseWorkflowTab embedded ergonomics (P57-07)', () => {
 	it('preserves workflow controls and data paths', () => {
 		expect(tabSource).toContain('loadProposals');
 		expect(tabSource).toContain('{#each items as item (item.id)}');
-		expect(tabSource).toContain('{#each proposals as p (p.id)}');
+		expect(tabSource).toContain('{#each pendingProposals as p (p.id)}');
 	});
 });

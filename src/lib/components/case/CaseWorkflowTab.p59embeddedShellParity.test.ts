@@ -15,7 +15,7 @@ const chatPage = readFileSync(
 
 describe('CaseWorkflowTab P59-08 embedded shell parity', () => {
 	it('uses tighter root and main vertical rhythm when embedded', () => {
-		expect(tabSource).toMatch(/overflow-auto \{embedded\s*\n\s*\? 'gap-2\.5 px-2 py-1\.5/);
+		expect(tabSource).toContain('DS_WORKFLOW_CLASSES.workspaceEmbedded');
 		expect(tabSource).toMatch(/workflow-main-work-area[\s\S]*?embedded \? 'gap-2\.5' : 'gap-5'/);
 	});
 
@@ -24,12 +24,12 @@ describe('CaseWorkflowTab P59-08 embedded shell parity', () => {
 		// P59-11 removed the top queue strip (had additional embedded typography branches).
 		expect((tabSource.match(/\? 'text-\[11px\]'/g) ?? []).length).toBeGreaterThanOrEqual(2);
 		expect(tabSource).toMatch(
-			/workflowEmbedNavLinkClass[\s\S]*embedded \? 'px-1\.5 py-0\.5 text-\[10px\]'/
+			/workflowEmbedNavLinkClass[\s\S]*DS_WORKFLOW_CLASSES\.embedNavLinkCompact/
 		);
 	});
 
 	it('keeps full-page layout values unchanged where this ticket tightens embed only', () => {
-		expect(tabSource).toContain('gap-5 p-4');
+		expect(tabSource).toContain('DS_WORKFLOW_CLASSES.workspaceFull');
 		expect(tabSource).toMatch(/min-h-\[14rem\][\s\S]*?max-h-\[min\(50vh,36rem\)\]/);
 		expect(tabSource).toContain('max-h-[40vh]');
 	});

@@ -475,6 +475,39 @@ html {
 		border: 1px solid var(--ce-l-border-default);
 		background-color: var(--ce-l-surface-muted);
 	}
+
+	/*
+	 * P82-01 — Case workspace left rail (vertical primary nav). Reuses Tier L tab link tokens;
+	 * active affordance is start border (vs horizontal strip bottom border).
+	 */
+	.ce-l-case-nav-rail {
+		width: 13rem;
+		min-width: 13rem;
+		max-width: 16rem;
+		border-right: 1px solid var(--ce-l-chrome-border);
+		background-color: var(--ce-l-tab-strip-bg);
+		overflow-y: auto;
+		overflow-x: hidden;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: thin;
+		scrollbar-color: var(--ce-l-border-strong) transparent;
+	}
+
+	.ce-l-case-nav-rail .ce-l-case-nav-link {
+		display: flex;
+		width: 100%;
+		justify-content: flex-start;
+		text-align: left;
+		white-space: normal;
+		border-bottom: none;
+		border-left: 2px solid transparent;
+		margin-bottom: 0;
+	}
+
+	.ce-l-case-nav-rail .ce-l-case-nav-link.ce-l-tab-link--active {
+		border-left-color: var(--ce-l-tab-active-border);
+		border-bottom-color: transparent;
+	}
 }
 
 /*

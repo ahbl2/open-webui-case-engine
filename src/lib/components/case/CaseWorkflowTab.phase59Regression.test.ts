@@ -45,8 +45,10 @@ describe('CaseWorkflowTab Phase 59 regression (P59-09)', () => {
 		expect(tabSource).toContain('data-testid="workflow-narrative-intro"');
 		expect(tabSource).toContain('Workflow is your');
 		expect(tabSource).toContain('>not</span> the official case record');
-		expect(tabSource).toContain('The case <span class="font-medium text-gray-800 dark:text-gray-200">Proposals</span> tab');
-		expect(tabSource).toContain('Planning:</span> hypotheses');
+		expect(tabSource).toContain(
+			'The case <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineStrong}">Proposals</span> tab'
+		);
+		expect(tabSource).toContain('Planning (this tab):</span> hypotheses');
 		expect(tabSource).toContain('this queue is not the case Proposals tab');
 	});
 

@@ -1,5 +1,11 @@
 #!/usr/bin/env bash
 # Generate a self-signed TLS cert for local / LAN Vite HTTPS dev.
+#
+# Browsers will show ERR_CERT_AUTHORITY_INVALID (untrusted issuer) until you add an exception —
+# this is expected for self-signed certs. For trusted HTTPS without warnings, use mkcert instead:
+#   ./scripts/dev-tls-mkcert.sh [optional-LAN-IP]
+# (Requires `mkcert -install` once; see docs.)
+#
 # Usage:
 #   ./scripts/dev-tls-cert.sh
 #   ./scripts/dev-tls-cert.sh 192.168.1.193

@@ -18,28 +18,29 @@ export function isValidStatusForType(type: WorkflowItemType, status: string): bo
 	return WORKFLOW_STATUS_BY_TYPE[type].includes(status.toUpperCase());
 }
 
+/** P77-08 — DS badge tokens (`detectiveBadgesChips.css`); presentation only. */
 export function getStatusBadgeClasses(status: string): string {
 	const s = status.toUpperCase();
 	if (s === 'IN_PROGRESS' || s === 'ASSIGNED') {
-		return 'bg-blue-100 text-blue-800 dark:bg-blue-900/40 dark:text-blue-200';
+		return 'ds-badge ds-badge-info';
 	}
 	if (s === 'SUPPORTED' || s === 'RESOLVED') {
-		return 'bg-green-100 text-green-800 dark:bg-green-900/40 dark:text-green-200';
+		return 'ds-badge ds-badge-success';
 	}
 	if (s === 'REJECTED') {
-		return 'bg-red-100 text-red-800 dark:bg-red-900/40 dark:text-red-200';
+		return 'ds-badge ds-badge-danger';
 	}
 	// OPEN / CLOSED / anything else → neutral
-	return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200';
+	return 'ds-badge ds-badge-neutral';
 }
 
 export function getOriginBadgeClasses(origin: string): string {
 	const o = origin.toUpperCase();
 	if (o === 'PROPOSAL') {
-		return 'bg-purple-100 text-purple-800 dark:bg-purple-900/40 dark:text-purple-200';
+		return 'ds-badge ds-badge-info';
 	}
 	// INVESTIGATOR or anything else → subtle neutral
-	return 'bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-200';
+	return 'ds-badge ds-badge-neutral';
 }
 
 export function getPriorityEmoji(priority: number | null | undefined): string | null {

@@ -51,6 +51,19 @@
 		border-color: var(--ds-status-info-border);
 	}
 
+	/* —— Unit / entity keys (stable, legend-backed — P77 command center) —— */
+	.ds-badge-unit-cid {
+		background-color: color-mix(in oklab, var(--ds-accent) 18%, var(--ds-bg-muted));
+		color: var(--ds-accent-strong);
+		border-color: color-mix(in oklab, var(--ds-accent) 38%, var(--ds-border-default));
+	}
+
+	.ds-badge-unit-siu {
+		background-color: color-mix(in oklab, var(--ds-status-warning-fg) 16%, var(--ds-bg-muted));
+		color: var(--ds-status-warning-fg);
+		border-color: color-mix(in oklab, var(--ds-status-warning-fg) 32%, var(--ds-border-default));
+	}
+
 	/* —— Chip: filters, tags, removable tokens (interaction in later tickets) —— */
 	.ds-chip {
 		display: inline-flex;

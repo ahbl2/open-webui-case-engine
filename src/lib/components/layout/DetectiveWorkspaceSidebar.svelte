@@ -108,7 +108,7 @@
 {#if !$mobile && !$showSidebar}
 	<!-- Collapsed rail -->
 	<div
-		class="fixed left-0 top-0 bottom-0 z-50 pt-[7px] pb-2 px-2 flex flex-col justify-between text-black dark:text-white hover:bg-gray-50/30 dark:hover:bg-gray-950/30 h-full transition-all border-e-[0.5px] border-gray-50 dark:border-gray-850/30 w-[4.5rem]"
+		class="fixed left-0 top-0 bottom-0 z-50 pt-[7px] pb-2 px-2 flex flex-col justify-between text-black dark:text-white hover:bg-gray-50/30 dark:hover:bg-gray-950/30 h-full transition-all border-e-[0.5px] border-gray-50 dark:border-gray-850/30 w-[var(--sidebar-rail-width)]"
 		id="sidebar-rail"
 	>
 		<Tooltip content={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')} placement="right">
@@ -117,7 +117,7 @@
 				aria-label={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
 				on:click={() => showSidebar.set(!$showSidebar)}
 			>
-				<SidebarIcon className="size-5" />
+				<SidebarIcon className="ds-sidebar-toggle-icon" />
 			</button>
 		</Tooltip>
 	</div>
@@ -127,15 +127,15 @@
 	<div
 		bind:this={navElement}
 		id="sidebar"
-		class="h-screen max-h-[100dvh] min-h-screen select-none fixed top-0 left-0 overflow-x-hidden shrink-0 text-gray-900 dark:text-gray-200 text-sm flex flex-row
-			{$mobile ? 'bg-gray-50 dark:bg-gray-950' : 'bg-gray-50/70 dark:bg-gray-950/70'} z-50
-			ml-[4.5rem] md:ml-0
+		class="h-screen max-h-[100dvh] min-h-screen select-none fixed top-0 left-0 overflow-x-hidden shrink-0 text-sm flex flex-row
+			{$mobile ? 'bg-gray-50 dark:bg-gray-950' : 'bg-transparent'} z-50
+			ml-[var(--sidebar-rail-width)] md:ml-0
 		"
 		transition:slide={{ duration: 250, axis: 'x' }}
 		data-state="open"
 	>
 		<div
-			class="my-auto flex flex-col justify-between h-screen max-h-[100dvh] w-[var(--sidebar-width)] overflow-x-hidden scrollbar-hidden z-50"
+			class="my-auto flex flex-col justify-between h-screen max-h-[100dvh] w-[var(--sidebar-width)] overflow-x-hidden scrollbar-hidden z-50 ds-workspace-sidebar"
 		>
 			<!-- Header -->
 			<div
@@ -155,7 +155,7 @@
 						on:click={() => showSidebar.set(!$showSidebar)}
 						aria-label={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
 					>
-						<SidebarIcon className="size-5 p-1.5" />
+						<SidebarIcon className="ds-sidebar-toggle-icon" />
 					</button>
 				</Tooltip>
 				<div
@@ -192,7 +192,7 @@
 								viewBox="0 0 24 24"
 								stroke-width="2"
 								stroke="currentColor"
-								class="size-4.5 shrink-0"
+								class="w-[18px] h-[18px] shrink-0"
 							>
 								<path
 									stroke-linecap="round"
@@ -215,7 +215,7 @@
 								viewBox="0 0 24 24"
 								stroke-width="2"
 								stroke="currentColor"
-								class="size-4.5 shrink-0"
+								class="w-[18px] h-[18px] shrink-0"
 							>
 								<path
 									stroke-linecap="round"
@@ -240,7 +240,7 @@
 								viewBox="0 0 24 24"
 								stroke-width="2"
 								stroke="currentColor"
-								class="size-4.5 shrink-0"
+								class="w-[18px] h-[18px] shrink-0"
 							>
 								<path
 									stroke-linecap="round"

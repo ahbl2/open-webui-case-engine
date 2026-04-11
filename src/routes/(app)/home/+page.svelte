@@ -42,6 +42,7 @@
 		caseContext,
 		aiCaseContext
 	} from '$lib/stores';
+	import { DS_BADGE_CLASSES, DS_OCC_CLASSES, DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import {
 		listPersonalThreadAssociations,
 		upsertPersonalThreadAssociation,
@@ -181,14 +182,11 @@
 	/** Normalize scope store value to a unit accepted by listCases. */
 	$: resolvedUnit = ($scope === 'CID' || $scope === 'SIU') ? $scope : 'ALL';
 
-	const STATUS_COLORS: Record<string, string> = {
-		active: 'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400',
-		open:   'bg-green-50 dark:bg-green-900/30 text-green-700 dark:text-green-400',
-		closed: 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400'
-	};
-
-	function statusColor(status: string): string {
-		return STATUS_COLORS[status?.toLowerCase()] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-500 dark:text-gray-400';
+	/** P77-02 — Token-backed case status chips (same semantics as `/cases`; no new data). */
+	function statusBadgeClass(status: string): string {
+		const s = String(status ?? '').toLowerCase();
+		if (s === 'active' || s === 'open') return DS_BADGE_CLASSES.success;
+		return DS_BADGE_CLASSES.neutral;
 	}
 
 	$: activeOpenCaseCount = allCasesForMetrics.filter((c) => {
@@ -238,16 +236,19 @@
 		<div class="contents" slot="rail">
 			<OccRightRailModules {newChat} {bindingInProgress} hasToken={Boolean($caseEngineToken)} {goToCases} />
 		</div>
-		<div class="max-w-4xl w-full mx-auto">
-			<!-- Header — OCC landing (P75-06); P75-06-FU: gated by Wave 2 shell flag. -->
-			<div class="flex items-center gap-3 mb-6">
+		<div class={DS_OCC_CLASSES.mainCanvas}>
+			<!-- Header — OCC landing (P75-06); P77-02 — DS hierarchy -->
+			<div
+				class="flex items-start gap-3 mb-6 pb-4 border-b border-[color:var(--ds-border-default)]"
+			>
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
 					fill="none"
 					viewBox="0 0 24 24"
 					stroke-width="1.5"
 					stroke="currentColor"
-					class="size-6 text-gray-600 dark:text-gray-300"
+					class="size-7 shrink-0 text-[color:var(--ds-accent)] opacity-90"
+					aria-hidden="true"
 				>
 					<path
 						stroke-linecap="round"
@@ -256,10 +257,8 @@
 					/>
 				</svg>
 				<div class="min-w-0">
-					<h1 class="text-xl font-semibold text-gray-800 dark:text-gray-100">
-						{$i18n.t('Operator Command Center')}
-					</h1>
-					<p class="text-xs text-gray-500 dark:text-gray-400 mt-0.5">
+					<h1 class={DS_TYPE_CLASSES.display}>{$i18n.t('Operator Command Center')}</h1>
+					<p class="{DS_TYPE_CLASSES.meta} mt-1 max-w-2xl">
 						{$i18n.t('Personal workspace and case shortcuts')}
 					</p>
 				</div>
@@ -284,7 +283,7 @@
 				{loadCases}
 				{recentCases}
 				{goToCases}
-				{statusColor}
+				{statusBadgeClass}
 			/>
 		</div>
 	</OperatorCommandCenterFrame>
@@ -332,7 +331,7 @@
 				{loadCases}
 				{recentCases}
 				{goToCases}
-				{statusColor}
+				{statusBadgeClass}
 			/>
 		</div>
 	</div>

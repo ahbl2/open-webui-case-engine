@@ -35,6 +35,7 @@ html {
 	/* —— Shape —— */
 	--ds-radius-sm: 0.375rem;
 	--ds-radius-md: 0.5rem;
+	--ds-radius-lg: 0.625rem;
 
 	/* —— Accent / interactive (single primary accent — DL) —— */
 	--ds-accent: #2563eb;
@@ -50,6 +51,10 @@ html {
 	--ds-shadow-sm: 0 1px 2px 0 rgb(15 23 42 / 0.06);
 	--ds-shadow-md: 0 4px 14px rgb(15 23 42 / 0.08);
 	--ds-shadow-lg: 0 12px 28px rgb(15 23 42 / 0.12);
+	--ds-shadow-card: 0 1px 3px 0 rgb(15 23 42 / 0.08), 0 1px 2px -1px rgb(15 23 42 / 0.06);
+
+	/* —— Command canvas: subtle depth above flat app bg (P77) —— */
+	--ds-bg-canvas-subtle: #f3f4f6;
 
 	/* —— Focus (visible ring — DL; do not remove for aesthetics) —— */
 	--ds-focus-ring: #2563eb;
@@ -138,6 +143,7 @@ html.dark {
 
 	--ds-radius-sm: 0.375rem;
 	--ds-radius-md: 0.5rem;
+	--ds-radius-lg: 0.625rem;
 
 	--ds-accent: #60a5fa;
 	--ds-accent-strong: #93c5fd;
@@ -150,6 +156,9 @@ html.dark {
 	--ds-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.45);
 	--ds-shadow-md: 0 8px 24px rgb(0 0 0 / 0.35);
 	--ds-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.45);
+	--ds-shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 2px 8px -2px rgb(0 0 0 / 0.35);
+
+	--ds-bg-canvas-subtle: #0b1220;
 
 	--ds-focus-ring: #60a5fa;
 

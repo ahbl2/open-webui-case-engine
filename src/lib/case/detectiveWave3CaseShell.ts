@@ -9,7 +9,7 @@
  * **Independent of:** `PUBLIC_DETECTIVE_WAVE2_APP_SHELL` — app shell / GNAV / OCC are not toggled by this flag.
  *
  * **What is gated:** P76-02 `DS_CASE_SHELL_*` classes, `data-region="case-shell-*"`, Tier-L token styling on optional **shell-level** context rail.
- * **What is not gated:** Tier L `.ce-l-identity-bar` / `.ce-l-tab-strip` (case chrome); Wave 2 `DetectiveAppShellFrame`; P19-05 auth; route `<slot />` content.
+ * **What is not gated:** Tier L case chrome (P82-01 `.ce-l-case-nav-rail` + identity bar; legacy horizontal `.ce-l-tab-strip` removed from layout); Wave 2 `DetectiveAppShellFrame`; P19-05 auth; route `<slot />` content.
  *
  * **Rollback:** set `PUBLIC_DETECTIVE_WAVE3_CASE_SHELL=0` in `.env`, restart Vite.
  * **Sunset:** remove this gate after Wave 3 cutover when `ds-case-shell` is unconditional (program decision).

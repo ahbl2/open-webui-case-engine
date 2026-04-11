@@ -1,5 +1,6 @@
 /**
- * P59-10 — Workflow shell: default-collapsed guidance (source contracts).
+ * P59-10 — Workflow shell: guidance + narrative toggles (source contracts).
+ * P78-07: defaults expanded for orientation; user may collapse locally.
  * P59-11 removed top proposal banner; guidance behavior unchanged.
  */
 import { readFileSync } from 'node:fs';
@@ -11,11 +12,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab P59-10 guidance UX refinement', () => {
-	it('defaults guidance + narrative intros collapsed locally and resets on case switch', () => {
-		expect(tabSource).toMatch(/let guidanceExpanded = false/);
-		expect(tabSource).toMatch(/let narrativeExpanded = false/);
+	it('defaults guidance + narrative expanded for orientation and resets open on case switch', () => {
+		expect(tabSource).toMatch(/let guidanceExpanded = true/);
+		expect(tabSource).toMatch(/let narrativeExpanded = true/);
 		expect(tabSource).toMatch(
-			/caseId !== prevWorkflowCaseId[\s\S]*?guidanceExpanded = false[\s\S]*?narrativeExpanded = false[\s\S]*?clearPostAcceptHighlight/s
+			/caseId !== prevWorkflowCaseId[\s\S]*?guidanceExpanded = true[\s\S]*?narrativeExpanded = true[\s\S]*?clearPostAcceptHighlight/s
 		);
 	});
 

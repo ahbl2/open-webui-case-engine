@@ -182,7 +182,7 @@ describe('ProposalReviewPanel — P45-10 search-row layout stability', () => {
 		const src = readFileSync(panelPath, 'utf8');
 		expect(src).toContain('data-testid="proposals-search-region"');
 		expect(src).toContain('data-testid="proposals-search-placeholder"');
-		expect(src).toContain('min-h-[5.5rem]');
+		expect(src).toContain('DS_PROPOSALS_CLASSES.searchControls');
 		const region = src.indexOf('data-testid="proposals-search-region"');
 		const row = src.indexOf('data-testid="proposals-search-row"');
 		const ph = src.indexOf('data-testid="proposals-search-placeholder"');

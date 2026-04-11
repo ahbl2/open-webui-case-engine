@@ -60,6 +60,11 @@ describe('caseWorkspaceTierL (P71-02)', () => {
 		expect(tierLCss).toContain('overflow-x: auto');
 	});
 
+	it('includes P82-01 case workspace left rail hooks', () => {
+		expect(tierLCss).toContain('.ce-l-case-nav-rail');
+		expect(tierLCss).toContain('.ce-l-case-nav-link');
+	});
+
 	it('includes P71-05 Timeline tab shell primitives (P70-06 S1 scroll discipline)', () => {
 		expect(tierLCss).toContain('.ce-l-timeline-shell');
 		expect(tierLCss).toContain('.ce-l-timeline-hero');

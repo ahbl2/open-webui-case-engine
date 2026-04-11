@@ -50,7 +50,7 @@ describe('CaseWorkflowTab P59-15 vertical layout containment', () => {
 
 	it('embedded root participates in flex min-height chain without overlay positioning on shell', () => {
 		expect(tabSource).toMatch(
-			/data-workflow-layout=\{embedded \? 'embedded' : 'full'\}[\s\S]*?embedded\s*\?\s*'[^']*min-h-0'/
+			/data-workflow-layout=\{embedded \? 'embedded' : 'full'\}[\s\S]*?DS_WORKFLOW_CLASSES\.workspaceEmbedded/
 		);
 		const low = tabSource.indexOf('data-testid="workflow-proposals-panel"');
 		const tail = tabSource.slice(low, low + 2000);

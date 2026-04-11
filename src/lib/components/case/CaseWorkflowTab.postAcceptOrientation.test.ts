@@ -26,7 +26,7 @@ describe('CaseWorkflowTab post-accept orientation (P57-08)', () => {
 	it('keeps accept API call and error path intact', () => {
 		expect(tabSource).toContain('await acceptWorkflowProposal(caseId, target.id, token)');
 		expect(tabSource).toContain('Accept failed');
-		expect(tabSource).toContain('Proposal accepted and workflow item created');
+		expect(tabSource).toContain('Workflow suggestion accepted — planning item created.');
 	});
 
 	it('exposes row highlight hook and clears on case switch', () => {

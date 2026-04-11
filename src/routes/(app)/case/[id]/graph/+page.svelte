@@ -12,6 +12,7 @@
 	import GraphCanvas from '$lib/components/case/graph/GraphCanvas.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import { buildEntityFocusHref } from '$lib/utils/entityFocus';
+	import { CASE_DESTINATION_LABELS } from '$lib/utils/caseDestinationLabels';
 
 	$: caseId = $page.params.id;
 
@@ -244,7 +245,7 @@
 										class="text-blue-700 dark:text-blue-400 hover:underline"
 										href={selectedNodeEntityHref(selectedNode) ?? '#'}
 									>
-										Open Entity Focus
+										{CASE_DESTINATION_LABELS.entityIntelligenceFocusDrillDown}
 									</a>
 								</p>
 							{/if}

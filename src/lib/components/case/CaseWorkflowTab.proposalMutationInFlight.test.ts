@@ -34,7 +34,7 @@ describe('CaseWorkflowTab proposal mutation in-flight guard (P57-09)', () => {
 	it('disables proposal Accept/Reject controls while in flight and surfaces status', () => {
 		expect(tabSource).toContain('disabled={proposalMutationInFlight}');
 		expect(tabSource).toContain('data-testid="workflow-proposal-action-in-flight"');
-		expect(tabSource).toContain('Updating proposal…');
+		expect(tabSource).toContain('Updating workflow suggestion…');
 	});
 
 	it('preserves accept/reject API calls and toast/error copy', () => {
@@ -42,7 +42,7 @@ describe('CaseWorkflowTab proposal mutation in-flight guard (P57-09)', () => {
 		expect(tabSource).toContain('await rejectWorkflowProposal(caseId, target.id, token, rejectReason)');
 		expect(tabSource).toContain('Accept failed');
 		expect(tabSource).toContain('Reject failed');
-		expect(tabSource).toContain('Proposal accepted and workflow item created');
-		expect(tabSource).toContain('Proposal rejected');
+		expect(tabSource).toContain('Workflow suggestion accepted — planning item created.');
+		expect(tabSource).toContain('Workflow suggestion rejected.');
 	});
 });

@@ -6,6 +6,7 @@
 	import type { CaseIntelligenceCommittedAssociationProjection } from '$lib/apis/caseEngine';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
+	import { DS_ENTITY_BOARD_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 
 	export let caseId: string;
 	export let token: string;
@@ -57,33 +58,27 @@
 </script>
 
 <section
-	class="rounded-2xl border border-slate-600/45 bg-gradient-to-br from-slate-900/95 via-slate-950/92 to-slate-950 px-5 py-5 shadow-[0_12px_40px_-18px_rgba(0,0,0,0.55)] ring-1 ring-cyan-500/12"
+	class="{DS_ENTITY_BOARD_CLASSES.connectionsSection}"
 	data-testid="entities-board-connections"
 	aria-labelledby="entities-connections-heading"
 >
-	<div class="flex flex-wrap items-center justify-between gap-2 mb-3 border-b border-slate-700/50 pb-3">
-		<h2
-			id="entities-connections-heading"
-			class="text-[15px] font-bold text-slate-50 tracking-tight flex items-center gap-2.5"
-		>
-			<span
-				class="inline-flex h-2 w-2 rounded-full bg-cyan-400/90 shadow-[0_0_10px_rgba(34,211,238,0.55)]"
-				aria-hidden="true"
-			></span>
+	<div class="{DS_ENTITY_BOARD_CLASSES.connectionsHeader}">
+		<h2 id="entities-connections-heading" class="ds-type-panel flex items-center gap-2.5">
+			<span class="{DS_ENTITY_BOARD_CLASSES.connectionsDot}" aria-hidden="true"></span>
 			Connections
 		</h2>
 		<button
 			type="button"
-			class="text-[11px] font-semibold px-2.5 py-1 rounded-lg border border-slate-600/70 text-cyan-300 hover:bg-slate-800/80"
+			class="{DS_ENTITY_BOARD_CLASSES.connectionsRefresh}"
 			data-testid="entities-connections-refresh"
 			on:click={() => load()}
 		>
 			Refresh
 		</button>
 	</div>
-	<p class="text-[11px] text-slate-400/95 mb-4 leading-relaxed">
+	<p class="ds-type-meta mb-4 leading-relaxed">
 		Committed association edges for this case (read-only summary). Full staging and commit workflows live in
-		<strong class="text-slate-300">Stage 2</strong> below — orthogonal to P19 proposals.
+		<strong class="text-[color:var(--ds-text-secondary)]">Stage 2</strong> below — orthogonal to P19 proposals.
 	</p>
 
 	<div class="min-h-[10.5rem] sm:min-h-[11rem] flex flex-col justify-center">
@@ -92,12 +87,9 @@
 	{:else if error}
 		<CaseErrorState title="Connections unavailable" message={error} onRetry={() => load()} />
 	{:else if rows.length === 0}
-		<div
-			class="rounded-xl border border-slate-700/45 bg-slate-950/50 px-4 py-5 text-center"
-			data-testid="entities-connections-empty"
-		>
-			<p class="text-sm text-slate-300">No committed association edges yet.</p>
-			<p class="text-[11px] text-slate-500 mt-1.5">Stage 2 below is where edges are drafted and promoted.</p>
+		<div class="{DS_ENTITY_BOARD_CLASSES.connectionsEmpty}" data-testid="entities-connections-empty">
+			<p class="ds-type-body">No committed association edges yet.</p>
+			<p class="ds-type-meta mt-1.5">Stage 2 below is where edges are drafted and promoted.</p>
 		</div>
 	{:else}
 		<p class="text-xs text-slate-500 mb-2">
@@ -106,12 +98,12 @@
 		<ul class="space-y-2 max-h-48 overflow-y-auto" data-testid="entities-connections-list">
 			{#each rows.slice(0, previewCap) as e (e.id)}
 				<li
-					class="text-xs rounded-xl border border-slate-700/60 bg-slate-950/55 px-3 py-2 text-slate-300 font-mono truncate shadow-inner shadow-black/20"
+					class="{DS_ENTITY_BOARD_CLASSES.connectionsRow}"
 					title="{e.endpoint_a_entity_id} ↔ {e.endpoint_b_entity_id}"
 				>
-					<span class="text-slate-500">{kindLabel(e.association_kind)}</span>
+					<span class="opacity-80">{kindLabel(e.association_kind)}</span>
 					· {e.endpoint_a_entity_id.slice(0, 8)}… ↔ {e.endpoint_b_entity_id.slice(0, 8)}…
-					· <span class="text-slate-500">{e.assertion_lane}</span>
+					· <span class="opacity-80">{e.assertion_lane}</span>
 				</li>
 			{/each}
 		</ul>

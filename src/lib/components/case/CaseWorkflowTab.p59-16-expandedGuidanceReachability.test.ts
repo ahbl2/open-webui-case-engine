@@ -19,12 +19,8 @@ describe('CaseWorkflowTab P59-16 expanded guidance reachability', () => {
 	});
 
 	it('reduces expanded guidance top margin vs prior mt-4 (embedded + full)', () => {
-		expect(tabSource).toMatch(
-			/guidanceExpanded\s*\?[\s\S]*?embedded\s*\?\s*'mt-2 rounded-md border border-gray-200\/90/
-		);
-		expect(tabSource).toMatch(
-			/guidanceExpanded\s*\?[\s\S]*?:\s*'mt-3 rounded-md border border-gray-200\/90/
-		);
+		expect(tabSource).toMatch(/DS_WORKFLOW_CLASSES\.guidanceZoneOpenEmbed/);
+		expect(tabSource).toMatch(/DS_WORKFLOW_CLASSES\.guidanceZoneOpenFull/);
 	});
 
 	it('adds scroll margin on the guidance anchor for scrollIntoView ergonomics', () => {
@@ -48,8 +44,8 @@ describe('CaseWorkflowTab P59-16 expanded guidance reachability', () => {
 
 	it('does not use absolute/fixed positioning on the guidance or proposals panel shells', () => {
 		const panel = tabSource.indexOf('data-testid="workflow-proposals-panel"');
-		const modal = tabSource.indexOf('class="fixed inset-0 z-50');
-		const mid = tabSource.slice(panel, modal > panel ? modal : panel + 3500);
+		const createModal = tabSource.indexOf('<!-- Create modal -->');
+		const mid = tabSource.slice(panel, createModal > panel ? createModal : panel + 3500);
 		expect(mid).not.toMatch(/\babsolute\b|\bfixed\b/);
 	});
 });

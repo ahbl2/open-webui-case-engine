@@ -19,7 +19,7 @@ describe('CaseWorkflowTab workflow tooltips (P57-10)', () => {
 	it('adds column header tooltips for priority, origin, and citations', () => {
 		expect(tabSource).toContain('title="Urgency 0–3; higher numbers mean higher priority."');
 		expect(tabSource).toContain(
-			'title="Investigator: you added this row on Workflow. Proposal: created when you accepted a workflow suggestion from the Workflow proposal queue below."'
+			'title="Investigator: you added this row on the Workflow tab. System: created when you accepted a workflow suggestion from the workflow proposal queue below (not the case Proposals tab)."'
 		);
 		expect(tabSource).toContain(
 			'title="Count of evidence links recorded on this workflow item."'
@@ -31,7 +31,8 @@ describe('CaseWorkflowTab workflow tooltips (P57-10)', () => {
 		expect(tabSource).toContain('filter = \'all\'');
 		expect(tabSource).toContain('await listWorkflowItems(caseId, token,');
 		expect(tabSource).toContain('await acceptWorkflowProposal(caseId, target.id, token)');
-		expect(tabSource).toContain('<th class="text-left px-2 py-1.5">Type</th>');
-		expect(tabSource).toContain('<th class="text-left px-2 py-1.5">Status</th>');
+		expect(tabSource).toContain('DS_WORKFLOW_CLASSES.th');
+		expect(tabSource).toMatch(/<th class="\{DS_WORKFLOW_CLASSES\.th\}">Type<\/th>/);
+		expect(tabSource).toMatch(/<th class="\{DS_WORKFLOW_CLASSES\.th\}">Status<\/th>/);
 	});
 });

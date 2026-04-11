@@ -15,6 +15,9 @@
 		type TimelineIntelligenceSummaryResult
 	} from '$lib/apis/caseEngine';
 	import CaseSummaryPanel from '$lib/components/case/CaseSummaryPanel.svelte';
+	import CaseOverviewSummaryCards from '$lib/components/case/CaseOverviewSummaryCards.svelte';
+	import CaseOverviewRecentActivity from '$lib/components/case/CaseOverviewRecentActivity.svelte';
+	import CaseOverviewLinkedPanels from '$lib/components/case/CaseOverviewLinkedPanels.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import { applyStatusOntoPostSnapshot } from '$lib/case/summaryTabSnapshotMerge';
@@ -24,6 +27,15 @@
 		type TimelineSummaryEventView
 	} from '$lib/utils/timelineSummary';
 	import { formatOperationalCaseTimeHm } from '$lib/utils/formatDateTime';
+	import {
+		DS_SUMMARY_CLASSES,
+		DS_TYPE_CLASSES,
+		DS_BTN_CLASSES,
+		DS_BADGE_CLASSES,
+		DS_STATUS_SURFACE_CLASSES,
+		DS_STATUS_TEXT_CLASSES,
+		DS_STACK_CLASSES
+	} from '$lib/case/detectivePrimitiveFoundation';
 
 	$: caseId = $page.params.id;
 
@@ -309,37 +321,65 @@
 </script>
 
 <CaseWorkspaceContentRegion testId="case-summary-page">
-<div class="flex-1 min-h-0 overflow-auto p-4 md:p-6">
-	<div class="mx-auto max-w-4xl space-y-6">
-		<p class="text-xs text-gray-500 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 pb-3">
-			Derived views from case data—not the committed record. Use <span class="font-medium">Timeline</span> for the
-			committed chronology and <span class="font-medium">Notes</span> for drafts. Nothing here alters stored case
-			records.
-		</p>
+<div class={DS_SUMMARY_CLASSES.pageScroll}>
+	<div class="{DS_SUMMARY_CLASSES.pageInner} {DS_STACK_CLASSES.stack}">
+		<header class={DS_SUMMARY_CLASSES.identityBand}>
+			<p class={DS_SUMMARY_CLASSES.pageEyebrow}>Case workspace · orientation</p>
+			<div class={DS_SUMMARY_CLASSES.identityTitleRow}>
+				<h1 class={DS_TYPE_CLASSES.display}>Overview</h1>
+			</div>
+			<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-2xl">
+				Derived views from case data—not the committed record. Use <span class="font-semibold">Timeline</span> for
+				the committed chronology and <span class="font-semibold">Notes</span> for drafts. Nothing here alters stored
+				case records.
+			</p>
+		</header>
 
-		<nav class="-mx-1 flex flex-wrap items-center gap-x-2 gap-y-1 pt-2" aria-label="On this Summary page">
-			<span class="shrink-0 text-xs font-medium text-gray-600 dark:text-gray-400">On this page</span>
-			<span class="hidden text-gray-300 sm:inline dark:text-gray-600" aria-hidden="true">·</span>
-			<div class="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+		{#if caseId}
+			<CaseOverviewSummaryCards caseId={caseId} />
+			<CaseOverviewRecentActivity caseId={caseId} />
+			<CaseOverviewLinkedPanels caseId={caseId} />
+		{/if}
+
+		<nav class={DS_SUMMARY_CLASSES.inPageNav} aria-label="On this Summary page">
+			<span class="{DS_TYPE_CLASSES.label} shrink-0 text-[var(--ds-text-secondary)]">On this page</span>
+			<span class="{DS_SUMMARY_CLASSES.navSep} hidden sm:inline" aria-hidden="true">·</span>
+			<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
 				<a
 					href="#summary-module-case-summary"
-					class="font-medium text-blue-600 hover:underline dark:text-blue-400"
+					class={DS_SUMMARY_CLASSES.navLink}
 					title="Jump to Case Summary (AI-derived saved snapshot)"
 				>
 					Case Summary
 				</a>
-				<span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+				<span class={DS_SUMMARY_CLASSES.navSep} aria-hidden="true">·</span>
+				<a
+					href="#summary-module-recent-activity"
+					class={DS_SUMMARY_CLASSES.navLink}
+					title="Jump to Recent activity (committed timeline entries)"
+				>
+					Recent activity
+				</a>
+				<span class={DS_SUMMARY_CLASSES.navSep} aria-hidden="true">·</span>
+				<a
+					href="#summary-module-linked-panels"
+					class={DS_SUMMARY_CLASSES.navLink}
+					title="Jump to Files, entities and notes previews"
+				>
+					Linked panels
+				</a>
+				<span class={DS_SUMMARY_CLASSES.navSep} aria-hidden="true">·</span>
 				<a
 					href="#summary-module-timeline-summary"
-					class="font-medium text-blue-600 hover:underline dark:text-blue-400"
+					class={DS_SUMMARY_CLASSES.navLink}
 					title="Jump to Timeline Summary (session-only AI digest)"
 				>
 					Timeline Summary
 				</a>
-				<span class="text-gray-300 dark:text-gray-600" aria-hidden="true">·</span>
+				<span class={DS_SUMMARY_CLASSES.navSep} aria-hidden="true">·</span>
 				<a
 					href="#summary-module-case-brief"
-					class="font-medium text-blue-600 hover:underline dark:text-blue-400"
+					class={DS_SUMMARY_CLASSES.navLink}
 					title="Jump to Case Brief (deterministic snapshot from Timeline)"
 				>
 					Case Brief
@@ -348,86 +388,83 @@
 		</nav>
 
 		<!-- Primary: Case Summary (AI-derived) -->
-		<div
+		<section
 			id="summary-module-case-summary"
-			class="scroll-mt-4 rounded-xl border-2 border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 shadow-sm p-5 md:p-6 space-y-4"
+			class="{DS_SUMMARY_CLASSES.modulePrimary} {DS_STACK_CLASSES.stack}"
+			aria-labelledby="summary-module-case-summary-heading"
 		>
-			<div class="space-y-2">
+			<div class={DS_STACK_CLASSES.tight}>
 				<div class="flex flex-wrap items-center gap-2">
-					<h1 class="text-xl font-bold tracking-tight text-gray-900 dark:text-gray-100">
+					<h2 id="summary-module-case-summary-heading" class={DS_TYPE_CLASSES.panel}>
 						Case Summary (AI-derived)
-					</h1>
+					</h2>
 					{#if loading}
 						<span
 							title="Loading saved Case Summary status from Case Engine."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
 							>Fetching</span
 						>
 					{:else if updatingSummary}
 						<span
 							title="AI Case Summary run in progress. Snapshot updates when this completes."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-blue-50 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.info}"
 							>Regenerating</span
 						>
 					{:else if summary && stale}
 						<span
 							title="Saved snapshot may predate recent case activity (time-based hint only—not a full diff)."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-amber-100 text-amber-900 dark:bg-amber-950/40 dark:text-amber-200"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.warning}"
 							>Stale</span
 						>
 					{:else if summary}
 						<span
 							title="A saved Case Summary snapshot is loaded."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-gray-100 text-gray-700 dark:bg-gray-800 dark:text-gray-300"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
 							>Generated</span
 						>
 					{:else if !error}
 						<span
 							title="No saved Case Summary snapshot for this case yet."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
 							>No snapshot</span
 						>
 					{/if}
 				</div>
 				{#if lastUpdatedAt}
-					<p class="text-xs text-gray-500 dark:text-gray-400">Last snapshot: {lastUpdatedAt}</p>
+					<p class={DS_TYPE_CLASSES.meta}>Last snapshot: {lastUpdatedAt}</p>
 				{:else}
-					<p class="text-xs text-gray-500 dark:text-gray-400">No summary snapshot saved yet.</p>
+					<p class={DS_TYPE_CLASSES.meta}>No summary snapshot saved yet.</p>
 				{/if}
 				{#if !updatingSummary && stale}
-					<p class="text-xs text-amber-700 dark:text-amber-300">
-						May be out of date with recent Timeline, file, or Notes changes. <span class="font-medium">Stale</span>
+					<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.warning}">
+						May be out of date with recent Timeline, file, or Notes changes. <span class="font-semibold"
+							>Stale</span
+						>
 						uses latest case activity time only—not a full diff against this snapshot.
 					</p>
 					{#if latestActivityAt && latestActivityAt.trim()}
-						<p class="text-[11px] text-amber-700/80 dark:text-amber-300/80">
+						<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.warning}">
 							Latest case activity: {latestActivityAt}
 						</p>
 					{/if}
 				{/if}
 				{#if summaryError && !summary}
-					<div
-						class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400"
-						role="alert"
-					>
-						{summaryError}
+					<div class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+						<p class="ds-status-copy">{summaryError}</p>
 					</div>
 				{/if}
 				{#if error}
-					<div
-						class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400"
-						role="alert"
-					>
-						{error}
+					<div class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+						<p class="ds-status-copy">{error}</p>
 					</div>
 				{/if}
-				<p class="text-[11px] text-gray-500 dark:text-gray-400 max-w-2xl leading-relaxed">
+				<p class="{DS_TYPE_CLASSES.meta} max-w-2xl">
 					Regenerates this AI-derived view only. Does not change Timeline entries or Notes.
 				</p>
 				<div class="flex flex-wrap gap-2 pt-1">
 					<button
 						type="button"
-						class="px-3 py-1.5 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+						class="{DS_BTN_CLASSES.primary} disabled:opacity-60"
 						on:click={updateSummary}
 						disabled={updatingSummary || !$caseEngineToken}
 						title={!$caseEngineToken
@@ -441,7 +478,7 @@
 					{#if updatingSummary}
 						<button
 							type="button"
-							class="px-3 py-1.5 rounded-md text-sm border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+							class={DS_BTN_CLASSES.secondary}
 							on:click={cancelCaseSummaryRun}
 							title="Stop this run in the browser. Keeps the previous saved snapshot if you already had one; the server may still finish."
 						>
@@ -451,17 +488,13 @@
 				</div>
 			</div>
 
-			<div class="border-t border-gray-100 dark:border-gray-800 pt-4">
+			<div class={DS_SUMMARY_CLASSES.sectionDivider}>
 				{#if loading}
-					<div
-						class="flex items-start gap-3 rounded-lg border border-gray-200/90 bg-gray-50/80 px-4 py-4 dark:border-gray-700 dark:bg-gray-800/40"
-						role="status"
-						aria-live="polite"
-					>
-						<div class="shrink-0 text-blue-600 dark:text-blue-400"><Spinner className="size-5" /></div>
+					<div class={DS_SUMMARY_CLASSES.loadingPanel} role="status" aria-live="polite">
+						<div class="shrink-0 {DS_STATUS_TEXT_CLASSES.info}"><Spinner className="size-5" /></div>
 						<div class="min-w-0">
-							<p class="text-sm font-medium text-gray-800 dark:text-gray-200">Fetching summary status…</p>
-							<p class="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+							<p class="{DS_TYPE_CLASSES.body} font-semibold">Fetching summary status…</p>
+							<p class="{DS_TYPE_CLASSES.meta} mt-1">
 								Reading saved snapshot metadata from Case Engine.
 							</p>
 						</div>
@@ -475,77 +508,72 @@
 					/>
 				{:else}
 					<div
-						class="rounded-lg border border-dashed border-gray-200 bg-gray-50/90 px-4 py-6 text-center dark:border-gray-700 dark:bg-gray-800/40"
+						class={DS_SUMMARY_CLASSES.emptyDashed}
 						role="region"
 						aria-label="Case summary not generated"
 					>
-						<p class="text-sm font-semibold text-gray-800 dark:text-gray-100">No AI-derived snapshot yet</p>
-						<p class="mt-2 text-xs text-gray-500 dark:text-gray-400 max-w-md mx-auto leading-relaxed">
-							Use <span class="font-medium text-gray-600 dark:text-gray-300">Generate Case Summary</span> above
-							for a structured, evidence-linked preview.
+						<p class="{DS_TYPE_CLASSES.body} font-semibold">No AI-derived snapshot yet</p>
+						<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-md mx-auto">
+							Use <span class="font-semibold">Generate Case Summary</span> above for a structured,
+							evidence-linked preview.
 						</p>
 					</div>
 				{/if}
 			</div>
-		</div>
+		</section>
 
 		<!-- Utility: Timeline Summary (session-derived) -->
-		<div
+		<section
 			id="summary-module-timeline-summary"
-			class="scroll-mt-4 rounded-lg border border-dashed border-gray-200 bg-gray-50/70 p-5 dark:border-gray-700 dark:bg-gray-900/50 md:p-6 space-y-5"
+			class="{DS_SUMMARY_CLASSES.moduleSession} {DS_STACK_CLASSES.stack}"
+			aria-labelledby="summary-module-timeline-summary-heading"
 		>
-			<header class="space-y-2">
+			<header class={DS_STACK_CLASSES.tight}>
 				<div class="flex flex-wrap items-center gap-2">
-					<h2 class="text-base font-semibold tracking-tight text-gray-900 dark:text-gray-100">
+					<h2 id="summary-module-timeline-summary-heading" class={DS_TYPE_CLASSES.panel}>
 						Timeline Summary (session-derived)
 					</h2>
 					{#if timelineSummaryLoading}
 						<span
 							title="AI Timeline digest run in progress (session-only; not saved to the case)."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-blue-50 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.info}"
 							>Summarizing</span
 						>
 					{:else if timelineSummary}
 						<span
 							title="Session digest is shown here; leaving this tab or switching cases clears it."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-blue-50 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.info}"
 							>Digest</span
 						>
 					{:else if !timelineSummaryError}
 						<span
 							title="No AI digest loaded in this browser session yet."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
 							>No digest</span
 						>
 					{/if}
 				</div>
 			</header>
 
-			<div
-				class="rounded-lg border border-amber-200/90 bg-amber-50/50 px-3 py-3 dark:border-amber-900/45 dark:bg-amber-950/25"
-			>
-				<p class="text-xs font-semibold uppercase tracking-wide text-amber-900 dark:text-amber-200/90">
-					Session scope
-				</p>
-				<div class="mt-2 space-y-2 text-[11px] leading-relaxed text-amber-900/95 dark:text-amber-100/85">
-					<p>
+			<div class={DS_SUMMARY_CLASSES.sessionScopeBanner}>
+				<p class="{DS_TYPE_CLASSES.label} {DS_STATUS_TEXT_CLASSES.warning}">Session scope</p>
+				<div class="{DS_STACK_CLASSES.tight} mt-2">
+					<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.warning}">
 						AI-derived digest from current Timeline (committed) entries. Shown only in this session—leaving the
 						tab or switching cases clears it. Does not change the Timeline.
 					</p>
-					<p>
+					<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.warning}">
 						Regenerates a session digest only. Does not change Timeline entries or Notes.
 					</p>
 				</div>
 			</div>
 
-			<div
-				class="rounded-lg border border-gray-200/90 bg-gray-50/80 px-3 py-3 dark:border-gray-700 dark:bg-gray-800/35"
-			>
-				<p class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">Run digest</p>
+			<div class={DS_SUMMARY_CLASSES.subpanelRun}>
+				<p class={DS_TYPE_CLASSES.label}>Run digest</p>
 				<div class="mt-2.5 flex flex-wrap gap-2">
 					<button
 						type="button"
-						class="px-3 py-1.5 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+						class="{DS_BTN_CLASSES.primary} disabled:opacity-60"
 						on:click={summarizeTimeline}
 						disabled={timelineSummaryLoading || !$caseEngineToken}
 						title={!$caseEngineToken
@@ -557,7 +585,7 @@
 					{#if timelineSummaryLoading}
 						<button
 							type="button"
-							class="px-3 py-1.5 rounded-md text-sm border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+							class={DS_BTN_CLASSES.secondary}
 							on:click={cancelTimelineSummaryRun}
 							title="Stop this run in the browser. Keeps any digest from before this run; the server may still finish."
 						>
@@ -566,46 +594,39 @@
 					{/if}
 				</div>
 				{#if !timelineSummaryLoading}
-					<div class="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
-						<p>
-							<span class="font-medium text-gray-600 dark:text-gray-300">Timeline digest request scope:</span>
+					<div class="mt-2">
+						<p class={DS_TYPE_CLASSES.meta}>
+							<span class="font-semibold">Timeline digest request scope:</span>
 							{describeCaseBriefRequestScope(timelineSummaryFilters)}
 						</p>
 						{#if !timelineSummary}
-							<p class="mt-1">This tab does not yet expose date/type filter controls.</p>
+							<p class="{DS_TYPE_CLASSES.meta} mt-1">This tab does not yet expose date/type filter controls.</p>
 						{/if}
 					</div>
 				{/if}
 			</div>
 
 			{#if timelineSummaryError}
-				<div
-					class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400"
-					role="alert"
-				>
-					{timelineSummaryError}
+				<div class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+					<p class="ds-status-copy">{timelineSummaryError}</p>
 				</div>
 			{/if}
 			{#if timelineSummaryLoading}
-				<div
-					class="flex items-start gap-3 rounded-lg border border-gray-200/90 bg-white/60 px-4 py-4 dark:border-gray-700 dark:bg-gray-900/40"
-					role="status"
-					aria-live="polite"
-				>
-					<div class="shrink-0 text-blue-600 dark:text-blue-400"><Spinner className="size-5" /></div>
+				<div class={DS_SUMMARY_CLASSES.loadingPanel} role="status" aria-live="polite">
+					<div class="shrink-0 {DS_STATUS_TEXT_CLASSES.info}"><Spinner className="size-5" /></div>
 					<div class="min-w-0">
-						<p class="text-sm font-medium text-gray-800 dark:text-gray-200">Summarizing Timeline…</p>
-						<p class="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+						<p class="{DS_TYPE_CLASSES.body} font-semibold">Summarizing Timeline…</p>
+						<p class="{DS_TYPE_CLASSES.meta} mt-1">
 							AI digest from current committed entries—results stay in this browser session only.
 						</p>
-						<p class="mt-1.5 text-[11px] text-gray-500 dark:text-gray-400 leading-relaxed">
-							<span class="font-medium text-gray-600 dark:text-gray-300">Timeline digest request scope:</span>
+						<p class="{DS_TYPE_CLASSES.meta} mt-1.5">
+							<span class="font-semibold">Timeline digest request scope:</span>
 							{describeCaseBriefRequestScope(timelineSummaryFilters)}
 						</p>
 						<div class="mt-3 flex flex-wrap gap-2">
 							<button
 								type="button"
-								class="px-3 py-1.5 rounded-md text-sm border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+								class={DS_BTN_CLASSES.secondary}
 								on:click={cancelTimelineSummaryRun}
 								title="Stop this run in the browser. Keeps any digest from before this run; the server may still finish."
 							>
@@ -615,54 +636,50 @@
 					</div>
 				</div>
 			{:else if timelineSummary}
-				<div class="space-y-4 border-t border-gray-200/80 pt-4 dark:border-gray-700/80">
-					<p class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
-						Session digest output
-					</p>
-					<div class="space-y-4">
-					<div class="rounded-lg border border-gray-200/90 bg-white/70 p-4 dark:border-gray-700 dark:bg-gray-900/45">
-						<p class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
-							Run context
-						</p>
-						<p class="mt-2 text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed">
-							<span class="font-medium text-gray-700 dark:text-gray-300">Entries analyzed:</span>
+				<div class="{DS_SUMMARY_CLASSES.sectionDivider} {DS_STACK_CLASSES.stack}">
+					<p class={DS_TYPE_CLASSES.label}>Session digest output</p>
+					<div class={DS_STACK_CLASSES.stack}>
+					<div class={DS_SUMMARY_CLASSES.outputCard}>
+						<p class={DS_TYPE_CLASSES.label}>Run context</p>
+						<p class="{DS_TYPE_CLASSES.meta} mt-2">
+							<span class="font-semibold">Entries analyzed:</span>
 							{timelineSummaryEntryCountLine}
 						</p>
-						<p class="mt-1.5 text-[11px] text-gray-600 dark:text-gray-400 leading-relaxed">
-							<span class="font-medium text-gray-700 dark:text-gray-300">Digest metadata (filters):</span>
+						<p class="{DS_TYPE_CLASSES.meta} mt-1.5">
+							<span class="font-semibold">Digest metadata (filters):</span>
 							{#if timelineSummaryFilterLine}
 								{timelineSummaryFilterLine}
 							{:else}
 								None returned (no date range or types in response meta for this run).
 							{/if}
 						</p>
-						<div class="mt-4 border-t border-gray-200/80 pt-4 dark:border-gray-700/70">
-							<h3 class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+						<div class="{DS_SUMMARY_CLASSES.sectionDivider} mt-4">
+							<h3 class={DS_TYPE_CLASSES.label}>
 								Digest text
 							</h3>
-							<p class="mt-2 text-sm leading-relaxed text-gray-800 dark:text-gray-100 whitespace-pre-wrap">
+							<p class="{DS_TYPE_CLASSES.body} mt-2 whitespace-pre-wrap">
 								{timelineSummary.summary}
 							</p>
 						</div>
 					</div>
 
-					<div class="rounded-lg border border-gray-200/90 bg-white/70 p-4 dark:border-gray-700 dark:bg-gray-900/45">
-						<h3 class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+					<div class={DS_SUMMARY_CLASSES.outputCard}>
+						<h3 class={DS_TYPE_CLASSES.label}>
 							Key timeline events
 						</h3>
 						{#if timelineSummaryEvents.length === 0}
-							<p class="mt-2 text-sm text-gray-600 dark:text-gray-300">No key events were identified.</p>
+							<p class="{DS_TYPE_CLASSES.body} mt-2">No key events were identified.</p>
 						{:else}
-							<ul class="mt-3 space-y-2">
+							<ul class="{DS_STACK_CLASSES.tight} mt-3 list-none p-0">
 								{#each timelineSummaryEvents as event (event.entry_id)}
-									<li class="rounded border border-gray-100 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-800/30 p-2 text-sm">
-										<p class="text-gray-800 dark:text-gray-100">
+									<li class={DS_SUMMARY_CLASSES.keyEventItem}>
+										<p class={DS_TYPE_CLASSES.body}>
 											[{event.occurred_at ? formatEntryTime(event.occurred_at) : 'n/a'}] ({event.type}) - {event.excerpt}
 										</p>
-										<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+										<p class="{DS_TYPE_CLASSES.meta} mt-1">
 											Source entry: {event.entry_id}
 										</p>
-										<p class="text-xs text-gray-500 dark:text-gray-400">
+										<p class={DS_TYPE_CLASSES.meta}>
 											Selection reason: {event.reason}
 										</p>
 									</li>
@@ -671,14 +688,14 @@
 						{/if}
 					</div>
 
-					<div class="rounded-lg border border-gray-200/90 bg-white/70 p-4 dark:border-gray-700 dark:bg-gray-900/45">
-						<h3 class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+					<div class={DS_SUMMARY_CLASSES.outputCard}>
+						<h3 class={DS_TYPE_CLASSES.label}>
 							Timeline gaps
 						</h3>
 						{#if timelineSummary.gaps.length === 0}
-							<p class="mt-2 text-sm text-gray-600 dark:text-gray-300">No timeline gaps identified.</p>
+							<p class="{DS_TYPE_CLASSES.body} mt-2">No timeline gaps identified.</p>
 						{:else}
-							<ul class="mt-3 list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-gray-700 dark:text-gray-300">
+							<ul class="mt-3 list-disc space-y-1.5 pl-5 {DS_TYPE_CLASSES.body}">
 								{#each timelineSummary.gaps as gap}
 									<li>{gap.description}</li>
 								{/each}
@@ -689,65 +706,63 @@
 				</div>
 			{:else if !timelineSummaryError}
 				<div
-					class="rounded-lg border border-dashed border-gray-200 bg-white/40 px-4 py-6 text-center dark:border-gray-700 dark:bg-gray-900/30"
+					class={DS_SUMMARY_CLASSES.emptyDashed}
 					role="region"
 					aria-label="Timeline digest not generated"
 				>
-					<p class="text-sm font-semibold text-gray-800 dark:text-gray-100">No Timeline digest yet</p>
-					<p class="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400 max-w-md mx-auto">
-						Use <span class="font-medium text-gray-600 dark:text-gray-300">Summarize Timeline</span> under
-						<span class="font-medium text-gray-600 dark:text-gray-300">Run digest</span> for an optional AI digest;
-						results clear when you leave this tab or switch cases (see Session scope above).
+					<p class="{DS_TYPE_CLASSES.body} font-semibold">No Timeline digest yet</p>
+					<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-md mx-auto">
+						Use <span class="font-semibold">Summarize Timeline</span> under
+						<span class="font-semibold">Run digest</span> for an optional AI digest; results clear when you leave this
+						tab or switch cases (see Session scope above).
 					</p>
 				</div>
 			{/if}
-		</div>
+		</section>
 
 		<!-- Secondary: Case Brief (snapshot) -->
-		<div
+		<section
 			id="summary-module-case-brief"
-			class="scroll-mt-4 rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-5 md:p-6 space-y-5"
+			class="{DS_SUMMARY_CLASSES.moduleBrief} {DS_STACK_CLASSES.stack}"
+			aria-labelledby="summary-module-case-brief-heading"
 		>
-			<header class="space-y-2">
+			<header class={DS_STACK_CLASSES.tight}>
 				<div class="flex flex-wrap items-center gap-2">
-					<h2 class="text-lg font-semibold tracking-tight text-gray-900 dark:text-gray-100">
+					<h2 id="summary-module-case-brief-heading" class={DS_TYPE_CLASSES.panel}>
 						Case Brief (snapshot){brief ? ` — ${briefEntryCount} entr${briefEntryCount === 1 ? 'y' : 'ies'}` : ''}
 					</h2>
 					{#if briefLoading}
 						<span
 							title="Building the on-screen brief from committed Timeline (no AI)."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-blue-50 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.info}"
 							>Generating</span
 						>
 					{:else if brief}
 						<span
 							title="On-screen brief is loaded from the last Generate. Export PDF uses the same request scope."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-blue-50 text-blue-900 dark:bg-blue-950/50 dark:text-blue-200"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.info}"
 							>Brief</span
 						>
 					{:else if !briefError}
 						<span
 							title="No brief generated in this session yet. Use Generate below."
-							class="inline-flex items-center rounded px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide bg-gray-100 text-gray-600 dark:bg-gray-800 dark:text-gray-400"
+							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
 							>No brief</span
 						>
 					{/if}
 				</div>
-				<p class="text-xs text-gray-500 dark:text-gray-400 leading-relaxed max-w-2xl">
+				<p class="{DS_TYPE_CLASSES.meta} max-w-2xl">
 					Deterministic layout from committed Timeline entries (no AI). The preview below is on-screen only—use
-					<span class="font-medium text-gray-700 dark:text-gray-300">Export PDF</span> for a download. Does not
-					change Timeline or Notes.
+					<span class="font-semibold">Export PDF</span> for a download. Does not change Timeline or Notes.
 				</p>
 			</header>
 
-			<div
-				class="rounded-lg border border-gray-200/90 bg-gray-50/70 px-3 py-3 dark:border-gray-700 dark:bg-gray-800/35"
-			>
-				<p class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">Generate &amp; export</p>
+			<div class={DS_SUMMARY_CLASSES.subpanel}>
+				<p class={DS_TYPE_CLASSES.label}>Generate &amp; export</p>
 				<div class="mt-2.5 flex flex-wrap items-center gap-2">
 					<button
 						type="button"
-						class="px-3 py-1.5 rounded-md text-sm bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+						class="{DS_BTN_CLASSES.primary} disabled:opacity-60"
 						on:click={generateBrief}
 						disabled={briefLoading || !$caseEngineToken}
 						title={!$caseEngineToken
@@ -758,7 +773,7 @@
 					</button>
 					<button
 						type="button"
-						class="px-3 py-1.5 rounded-md text-sm border border-gray-300 bg-white text-gray-800 hover:bg-gray-50 disabled:opacity-60 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100 dark:hover:bg-gray-800"
+						class="{DS_BTN_CLASSES.secondary} disabled:opacity-60"
 						on:click={onExportBrief}
 						disabled={!brief || briefExporting}
 						title={!brief
@@ -771,13 +786,12 @@
 					</button>
 				</div>
 				{#if !brief && !briefLoading && !briefError}
-					<p class="mt-2 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
-						Run <span class="font-medium text-gray-600 dark:text-gray-300">Generate Case Brief</span> first to
-						enable PDF export.
+					<p class="{DS_TYPE_CLASSES.meta} mt-2">
+						Run <span class="font-semibold">Generate Case Brief</span> first to enable PDF export.
 					</p>
-					<div class="mt-1.5 text-[11px] leading-relaxed text-gray-500 dark:text-gray-400">
+					<div class="{DS_TYPE_CLASSES.meta} mt-1.5">
 						<p>
-							<span class="font-medium text-gray-600 dark:text-gray-300">Brief request scope:</span>
+							<span class="font-semibold">Brief request scope:</span>
 							{describeCaseBriefRequestScope(briefFilters)}
 						</p>
 						<p class="mt-1">This tab does not yet expose date/type filter controls.</p>
@@ -786,108 +800,95 @@
 			</div>
 
 			{#if briefError}
-				<div
-					class="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700 dark:border-red-900 dark:bg-red-950/30 dark:text-red-400"
-					role="alert"
-				>
-					{briefError}
+				<div class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+					<p class="ds-status-copy">{briefError}</p>
 				</div>
 			{/if}
 			{#if briefExporting}
-				<div class="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400" role="status" aria-live="polite">
-					<span class="shrink-0 text-blue-600 dark:text-blue-400"><Spinner className="size-4" /></span>
+				<div class="flex items-center gap-2 {DS_TYPE_CLASSES.meta}" role="status" aria-live="polite">
+					<span class="shrink-0 {DS_STATUS_TEXT_CLASSES.info}"><Spinner className="size-4" /></span>
 					<span>Preparing PDF export…</span>
 				</div>
 			{/if}
 			{#if briefExportRef}
-				<p class="text-xs text-green-700 dark:text-green-400">
-					Brief exported. Reference: <span class="font-mono select-all">{briefExportRef}</span>
+				<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.success}">
+					Brief exported. Reference: <span class="{DS_TYPE_CLASSES.mono} select-all">{briefExportRef}</span>
 				</p>
 			{/if}
 
-			<div class="border-t border-gray-100 dark:border-gray-800 pt-4">
+			<div class={DS_SUMMARY_CLASSES.sectionDivider}>
 				{#if briefLoading}
-					<div
-						class="flex items-start gap-3 rounded-lg border border-gray-200/90 bg-gray-50/80 px-4 py-4 dark:border-gray-700 dark:bg-gray-800/40"
-						role="status"
-						aria-live="polite"
-					>
-						<div class="shrink-0 text-blue-600 dark:text-blue-400"><Spinner className="size-5" /></div>
+					<div class={DS_SUMMARY_CLASSES.loadingPanel} role="status" aria-live="polite">
+						<div class="shrink-0 {DS_STATUS_TEXT_CLASSES.info}"><Spinner className="size-5" /></div>
 						<div class="min-w-0">
-							<p class="text-sm font-medium text-gray-800 dark:text-gray-200">Building case brief…</p>
-							<p class="mt-1 text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
+							<p class="{DS_TYPE_CLASSES.body} font-semibold">Building case brief…</p>
+							<p class="{DS_TYPE_CLASSES.meta} mt-1">
 								Assembling entries by date from committed Timeline (no AI).
 							</p>
 						</div>
 					</div>
 				{:else if brief}
-					<div class="space-y-5">
-						<div
-							class="rounded-lg border border-gray-200 bg-gray-50/50 p-4 dark:border-gray-800 dark:bg-gray-800/25"
-						>
-							<p class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+					<div class={DS_STACK_CLASSES.stack}>
+						<div class={DS_SUMMARY_CLASSES.briefMetaPanel}>
+							<p class={DS_TYPE_CLASSES.label}>
 								Case metadata
 							</p>
 							<dl class="mt-3 space-y-2.5 text-xs">
 								<div class="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-4">
-									<dt class="shrink-0 font-medium text-gray-500 dark:text-gray-400 sm:w-28">Case number</dt>
-									<dd class="font-mono text-gray-900 dark:text-gray-100">{brief.case.case_number}</dd>
+									<dt class="shrink-0 font-medium {DS_TYPE_CLASSES.meta} sm:w-28">Case number</dt>
+									<dd class="{DS_TYPE_CLASSES.mono} text-[var(--ds-text-primary)]">{brief.case.case_number}</dd>
 								</div>
 								<div class="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-4">
-									<dt class="shrink-0 font-medium text-gray-500 dark:text-gray-400 sm:w-28">Title</dt>
-									<dd class="text-gray-800 dark:text-gray-100">{brief.case.title}</dd>
+									<dt class="shrink-0 font-medium {DS_TYPE_CLASSES.meta} sm:w-28">Title</dt>
+									<dd class="{DS_TYPE_CLASSES.body}">{brief.case.title}</dd>
 								</div>
 								<div class="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-4">
-									<dt class="shrink-0 font-medium text-gray-500 dark:text-gray-400 sm:w-28">Unit</dt>
-									<dd class="text-gray-800 dark:text-gray-100">{brief.case.unit}</dd>
+									<dt class="shrink-0 font-medium {DS_TYPE_CLASSES.meta} sm:w-28">Unit</dt>
+									<dd class="{DS_TYPE_CLASSES.body}">{brief.case.unit}</dd>
 								</div>
 								{#if briefGeneratedAt}
 									<div class="flex flex-col gap-0.5 sm:flex-row sm:items-baseline sm:gap-4">
-										<dt class="shrink-0 font-medium text-gray-500 dark:text-gray-400 sm:w-28">Snapshot time</dt>
-										<dd class="text-gray-800 dark:text-gray-100">{briefGeneratedAt}</dd>
+										<dt class="shrink-0 font-medium {DS_TYPE_CLASSES.meta} sm:w-28">Snapshot time</dt>
+										<dd class="{DS_TYPE_CLASSES.body}">{briefGeneratedAt}</dd>
 									</div>
 								{/if}
 							</dl>
 						</div>
 
-						<div
-							class="rounded-lg border border-gray-200/80 bg-white/60 p-3 dark:border-gray-700 dark:bg-gray-900/35"
-						>
-							<p class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+						<div class={DS_SUMMARY_CLASSES.subpanel}>
+							<p class={DS_TYPE_CLASSES.label}>
 								Brief request scope
 							</p>
-							<p class="mt-1.5 text-[11px] leading-relaxed text-gray-600 dark:text-gray-400">
+							<p class="{DS_TYPE_CLASSES.meta} mt-1.5">
 								{describeCaseBriefRequestScope(briefFilters)}
 							</p>
-							<p class="mt-1.5 text-[10px] leading-relaxed text-gray-500 dark:text-gray-500">
+							<p class="{DS_TYPE_CLASSES.meta} mt-1.5 opacity-90">
 								PDF export uses the same scope as the last successful Generate request.
 							</p>
 						</div>
 
 						{#if brief.sections.length === 0}
-							<div
-								class="rounded-lg border border-dashed border-gray-200 dark:border-gray-700 px-4 py-5 text-center"
-							>
-								<p class="text-sm text-gray-600 dark:text-gray-300">
+							<div class={DS_SUMMARY_CLASSES.emptyDashed}>
+								<p class={DS_TYPE_CLASSES.body}>
 									No timeline entries available for this case.
 								</p>
 							</div>
 						{:else}
-							<div class="space-y-3">
-								<p class="text-xs font-semibold uppercase tracking-wide text-gray-600 dark:text-gray-400">
+							<div class={DS_STACK_CLASSES.stack}>
+								<p class={DS_TYPE_CLASSES.label}>
 									Entries by date
 								</p>
-								<div class="space-y-4">
+								<div class={DS_STACK_CLASSES.stack}>
 								{#each brief.sections as section (section.date)}
-									<div class="rounded-lg border border-gray-200 dark:border-gray-800 p-3">
-										<h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100">{section.date}</h3>
-										<div class="mt-2 space-y-2">
+									<div class="{DS_SUMMARY_CLASSES.briefDateSection}">
+										<h3 class="{DS_TYPE_CLASSES.body} font-semibold">{section.date}</h3>
+										<div class="{DS_STACK_CLASSES.tight} mt-2">
 											{#each section.entries as entry (entry.entry_id)}
-												<div class="rounded-md border border-gray-100 dark:border-gray-800 bg-gray-50/70 dark:bg-gray-800/40 p-2">
-													<p class="text-sm text-gray-800 dark:text-gray-100">
+												<div class={DS_SUMMARY_CLASSES.briefEntryCard}>
+													<p class={DS_TYPE_CLASSES.body}>
 														[{formatEntryTime(entry.occurred_at)}] ({entry.type}) - {entry.text}
 													</p>
-													<p class="text-xs text-gray-500 dark:text-gray-400">
+													<p class={DS_TYPE_CLASSES.meta}>
 														Added by: {entry.created_by_name || entry.created_by}
 													</p>
 												</div>
@@ -901,19 +902,19 @@
 					</div>
 				{:else}
 					<div
-						class="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 px-4 py-6 text-center dark:border-gray-700 dark:bg-gray-800/20"
+						class={DS_SUMMARY_CLASSES.emptyDashed}
 						role="region"
 						aria-label="Case brief not loaded"
 					>
-						<p class="text-sm font-semibold text-gray-800 dark:text-gray-100">No brief loaded</p>
-						<p class="mt-2 text-xs text-gray-500 dark:text-gray-400 max-w-md mx-auto leading-relaxed">
-							Use <span class="font-medium text-gray-600 dark:text-gray-300">Generate Case Brief</span> in
-							Generate &amp; export above, then review the chronological layout here.
+						<p class="{DS_TYPE_CLASSES.body} font-semibold">No brief loaded</p>
+						<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-md mx-auto">
+							Use <span class="font-semibold">Generate Case Brief</span> in Generate &amp; export above, then review
+							the chronological layout here.
 						</p>
 					</div>
 				{/if}
 			</div>
-		</div>
+		</section>
 	</div>
 </div>
 </CaseWorkspaceContentRegion>

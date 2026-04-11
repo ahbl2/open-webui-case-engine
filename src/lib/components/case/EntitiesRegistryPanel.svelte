@@ -18,6 +18,13 @@
 		sortCommittedEntities,
 		type RegistrySortKey
 	} from '$lib/utils/caseIntelligenceEntityRegistry';
+	import {
+		DS_BADGE_CLASSES,
+		DS_BTN_CLASSES,
+		DS_ENTITY_BOARD_CLASSES,
+		DS_INTELLIGENCE_CLASSES,
+		DS_SKELETON_CLASSES
+	} from '$lib/case/detectivePrimitiveFoundation';
 	import type {
 		EntitiesBoardPanelState,
 		EntitiesRegistryKind,
@@ -263,18 +270,15 @@
 	}
 
 	function leadingTileClasses(kind: EntitiesRegistryKind): string {
-		const base =
-			'h-10 w-10 rounded-xl flex items-center justify-center text-[11px] font-bold shrink-0 shadow-inner shadow-black/25 ring-1 ';
-		return (
-			base +
-			(kind === 'PERSON'
-				? 'border border-slate-500/45 bg-gradient-to-br from-slate-700/95 to-slate-900 text-slate-50 ring-sky-400/18'
+		const k =
+			kind === 'PERSON'
+				? DS_ENTITY_BOARD_CLASSES.registryTilePerson
 				: kind === 'VEHICLE'
-					? 'border border-cyan-500/35 bg-gradient-to-br from-cyan-950/90 to-slate-950 text-cyan-100 ring-cyan-400/28'
+					? DS_ENTITY_BOARD_CLASSES.registryTileVehicle
 					: kind === 'LOCATION'
-						? 'border border-amber-500/35 bg-gradient-to-br from-amber-950/85 to-slate-950 text-amber-100 ring-amber-400/22'
-						: 'border border-violet-500/40 bg-gradient-to-br from-violet-950/90 to-slate-950 text-violet-100 ring-violet-400/28')
-		);
+						? DS_ENTITY_BOARD_CLASSES.registryTileLocation
+						: DS_ENTITY_BOARD_CLASSES.registryTilePhone;
+		return `${DS_ENTITY_BOARD_CLASSES.registryTile} ${k}`;
 	}
 
 	function leadingAbbrev(kind: EntitiesRegistryKind): string {
@@ -284,82 +288,41 @@
 		return 'Ph';
 	}
 
-	/** P69-11-FU1 — kind identity + depth; premium panel treatment vs flat admin cards. */
+	/** P69-11-FU1 — kind identity + depth; DS entity board surfaces (P77-11). */
 	function panelShellClass(kind: EntitiesRegistryKind): string {
 		const layout =
 			layoutVariant === 'anchored'
-				? 'min-h-0 h-full w-full min-w-[260px] max-w-[340px] flex-1 rounded-xl'
-				: 'min-h-[17.5rem] h-full rounded-2xl';
-		const base = `entities-registry-panel flex flex-col ${layout} min-w-0 backdrop-blur-md transition-shadow duration-300 `;
-		if (layoutVariant === 'anchored') {
-			switch (kind) {
-				case 'PERSON':
-					return (
-						base +
-						'border border-slate-600/55 bg-gradient-to-b from-slate-900/98 via-sky-950/8 to-slate-950 shadow-[0_8px_36px_-14px_rgba(0,0,0,0.65)] ring-1 ring-sky-500/12'
-					);
-				case 'VEHICLE':
-					return (
-						base +
-						'border border-slate-600/55 bg-gradient-to-b from-slate-900/98 via-cyan-950/12 to-slate-950 shadow-[0_8px_36px_-14px_rgba(0,0,0,0.62)] ring-1 ring-cyan-500/15'
-					);
-				case 'LOCATION':
-					return (
-						base +
-						'border border-slate-600/55 bg-gradient-to-b from-slate-900/98 via-amber-950/10 to-slate-950 shadow-[0_8px_36px_-14px_rgba(0,0,0,0.62)] ring-1 ring-amber-500/12'
-					);
-				case 'PHONE':
-				default:
-					return (
-						base +
-						'border border-slate-600/60 bg-gradient-to-b from-slate-900/98 via-violet-950/10 to-slate-950 shadow-[0_8px_36px_-14px_rgba(0,0,0,0.65)] ring-1 ring-violet-500/14'
-					);
-			}
-		}
-		switch (kind) {
-			case 'PERSON':
-				return (
-					base +
-					'border border-slate-500/30 bg-gradient-to-br from-slate-900/98 via-slate-900/92 to-slate-950 shadow-[0_16px_48px_-20px_rgba(0,0,0,0.7),inset_0_1px_0_0_rgba(255,255,255,0.06)] ring-1 ring-sky-400/15'
-				);
-			case 'VEHICLE':
-				return (
-					base +
-					'border border-cyan-500/25 bg-gradient-to-br from-slate-900/98 via-cyan-950/12 to-slate-950 shadow-[0_16px_48px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.05)] ring-1 ring-cyan-400/20'
-				);
-			case 'LOCATION':
-				return (
-					base +
-					'border border-amber-500/22 bg-gradient-to-br from-slate-900/98 via-amber-950/12 to-slate-950 shadow-[0_16px_48px_-20px_rgba(0,0,0,0.65),inset_0_1px_0_0_rgba(255,255,255,0.05)] ring-1 ring-amber-400/18'
-				);
-			case 'PHONE':
-			default:
-				return (
-					base +
-					'border border-violet-500/35 bg-gradient-to-br from-slate-950 via-violet-950/18 to-slate-950 shadow-[0_16px_48px_-20px_rgba(0,0,0,0.72)] ring-1 ring-violet-400/22'
-				);
-		}
+				? DS_ENTITY_BOARD_CLASSES.registryPanelAnchored
+				: DS_ENTITY_BOARD_CLASSES.registryPanelBoard;
+		const kindMod =
+			kind === 'PERSON'
+				? DS_ENTITY_BOARD_CLASSES.registryPanelPerson
+				: kind === 'VEHICLE'
+					? DS_ENTITY_BOARD_CLASSES.registryPanelVehicle
+					: kind === 'LOCATION'
+						? DS_ENTITY_BOARD_CLASSES.registryPanelLocation
+						: DS_ENTITY_BOARD_CLASSES.registryPanelPhone;
+		return `entities-registry-panel flex flex-col min-w-0 ${DS_ENTITY_BOARD_CLASSES.registryPanel} ${layout} ${kindMod}`;
 	}
 
 	function headerChromeClass(kind: EntitiesRegistryKind): string {
-		switch (kind) {
-			case 'PERSON':
-				return 'border-b border-slate-700/60 bg-slate-950/35 border-l-[3px] border-l-sky-500/70';
-			case 'VEHICLE':
-				return 'border-b border-slate-700/60 bg-slate-950/35 border-l-[3px] border-l-cyan-500/70';
-			case 'LOCATION':
-				return 'border-b border-slate-700/60 bg-slate-950/35 border-l-[3px] border-l-amber-500/70';
-			case 'PHONE':
-			default:
-				return 'border-b border-slate-700/60 bg-slate-950/35 border-l-[3px] border-l-violet-500/70';
-		}
+		const accent =
+			kind === 'PERSON'
+				? DS_ENTITY_BOARD_CLASSES.registryHeaderPerson
+				: kind === 'VEHICLE'
+					? DS_ENTITY_BOARD_CLASSES.registryHeaderVehicle
+					: kind === 'LOCATION'
+						? DS_ENTITY_BOARD_CLASSES.registryHeaderLocation
+						: DS_ENTITY_BOARD_CLASSES.registryHeaderPhone;
+		return `${DS_ENTITY_BOARD_CLASSES.registryHeader} ${accent}`;
 	}
 
-	/** P69-11-FU2 — compact footer controls (subordinate to roster; not a form-first panel). */
-	const compactSearchClass =
-		'flex-1 min-w-[6.5rem] max-w-[min(100%,14rem)] rounded-md border border-slate-600/60 bg-slate-950/85 px-2 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 shadow-inner shadow-black/20 focus:outline-none focus:ring-1 focus:ring-cyan-500/40';
-	const compactSelectClass =
-		'rounded-md border border-slate-600/60 bg-slate-950/85 px-2 py-1.5 text-[11px] text-slate-200 shadow-inner shadow-black/20 focus:outline-none focus:ring-1 focus:ring-cyan-500/40';
+	function rosterBodyClass(): string {
+		const parts = [DS_ENTITY_BOARD_CLASSES.registryRoster];
+		if (layoutVariant === 'anchored') parts.push(DS_ENTITY_BOARD_CLASSES.registryRosterAnchored);
+		else if (expanded) parts.push(DS_ENTITY_BOARD_CLASSES.registryRosterExpanded);
+		return parts.join(' ');
+	}
 </script>
 
 <section
@@ -370,36 +333,31 @@
 	data-layout-variant={layoutVariant}
 	aria-labelledby="{testId}-title"
 >
-	<header
-		class="shrink-0 flex flex-wrap items-start justify-between gap-3 px-4 pt-4 pb-3 {headerChromeClass(entityKind)}"
-	>
+	<header class="shrink-0 flex flex-wrap items-start justify-between gap-3 {headerChromeClass(entityKind)}">
 		<div class="min-w-0 flex-1">
-			<h2 id="{testId}-title" class="text-[15px] font-bold tracking-tight text-slate-50 flex flex-wrap items-center gap-2.5">
+			<h2 id="{testId}-title" class="{DS_ENTITY_BOARD_CLASSES.registryTitle}">
 				<span>{heading}</span>
 				{#if !isPlaceholder}
 					{#if loadCompletedOnce && !loadError && countBadgeText}
-						<span
-							class="text-[11px] font-semibold tabular-nums px-2.5 py-0.5 rounded-full bg-slate-800/90 text-slate-200 border border-slate-600/70 shadow-sm"
-							data-testid="{testId}-count"
-						>
+						<span class="{DS_BADGE_CLASSES.neutral} tabular-nums" data-testid="{testId}-count">
 							{countBadgeText}{#if searchQuery.trim()}
-								<span class="text-slate-500 font-normal"> loaded</span>{/if}
+								<span class="font-normal opacity-80"> loaded</span>{/if}
 						</span>
 					{:else if loading && !loadCompletedOnce}
 						<span
-							class="inline-block h-4 w-10 rounded bg-slate-700/90 animate-pulse"
+							class="{DS_SKELETON_CLASSES.base} {DS_SKELETON_CLASSES.shimmer} inline-block h-4 w-10 max-w-[2.5rem]"
 							aria-hidden="true"
 							data-testid="{testId}-count-skeleton"
 						></span>
 					{/if}
 				{/if}
 			</h2>
-			<p class="mt-1 text-[11px] text-slate-400/95 leading-snug line-clamp-1" title={subheader}>{subheader}</p>
+			<p class="{DS_ENTITY_BOARD_CLASSES.registrySubtitle}" title={subheader}>{subheader}</p>
 		</div>
 		<div class="flex flex-wrap items-center gap-2 shrink-0">
 			<button
 				type="button"
-				class="text-xs px-3 py-1.5 rounded-lg border border-slate-600/80 text-slate-200 hover:bg-slate-800/90 hover:border-slate-500 disabled:opacity-50 transition-colors"
+				class="{DS_BTN_CLASSES.ghost} !px-3 !py-1.5 !text-xs"
 				disabled={loading || !token || isPlaceholder}
 				data-testid="{testId}-refresh"
 				on:click={() => void load()}
@@ -408,8 +366,7 @@
 			</button>
 			<button
 				type="button"
-				class="px-3.5 py-1.5 rounded-lg text-xs font-bold tracking-wide uppercase disabled:opacity-50 disabled:cursor-not-allowed
-				       border border-cyan-500/50 bg-gradient-to-b from-cyan-600/90 to-cyan-700/90 text-white shadow-[0_2px_12px_-4px_rgba(34,211,238,0.45)] hover:from-cyan-500 hover:to-cyan-600"
+				class="{DS_BTN_CLASSES.primary} !px-3.5 !py-1.5 !text-xs !font-bold !tracking-wide !uppercase"
 				data-testid="{testId}-add"
 				disabled={isPlaceholder || loading || !token}
 				title={isPlaceholder
@@ -424,47 +381,50 @@
 
 	<div class="flex flex-col flex-1 min-h-0">
 		<div
-			class="entity-registry-roster flex-1 flex flex-col min-h-0 overflow-y-auto px-4 pt-3 pb-2 {layoutVariant === 'anchored'
-				? 'max-h-none'
-				: expanded
-					? 'max-h-[min(60vh,28rem)]'
-					: ''}"
+			class="entity-registry-roster {rosterBodyClass()}"
 			bind:this={panelBodyEl}
 			data-testid="{testId}-body"
 		>
 			{#if isPlaceholder}
-				<div
-					class="rounded-xl border border-dashed border-violet-500/35 bg-slate-950/35 px-3 py-4 text-center min-h-[5.5rem] flex flex-col items-center justify-center gap-1.5"
-					data-testid="{testId}-placeholder"
-				>
-					<p class="text-xs font-semibold text-slate-200">Phone registry</p>
-					<p class="text-[10px] text-slate-500 leading-snug max-w-[18rem]">
-						Not available this build (P69-10). List/create when Case Engine ships the contract.
+				<div class="{DS_ENTITY_BOARD_CLASSES.registryPlaceholder}" data-testid="{testId}-placeholder">
+					<p class="ds-type-body font-semibold">Phone registry (board)</p>
+					<p class="ds-type-meta max-w-[22rem] opacity-90">
+						<strong class="font-semibold text-[var(--ds-text-primary)]">Why this is empty:</strong> Case Engine does not
+						expose a committed phone list or add-phone action in this column yet (P69-10). You cannot start phone focus
+						from this board panel.
 					</p>
+					{#if entityKind === 'PHONE'}
+						<div
+							class="mt-3 rounded-lg border border-dashed border-[var(--ds-border-subtle)] bg-[var(--ds-surface-raised)]/40 px-3 py-2.5 text-left"
+							data-testid="{testId}-phone-action-path"
+							role="status"
+						>
+							<p class="ds-type-body font-semibold">Phone investigation — what works today</p>
+							<p class="ds-type-meta mt-1 max-w-[22rem] opacity-90 leading-relaxed">
+								<strong class="font-semibold text-[var(--ds-text-primary)]">Supported path:</strong> Select the
+								<strong class="font-semibold">Intelligence</strong> sub-tab at the top of this page, run a search with the
+								phone number, then use the entity evidence focus control on a matching result row (evidence-backed
+								phone focus). This board column is not part of that path until the committed phone registry ships.
+							</p>
+						</div>
+					{/if}
 				</div>
 			{:else if loadError}
 				<div data-testid="{testId}-error">
 					<CaseErrorState title="Unable to load registry" message={loadError} onRetry={onRetry} />
 				</div>
 			{:else if loading && rawRows.length === 0}
-				<div
-					class="flex items-center justify-center gap-2 py-7"
-					data-testid="{testId}-loading"
-					aria-busy="true"
-				>
-					<Spinner className="size-4 text-slate-500" />
-					<span class="text-xs text-slate-500">Loading roster…</span>
+				<div class="{DS_ENTITY_BOARD_CLASSES.registryLoading}" data-testid="{testId}-loading" aria-busy="true">
+					<Spinner className="size-4 opacity-70" />
+					<span class="ds-type-meta">Loading roster…</span>
 				</div>
 			{:else if rawRows.length === 0}
-				<div
-					class="rounded-xl border border-slate-600/40 bg-slate-950/45 px-3 py-3 text-center"
-					data-testid="{testId}-empty"
-				>
-					<p class="text-xs font-medium text-slate-200">No {emptyKindWord} on the board yet.</p>
-					<p class="text-[10px] text-slate-500 mt-0.5">Register with Add, or use intake below for staging first.</p>
+				<div class="{DS_ENTITY_BOARD_CLASSES.registryEmpty}" data-testid="{testId}-empty">
+					<p class="ds-type-body font-medium">No {emptyKindWord} on the board yet.</p>
+					<p class="ds-type-meta mt-1 opacity-90">Register with Add, or use intake below for staging first.</p>
 					<button
 						type="button"
-						class="mt-2 text-xs font-semibold text-cyan-400 hover:text-cyan-300"
+						class="{DS_INTELLIGENCE_CLASSES.inlineLink} mt-2 text-xs font-semibold"
 						data-testid="{testId}-empty-add"
 						on:click={requestDirectCreate}
 					>
@@ -472,14 +432,11 @@
 					</button>
 				</div>
 			{:else if sortedRows.length === 0}
-				<div
-					class="rounded-xl border border-slate-600/35 bg-slate-950/40 px-3 py-3 text-center"
-					data-testid="{testId}-filtered-empty"
-				>
-					<p class="text-xs text-slate-300">No matches in this roster slice.</p>
+				<div class="{DS_ENTITY_BOARD_CLASSES.registryFilteredEmpty}" data-testid="{testId}-filtered-empty">
+					<p class="ds-type-body">No matches in this roster slice.</p>
 					<button
 						type="button"
-						class="mt-1.5 text-[11px] font-medium text-cyan-400 hover:underline"
+						class="{DS_INTELLIGENCE_CLASSES.inlineLink} mt-1.5 text-[11px] font-medium"
 						data-testid="{testId}-clear-search"
 						on:click={() => {
 							searchQuery = '';
@@ -489,7 +446,7 @@
 					</button>
 				</div>
 			{:else}
-				<ul class="flex flex-col gap-2 flex-1 min-h-0" role="list" data-testid="{testId}-list">
+				<ul class="{DS_ENTITY_BOARD_CLASSES.registryList}" role="list" data-testid="{testId}-list">
 				{#each displayRows as ent (ent.id)}
 					{@const secondary = buildRegistrySecondaryLine(ent.entity_kind, ent)}
 					{@const portrait = ent.entity_kind === 'PERSON' ? entityPortraitUrl(ent.core_attributes ?? {}) : null}
@@ -502,10 +459,9 @@
 							aria-label="Open detail for {ent.display_label} (committed entity)"
 							aria-pressed={isSelected ? 'true' : 'false'}
 							data-testid="{testId}-row-{ent.id}"
-							class="flex w-full min-h-[44px] items-stretch gap-3 rounded-xl border text-left transition-all duration-200 px-3 py-2.5 cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/80 shadow-sm
-								{isSelected
-								? 'border-cyan-400/55 bg-gradient-to-r from-cyan-950/50 to-slate-950/60 ring-1 ring-cyan-400/35 shadow-[0_0_0_1px_rgba(34,211,238,0.12)]'
-								: 'border-slate-600/55 bg-slate-950/35 hover:border-slate-500/70 hover:bg-slate-800/55 hover:shadow-md'}"
+							class="{DS_ENTITY_BOARD_CLASSES.registryRow} {isSelected
+								? DS_ENTITY_BOARD_CLASSES.registryRowSelected
+								: ''}"
 							on:click={() => onRowClick(ent)}
 							on:keydown={(e) => onRowKeydown(e, ent)}
 						>
@@ -515,13 +471,13 @@
 										<img
 											src={portrait}
 											alt=""
-											class="h-10 w-10 rounded-full object-cover border border-slate-500/60 bg-slate-800 ring-1 ring-sky-400/15 shadow-md"
+											class="{DS_ENTITY_BOARD_CLASSES.registryPortrait}"
 											loading="lazy"
 											on:error={() => markPortraitFailed(ent.id)}
 										/>
 									{:else}
 										<span
-											class="{leadingTileClasses('PERSON')} rounded-full !w-10 !h-10 text-[11px]"
+											class="{leadingTileClasses('PERSON')} !h-10 !w-10 rounded-full !text-[11px]"
 											aria-hidden="true"
 										>
 											{initialsFromDisplayLabel(ent.display_label)}
@@ -535,21 +491,19 @@
 							</div>
 							<div class="min-w-0 flex-1 py-0.5">
 								<div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-									<span class="text-sm font-medium text-slate-100 line-clamp-2 break-words">{ent.display_label}</span>
+									<span class="{DS_ENTITY_BOARD_CLASSES.registryRowLabel}">{ent.display_label}</span>
 									{#if ent.deleted_at}
-										<span
-											class="text-[10px] font-medium px-1.5 py-0.5 rounded bg-amber-900/40 text-amber-100 border border-amber-800/50"
-										>Retired</span>
+										<span class="{DS_ENTITY_BOARD_CLASSES.registryRetiredPill}">Retired</span>
 									{/if}
 								</div>
 								{#if secondary}
-									<p class="mt-0.5 text-[11px] text-slate-400 line-clamp-1">{secondary}</p>
+									<p class="{DS_ENTITY_BOARD_CLASSES.registryRowSecondary}">{secondary}</p>
 								{/if}
-								<p class="mt-0.5 text-[9px] text-slate-500/70 font-mono truncate" title={ent.id}>
+								<p class="{DS_ENTITY_BOARD_CLASSES.registryRowId}" title={ent.id}>
 									{ent.id}
 								</p>
 							</div>
-							<div class="shrink-0 flex items-center text-slate-500 text-sm" aria-hidden="true">›</div>
+							<div class="{DS_ENTITY_BOARD_CLASSES.registryChevron}" aria-hidden="true">›</div>
 						</div>
 					</li>
 				{/each}
@@ -558,14 +512,11 @@
 		</div>
 
 		{#if !isPlaceholder}
-			<footer
-				class="shrink-0 border-t border-slate-700/50 bg-slate-950/55 px-3 py-2 flex flex-wrap items-center gap-x-2 gap-y-1.5"
-				data-testid="{testId}-toolbar"
-			>
+			<footer class="{DS_ENTITY_BOARD_CLASSES.registryFooter}" data-testid="{testId}-toolbar">
 				<input
 					id="{testId}-search"
 					type="search"
-					class={compactSearchClass}
+					class="{DS_ENTITY_BOARD_CLASSES.registryFooterSearch}"
 					placeholder={searchPlaceholder}
 					aria-label="Search loaded roster rows"
 					title="Client-side filter on rows already loaded in this panel"
@@ -575,7 +526,7 @@
 				/>
 				<select
 					id="{testId}-filter"
-					class="{compactSelectClass} w-[7.25rem] sm:w-auto min-w-[6.5rem]"
+					class="{DS_ENTITY_BOARD_CLASSES.registryFooterSelect} w-[7.25rem] min-w-[6.5rem] sm:w-auto"
 					aria-label="List scope"
 					title={filterHelp}
 					data-testid="{testId}-filter"
@@ -587,7 +538,7 @@
 				</select>
 				<select
 					id="{testId}-sort"
-					class="{compactSelectClass} w-[7.5rem]"
+					class="{DS_ENTITY_BOARD_CLASSES.registryFooterSelect} w-[7.5rem]"
 					aria-label="Sort roster"
 					data-testid="{testId}-sort"
 					bind:value={sortKey}
@@ -598,7 +549,7 @@
 				{#if layoutVariant !== 'anchored' && hasMoreRows && loadCompletedOnce && !loadError && sortedRows.length > 0}
 					<button
 						type="button"
-						class="text-[11px] font-semibold px-2 py-1 rounded-md border border-slate-600/80 text-slate-300 hover:bg-slate-800/90 ml-auto sm:ml-0"
+						class="{DS_ENTITY_BOARD_CLASSES.registryViewAll} ml-auto sm:ml-0"
 						data-testid="{testId}-view-all"
 						on:click={toggleExpanded}
 					>

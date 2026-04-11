@@ -13,6 +13,7 @@
 	import EntitiesRegistryPanel from '$lib/components/case/EntitiesRegistryPanel.svelte';
 	import CaseIntelligenceStage1Panel from '$lib/components/case/CaseIntelligenceStage1Panel.svelte';
 	import CaseIntelligenceAssociationsPanel from '$lib/components/case/CaseIntelligenceAssociationsPanel.svelte';
+	import { DS_ENTITY_BOARD_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import {
 		resolvePhonePanelMode,
 		type EntitiesBoardSnapshot,
@@ -105,15 +106,15 @@
 </script>
 
 <div
-	class="entities-overview-board min-h-0 flex flex-col text-slate-100 [background:radial-gradient(120%_80%_at_50%_-10%,rgba(14,165,233,0.08),transparent_55%),linear-gradient(to_bottom,rgb(2,6,23),rgb(15,23,42))]"
+	class="{DS_ENTITY_BOARD_CLASSES.root} entities-overview-board min-h-0 flex flex-col"
 	data-testid="entities-overview-board-shell"
 >
 	<div
-		class="flex-1 min-h-0 overflow-y-auto overflow-x-hidden"
+		class="{DS_ENTITY_BOARD_CLASSES.scroll} flex-1 min-h-0"
 		bind:this={boardScrollEl}
 		data-testid="entities-board-scroll"
 	>
-		<div class="max-w-[1600px] mx-auto px-4 md:px-8 pb-16 pt-4">
+		<div class="{DS_ENTITY_BOARD_CLASSES.inner}">
 			<EntitiesBoardToolbar
 				{caseId}
 				{caseTitle}
@@ -127,15 +128,9 @@
 				onToggleIntake={() => (intakeExpanded = !intakeExpanded)}
 			/>
 
-			<div
-				class="h-px w-full bg-gradient-to-r from-transparent via-slate-600/40 to-transparent mb-9 md:mb-11"
-				aria-hidden="true"
-			></div>
+			<div class="{DS_ENTITY_BOARD_CLASSES.divider}" aria-hidden="true"></div>
 
-			<div
-				class="grid grid-cols-1 lg:grid-cols-2 gap-7 lg:gap-8 auto-rows-fr [&>*]:min-h-0"
-				data-testid="entities-registry-grid"
-			>
+			<div class="{DS_ENTITY_BOARD_CLASSES.grid} auto-rows-fr [&>*]:min-h-0" data-testid="entities-registry-grid">
 				<EntitiesRegistryPanel
 					bind:this={personPanel}
 					{caseId}
@@ -185,7 +180,7 @@
 					entityKind="PHONE"
 					panelMode={resolvedPhoneMode}
 					heading="Phone numbers"
-					subheader="Fourth registry — gated until Case Engine exposes committed phone list/create (P69-10)."
+					subheader="Placeholder — no committed phone list here yet (P69-10). For phone evidence focus, use Intelligence mode search, not this column."
 					testId="entities-registry-phone"
 					{refreshNonce}
 					{selectedEntityId}
@@ -194,13 +189,13 @@
 				/>
 			</div>
 
-			<section class="mt-14 md:mt-16 pt-6 border-t border-slate-800/60 space-y-4" data-testid="entities-board-section-connections">
-				<p class="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500 px-0.5">Association edges</p>
+			<section class="{DS_ENTITY_BOARD_CLASSES.section} space-y-4" data-testid="entities-board-section-connections">
+				<p class="{DS_ENTITY_BOARD_CLASSES.sectionLabel}">Association edges</p>
 				<EntitiesConnectionsSummary bind:this={connectionsComp} {caseId} {token} />
 			</section>
 
-			<section class="mt-10 md:mt-12 space-y-3" data-testid="entities-board-section-intake">
-				<p class="text-[11px] font-bold uppercase tracking-[0.2em] text-slate-500 px-0.5">Proposal &amp; staging</p>
+			<section class="mt-10 space-y-3 md:mt-12" data-testid="entities-board-section-intake">
+				<p class="{DS_ENTITY_BOARD_CLASSES.sectionLabel}">Proposal &amp; staging</p>
 				<EntitiesIntakeSubordinate bind:expanded={intakeExpanded}>
 					<div class="space-y-4" data-testid="entities-intake-panels">
 						<CaseIntelligenceStage1Panel {caseId} {token} />

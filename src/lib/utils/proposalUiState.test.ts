@@ -528,20 +528,20 @@ describe('statusBadgeClasses', () => {
 		}
 	});
 
-	it('pending uses amber color scheme', () => {
-		expect(statusBadgeClasses('pending')).toContain('amber');
+	it('pending maps to DS warning badge', () => {
+		expect(statusBadgeClasses('pending')).toContain('ds-badge-warning');
 	});
 
-	it('approved uses blue color scheme', () => {
-		expect(statusBadgeClasses('approved')).toContain('blue');
+	it('approved maps to DS info badge', () => {
+		expect(statusBadgeClasses('approved')).toContain('ds-badge-info');
 	});
 
-	it('rejected uses red color scheme', () => {
-		expect(statusBadgeClasses('rejected')).toContain('red');
+	it('rejected maps to DS danger badge', () => {
+		expect(statusBadgeClasses('rejected')).toContain('ds-badge-danger');
 	});
 
-	it('committed uses green color scheme', () => {
-		expect(statusBadgeClasses('committed')).toContain('green');
+	it('committed maps to DS success badge', () => {
+		expect(statusBadgeClasses('committed')).toContain('ds-badge-success');
 	});
 });
 
@@ -554,31 +554,28 @@ describe('tabClasses', () => {
 		expect(active).not.toBe(inactive);
 	});
 
-	it('active pending tab contains amber', () => {
-		expect(tabClasses('pending', 'pending')).toContain('amber');
+	it('active pending tab uses DS active-pending modifier', () => {
+		expect(tabClasses('pending', 'pending')).toContain('ds-proposals-tab--active-pending');
 	});
 
-	it('active committed tab contains green', () => {
-		expect(tabClasses('committed', 'committed')).toContain('green');
+	it('active committed tab uses DS active-committed modifier', () => {
+		expect(tabClasses('committed', 'committed')).toContain('ds-proposals-tab--active-committed');
 	});
 
-	it('inactive tab contains transparent border', () => {
-		expect(tabClasses('pending', 'approved')).toContain('transparent');
+	it('inactive tab uses inactive modifier', () => {
+		expect(tabClasses('pending', 'approved')).toContain('ds-proposals-tab--inactive');
 	});
 
-	it('P45-03 — inactive rejected tab uses muted text vs other inactive tabs', () => {
+	it('P45-03 — inactive rejected tab uses muted modifier vs other inactive tabs', () => {
 		const inactiveRejected = tabClasses('rejected', 'pending');
 		const inactivePending = tabClasses('pending', 'approved');
-		expect(inactiveRejected).toContain('text-gray-400');
-		expect(inactiveRejected).toContain('dark:text-gray-500');
-		expect(inactivePending).toContain('text-gray-500');
-		expect(inactivePending).toContain('dark:text-gray-400');
+		expect(inactiveRejected).toContain('ds-proposals-tab--inactive-muted');
+		expect(inactivePending).toContain('ds-proposals-tab--inactive');
+		expect(inactivePending).not.toContain('inactive-muted');
 	});
 
-	it('P45-03 — active rejected tab keeps full red emphasis', () => {
+	it('P45-03 — active rejected tab uses active-rejected modifier', () => {
 		const active = tabClasses('rejected', 'rejected');
-		expect(active).toContain('border-red-500');
-		expect(active).toContain('text-red-700');
-		expect(active).toContain('dark:text-red-400');
+		expect(active).toContain('ds-proposals-tab--active-rejected');
 	});
 });

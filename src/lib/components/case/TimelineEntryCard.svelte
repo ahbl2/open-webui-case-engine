@@ -45,6 +45,14 @@
 	import Download from '$lib/components/icons/Download.svelte';
 	import GarbageBin from '$lib/components/icons/GarbageBin.svelte';
 	import { downloadTimelineEntryExport } from '$lib/caseTimeline/timelineEntryExport';
+	import {
+		DS_BADGE_CLASSES,
+		DS_BTN_CLASSES,
+		DS_CARD_CLASSES,
+		DS_CHIP_CLASSES,
+		DS_TIMELINE_CLASSES,
+		DS_TYPE_CLASSES
+	} from '$lib/case/detectivePrimitiveFoundation';
 
 	export let entry: TimelineEntry;
 	/** Case ID — required for the versions endpoint. */
@@ -70,19 +78,23 @@
 		evidence:     'Evidence'
 	};
 
-	const TYPE_COLORS: Record<string, string> = {
-		note:         'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300',
-		surveillance: 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300',
-		interview:    'bg-purple-50 dark:bg-purple-900/30 text-purple-700 dark:text-purple-300',
-		evidence:     'bg-amber-50 dark:bg-amber-900/30 text-amber-700 dark:text-amber-400'
-	};
-
 	function typeLabel(type: string): string {
 		return TYPE_LABELS[type] ?? type;
 	}
 
-	function typeColor(type: string): string {
-		return TYPE_COLORS[type] ?? 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-300';
+	function timelineTypeBadgeClass(type: string): string {
+		switch (type) {
+			case 'note':
+				return DS_BADGE_CLASSES.neutral;
+			case 'surveillance':
+				return DS_BADGE_CLASSES.info;
+			case 'interview':
+				return DS_BADGE_CLASSES.warning;
+			case 'evidence':
+				return DS_BADGE_CLASSES.success;
+			default:
+				return DS_BADGE_CLASSES.neutral;
+		}
 	}
 
 	function typeBadgeTitle(type: string): string | undefined {
@@ -226,31 +238,31 @@
 	<!-- ── Compact removed-state card (P28-35) ────────────────────────────────── -->
 	<li
 		id={`ce-timeline-entry-${entry.id}`}
-		class="flex flex-col gap-1.5 rounded-lg border border-dashed
-		       border-red-200 dark:border-red-900/50
-		       bg-red-50/20 dark:bg-gray-900
-		       px-4 py-3 opacity-80"
+		class="{DS_TIMELINE_CLASSES.entryRow} ds-timeline-entry-row--removed"
 		data-testid="timeline-entry-deleted"
 		data-entry-id={entry.id}
 	>
+		<div class="{DS_TIMELINE_CLASSES.entrySpine}" aria-hidden="true">
+			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
+		</div>
+		<div class="{DS_TIMELINE_CLASSES.entryBody}">
+			<div class="{DS_CARD_CLASSES.card} flex flex-col gap-1.5 min-w-0">
 		<!-- Meta row: type + time + Removed badge + Restore -->
 		<div class="flex items-center gap-2 flex-wrap">
 			<span
-				class="text-xs font-medium px-1.5 py-0.5 rounded opacity-50 {typeColor(entry.type)}"
+				class="{timelineTypeBadgeClass(entry.type)} opacity-80"
 				title={typeBadgeTitle(entry.type)}
 			>
 				{typeLabel(entry.type)}
 			</span>
 			<time
 				datetime={entry.occurred_at}
-				class="text-xs font-mono text-gray-400 dark:text-gray-600"
+				class="{DS_TYPE_CLASSES.mono}"
 			>
 				{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
 			</time>
 			<span
-				class="text-[10px] font-medium px-1 py-0.5 rounded
-				       bg-red-50 dark:bg-red-900/20
-				       text-red-500 dark:text-red-400"
+				class="{DS_BADGE_CLASSES.danger}"
 				title="This entry has been removed from the active timeline. An ADMIN can restore it."
 				data-testid="timeline-entry-removed-badge"
 			>
@@ -334,11 +346,7 @@
 			{#if onRestoreRequest}
 				<button
 					type="button"
-					class="text-xs font-medium px-2 py-0.5 rounded
-					       bg-green-50 dark:bg-green-900/20
-					       text-green-600 dark:text-green-400
-					       hover:bg-green-100 dark:hover:bg-green-900/40
-					       transition"
+					class="{DS_BTN_CLASSES.secondary}"
 					on:click={onRestoreRequest}
 					title="Restore this entry to the active timeline"
 					data-testid="timeline-entry-restore-button"
@@ -361,7 +369,7 @@
 			{#each splitTextForSearchHighlight(entry.text_original ?? '', searchHighlightNeedle) as seg, hIdx (hIdx)}
 				{#if seg.highlight}
 					<mark
-						class="timeline-search-match bg-amber-100/40 dark:bg-amber-900/20 rounded px-0.5 text-inherit"
+						class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
 					>{seg.text}</mark>
 				{:else}{seg.text}{/if}
 			{/each}
@@ -443,6 +451,9 @@
 			</div>
 		{/if}
 
+			</div>
+		</div>
+
 		<TimelineEntryLinkedImagesViewer
 			show={linkedImagesViewerOpen}
 			{token}
@@ -455,16 +466,20 @@
 	<!-- ── Active entry card ─────────────────────────────────────────────────── -->
 	<li
 		id={`ce-timeline-entry-${entry.id}`}
-		class="flex flex-col gap-2 rounded-lg border border-gray-200 dark:border-gray-700
-		       bg-white dark:bg-gray-900 px-4 py-3 shadow-sm"
+		class="{DS_TIMELINE_CLASSES.entryRow}"
 		data-testid="timeline-entry"
 		data-entry-id={entry.id}
 	>
+		<div class="{DS_TIMELINE_CLASSES.entrySpine}" aria-hidden="true">
+			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
+		</div>
+		<div class="{DS_TIMELINE_CLASSES.entryBody}">
+			<div class="{DS_CARD_CLASSES.card} flex flex-col gap-2 min-w-0">
 		<!-- ── Meta row: type · occurred_at (with seconds) · edited · location ── -->
 		<div class="flex items-center gap-2 flex-wrap">
 			<!-- Type badge -->
 			<span
-				class="text-xs font-medium px-1.5 py-0.5 rounded {typeColor(entry.type)}"
+				class="{timelineTypeBadgeClass(entry.type)}"
 				title={typeBadgeTitle(entry.type)}
 			>
 				{typeLabel(entry.type)}
@@ -473,7 +488,7 @@
 		<!-- occurred_at — seconds included for sub-minute sequence clarity -->
 		<time
 			datetime={entry.occurred_at}
-			class="text-xs font-mono text-gray-600 dark:text-gray-300"
+			class="{DS_TYPE_CLASSES.mono}"
 			title="When this occurred"
 		>
 			{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
@@ -483,11 +498,7 @@
 			{#if isEdited}
 				<button
 					type="button"
-					class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1 py-0.5 rounded
-					       bg-amber-50 dark:bg-amber-900/20
-					       text-amber-600 dark:text-amber-400
-					       hover:bg-amber-100 dark:hover:bg-amber-900/40
-					       cursor-pointer transition"
+					class="{DS_BTN_CLASSES.ghost} text-xs py-0.5 min-h-0"
 					title={historyExpanded
 						? 'Collapse version history'
 						: `Version ${currentVersion} — click to view history`}
@@ -521,7 +532,7 @@
 					at {#each splitTextForSearchHighlight(entry.location_text, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
 						{#if locSeg.highlight}
 							<mark
-								class="timeline-search-match bg-amber-100/40 dark:bg-amber-900/20 rounded px-0.5 text-inherit"
+								class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
 							>{locSeg.text}</mark>
 						{:else}{locSeg.text}{/if}
 					{/each}
@@ -563,9 +574,7 @@
 		{#if isCleaned}
 			<div class="flex items-center gap-2">
 				<span
-					class="text-[10px] font-medium px-1 py-0.5 rounded
-					       bg-violet-50 dark:bg-violet-900/20
-					       text-violet-600 dark:text-violet-400"
+					class="{DS_CHIP_CLASSES.base}"
 					title="AI-assisted text is shown. Use the toggle to see the verbatim original."
 					data-testid="timeline-entry-ai-cleaned"
 				>
@@ -587,7 +596,7 @@
 		<!-- ── Entry body ───────────────────────────────────────────────────────── -->
 		<p
 			bind:this={bodyEl}
-			class="text-sm text-gray-800 dark:text-gray-100 whitespace-pre-wrap leading-relaxed"
+			class="{DS_TYPE_CLASSES.body} whitespace-pre-wrap leading-relaxed"
 			class:line-clamp-4={showBodyClampToggle && !bodyExpanded}
 			class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
 			data-testid="timeline-entry-body"
@@ -595,7 +604,7 @@
 			{#each bodyHighlightSegments as seg, bIdx (bIdx)}
 				{#if seg.highlight}
 					<mark
-						class="timeline-search-match bg-amber-100 text-gray-900 dark:bg-amber-900/55 dark:text-amber-100 rounded px-0.5"
+						class="{DS_TIMELINE_CLASSES.searchMark}"
 					>{seg.text}</mark>
 				{:else}{seg.text}{/if}
 			{/each}
@@ -628,20 +637,18 @@
 		{/if}
 
 	<!-- ── Footer: recorded by · retrospective signal · actions ────────────── -->
-	<div class="flex items-center gap-2 flex-wrap pt-1.5 border-t border-gray-100 dark:border-gray-800 mt-0.5">
-		<span class="text-xs text-gray-400 dark:text-gray-500">
+	<div class="flex items-center gap-2 flex-wrap pt-1.5 border-t border-[color:var(--ds-border-subtle)] mt-0.5">
+		<span class="{DS_TYPE_CLASSES.meta}">
 			Recorded
-			<time datetime={entry.created_at} class="font-mono">
+			<time datetime={entry.created_at} class="{DS_TYPE_CLASSES.mono}">
 				{formatCaseDateTime(entry.created_at)}
 			</time>
-			by <span class="font-medium text-gray-500 dark:text-gray-400">{entry.created_by}</span>
+			by <span class="{DS_TYPE_CLASSES.label}">{entry.created_by}</span>
 		</span>
 
 		{#if isRetrospective}
 			<span
-				class="text-[10px] font-medium px-1 py-0.5 rounded
-				       bg-gray-100 dark:bg-gray-800
-				       text-gray-500 dark:text-gray-400"
+				class="{DS_CHIP_CLASSES.base}"
 				title="Logged approximately {retrospectiveHours} hours after the event occurred."
 				data-testid="timeline-entry-retrospective"
 			>
@@ -653,7 +660,7 @@
 		<div class="ml-auto flex items-center gap-1">
 			<button
 				type="button"
-				class="text-xs font-medium px-2.5 py-1 rounded-md bg-gray-100 dark:bg-gray-800 text-gray-700 dark:text-gray-200 hover:bg-gray-200 dark:hover:bg-gray-700 transition"
+				class="{DS_BTN_CLASSES.secondary}"
 				on:click={onEditRequest}
 				title="Edit this timeline entry"
 				data-testid="timeline-entry-edit-button"
@@ -783,6 +790,9 @@
 				{/if}
 			</div>
 		{/if}
+
+			</div>
+		</div>
 
 		<TimelineEntryLinkedImagesViewer
 			show={linkedImagesViewerOpen}

@@ -11,6 +11,7 @@
 	} from '$lib/apis/caseEngine';
 	import EntitiesRegistryPanel from '$lib/components/case/EntitiesRegistryPanel.svelte';
 	import EntityDetailWorkspace from '$lib/components/case/EntityDetailWorkspace.svelte';
+	import { DS_BTN_CLASSES, DS_ENTITY_BOARD_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import type { EntitiesBoardPanelState } from '$lib/utils/entitiesBoardTypes';
 	import { tick } from 'svelte';
 	import { toast } from 'svelte-sonner';
@@ -165,24 +166,21 @@
 </script>
 
 <div
-	class="entities-focus-mode flex flex-col min-h-[480px] rounded-2xl border border-slate-600/50 bg-gradient-to-b from-slate-950 via-slate-950 to-slate-900 text-slate-100 shadow-[0_20px_60px_-24px_rgba(0,0,0,0.65)] ring-1 ring-white/[0.06] transition-opacity duration-200 motion-reduce:transition-none"
+	class="{DS_ENTITY_BOARD_CLASSES.focusShell} entities-focus-mode motion-reduce:transition-none"
 	data-testid="entities-focus-mode-shell"
 	aria-busy={detailLoading ? 'true' : 'false'}
 >
-	<header
-		class="flex flex-wrap items-center gap-4 border-b border-slate-700/60 px-4 py-3.5 shrink-0 bg-gradient-to-r from-slate-950/98 to-slate-900/90 backdrop-blur-md shadow-[inset_0_-1px_0_0_rgba(255,255,255,0.04)]"
-		data-testid="entities-focus-top-chrome"
-	>
+	<header class="{DS_ENTITY_BOARD_CLASSES.focusHeader}" data-testid="entities-focus-top-chrome">
 		<button
 			type="button"
-			class="inline-flex items-center gap-2 rounded-xl border border-slate-600/80 bg-slate-900/90 px-3.5 py-2 text-sm font-semibold text-slate-100 hover:bg-slate-800/95 focus:outline-none focus-visible:ring-2 focus-visible:ring-cyan-500/80 shadow-sm"
+			class="{DS_ENTITY_BOARD_CLASSES.focusBackBtn}"
 			data-testid="entities-focus-back-to-board"
 			on:click={handleBackRequest}
 		>
 			<span aria-hidden="true">←</span>
 			Back to board
 		</button>
-		<div class="text-xs text-slate-400 truncate max-w-[min(28rem,50vw)] font-medium" data-testid="entities-focus-case-meta">
+		<div class="{DS_ENTITY_BOARD_CLASSES.focusCaseMeta}" data-testid="entities-focus-case-meta">
 			{#if caseNumber}
 				<span class="font-mono text-slate-300">{caseNumber}</span>
 			{/if}
@@ -193,14 +191,8 @@
 		</div>
 	</header>
 
-	<div
-		class="flex-1 min-h-0 flex flex-col lg:flex-row gap-0 lg:gap-0 p-3 lg:p-4 lg:gap-6"
-		data-testid="entities-focus-body"
-	>
-		<div
-			class="min-h-0 flex shrink-0 lg:h-auto lg:pr-2 lg:border-r lg:border-slate-800/80"
-			data-testid="entities-focus-anchored-column"
-		>
+	<div class="{DS_ENTITY_BOARD_CLASSES.focusBody}" data-testid="entities-focus-body">
+		<div class="{DS_ENTITY_BOARD_CLASSES.focusAnchoredCol}" data-testid="entities-focus-anchored-column">
 			<EntitiesRegistryPanel
 				{caseId}
 				{token}
@@ -218,10 +210,7 @@
 			/>
 		</div>
 
-		<section
-			class="flex-1 min-h-0 min-w-0 flex flex-col rounded-2xl border border-slate-600/45 bg-gradient-to-b from-slate-900/55 to-slate-950/90 overflow-hidden shadow-[inset_0_1px_0_0_rgba(255,255,255,0.04)] ring-1 ring-white/[0.04]"
-			data-testid="entities-focus-detail-region"
-		>
+		<section class="{DS_ENTITY_BOARD_CLASSES.focusDetailRegion}" data-testid="entities-focus-detail-region">
 			<EntityDetailWorkspace
 				bind:this={detailWorkspace}
 				{caseId}
@@ -242,22 +231,22 @@
 
 	{#if dirtyGateOpen}
 		<div
-			class="fixed inset-0 z-[110] flex items-center justify-center bg-black/65 px-4"
+			class="{DS_ENTITY_BOARD_CLASSES.focusDirtyGateOverlay}"
 			role="dialog"
 			aria-modal="true"
 			aria-labelledby="entity-dirty-gate-title"
 			data-testid="entity-detail-dirty-gate"
 		>
-			<div class="max-w-md w-full rounded-xl border border-slate-600 bg-slate-900 p-4 shadow-2xl">
-				<h2 id="entity-dirty-gate-title" class="text-sm font-semibold text-slate-100">Unsaved workspace draft</h2>
-				<p class="mt-2 text-xs text-slate-400 leading-relaxed">
+			<div class="{DS_ENTITY_BOARD_CLASSES.focusDirtyGateCard} max-w-md w-full">
+				<h2 id="entity-dirty-gate-title" class="ds-type-body font-semibold">Unsaved workspace draft</h2>
+				<p class="ds-type-meta mt-2 leading-relaxed">
 					The Notes workspace draft is not saved to Case Engine. Save to the server is not available for this field in
 					MVP — discard the draft to continue, or cancel to keep editing.
 				</p>
 				<div class="mt-4 flex flex-col sm:flex-row flex-wrap justify-end gap-2">
 					<button
 						type="button"
-						class="px-3 py-1.5 text-xs rounded-lg border border-slate-600 text-slate-200 hover:bg-slate-800"
+						class="{DS_BTN_CLASSES.ghost} !text-xs"
 						data-testid="entity-detail-dirty-cancel"
 						on:click={dirtyGateCancel}
 					>
@@ -265,7 +254,7 @@
 					</button>
 					<button
 						type="button"
-						class="px-3 py-1.5 text-xs rounded-lg border border-slate-500 text-slate-300 hover:bg-slate-800 disabled:opacity-40"
+						class="{DS_BTN_CLASSES.secondary} !text-xs"
 						disabled
 						title="No persisted entity fields are editable in this workspace draft MVP."
 						data-testid="entity-detail-dirty-save-disabled"
@@ -274,7 +263,7 @@
 					</button>
 					<button
 						type="button"
-						class="px-3 py-1.5 text-xs rounded-lg border border-amber-700/60 bg-amber-950/35 text-amber-100 hover:bg-amber-950/55"
+						class="{DS_BTN_CLASSES.danger} !text-xs"
 						data-testid="entity-detail-dirty-discard"
 						on:click={() => void dirtyGateDiscard()}
 					>

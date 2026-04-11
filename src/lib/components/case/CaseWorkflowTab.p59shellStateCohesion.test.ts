@@ -30,12 +30,13 @@ describe('CaseWorkflowTab P59-07 shell state cohesion', () => {
 		expect(tabSource).toContain('data-testid="workflow-proposals-state-shell"');
 		const shellAfterPanel = tabSource.indexOf('data-testid="workflow-proposals-state-shell"', panel);
 		expect(shellAfterPanel).toBeGreaterThan(panel);
-		expect(tabSource.slice(panel, panel + 2500)).toMatch(/proposalsLoading[\s\S]*?workflow-proposals-state-shell/);
+		// Snippet for proposal rows precedes loading branch — need a wider slice than P59-07 originally assumed.
+		expect(tabSource.slice(panel, panel + 20000)).toMatch(/proposalsLoading[\s\S]*?workflow-proposals-state-shell/);
 	});
 
 	it('uses chip-style attention cues for list load failure and loading (not floating text)', () => {
-		expect(tabSource).toMatch(/workflow-attention-list-error[\s\S]*?rounded-md border/);
-		expect(tabSource).toMatch(/workflow-attention-list-loading[\s\S]*?rounded-md border/);
+		expect(tabSource).toMatch(/workflow-attention-list-error[\s\S]*?DS_WORKFLOW_CLASSES\.attentionChip/);
+		expect(tabSource).toMatch(/workflow-attention-list-loading[\s\S]*?DS_WORKFLOW_CLASSES\.attentionChip/);
 	});
 
 	it('keeps list section as flex column for coherent vertical rhythm with state shells', () => {

@@ -673,10 +673,10 @@
 				{/if}
 
 				{#if loaded}
-					<!-- Main content: when unified shell, offset by full sidebar or rail (4.5rem) when collapsed; else OWUI behavior. -->
+					<!-- Main content: when unified shell, offset by full sidebar or rail (--sidebar-rail-width) when collapsed; else OWUI behavior. -->
 					<div
 						class="flex-1 min-w-0 min-h-0 h-full flex flex-col overflow-hidden {isUnifiedSidebar
-							? ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : 'md:ml-[4.5rem]')
+							? ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : 'md:ml-[var(--sidebar-rail-width)]')
 							: ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : '')}"
 						data-testid="app-main-content-pane"
 					>
@@ -692,7 +692,7 @@
 				{:else}
 					<div
 						class="w-full flex-1 h-full flex items-center justify-center {isUnifiedSidebar
-							? ($showSidebar ? 'md:max-w-[calc(100%-var(--sidebar-width))]' : 'md:max-w-[calc(100%-4.5rem)]')
+							? ($showSidebar ? 'md:max-w-[calc(100%-var(--sidebar-width))]' : 'md:max-w-[calc(100%-var(--sidebar-rail-width))]')
 							: ($showSidebar ? 'md:max-w-[calc(100%-var(--sidebar-width))]' : '')}"
 					>
 						<Spinner className="size-5" />

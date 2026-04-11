@@ -72,6 +72,15 @@
 		isDocumentIngestEditDirtyForProposal
 	} from '$lib/utils/proposalDocumentIngestEditGuard';
 	import { isStaleProposalsLoadMoreAppend } from '$lib/utils/proposalListLoadMoreStaleGuard';
+	import {
+		DS_BANNER_CLASSES,
+		DS_BTN_CLASSES,
+		DS_EMPTY_CLASSES,
+		DS_PROPOSALS_CLASSES,
+		DS_STATUS_SURFACE_CLASSES,
+		DS_STATUS_TEXT_CLASSES,
+		DS_TYPE_CLASSES
+	} from '$lib/case/detectivePrimitiveFoundation';
 
 	// ── Props ──────────────────────────────────────────────────────────────────
 
@@ -987,17 +996,17 @@
 >
 
 	<!-- ── HEADER ──────────────────────────────────────────────────────────── -->
-	<div class="flex items-center justify-between px-3 pt-3 pb-2 shrink-0 gap-2">
+	<div class="{DS_PROPOSALS_CLASSES.toolbar}">
 		{#if layout === 'compact'}
-			<span class="font-semibold text-gray-700 dark:text-gray-300 text-xs uppercase tracking-wide">
+			<span class="{DS_TYPE_CLASSES.label}">
 				Proposals
 			</span>
 		{:else}
-			<span class="text-[11px] text-gray-500 dark:text-gray-400">Review queue</span>
+			<span class="{DS_TYPE_CLASSES.meta}">Review queue</span>
 		{/if}
 		<button
 			type="button"
-			class="text-xs text-blue-600 dark:text-blue-400 hover:underline disabled:opacity-50 shrink-0"
+			class="{DS_BTN_CLASSES.ghost} text-xs shrink-0"
 			on:click={() => void loadProposals()}
 			disabled={loading || docEditLossDialogShow}
 			data-testid="proposals-refresh-btn"
@@ -1008,9 +1017,7 @@
 	</div>
 
 	<!-- ── STATUS TAB BAR (P45-02 — workflow vs outcome visual grouping); P45-08 — before Type/Search -->
-	<div
-		class="flex shrink-0 flex-nowrap items-stretch border-b border-gray-200 dark:border-gray-700 overflow-x-auto bg-gray-50 dark:bg-gray-900"
-	>
+	<div class="{DS_PROPOSALS_CLASSES.tabStrip}">
 		<div class="flex items-stretch min-w-0" data-testid="proposal-tabs-workflow-group">
 			<button
 				type="button"
@@ -1041,7 +1048,7 @@
 			</button>
 		</div>
 		<div
-			class="w-px shrink-0 self-stretch bg-gray-200 dark:bg-gray-600 mx-2 sm:mx-3"
+			class="{DS_PROPOSALS_CLASSES.tabDivider}"
 			aria-hidden="true"
 			data-testid="proposal-tabs-workflow-outcome-divider"
 		/>
@@ -1058,31 +1065,26 @@
 		</div>
 	</div>
 
-	<div
-		class="shrink-0 px-3 py-2 text-[10px] leading-snug text-gray-500 dark:text-gray-500 border-b border-gray-200 dark:border-gray-800 bg-white/70 dark:bg-gray-950/40"
-		data-testid="proposal-status-tabs-hint"
-	>
-		<strong class="font-medium text-gray-600 dark:text-gray-400">Workflow vs outcome:</strong>
-		<strong class="font-medium text-gray-600 dark:text-gray-400">Pending</strong>, <strong
-			class="font-medium text-gray-600 dark:text-gray-400">Approved</strong
-		>, and <strong class="font-medium text-gray-600 dark:text-gray-400">Rejected</strong> — review queues only.
-		<strong class="font-medium text-gray-600 dark:text-gray-400">Commit</strong> writes the official case
-		record; <strong class="font-medium text-gray-600 dark:text-gray-400">Committed</strong> — outcomes already
+	<div class="{DS_PROPOSALS_CLASSES.doctrineBand}" data-testid="proposal-status-tabs-hint">
+		<strong class="font-medium text-[color:var(--ds-text-primary)]">Workflow vs outcome:</strong>
+		<strong class="font-medium text-[color:var(--ds-text-primary)]">Pending</strong>, <strong
+			class="font-medium text-[color:var(--ds-text-primary)]">Approved</strong
+		>, and <strong class="font-medium text-[color:var(--ds-text-primary)]">Rejected</strong> — review queues only.
+		<strong class="font-medium text-[color:var(--ds-text-primary)]">Commit</strong> writes the official case
+		record; <strong class="font-medium text-[color:var(--ds-text-primary)]">Committed</strong> — outcomes already
 		on the record.
 	</div>
 
 	<!-- ── TYPE FILTER ─────────────────────────────────────────────────────── -->
-	<div
-		class="flex items-center gap-2 px-3 py-1.5 shrink-0 border-b border-gray-200 dark:border-gray-800 bg-gray-50/80 dark:bg-gray-900/50"
-	>
-		<label for="proposal-type-filter-{caseId}" class="text-[10px] text-gray-500 dark:text-gray-400 shrink-0"
+	<div class="{DS_PROPOSALS_CLASSES.filterRow}">
+		<label for="proposal-type-filter-{caseId}" class="{DS_TYPE_CLASSES.label} shrink-0"
 			>Type</label
 		>
 		<select
 			id="proposal-type-filter-{caseId}"
 			bind:value={typeFilter}
 			on:change={() => void onTypeFilterChange()}
-			class="text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 py-0.5 px-1.5 max-w-[11rem]"
+			class="{DS_PROPOSALS_CLASSES.formControl} text-[11px] py-0.5 max-w-[11rem]"
 			data-testid="proposal-type-filter"
 			title="Limit the list to all proposal types, timeline only, or note only (current status tab)"
 		>
@@ -1093,10 +1095,7 @@
 	</div>
 
 	<!-- P43-10 search; P45-04 scope copy; P45-10 — reserved height on Rejected/Committed (no layout shift) -->
-	<div
-		class="shrink-0 flex flex-col min-h-[5.5rem] border-b border-gray-200 dark:border-gray-800 bg-white/60 dark:bg-gray-950/50"
-		data-testid="proposals-search-region"
-	>
+	<div class="{DS_PROPOSALS_CLASSES.searchControls}" data-testid="proposals-search-region">
 		{#if activeTab === 'pending' || activeTab === 'approved'}
 			<div
 				class="flex flex-col gap-1.5 px-3 py-2 shrink-0"
@@ -1104,7 +1103,7 @@
 				aria-label="Search proposal text on this tab for this case"
 			>
 				<div class="flex flex-wrap items-center gap-2 w-full">
-					<label for="proposals-search-{caseId}" class="text-[10px] text-gray-500 dark:text-gray-400 shrink-0"
+					<label for="proposals-search-{caseId}" class="{DS_TYPE_CLASSES.label} shrink-0"
 						>Search</label
 					>
 					<input
@@ -1113,13 +1112,13 @@
 						bind:value={listSearchDraft}
 						on:keydown={onProposalSearchKeydown}
 						placeholder="Substring in proposal text (this case, this tab, Type filter applies)…"
-						class="flex-1 min-w-[8rem] text-[11px] rounded border border-gray-300 dark:border-gray-600 bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-200 py-0.5 px-1.5"
+						class="flex-1 min-w-[8rem] {DS_PROPOSALS_CLASSES.formControl} text-[11px] py-0.5"
 						data-testid="proposals-search-input"
 						autocomplete="off"
 					/>
 					<button
 						type="button"
-						class="shrink-0 px-2 py-0.5 rounded text-[11px] font-medium bg-blue-600 hover:bg-blue-700 text-white disabled:opacity-50"
+						class="shrink-0 {DS_BTN_CLASSES.primary} text-[11px] py-0.5 px-2"
 						on:click={() => void applyProposalSearch()}
 						disabled={loading || docEditLossDialogShow}
 						data-testid="proposals-search-submit"
@@ -1130,7 +1129,7 @@
 					{#if listSearchApplied}
 						<button
 							type="button"
-							class="shrink-0 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-800 dark:hover:text-gray-200"
+							class="shrink-0 {DS_BTN_CLASSES.ghost} text-[11px]"
 							on:click={() => void clearProposalSearch()}
 							disabled={loading || docEditLossDialogShow}
 							data-testid="proposals-search-clear"
@@ -1138,26 +1137,26 @@
 						>
 							Clear
 						</button>
-						<span class="text-[10px] text-gray-500 dark:text-gray-400 shrink-0" data-testid="proposals-search-active">
+						<span class="{DS_TYPE_CLASSES.meta} shrink-0" data-testid="proposals-search-active">
 							Filtering by: “{listSearchApplied}”
 						</span>
 					{/if}
 				</div>
 				<p
-					class="text-[10px] leading-snug text-gray-500 dark:text-gray-400 pl-0"
+					class="{DS_TYPE_CLASSES.meta} leading-snug pl-0 m-0"
 					data-testid="proposals-search-scope-hint"
 				>
 					{#if activeTab === 'pending'}
-						<strong class="font-medium text-gray-600 dark:text-gray-300">Scope:</strong>
-						this case’s <strong class="font-medium text-gray-600 dark:text-gray-300">Pending</strong> proposals
+						<strong class="font-medium text-[color:var(--ds-text-primary)]">Scope:</strong>
+						this case’s <strong class="font-medium text-[color:var(--ds-text-primary)]">Pending</strong> proposals
 						only; case-insensitive substring on the saved proposal payload text. Respects the
-						<strong class="font-medium text-gray-600 dark:text-gray-300">Type</strong> row above. No search on
+						<strong class="font-medium text-[color:var(--ds-text-primary)]">Type</strong> row above. No search on
 						Approved (switch tab), Rejected, or Committed.
 					{:else}
-						<strong class="font-medium text-gray-600 dark:text-gray-300">Scope:</strong>
-						this case’s <strong class="font-medium text-gray-600 dark:text-gray-300">Approved</strong> proposals
+						<strong class="font-medium text-[color:var(--ds-text-primary)]">Scope:</strong>
+						this case’s <strong class="font-medium text-[color:var(--ds-text-primary)]">Approved</strong> proposals
 						only; case-insensitive substring on the saved proposal payload text. Respects the
-						<strong class="font-medium text-gray-600 dark:text-gray-300">Type</strong> row above. No search on
+						<strong class="font-medium text-[color:var(--ds-text-primary)]">Type</strong> row above. No search on
 						Pending (switch tab), Rejected, or Committed.
 					{/if}
 				</p>
@@ -1173,23 +1172,23 @@
 
 	{#if activeProposals.length > 0}
 		<div
-			class="shrink-0 px-3 py-1.5 text-[10px] leading-snug text-gray-600 dark:text-gray-400 border-b border-gray-100 dark:border-gray-800 bg-gray-50/50 dark:bg-gray-900/30"
+			class="shrink-0 px-3 py-1.5 {DS_TYPE_CLASSES.meta} border-b border-[color:var(--ds-border-subtle)] bg-[color:var(--ds-bg-muted)]"
 			data-testid="proposal-queue-mix-summary"
 		>
-			<span class="font-medium text-gray-700 dark:text-gray-300">This page:</span>
+			<span class="font-medium text-[color:var(--ds-text-primary)]">This page:</span>
 			{queueMixSummary}
 		</div>
 	{/if}
 
 	{#if !loadError && totalForActiveTab > 0}
 		<div
-			class="shrink-0 px-3 py-1.5 border-b border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-950"
+			class="shrink-0 px-3 py-1.5 border-b border-[color:var(--ds-border-subtle)] bg-[color:var(--ds-bg-surface)]"
 			data-testid="proposals-list-progress"
 		>
-			<span class="text-[10px] text-gray-500 dark:text-gray-400">
+			<span class="{DS_TYPE_CLASSES.meta}">
 				Showing {activeProposals.length} of {totalForActiveTab}
 				{#if hasMore}
-					<span class="text-gray-400 dark:text-gray-500"> · scroll to load more</span>
+					<span class="text-[color:var(--ds-text-muted)]"> · scroll to load more</span>
 				{/if}
 			</span>
 		</div>
@@ -1198,27 +1197,29 @@
 	<!-- P40-01A: unmistakable when model saw only a prefix of extracted text -->
 	{#if truncatedDocIngestOnActiveTab}
 		<div
-			class="shrink-0 mx-2 mt-1 mb-1 px-3 py-2.5 rounded-md border-2 border-amber-500 dark:border-amber-500 bg-amber-50 dark:bg-amber-950/60 text-[11px] leading-snug text-amber-950 dark:text-amber-50"
+			class="{DS_BANNER_CLASSES.base} {DS_BANNER_CLASSES.denseModifier} {DS_STATUS_SURFACE_CLASSES.warning} shrink-0 mx-2 mt-1 mb-1 px-3 py-2.5"
 			role="alert"
 			data-testid="document-ingest-truncation-banner"
 		>
-			<strong class="font-semibold block mb-1">Partial file used for these proposals</strong>
+			<strong class="font-semibold block mb-1 {DS_STATUS_TEXT_CLASSES.warning}">Partial file used for these proposals</strong>
+			<span class="{DS_BANNER_CLASSES.body} {DS_STATUS_TEXT_CLASSES.warning} text-[11px] leading-snug">
 			Only the beginning of the extracted text was sent to the model. This list does <strong>not</strong> reflect the
-			whole file — important events that appear later in the document may be missing. 									Open the full extracted text on
+			whole file — important events that appear later in the document may be missing. Open the full extracted text on
 			<strong>Case Files</strong> before you approve (workflow) or commit (official record).
+			</span>
 		</div>
 	{/if}
 
 	<!-- ── BULK ACTIONS BAR ────────────────────────────────────────────────── -->
 	{#if anySelectedOnTab}
 		<div
-			class="shrink-0 border-b border-blue-200 dark:border-blue-800 bg-blue-50 dark:bg-blue-950/40 px-3 py-2"
+			class="{DS_BANNER_CLASSES.base} {DS_BANNER_CLASSES.denseModifier} {DS_STATUS_SURFACE_CLASSES.info} shrink-0 border-b border-[color:var(--ds-border-default)] px-3 py-2"
 			data-testid="bulk-actions-bar"
 		>
 			{#if bulkRejectMode}
 				<!-- Inline bulk reject reason input -->
 				<div class="flex flex-col gap-1.5">
-					<span class="text-blue-700 dark:text-blue-300 font-medium text-[11px]">
+					<span class="{DS_STATUS_TEXT_CLASSES.info} font-medium text-[11px]">
 						Reject {bulkPendingRejectCount} pending proposal{bulkPendingRejectCount !== 1 ? 's' : ''} (stays out
 						of the official record). Reason:
 					</span>
@@ -1227,14 +1228,12 @@
 							type="text"
 							bind:value={bulkRejectReason}
 							placeholder="Required reason…"
-							class="flex-1 text-[11px] px-2 py-1 rounded border border-gray-300 dark:border-gray-600
-							       bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100"
+							class="flex-1 {DS_PROPOSALS_CLASSES.formControl} text-[11px] px-2 py-1"
 							data-testid="bulk-reject-reason-input"
 						/>
 						<button
 							type="button"
-							class="shrink-0 px-2 py-1 rounded text-[11px] font-medium bg-red-600 hover:bg-red-700
-							       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+							class="shrink-0 {DS_BTN_CLASSES.danger} text-[11px] px-2 py-1"
 							on:click={handleBulkReject}
 							disabled={!bulkRejectReason.trim() || bulkProcessing}
 							data-testid="bulk-reject-confirm-btn"
@@ -1244,8 +1243,7 @@
 						</button>
 						<button
 							type="button"
-							class="shrink-0 text-[11px] text-gray-500 dark:text-gray-400 hover:text-gray-700
-							       dark:hover:text-gray-300 px-1.5 py-1"
+							class="shrink-0 {DS_BTN_CLASSES.ghost} text-[11px] px-1.5 py-1"
 							on:click={cancelBulkReject}
 							disabled={bulkProcessing}
 						>
@@ -1256,15 +1254,14 @@
 			{:else}
 				<!-- Standard bulk action row -->
 				<div class="flex items-center gap-2 flex-wrap">
-					<span class="text-blue-700 dark:text-blue-300 font-medium text-[11px] shrink-0">
+					<span class="{DS_STATUS_TEXT_CLASSES.info} font-medium text-[11px] shrink-0">
 						{selectedOnTabCount} selected
 					</span>
 					<div class="flex items-center gap-1.5 flex-wrap ml-auto">
 						{#if bulkApproveEnabled}
 							<button
 								type="button"
-								class="px-2 py-0.5 rounded text-[11px] font-medium bg-blue-600 hover:bg-blue-700
-								       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+								class="{DS_BTN_CLASSES.primary} text-[11px] px-2 py-0.5"
 								on:click={requestBulkApprove}
 								disabled={bulkProcessing}
 								data-testid="bulk-approve-btn"
@@ -1276,9 +1273,7 @@
 						{#if bulkRejectEnabled}
 							<button
 								type="button"
-								class="px-2 py-0.5 rounded text-[11px] font-medium bg-red-100 hover:bg-red-200
-								       text-red-700 dark:bg-red-900/40 dark:text-red-300 transition
-								       disabled:opacity-50 disabled:cursor-not-allowed"
+								class="{DS_BTN_CLASSES.danger} text-[11px] px-2 py-0.5"
 								on:click={startBulkReject}
 								disabled={bulkProcessing}
 								data-testid="bulk-reject-btn"
@@ -1290,8 +1285,7 @@
 					{#if bulkConfirmChronologyEnabled}
 						<button
 							type="button"
-							class="px-2 py-0.5 rounded text-[11px] font-medium bg-amber-500 hover:bg-amber-600
-							       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+							class="{DS_BTN_CLASSES.secondary} text-[11px] px-2 py-0.5"
 							on:click={requestBulkConfirmChronology}
 							disabled={bulkProcessing}
 							title="Mark occurred_at as operator-confirmed for {bulkChronologyBlockedIds.length} selected entry/entries blocked by low chronology confidence — unlocks Bulk Commit"
@@ -1302,8 +1296,7 @@
 					{/if}
 					<button
 						type="button"
-						class="px-2 py-0.5 rounded text-[11px] font-medium bg-green-600 hover:bg-green-700
-						       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+						class="{DS_BTN_CLASSES.primary} text-[11px] px-2 py-0.5"
 						on:click={requestBulkCommit}
 						disabled={!bulkCommitEnabled || bulkProcessing}
 						title={bulkCommitEnabled
@@ -1322,14 +1315,13 @@
 	<!-- ── BULK ERROR ───────────────────────────────────────────────────────── -->
 	{#if bulkError}
 		<div
-			class="shrink-0 flex items-start gap-2 px-3 py-2 bg-red-50 dark:bg-red-950/40
-			       border-b border-red-200 dark:border-red-800"
+			class="{DS_BANNER_CLASSES.base} {DS_BANNER_CLASSES.denseModifier} {DS_STATUS_SURFACE_CLASSES.danger} shrink-0 flex items-start gap-2 px-3 py-2 border-b border-[color:var(--ds-border-default)]"
 			data-testid="bulk-error-banner"
 		>
-			<span class="text-red-600 dark:text-red-400 text-[11px] flex-1">{bulkError}</span>
+			<span class="{DS_STATUS_TEXT_CLASSES.danger} text-[11px] flex-1">{bulkError}</span>
 			<button
 				type="button"
-				class="text-red-400 hover:text-red-600 text-[11px] shrink-0"
+				class="{DS_BTN_CLASSES.ghost} text-[11px] shrink-0 {DS_STATUS_TEXT_CLASSES.danger}"
 				on:click={() => { bulkError = ''; }}
 				aria-label="Dismiss bulk error"
 			>✕</button>
@@ -1338,8 +1330,8 @@
 
 	<!-- ── LOAD ERROR ───────────────────────────────────────────────────────── -->
 	{#if loadError}
-		<div class="px-3 py-2 text-red-600 dark:text-red-400 text-[11px] shrink-0" data-testid="load-error">
-			{loadError}
+		<div class="px-3 py-2 shrink-0" data-testid="load-error">
+			<p class="{DS_STATUS_TEXT_CLASSES.danger} text-[11px] m-0">{loadError}</p>
 		</div>
 	{/if}
 
@@ -1352,14 +1344,12 @@
 	>
 	<!-- ── EMPTY / LOADING ─────────────────────────────────────────────────── -->
 	{#if loading && proposals.length === 0}
-		<div
-			class="px-3 pt-6 pb-5 text-gray-500 dark:text-gray-400 not-italic text-[11px] leading-relaxed"
-		>
+		<div class="px-3 pt-6 pb-5 {DS_EMPTY_CLASSES.description} text-[11px] leading-relaxed not-italic m-0">
 			Loading proposals for this case…
 		</div>
 	{:else if !loading && !loadError && activeProposals.length === 0}
 		<div
-			class="px-3 pt-6 pb-5 text-gray-500 dark:text-gray-400 not-italic text-[11px] leading-relaxed"
+			class="px-3 pt-6 pb-5 {DS_EMPTY_CLASSES.description} text-[11px] leading-relaxed not-italic m-0"
 			data-testid="empty-state"
 		>
 			{#if (activeTab === 'pending' || activeTab === 'approved') && listSearchApplied}
@@ -1390,8 +1380,7 @@
 
 		<!-- ── SELECT-ALL HEADER ─────────────────────────────────────────────── -->
 		<div
-			class="flex items-center gap-2 px-3 py-1.5 bg-gray-50 dark:bg-gray-900 border-b
-			       border-gray-100 dark:border-gray-800 shrink-0"
+			class="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--ds-border-subtle)] bg-[color:var(--ds-bg-muted)] shrink-0"
 		>
 			<input
 				type="checkbox"
@@ -1402,7 +1391,7 @@
 				aria-label="Select all proposals on this tab"
 				data-testid="select-all-checkbox"
 			/>
-			<span class="text-gray-400 dark:text-gray-500 text-[10px]">
+			<span class="{DS_TYPE_CLASSES.meta} text-[10px]">
 				{activeProposals.length} proposal{activeProposals.length !== 1 ? 's' : ''}
 				{selectedOnTabCount > 0 ? ` · ${selectedOnTabCount} selected` : ''}
 			</span>
@@ -1419,7 +1408,7 @@
 
 				{@const needsDateTimeAttention = proposal.proposal_type === 'timeline' && (proposal.status === 'pending' || proposal.status === 'approved') && timelineProposalCommitBlockedByLowChronology(proposal)}
 				<div
-					class="rounded-md border bg-white dark:bg-gray-900/50 {needsDateTimeAttention ? 'border-amber-400 dark:border-amber-600 border-l-[5px] border-l-amber-400 dark:border-l-amber-500' : 'border-gray-200 dark:border-gray-700'}"
+					class="{DS_PROPOSALS_CLASSES.card} {needsDateTimeAttention ? DS_PROPOSALS_CLASSES.cardAttention : ''}"
 					data-testid="proposal-card"
 					data-proposal-id={proposal.id}
 					data-proposal-status={proposal.status}
@@ -1587,7 +1576,7 @@
 							{/if}
 
 						<!-- ── ACTION FOOTER ─────────────────────────────────────────── -->
-						<div class="flex items-center flex-wrap gap-1.5 mt-1.5 pt-2 border-t border-gray-100 dark:border-gray-800 pb-1">
+						<div class="flex items-center flex-wrap gap-1.5 mt-1.5 pt-2 border-t border-[color:var(--ds-border-subtle)] pb-1">
 
 								<!-- Expand/collapse toggle — always visible -->
 								<button
@@ -1605,8 +1594,7 @@
 								{#if canApprove(proposal.status)}
 									<button
 										type="button"
-										class="px-2 py-0.5 rounded text-[10px] font-medium bg-blue-100 hover:bg-blue-200
-										       text-blue-700 dark:bg-blue-900/40 dark:text-blue-300 transition
+										class="{DS_BTN_CLASSES.secondary} text-[10px] px-2 py-0.5
 										       disabled:opacity-50 disabled:cursor-not-allowed"
 										on:click={() => handleApprove(proposal.id)}
 										disabled={isInProgress}
@@ -1704,7 +1692,7 @@
 					<!-- ── EXPANDED PAYLOAD DETAIL ───────────────────────────────── -->
 					{#if isExpanded}
 						<div
-						class="mx-3 mt-1.5 mb-2.5 rounded-md border border-gray-200 dark:border-gray-700
+						class="mx-3 mt-1.5 mb-2.5 rounded-md border border-[color:var(--ds-border-default)]
 						       bg-gray-50 dark:bg-gray-900 px-3 py-2"
 							data-testid="proposal-expanded"
 						>
@@ -2263,7 +2251,7 @@
 			on:mousedown={onDocEditLossDialogCancel}
 		>
 			<div
-				class="max-w-md w-full rounded-xl border border-gray-200 dark:border-gray-700 bg-white dark:bg-gray-950 shadow-xl p-5"
+				class="max-w-md w-full rounded-xl border border-[color:var(--ds-border-default)] bg-white dark:bg-gray-950 shadow-xl p-5"
 				on:mousedown|stopPropagation
 			>
 				<h3

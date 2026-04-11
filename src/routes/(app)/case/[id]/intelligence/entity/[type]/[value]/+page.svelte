@@ -10,8 +10,26 @@
 		type EntityTimelineResponse,
 		type EntityCasesResponse
 	} from '$lib/apis/caseEngine';
-	import { splitEntityEvidenceByCase, isSupportedEntityFocusType, type EntityFocusType } from '$lib/utils/entityFocus';
+	import {
+		splitEntityEvidenceByCase,
+		isSupportedEntityFocusType,
+		entityFocusEvidenceBackendSupportsRouteType,
+		type EntityFocusType
+	} from '$lib/utils/entityFocus';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
+	import {
+		DS_INTELLIGENCE_CLASSES,
+		DS_TYPE_CLASSES,
+		DS_TIMELINE_CLASSES,
+		DS_STATUS_SURFACE_CLASSES,
+		DS_STACK_CLASSES
+	} from '$lib/case/detectivePrimitiveFoundation';
+	import { ENTITY_FOCUS_UNSUPPORTED_COPY } from '$lib/utils/intelligenceUnsupportedCopy';
+	import {
+		CASE_DESTINATION_HINTS,
+		CASE_DESTINATION_LABELS,
+		CASE_DESTINATION_TITLES
+	} from '$lib/utils/caseDestinationLabels';
 
 	type FocusScope = 'THIS_CASE' | 'CID' | 'SIU' | 'ALL';
 	const ENTITY_FOCUS_TIMEOUT_MS = 45_000;
@@ -102,7 +120,7 @@
 		}
 	}
 
-	$: focusType = isSupportedEntityFocusType(typeParam) ? typeParam : null;
+	$: focusType = isSupportedEntityFocusType(typeParam) ? (typeParam as EntityFocusType) : null;
 	$: evidenceRows = Array.isArray(profile?.evidence) ? profile.evidence : [];
 	$: ({ currentCaseEvidence, otherCaseEvidence } = splitEntityEvidenceByCase(evidenceRows, caseId));
 	$: currentCaseTimeline = (timeline?.items ?? [])
@@ -114,6 +132,7 @@
 		if (type === 'phone') return 'Phone';
 		if (type === 'person') return 'Person';
 		if (type === 'location') return 'Location';
+		if (type === 'vehicle') return 'Vehicle';
 		return 'Entity';
 	}
 
@@ -157,6 +176,15 @@
 		if (activeLoadGuard) {
 			clearTimeout(activeLoadGuard);
 			activeLoadGuard = null;
+		}
+		if (!entityFocusEvidenceBackendSupportsRouteType(typeParam)) {
+			caseUnit = '';
+			loading = false;
+			error = '';
+			profile = null;
+			timeline = null;
+			casesRef = null;
+			return;
 		}
 		// Reset caseUnit on every new load so a case switch doesn't carry over
 		// the previous case's unit (affects admin THIS_CASE scope resolution).
@@ -225,20 +253,26 @@
 </script>
 
 <CaseWorkspaceContentRegion testId="case-intelligence-entity-page">
-<div class="flex-1 min-h-0 overflow-auto p-4 md:p-6">
-	<div class="mx-auto max-w-5xl space-y-4">
-		<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-			<p class="text-xs text-gray-500 dark:text-gray-400 mb-1">
-				<a class="text-blue-700 dark:text-blue-400 hover:underline" href={`/case/${caseId}/intelligence`}>Back to Intelligence</a>
+<div class={DS_INTELLIGENCE_CLASSES.entityPageScroll}>
+	<div class={DS_INTELLIGENCE_CLASSES.entityPageInner}>
+		<div class={DS_INTELLIGENCE_CLASSES.entityPanel}>
+			<p class="mb-1 {DS_TYPE_CLASSES.meta}">
+				<a
+					class={DS_INTELLIGENCE_CLASSES.entityBackLink}
+					href={`/case/${caseId}/intelligence?mode=intelligence`}
+					data-testid="intelligence-entity-focus-back"
+				>{CASE_DESTINATION_HINTS.backToEntityIntelligence}</a>
 			</p>
-			<h1 class="text-lg font-semibold text-gray-900 dark:text-gray-100">Entity Focus</h1>
-			<p class="mt-1 text-xs text-gray-500 dark:text-gray-400">
+			<p class={DS_INTELLIGENCE_CLASSES.identityEyebrow}>{CASE_DESTINATION_LABELS.entityIntelligenceFocusEyebrow}</p>
+			<h1 class={DS_TYPE_CLASSES.display}>Entity Focus</h1>
+			<p class="mt-1 {DS_TYPE_CLASSES.meta}">
 				Read-only, evidence-grounded entity review using existing backend entity endpoints only.
 			</p>
 			<div class="mt-3">
-				<label class="block text-xs font-medium text-gray-600 dark:text-gray-300 mb-1">Scope</label>
+				<label class="mb-1 block {DS_TYPE_CLASSES.meta} font-semibold" for="entity-focus-scope">Scope</label>
 				<select
-					class="px-2 py-1.5 rounded border border-gray-300 dark:border-gray-700 bg-white dark:bg-gray-900 text-sm"
+					id="entity-focus-scope"
+					class={DS_TIMELINE_CLASSES.formControl}
 					bind:value={selectedScope}
 				>
 					{#each allowedScopes as item}
@@ -249,47 +283,68 @@
 		</div>
 
 		{#if !$caseEngineToken}
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-				<p class="text-sm text-gray-600 dark:text-gray-300">Case Engine authentication is required.</p>
+			<div class={DS_INTELLIGENCE_CLASSES.entityPanel}>
+				<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-secondary)]">Case Engine authentication is required.</p>
 			</div>
 		{:else if !focusType}
-			<div class="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 p-4">
-				<p class="text-sm text-red-700 dark:text-red-300">Unsupported entity type: {typeParam}</p>
+			<div class="rounded-xl px-4 py-3 text-sm {DS_STATUS_SURFACE_CLASSES.error}">
+				<p class="ds-status-copy">
+					{ENTITY_FOCUS_UNSUPPORTED_COPY.badRouteTypePrefix}: {typeParam}
+				</p>
+			</div>
+		{:else if focusType && !entityFocusEvidenceBackendSupportsRouteType(typeParam)}
+			<div
+				class="rounded-xl px-4 py-3 text-sm {DS_STATUS_SURFACE_CLASSES.info}"
+				data-testid="intelligence-entity-focus-unsupported-type"
+			>
+				<p class="ds-status-copy">{ENTITY_FOCUS_UNSUPPORTED_COPY.notAvailableYet}</p>
+				<p class="ds-status-copy mt-1 {DS_TYPE_CLASSES.meta}">
+					{ENTITY_FOCUS_UNSUPPORTED_COPY.vehicleBody}
+				</p>
+				<p class="mt-2 {DS_TYPE_CLASSES.meta}">
+					<a
+						class={DS_INTELLIGENCE_CLASSES.inlineLink}
+						href={`/case/${caseId}/intelligence?mode=intelligence`}
+						data-testid="intelligence-entity-focus-back"
+					>{CASE_DESTINATION_HINTS.backToEntityIntelligence}</a>
+				</p>
 			</div>
 		{:else if loading}
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-				<p class="text-sm text-gray-500 dark:text-gray-400">Loading entity details...</p>
+			<div class={DS_INTELLIGENCE_CLASSES.entityPanel}>
+				<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]">Loading entity details...</p>
 			</div>
 		{:else if error}
-			<div class="rounded-xl border border-red-200 dark:border-red-900/50 bg-red-50 dark:bg-red-900/20 p-4">
-				<p class="text-sm text-red-700 dark:text-red-300">Entity details could not be loaded.</p>
-				<p class="text-xs text-red-600 dark:text-red-400 mt-1">{error}</p>
+			<div class="rounded-xl px-4 py-3 {DS_STATUS_SURFACE_CLASSES.error}">
+				<p class="ds-status-copy">Entity details could not be loaded.</p>
+				<p class="ds-status-copy mt-1 {DS_TYPE_CLASSES.meta}">{error}</p>
 			</div>
 		{:else if profile}
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Entity Header</h2>
-				<p class="text-sm text-gray-800 dark:text-gray-200">{profile.entity.display_label}</p>
-				<p class="text-xs text-gray-500 dark:text-gray-400">
+			<div class="{DS_INTELLIGENCE_CLASSES.entityPanel} {DS_STACK_CLASSES.tight}">
+				<h2 class={DS_TYPE_CLASSES.panel}>Entity Header</h2>
+				<p class={DS_TYPE_CLASSES.body}>{profile.entity.display_label}</p>
+				<p class={DS_TYPE_CLASSES.meta}>
 					Type: {formatType(profile.entity.type)} ({profile.entity.type})
 				</p>
-				<p class="text-xs text-gray-500 dark:text-gray-400">
+				<p class={DS_TYPE_CLASSES.meta}>
 					Normalized value: {profile.entity.normalized_id}
 				</p>
 			</div>
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Current Case Mentions</h2>
+			<div class="{DS_INTELLIGENCE_CLASSES.entityPanel} {DS_STACK_CLASSES.tight}">
+				<h2 class={DS_TYPE_CLASSES.panel}>Current Case Mentions</h2>
 				{#if currentCaseEvidence.length === 0}
-					<p class="text-sm text-gray-500 dark:text-gray-400">No mentions found for this entity in this case.</p>
+					<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]" data-testid="intelligence-entity-focus-empty-mentions">
+						{ENTITY_FOCUS_UNSUPPORTED_COPY.noMentions}
+					</p>
 				{:else}
-					<ul class="space-y-2">
+					<ul class={DS_STACK_CLASSES.stack}>
 						{#each currentCaseEvidence as ev}
-							<li class="rounded border border-gray-200 dark:border-gray-800 p-2 text-xs">
-								<p class="text-gray-700 dark:text-gray-300">
+							<li class={DS_INTELLIGENCE_CLASSES.resultCard}>
+								<p class="text-[var(--ds-text-primary)]">
 									{ev.source.kind === 'timeline_entry' ? 'Timeline' : 'File'} — {ev.citation.label}
 								</p>
-								<p class="mt-1 text-gray-600 dark:text-gray-400 whitespace-pre-wrap">
-									{ev.match.excerpt || 'No evidence excerpts available.'}
+								<p class="mt-1 {DS_TYPE_CLASSES.body} whitespace-pre-wrap text-[var(--ds-text-secondary)]">
+									{ev.match.excerpt || ENTITY_FOCUS_UNSUPPORTED_COPY.noEvidenceExcerpts}
 								</p>
 							</li>
 						{/each}
@@ -297,43 +352,49 @@
 				{/if}
 			</div>
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Timeline Involvement</h2>
+			<div class="{DS_INTELLIGENCE_CLASSES.entityPanel} {DS_STACK_CLASSES.tight}">
+				<h2 class={DS_TYPE_CLASSES.panel}>Timeline Involvement</h2>
 				{#if currentCaseTimeline.length === 0}
-					<p class="text-sm text-gray-500 dark:text-gray-400">No timeline references found for this entity in this case.</p>
+					<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]" data-testid="intelligence-entity-focus-empty-timeline">
+						{ENTITY_FOCUS_UNSUPPORTED_COPY.noTimelineRefs}
+					</p>
 				{:else}
-					<ul class="space-y-2">
+					<ul class={DS_STACK_CLASSES.stack}>
 						{#each currentCaseTimeline as item}
-							<li class="rounded border border-gray-200 dark:border-gray-800 p-2 text-xs">
-								<p class="text-gray-700 dark:text-gray-300">
+							<li class={DS_INTELLIGENCE_CLASSES.resultCard}>
+								<p class="text-[var(--ds-text-primary)]">
 									{formatTs(item.occurred_at || item.timestamp)} — {item.source_id}
 								</p>
-								<p class="mt-1 text-gray-600 dark:text-gray-400 whitespace-pre-wrap">{item.excerpt}</p>
+								<p class="mt-1 {DS_TYPE_CLASSES.body} whitespace-pre-wrap text-[var(--ds-text-secondary)]">{item.excerpt}</p>
 							</li>
 						{/each}
 					</ul>
 				{/if}
 			</div>
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Other Case References</h2>
+			<div class="{DS_INTELLIGENCE_CLASSES.entityPanel} {DS_STACK_CLASSES.tight}">
+				<h2 class={DS_TYPE_CLASSES.panel}>Other Case References</h2>
 				{#if otherCases.length === 0}
-					<p class="text-sm text-gray-500 dark:text-gray-400">No other case references available for this entity.</p>
+					<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]" data-testid="intelligence-entity-focus-empty-other-cases">
+						{ENTITY_FOCUS_UNSUPPORTED_COPY.noOtherCases}
+					</p>
 				{:else}
-					<ul class="space-y-2">
+					<ul class={DS_STACK_CLASSES.stack}>
 						{#each otherCases as row}
-							<li class="rounded border border-gray-200 dark:border-gray-800 p-2 text-xs">
+							<li class={DS_INTELLIGENCE_CLASSES.resultCard}>
 								<div class="flex flex-wrap items-center gap-2">
 									<a
-										class="font-medium text-blue-700 dark:text-blue-400 hover:underline"
+										class="font-semibold {DS_INTELLIGENCE_CLASSES.inlineLink}"
 										href={`/case/${row.case.id}/chat`}
+										title={CASE_DESTINATION_TITLES.aiWorkspace}
+										aria-label={`${CASE_DESTINATION_TITLES.aiWorkspace} (${row.case.case_number})`}
 									>
 										{row.case.case_number}
 									</a>
-									<span class="text-gray-500 dark:text-gray-400">{row.case.title}</span>
-									<span class="text-gray-400 dark:text-gray-500">({row.case.unit})</span>
+									<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">{row.case.title}</span>
+									<span class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-muted)]">({row.case.unit})</span>
 								</div>
-								<p class="mt-1 text-gray-600 dark:text-gray-400">
+								<p class="mt-1 {DS_TYPE_CLASSES.body} text-[var(--ds-text-secondary)]">
 									Occurrences: {row.summary.occurrence_count} · First seen: {formatTs(row.summary.first_seen_at)} · Last seen: {formatTs(row.summary.last_seen_at)}
 								</p>
 							</li>
@@ -342,22 +403,24 @@
 				{/if}
 			</div>
 
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4 space-y-2">
-				<h2 class="text-sm font-semibold text-gray-900 dark:text-gray-100">Evidence / Citations</h2>
+			<div class="{DS_INTELLIGENCE_CLASSES.entityPanel} {DS_STACK_CLASSES.tight}">
+				<h2 class={DS_TYPE_CLASSES.panel}>Evidence / Citations</h2>
 				{#if currentCaseEvidence.length === 0 && otherCaseEvidence.length === 0}
-					<p class="text-sm text-gray-500 dark:text-gray-400">No evidence excerpts available.</p>
+					<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-muted)]" data-testid="intelligence-entity-focus-empty-evidence">
+						{ENTITY_FOCUS_UNSUPPORTED_COPY.noEvidenceExcerpts}
+					</p>
 				{:else}
 					{#if currentCaseEvidence.length > 0}
-						<p class="text-xs font-medium text-gray-700 dark:text-gray-300">Current case evidence</p>
-						<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
+						<p class="{DS_TYPE_CLASSES.meta} font-semibold">Current case evidence</p>
+						<ul class={DS_INTELLIGENCE_CLASSES.citationList}>
 							{#each currentCaseEvidence as ev}
 								<li>• {ev.citation.label} — {ev.citation.source_kind} — {ev.citation.source_id}</li>
 							{/each}
 						</ul>
 					{/if}
 					{#if otherCaseEvidence.length > 0}
-						<p class="text-xs font-medium text-gray-700 dark:text-gray-300 mt-2">Other case evidence</p>
-						<ul class="space-y-1 text-xs text-gray-600 dark:text-gray-400">
+						<p class="mt-2 {DS_TYPE_CLASSES.meta} font-semibold">Other case evidence</p>
+						<ul class={DS_INTELLIGENCE_CLASSES.citationList}>
 							{#each otherCaseEvidence as ev}
 								<li>
 									• {ev.case.case_number} — {ev.citation.label} — {ev.citation.source_kind} — {ev.citation.source_id}
@@ -368,9 +431,9 @@
 				{/if}
 			</div>
 		{:else}
-			<div class="rounded-xl border border-gray-200 dark:border-gray-800 bg-white dark:bg-gray-900 p-4">
-				<p class="text-sm text-gray-600 dark:text-gray-300">
-					No entity details were returned for this request.
+			<div class={DS_INTELLIGENCE_CLASSES.entityPanel} data-testid="intelligence-entity-focus-no-details">
+				<p class="{DS_TYPE_CLASSES.body} text-[var(--ds-text-secondary)]">
+					{ENTITY_FOCUS_UNSUPPORTED_COPY.noDetailsReturned}
 				</p>
 			</div>
 		{/if}
