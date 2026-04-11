@@ -5,13 +5,17 @@
 	 *                     P28-38 Usability Polish Pass
 	 *                     P38-08 — type “note” vs Notes tab (labels/tooltips only)
 	 *                     P39-02A — optional search match highlight (normalized needle from parent)
-	 *                     Long body text: line-clamp (~4 lines) + per-entry Show more / Show less
+	 *                     P83-01 — standardized row layout (type column, occurred_at primary, body, metadata line)
+	 *                     P83-04 — long body: line-clamp preview + Show more / Show less (CSS only; full text on expand)
+	 *                     P83-05 — metadata line consistency (order, separators, type display; trim only; no new fields)
+	 *                     P83-02 — explicit Occurred vs Recorded labels + tooltips (no timestamp logic changes)
+	 *                     P83-03 — readability + scanning (spacing, hierarchy, body line rhythm; see detectiveSurfaces.css)
 	 *
 	 * Truth signals (P28-31):
 	 *   1. AI-assisted transparency — badge + show/hide original toggle
 	 *   2. Edited badge — derived from version_count (0 = untouched)
 	 *   3. occurred_at with seconds — prevents same-minute sequence ambiguity
-	 *   4. Retrospective signal — when entry was logged >24h after it occurred
+	 *   4. Retrospective signal — when entry was recorded >24h after it occurred
 	 *   5. Attribution contrast — slightly more visible (text-gray-500)
 	 *   6. Location: removed emoji 📍, replaced with plain "at:"
 	 *
@@ -54,6 +58,10 @@
 		DS_TYPE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
 
+	/** P83-02 — occurred_at vs created_at; UI copy only */
+	const TIMELINE_TIME_TOOLTIP_OCCURRED = 'When the event happened.';
+	const TIMELINE_TIME_TOOLTIP_RECORDED = 'When this entry was added to the system.';
+
 	export let entry: TimelineEntry;
 	/** Case ID — required for the versions endpoint. */
 	export let caseId: string;
@@ -78,12 +86,23 @@
 		evidence:     'Evidence'
 	};
 
+	/** P83-05 — display-only; known types use product labels; unknown → title-cased tokens (no API renames). */
 	function typeLabel(type: string): string {
-		return TYPE_LABELS[type] ?? type;
+		const raw = (type ?? '').trim();
+		if (!raw) return '';
+		const lower = raw.toLowerCase();
+		const known = TYPE_LABELS[lower];
+		if (known !== undefined) return known;
+		return raw
+			.split(/[_\s-]+/)
+			.filter(Boolean)
+			.map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+			.join(' ');
 	}
 
 	function timelineTypeBadgeClass(type: string): string {
-		switch (type) {
+		const lower = (type ?? '').trim().toLowerCase();
+		switch (lower) {
 			case 'note':
 				return DS_BADGE_CLASSES.neutral;
 			case 'surveillance':
@@ -98,7 +117,7 @@
 	}
 
 	function typeBadgeTitle(type: string): string | undefined {
-		return type === 'note' ? TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP : undefined;
+		return (type ?? '').trim().toLowerCase() === 'note' ? TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP : undefined;
 	}
 
 	function parseTags(raw: string | string[] | null | undefined): string[] {
@@ -201,7 +220,12 @@
 		try { return new Date(a).getTime() === new Date(b).getTime(); } catch { return a === b; }
 	}
 
-	// ── Long entry body: line-clamp + Show more / less (per card, display-only) ──
+	$: metadataLocationRaw = entry.location_text?.trim() ?? '';
+	$: metadataCreatorRaw = entry.created_by?.trim() ?? '';
+	$: hasMetadataLocation = metadataLocationRaw.length > 0;
+	$: hasMetadataCreator = metadataCreatorRaw.length > 0;
+
+	// ── P83-04 — Body expand/collapse (local state; CSS line-clamp; no content mutation) ──
 	let bodyEl: HTMLParagraphElement | undefined;
 	let bodyExpanded = false;
 	let showBodyClampToggle = false;
@@ -225,7 +249,9 @@
 	}
 
 	afterUpdate(() => {
-		const key = `${entry.id}|${displayText}`;
+		const key = isDeleted
+			? `del:${entry.id}:${entry.text_original ?? ''}:${searchHighlightNeedle}`
+			: `act:${entry.id}:${displayText}:${searchHighlightNeedle}:${showOriginal}`;
 		if (key !== bodyClampMeasureKey) {
 			bodyClampMeasureKey = key;
 			bodyExpanded = false;
@@ -246,145 +272,197 @@
 			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
 		</div>
 		<div class="{DS_TIMELINE_CLASSES.entryBody}">
-			<div class="{DS_CARD_CLASSES.card} flex flex-col gap-1.5 min-w-0">
-		<!-- Meta row: type + time + Removed badge + Restore -->
-		<div class="flex items-center gap-2 flex-wrap">
-			<span
-				class="{timelineTypeBadgeClass(entry.type)} opacity-80"
-				title={typeBadgeTitle(entry.type)}
-			>
-				{typeLabel(entry.type)}
-			</span>
-			<time
-				datetime={entry.occurred_at}
-				class="{DS_TYPE_CLASSES.mono}"
-			>
-				{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
-			</time>
-			<span
-				class="{DS_BADGE_CLASSES.danger}"
-				title="This entry has been removed from the active timeline. An ADMIN can restore it."
-				data-testid="timeline-entry-removed-badge"
-			>
-				Removed from timeline
-			</span>
+			<div class="{DS_CARD_CLASSES.card} min-w-0">
+				<div class="flex gap-4 min-w-0">
+					<div class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5">
+						<span
+							class="{timelineTypeBadgeClass(entry.type)} opacity-80"
+							title={typeBadgeTitle(entry.type)}
+						>
+							{typeLabel(entry.type)}
+						</span>
+					</div>
+					<div class="flex-1 min-w-0 ds-timeline-entry-row__main">
+						<div class="ds-timeline-entry-row__top">
+							<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
+								<span class="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">Occurred</span>
+								<time
+									datetime={entry.occurred_at}
+									class="text-base font-semibold tabular-nums text-[color:var(--ds-fg)] {DS_TYPE_CLASSES.mono}"
+									title={TIMELINE_TIME_TOOLTIP_OCCURRED}
+								>
+									{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
+								</time>
+								<span
+									class="{DS_BADGE_CLASSES.danger}"
+									title="This entry has been removed from the active timeline. An ADMIN can restore it."
+									data-testid="timeline-entry-removed-badge"
+								>
+									Removed from timeline
+								</span>
+							</div>
+							<div class="ds-timeline-entry-row__top-actions">
+								{#if linkedImageFiles.length > 0}
+									<button
+										type="button"
+										class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded
+										       border border-gray-200 dark:border-gray-600
+										       text-gray-500 dark:text-gray-400
+										       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+										title="View linked images from case files"
+										data-testid="timeline-entry-linked-images-trigger"
+										on:click={() => (linkedImagesViewerOpen = true)}
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											viewBox="0 0 16 16"
+											fill="currentColor"
+											class="size-3.5 shrink-0 opacity-80"
+											aria-hidden="true"
+										>
+											<path
+												d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
+											/>
+										</svg>
+										{linkedImageFiles.length}
+									</button>
+								{/if}
+								<DropdownMenu.Root bind:open={actionsMenuOpen} onOpenChange={(s) => (actionsMenuOpen = s)}>
+									<DropdownMenu.Trigger>
+										<button
+											type="button"
+											class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+											aria-label="More actions for this timeline entry"
+											title="More actions for this timeline entry"
+											data-testid="timeline-entry-actions-menu-trigger"
+										>
+											<EllipsisVertical />
+										</button>
+									</DropdownMenu.Trigger>
+									<DropdownMenu.Content
+										class="w-full max-w-[190px] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+										sideOffset={4}
+										side="bottom"
+										align="end"
+										transition={flyAndScale}
+									>
+										<DropdownMenu.Item
+											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+											on:click={() => void openVersionHistoryFromMenu()}
+											data-testid="timeline-entry-menu-version-history"
+										>
+											<ClockRotateRight className="w-4 h-4 shrink-0" />
+											<span>Version history</span>
+										</DropdownMenu.Item>
+										<hr class="border-gray-100 dark:border-gray-800 my-1" />
+										<DropdownMenu.Item
+											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+											on:click={() => exportEntryFromMenu('txt')}
+											data-testid="timeline-entry-menu-export-txt"
+										>
+											<Download className="w-4 h-4 shrink-0" />
+											<span>Export TXT</span>
+										</DropdownMenu.Item>
+										<DropdownMenu.Item
+											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+											on:click={() => exportEntryFromMenu('pdf')}
+											data-testid="timeline-entry-menu-export-pdf"
+										>
+											<Download className="w-4 h-4 shrink-0" />
+											<span>Export PDF</span>
+										</DropdownMenu.Item>
+									</DropdownMenu.Content>
+								</DropdownMenu.Root>
+								{#if onRestoreRequest}
+									<button
+										type="button"
+										class="{DS_BTN_CLASSES.secondary}"
+										on:click={onRestoreRequest}
+										title="Restore this entry to the active timeline"
+										data-testid="timeline-entry-restore-button"
+									>
+										Restore
+									</button>
+								{/if}
+							</div>
+						</div>
 
-			{#if linkedImageFiles.length > 0}
-				<button
-					type="button"
-					class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded
-					       border border-gray-200 dark:border-gray-600
-					       text-gray-500 dark:text-gray-400
-					       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
-					title="View linked images from case files"
-					data-testid="timeline-entry-linked-images-trigger"
-					on:click={() => (linkedImagesViewerOpen = true)}
-				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 16 16"
-						fill="currentColor"
-						class="size-3.5 shrink-0 opacity-80"
-						aria-hidden="true"
-					>
-						<path
-							d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
-						/>
-					</svg>
-					{linkedImageFiles.length}
-				</button>
-			{/if}
+						{#if showProvenanceBlock && entry.provenance}
+							<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
+						{/if}
 
-		<div class="ml-auto flex items-center gap-0.5 shrink-0">
-			<DropdownMenu.Root bind:open={actionsMenuOpen} onOpenChange={(s) => (actionsMenuOpen = s)}>
-				<DropdownMenu.Trigger>
-					<button
-						type="button"
-						class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-						aria-label="More actions for this timeline entry"
-						title="More actions for this timeline entry"
-						data-testid="timeline-entry-actions-menu-trigger"
-					>
-						<EllipsisVertical />
-					</button>
-				</DropdownMenu.Trigger>
-				<DropdownMenu.Content
-					class="w-full max-w-[190px] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
-					sideOffset={4}
-					side="bottom"
-					align="end"
-					transition={flyAndScale}
-				>
-					<DropdownMenu.Item
-						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-						on:click={() => void openVersionHistoryFromMenu()}
-						data-testid="timeline-entry-menu-version-history"
-					>
-						<ClockRotateRight className="w-4 h-4 shrink-0" />
-						<span>Version history</span>
-					</DropdownMenu.Item>
-					<hr class="border-gray-100 dark:border-gray-800 my-1" />
-					<DropdownMenu.Item
-						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-						on:click={() => exportEntryFromMenu('txt')}
-						data-testid="timeline-entry-menu-export-txt"
-					>
-						<Download className="w-4 h-4 shrink-0" />
-						<span>Export TXT</span>
-					</DropdownMenu.Item>
-					<DropdownMenu.Item
-						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-						on:click={() => exportEntryFromMenu('pdf')}
-						data-testid="timeline-entry-menu-export-pdf"
-					>
-						<Download className="w-4 h-4 shrink-0" />
-						<span>Export PDF</span>
-					</DropdownMenu.Item>
-				</DropdownMenu.Content>
-			</DropdownMenu.Root>
+						<p
+							bind:this={bodyEl}
+							class="ds-timeline-entry-text--removed text-gray-500 dark:text-gray-500 whitespace-pre-wrap break-words"
+							class:line-clamp-4={showBodyClampToggle && !bodyExpanded}
+							class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
+							data-testid="timeline-entry-deleted-text"
+						>
+							{#each splitTextForSearchHighlight(entry.text_original ?? '', searchHighlightNeedle) as seg, hIdx (hIdx)}
+								{#if seg.highlight}
+									<mark
+										class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
+									>{seg.text}</mark>
+								{:else}{seg.text}{/if}
+							{/each}
+						</p>
+						{#if showBodyClampToggle}
+							<button
+								type="button"
+								class="mt-0.5 text-left text-[10px] font-medium text-gray-500 dark:text-gray-400
+								       hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2 transition"
+								data-testid="timeline-entry-body-toggle"
+								aria-expanded={bodyExpanded}
+								on:click={() => (bodyExpanded = !bodyExpanded)}
+							>
+								{bodyExpanded ? 'Show less' : 'Show more'}
+							</button>
+						{/if}
 
-			{#if onRestoreRequest}
-				<button
-					type="button"
-					class="{DS_BTN_CLASSES.secondary}"
-					on:click={onRestoreRequest}
-					title="Restore this entry to the active timeline"
-					data-testid="timeline-entry-restore-button"
-				>
-					Restore
-				</button>
-			{/if}
-		</div>
-		</div>
+						{#if hasMetadataLocation || hasMetadataCreator}
+							<div
+								class="ds-timeline-entry-row__meta-line flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-gray-500/90 dark:text-gray-400/90 {DS_TYPE_CLASSES.meta}"
+								data-testid="timeline-entry-metadata-line"
+							>
+								{#if hasMetadataLocation}
+									<span class="min-w-0 break-words" title={metadataLocationRaw}>
+										at {#each splitTextForSearchHighlight(metadataLocationRaw, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
+											{#if locSeg.highlight}
+												<mark
+													class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
+												>{locSeg.text}</mark>
+											{:else}{locSeg.text}{/if}
+										{/each}
+									</span>
+								{/if}
+								{#if hasMetadataLocation && hasMetadataCreator}
+									<span class="shrink-0 text-gray-400/80 dark:text-gray-500/80 select-none" aria-hidden="true">·</span>
+								{/if}
+								{#if hasMetadataCreator}
+									<span>
+										Entered by <span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
+									</span>
+								{/if}
+							</div>
+						{/if}
 
-		{#if showProvenanceBlock && entry.provenance}
-			<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
-		{/if}
-
-		<!-- Entry text — truncated and subdued; enough to identify the entry -->
-		<p
-			class="text-xs text-gray-400 dark:text-gray-600 line-clamp-2 leading-relaxed"
-			data-testid="timeline-entry-deleted-text"
-		>
-			{#each splitTextForSearchHighlight(entry.text_original ?? '', searchHighlightNeedle) as seg, hIdx (hIdx)}
-				{#if seg.highlight}
-					<mark
-						class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
-					>{seg.text}</mark>
-				{:else}{seg.text}{/if}
-			{/each}
-		</p>
-
-		<!-- Footer: recorded by + removed at -->
-		<div
-			class="flex items-center gap-2 text-[10px] text-gray-400 dark:text-gray-600
-			       pt-0.5 border-t border-dashed border-red-100 dark:border-red-900/30 mt-0.5"
-		>
-			<span>Recorded by {entry.created_by}</span>
-			<span class="ml-auto font-mono" title="Removed at this time">
-				Removed {formatCaseDateTime(entry.deleted_at ?? '')}
-			</span>
-		</div>
+						<div
+							class="ds-timeline-entry-row__footer ds-timeline-entry-row__footer--removed flex items-center gap-2 flex-wrap text-[10px] text-gray-400 dark:text-gray-600"
+						>
+							<span class="{DS_TYPE_CLASSES.meta}" title={TIMELINE_TIME_TOOLTIP_RECORDED}>
+								Recorded
+								<time
+									datetime={entry.created_at}
+									class="{DS_TYPE_CLASSES.mono}"
+									title={TIMELINE_TIME_TOOLTIP_RECORDED}
+								>
+									{formatCaseDateTime(entry.created_at)}
+								</time>
+							</span>
+							<span class="ml-auto font-mono" title="When this entry was removed from the timeline.">
+								Removed {formatCaseDateTime(entry.deleted_at ?? '')}
+							</span>
+						</div>
 
 		{#if historyExpanded}
 			<div
@@ -451,6 +529,8 @@
 			</div>
 		{/if}
 
+					</div>
+				</div>
 			</div>
 		</div>
 
@@ -474,256 +554,272 @@
 			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
 		</div>
 		<div class="{DS_TIMELINE_CLASSES.entryBody}">
-			<div class="{DS_CARD_CLASSES.card} flex flex-col gap-2 min-w-0">
-		<!-- ── Meta row: type · occurred_at (with seconds) · edited · location ── -->
-		<div class="flex items-center gap-2 flex-wrap">
-			<!-- Type badge -->
-			<span
-				class="{timelineTypeBadgeClass(entry.type)}"
-				title={typeBadgeTitle(entry.type)}
-			>
-				{typeLabel(entry.type)}
-			</span>
+			<div class="{DS_CARD_CLASSES.card} min-w-0">
+				<div class="flex gap-4 min-w-0">
+					<!-- P83-01: narrow type column -->
+					<div class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5">
+						<span
+							class="{timelineTypeBadgeClass(entry.type)}"
+							title={typeBadgeTitle(entry.type)}
+						>
+							{typeLabel(entry.type)}
+						</span>
+					</div>
+					<div class="flex-1 min-w-0 ds-timeline-entry-row__main">
+						<!-- Top line: occurred_at primary; edited + linked images secondary -->
+						<div class="ds-timeline-entry-row__top">
+							<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
+								<span class="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">Occurred</span>
+								<time
+									datetime={entry.occurred_at}
+									class="text-base font-semibold tabular-nums text-[color:var(--ds-fg)] {DS_TYPE_CLASSES.mono}"
+									title={TIMELINE_TIME_TOOLTIP_OCCURRED}
+								>
+									{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
+								</time>
+								{#if isEdited}
+									<button
+										type="button"
+										class="{DS_BTN_CLASSES.ghost} text-xs py-0.5 min-h-0"
+										title={historyExpanded
+											? 'Collapse version history'
+											: `Version ${currentVersion} — click to view history`}
+										aria-expanded={historyExpanded}
+										on:click={toggleHistory}
+										data-testid="timeline-entry-edited"
+									>
+										Edited · v{currentVersion}
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											viewBox="0 0 12 12"
+											fill="none"
+											stroke="currentColor"
+											stroke-width="1.5"
+											stroke-linecap="round"
+											stroke-linejoin="round"
+											class="size-2.5 transition-transform {historyExpanded ? 'rotate-180' : ''}"
+											aria-hidden="true"
+										>
+											<path d="M2 4l4 4 4-4" />
+										</svg>
+									</button>
+								{/if}
+							</div>
+							{#if linkedImageFiles.length > 0}
+								<div class="ds-timeline-entry-row__top-actions">
+									<button
+										type="button"
+										class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded
+										       border border-gray-200 dark:border-gray-600
+										       text-gray-500 dark:text-gray-400
+										       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
+										title="View linked images from case files"
+										data-testid="timeline-entry-linked-images-trigger"
+										on:click={() => (linkedImagesViewerOpen = true)}
+									>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											viewBox="0 0 16 16"
+											fill="currentColor"
+											class="size-3.5 shrink-0 opacity-80"
+											aria-hidden="true"
+										>
+											<path
+												d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
+											/>
+										</svg>
+										{linkedImageFiles.length}
+									</button>
+								</div>
+							{/if}
+						</div>
 
-		<!-- occurred_at — seconds included for sub-minute sequence clarity -->
-		<time
-			datetime={entry.occurred_at}
-			class="{DS_TYPE_CLASSES.mono}"
-			title="When this occurred"
-		>
-			{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
-		</time>
+						{#if showProvenanceBlock && entry.provenance}
+							<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
+						{/if}
 
-			<!-- Edited badge — interactive button when version_count > 0 (P28-33) -->
-			{#if isEdited}
-				<button
-					type="button"
-					class="{DS_BTN_CLASSES.ghost} text-xs py-0.5 min-h-0"
-					title={historyExpanded
-						? 'Collapse version history'
-						: `Version ${currentVersion} — click to view history`}
-					aria-expanded={historyExpanded}
-					on:click={toggleHistory}
-					data-testid="timeline-entry-edited"
-				>
-					Edited · v{currentVersion}
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 12 12"
-						fill="none"
-						stroke="currentColor"
-						stroke-width="1.5"
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						class="size-2.5 transition-transform {historyExpanded ? 'rotate-180' : ''}"
-						aria-hidden="true"
-					>
-						<path d="M2 4l4 4 4-4" />
-					</svg>
-				</button>
-			{/if}
+						{#if isCleaned}
+							<div class="flex items-center gap-2">
+								<span
+									class="{DS_CHIP_CLASSES.base}"
+									title="AI-assisted text is shown. Use the toggle to see the verbatim original."
+									data-testid="timeline-entry-ai-cleaned"
+								>
+									AI-assisted (original available)
+								</span>
+								<button
+									type="button"
+									class="text-[10px] text-gray-400 dark:text-gray-500
+									       hover:text-gray-600 dark:hover:text-gray-300
+									       underline underline-offset-2 transition"
+									on:click={() => (showOriginal = !showOriginal)}
+									data-testid="timeline-entry-text-toggle"
+								>
+									{showOriginal ? 'Show cleaned' : 'Show original'}
+								</button>
+							</div>
+						{/if}
 
-			<!-- Location — plain "at:" prefix, no emoji -->
-			{#if entry.location_text}
-				<span
-					class="text-xs text-gray-400 dark:text-gray-500 truncate max-w-[16rem]"
-					title={entry.location_text}
-				>
-					at {#each splitTextForSearchHighlight(entry.location_text, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
-						{#if locSeg.highlight}
-							<mark
-								class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
-							>{locSeg.text}</mark>
-						{:else}{locSeg.text}{/if}
-					{/each}
-				</span>
-			{/if}
+						<p
+							bind:this={bodyEl}
+							class="{DS_TYPE_CLASSES.body} whitespace-pre-wrap break-words"
+							class:line-clamp-4={showBodyClampToggle && !bodyExpanded}
+							class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
+							data-testid="timeline-entry-body"
+						>
+							{#each bodyHighlightSegments as seg, bIdx (bIdx)}
+								{#if seg.highlight}
+									<mark
+										class="{DS_TIMELINE_CLASSES.searchMark}"
+									>{seg.text}</mark>
+								{:else}{seg.text}{/if}
+							{/each}
+						</p>
+						{#if showBodyClampToggle}
+							<button
+								type="button"
+								class="mt-0.5 text-left text-[10px] font-medium text-gray-500 dark:text-gray-400
+								       hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2 transition"
+								data-testid="timeline-entry-body-toggle"
+								aria-expanded={bodyExpanded}
+								on:click={() => (bodyExpanded = !bodyExpanded)}
+							>
+								{bodyExpanded ? 'Show less' : 'Show more'}
+							</button>
+						{/if}
 
-			{#if linkedImageFiles.length > 0}
-				<button
-					type="button"
-					class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded
-					       border border-gray-200 dark:border-gray-600
-					       text-gray-500 dark:text-gray-400
-					       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
-					title="View linked images from case files"
-					data-testid="timeline-entry-linked-images-trigger"
-					on:click={() => (linkedImagesViewerOpen = true)}
-				>
-					<svg
-						xmlns="http://www.w3.org/2000/svg"
-						viewBox="0 0 16 16"
-						fill="currentColor"
-						class="size-3.5 shrink-0 opacity-80"
-						aria-hidden="true"
-					>
-						<path
-							d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
-						/>
-					</svg>
-					{linkedImageFiles.length}
-				</button>
-			{/if}
-		</div>
+						{#if tags.length > 0}
+							<div class="flex flex-wrap gap-1 mt-0.5">
+								{#each tags as tag}
+									<span
+										class="text-xs px-1 py-0.5 rounded
+										       bg-gray-100 dark:bg-gray-800
+										       text-gray-500 dark:text-gray-400 font-mono"
+									>
+										{tag}
+									</span>
+								{/each}
+							</div>
+						{/if}
 
-		{#if showProvenanceBlock && entry.provenance}
-			<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
-		{/if}
+						{#if hasMetadataLocation || hasMetadataCreator}
+							<div
+								class="ds-timeline-entry-row__meta-line flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-gray-500/90 dark:text-gray-400/90 {DS_TYPE_CLASSES.meta}"
+								data-testid="timeline-entry-metadata-line"
+							>
+								{#if hasMetadataLocation}
+									<span class="min-w-0 break-words" title={metadataLocationRaw}>
+										at {#each splitTextForSearchHighlight(metadataLocationRaw, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
+											{#if locSeg.highlight}
+												<mark
+													class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
+												>{locSeg.text}</mark>
+											{:else}{locSeg.text}{/if}
+										{/each}
+									</span>
+								{/if}
+								{#if hasMetadataLocation && hasMetadataCreator}
+									<span class="shrink-0 text-gray-400/80 dark:text-gray-500/80 select-none" aria-hidden="true">·</span>
+								{/if}
+								{#if hasMetadataCreator}
+									<span>
+										Entered by <span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
+									</span>
+								{/if}
+							</div>
+						{/if}
 
-		<!-- ── AI-assisted indicator + toggle ────────────────────────────────────── -->
-		{#if isCleaned}
-			<div class="flex items-center gap-2">
-				<span
-					class="{DS_CHIP_CLASSES.base}"
-					title="AI-assisted text is shown. Use the toggle to see the verbatim original."
-					data-testid="timeline-entry-ai-cleaned"
-				>
-					AI-assisted (original available)
-				</span>
-				<button
-					type="button"
-					class="text-[10px] text-gray-400 dark:text-gray-500
-					       hover:text-gray-600 dark:hover:text-gray-300
-					       underline underline-offset-2 transition"
-					on:click={() => (showOriginal = !showOriginal)}
-					data-testid="timeline-entry-text-toggle"
-				>
-					{showOriginal ? 'Show cleaned' : 'Show original'}
-				</button>
-			</div>
-		{/if}
+						<div
+							class="ds-timeline-entry-row__footer flex items-center gap-2 flex-wrap"
+						>
+							<span class="{DS_TYPE_CLASSES.meta}" title={TIMELINE_TIME_TOOLTIP_RECORDED}>
+								Recorded
+								<time
+									datetime={entry.created_at}
+									class="{DS_TYPE_CLASSES.mono}"
+									title={TIMELINE_TIME_TOOLTIP_RECORDED}
+								>
+									{formatCaseDateTime(entry.created_at)}
+								</time>
+							</span>
 
-		<!-- ── Entry body ───────────────────────────────────────────────────────── -->
-		<p
-			bind:this={bodyEl}
-			class="{DS_TYPE_CLASSES.body} whitespace-pre-wrap leading-relaxed"
-			class:line-clamp-4={showBodyClampToggle && !bodyExpanded}
-			class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
-			data-testid="timeline-entry-body"
-		>
-			{#each bodyHighlightSegments as seg, bIdx (bIdx)}
-				{#if seg.highlight}
-					<mark
-						class="{DS_TIMELINE_CLASSES.searchMark}"
-					>{seg.text}</mark>
-				{:else}{seg.text}{/if}
-			{/each}
-		</p>
-		{#if showBodyClampToggle}
-			<button
-				type="button"
-				class="mt-0.5 text-[10px] font-medium text-gray-500 dark:text-gray-400
-				       hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2 transition"
-				data-testid="timeline-entry-body-toggle"
-				on:click={() => (bodyExpanded = !bodyExpanded)}
-			>
-				{bodyExpanded ? 'Show less' : 'Show more'}
-			</button>
-		{/if}
+							{#if isRetrospective}
+								<span
+									class="{DS_CHIP_CLASSES.base}"
+									title="Recorded approximately {retrospectiveHours} hours after the event occurred."
+									data-testid="timeline-entry-retrospective"
+								>
+									Recorded +{retrospectiveHours}h after occurrence
+								</span>
+							{/if}
 
-		<!-- ── Tags ─────────────────────────────────────────────────────────────── -->
-		{#if tags.length > 0}
-			<div class="flex flex-wrap gap-1 mt-0.5">
-				{#each tags as tag}
-					<span
-						class="text-xs px-1 py-0.5 rounded
-						       bg-gray-100 dark:bg-gray-800
-						       text-gray-500 dark:text-gray-400 font-mono"
-					>
-						{tag}
-					</span>
-				{/each}
-			</div>
-		{/if}
-
-	<!-- ── Footer: recorded by · retrospective signal · actions ────────────── -->
-	<div class="flex items-center gap-2 flex-wrap pt-1.5 border-t border-[color:var(--ds-border-subtle)] mt-0.5">
-		<span class="{DS_TYPE_CLASSES.meta}">
-			Recorded
-			<time datetime={entry.created_at} class="{DS_TYPE_CLASSES.mono}">
-				{formatCaseDateTime(entry.created_at)}
-			</time>
-			by <span class="{DS_TYPE_CLASSES.label}">{entry.created_by}</span>
-		</span>
-
-		{#if isRetrospective}
-			<span
-				class="{DS_CHIP_CLASSES.base}"
-				title="Logged approximately {retrospectiveHours} hours after the event occurred."
-				data-testid="timeline-entry-retrospective"
-			>
-				Logged +{retrospectiveHours}h after occurrence
-			</span>
-		{/if}
-
-		<!-- Primary Edit + Notes-style ⋮ menu (Version history, exports, Remove) -->
-		<div class="ml-auto flex items-center gap-1">
-			<button
-				type="button"
-				class="{DS_BTN_CLASSES.secondary}"
-				on:click={onEditRequest}
-				title="Edit this timeline entry"
-				data-testid="timeline-entry-edit-button"
-			>
-				Edit
-			</button>
-			<DropdownMenu.Root bind:open={actionsMenuOpen} onOpenChange={(s) => (actionsMenuOpen = s)}>
-				<DropdownMenu.Trigger>
-					<button
-						type="button"
-						class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
-						aria-label="More actions for this timeline entry"
-						title="More actions for this timeline entry"
-						data-testid="timeline-entry-actions-menu-trigger"
-					>
-						<EllipsisVertical />
-					</button>
-				</DropdownMenu.Trigger>
-				<DropdownMenu.Content
-					class="w-full max-w-[190px] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
-					sideOffset={4}
-					side="bottom"
-					align="end"
-					transition={flyAndScale}
-				>
-					<DropdownMenu.Item
-						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-						on:click={() => void openVersionHistoryFromMenu()}
-						data-testid="timeline-entry-menu-version-history"
-					>
-						<ClockRotateRight className="w-4 h-4 shrink-0" />
-						<span>Version history</span>
-					</DropdownMenu.Item>
-					<hr class="border-gray-100 dark:border-gray-800 my-1" />
-					<DropdownMenu.Item
-						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-						on:click={() => exportEntryFromMenu('txt')}
-						data-testid="timeline-entry-menu-export-txt"
-					>
-						<Download className="w-4 h-4 shrink-0" />
-						<span>Export TXT</span>
-					</DropdownMenu.Item>
-					<DropdownMenu.Item
-						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
-						on:click={() => exportEntryFromMenu('pdf')}
-						data-testid="timeline-entry-menu-export-pdf"
-					>
-						<Download className="w-4 h-4 shrink-0" />
-						<span>Export PDF</span>
-					</DropdownMenu.Item>
-					<hr class="border-gray-100 dark:border-gray-800 my-1" />
-					<DropdownMenu.Item
-						class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 rounded-lg"
-						on:click={requestRemoveFromMenu}
-						data-testid="timeline-entry-delete-button"
-					>
-						<GarbageBin className="w-4 h-4 shrink-0" />
-						<span>Remove</span>
-					</DropdownMenu.Item>
-				</DropdownMenu.Content>
-			</DropdownMenu.Root>
-		</div>
-		</div>
+							<div class="ml-auto flex items-center gap-1">
+								<button
+									type="button"
+									class="{DS_BTN_CLASSES.secondary}"
+									on:click={onEditRequest}
+									title="Edit this timeline entry"
+									data-testid="timeline-entry-edit-button"
+								>
+									Edit
+								</button>
+								<DropdownMenu.Root bind:open={actionsMenuOpen} onOpenChange={(s) => (actionsMenuOpen = s)}>
+									<DropdownMenu.Trigger>
+										<button
+											type="button"
+											class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+											aria-label="More actions for this timeline entry"
+											title="More actions for this timeline entry"
+											data-testid="timeline-entry-actions-menu-trigger"
+										>
+											<EllipsisVertical />
+										</button>
+									</DropdownMenu.Trigger>
+									<DropdownMenu.Content
+										class="w-full max-w-[190px] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+										sideOffset={4}
+										side="bottom"
+										align="end"
+										transition={flyAndScale}
+									>
+										<DropdownMenu.Item
+											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+											on:click={() => void openVersionHistoryFromMenu()}
+											data-testid="timeline-entry-menu-version-history"
+										>
+											<ClockRotateRight className="w-4 h-4 shrink-0" />
+											<span>Version history</span>
+										</DropdownMenu.Item>
+										<hr class="border-gray-100 dark:border-gray-800 my-1" />
+										<DropdownMenu.Item
+											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+											on:click={() => exportEntryFromMenu('txt')}
+											data-testid="timeline-entry-menu-export-txt"
+										>
+											<Download className="w-4 h-4 shrink-0" />
+											<span>Export TXT</span>
+										</DropdownMenu.Item>
+										<DropdownMenu.Item
+											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+											on:click={() => exportEntryFromMenu('pdf')}
+											data-testid="timeline-entry-menu-export-pdf"
+										>
+											<Download className="w-4 h-4 shrink-0" />
+											<span>Export PDF</span>
+										</DropdownMenu.Item>
+										<hr class="border-gray-100 dark:border-gray-800 my-1" />
+										<DropdownMenu.Item
+											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-red-50 dark:hover:bg-red-950/30 text-red-600 dark:text-red-400 rounded-lg"
+											on:click={requestRemoveFromMenu}
+											data-testid="timeline-entry-delete-button"
+										>
+											<GarbageBin className="w-4 h-4 shrink-0" />
+											<span>Remove</span>
+										</DropdownMenu.Item>
+									</DropdownMenu.Content>
+								</DropdownMenu.Root>
+							</div>
+						</div>
 
 		<!-- ── Inline version history (P28-33) ──────────────────────────────────── -->
 		{#if historyExpanded}
@@ -791,6 +887,8 @@
 			</div>
 		{/if}
 
+					</div>
+				</div>
 			</div>
 		</div>
 

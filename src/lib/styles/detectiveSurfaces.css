@@ -563,7 +563,8 @@
 		padding: var(--ds-space-3);
 		display: flex;
 		flex-direction: column;
-		gap: var(--ds-space-3);
+		/* P83-03 — row separation for long-list scanning */
+		gap: var(--ds-space-4);
 		min-width: 0;
 	}
 
@@ -631,6 +632,65 @@
 		border-color: var(--ds-status-danger-border);
 		background-color: color-mix(in oklab, var(--ds-status-danger-bg) 55%, var(--ds-bg-surface));
 		opacity: 0.9;
+	}
+
+	/*
+	 * P83-03 — Timeline entry readability: calmer padding, vertical rhythm, body line length.
+	 * Scoped to `.ds-timeline-entry-row` only (no behavior / data changes).
+	 */
+	.ds-timeline-entry-row .ds-card {
+		padding: var(--ds-space-4);
+	}
+
+	.ds-timeline-entry-row__main {
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-3);
+		min-width: 0;
+	}
+
+	.ds-timeline-entry-row__top {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: var(--ds-space-2) var(--ds-space-3);
+	}
+
+	.ds-timeline-entry-row__top-actions {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--ds-space-1);
+		flex-shrink: 0;
+		padding-top: 0.125rem;
+	}
+
+	.ds-timeline-entry-row p.ds-type-body {
+		line-height: 1.65;
+	}
+
+	.ds-timeline-entry-row__meta-line {
+		margin-top: var(--ds-space-1);
+		padding-top: var(--ds-space-2);
+		border-top: 1px solid var(--ds-border-subtle);
+	}
+
+	.ds-timeline-entry-row__footer {
+		margin-top: var(--ds-space-2);
+		padding-top: var(--ds-space-2);
+		border-top: 1px solid var(--ds-border-subtle);
+	}
+
+	.ds-timeline-entry-row__footer--removed {
+		border-top-style: dashed;
+		border-top-color: color-mix(in oklab, var(--ds-status-danger-border) 70%, var(--ds-border-subtle));
+	}
+
+	.ds-timeline-entry-text--removed {
+		font-size: var(--ds-type-body-size);
+		line-height: 1.65;
 	}
 
 	.ds-timeline-search-mark {
