@@ -7,6 +7,12 @@
 	 *                     P39-02A — optional search match highlight (normalized needle from parent)
 	 *                     P83-01 — standardized row layout (type column, occurred_at primary, body, metadata line)
 	 *                     P83-04 — long body: line-clamp preview + Show more / Show less (CSS only; full text on expand)
+	 *                     P95-01 — standardized 5-line collapsed preview, body block hierarchy, no text mutation
+	 *                     P95-02 — metadata labeling, grouping, hierarchy (presentation only; values unchanged)
+	 *                     P95-03 — inline context strip: linked images + origin/lineage (existing data only)
+	 *                     P95-04 — interaction polish: hover/focus-visible + hit targets (existing controls only)
+	 *                     P95-05 — cross-entry spacing rhythm; unified section stack (no IA change)
+	 *                     P98-02 — declared same-case relationship strip (read-only; P98-01 contract; no navigation)
 	 *                     P83-05 — metadata line consistency (order, separators, type display; trim only; no new fields)
 	 *                     P83-02 — explicit Occurred vs Recorded labels + tooltips (no timestamp logic changes)
 	 *                     P83-03 — readability + scanning (spacing, hierarchy, body line rhythm; see detectiveSurfaces.css)
@@ -22,7 +28,7 @@
 	 *   3. occurred_at with seconds — prevents same-minute sequence ambiguity
 	 *   4. Retrospective signal — when entry was recorded >24h after it occurred
 	 *   5. Attribution contrast — slightly more visible (text-gray-500)
-	 *   6. Location: removed emoji 📍, replaced with plain "at:"
+	 *   6. Location: label + value (P95-02); entry text unchanged
 	 *
 	 * Version history (P28-33):
 	 *   - `Edited · vN` badge is a button that expands/collapses inline version history
@@ -43,12 +49,15 @@
 		TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP
 	} from '$lib/caseTimeline/timelineTypeNoteClarity';
 	import { splitTextForSearchHighlight } from '$lib/caseTimeline/timelineSearchUx';
+	import { TIMELINE_ENTRY_BODY_LINE_CLAMP_TAILWIND } from '$lib/caseTimeline/timelineEntryBodyDisplay';
 	import {
 		formatOperationalCaseDateTimeWithSeconds,
 		formatCaseDateTime
 	} from '$lib/utils/formatDateTime';
 	import TimelineEntryLinkedImagesViewer from './TimelineEntryLinkedImagesViewer.svelte';
+	import TimelineEntryDeclaredRelationshipsBlock from './TimelineEntryDeclaredRelationshipsBlock.svelte';
 	import TimelineEntryProvenanceBlock from './TimelineEntryProvenanceBlock.svelte';
+	import SynthesisNavigationContextPreview from './SynthesisNavigationContextPreview.svelte';
 	import EllipsisVertical from '$lib/components/icons/EllipsisVertical.svelte';
 	import ClockRotateRight from '$lib/components/icons/ClockRotateRight.svelte';
 	import Download from '$lib/components/icons/Download.svelte';
@@ -66,6 +75,14 @@
 	/** P83-02 — occurred_at vs created_at; UI copy only */
 	const TIMELINE_TIME_TOOLTIP_OCCURRED = 'When the event happened.';
 	const TIMELINE_TIME_TOOLTIP_RECORDED = 'When this entry was added to the system.';
+
+	/** P95-02 — metadata row labels (presentation only; no data changes) */
+	const TIMELINE_META_LABEL_TYPE = 'Type';
+	const TIMELINE_META_LABEL_TAGS = 'Tags';
+	const TIMELINE_META_LABEL_LOCATION = 'Location';
+
+	/** P95-03 — linked files row label (presentation only) */
+	const TIMELINE_CONTEXT_LABEL_LINKED_IMAGES = 'Linked images';
 
 	/** P84-05 — Ops toolbar (flag → relate → follow-up): shared chrome + session-only titles */
 	const TIMELINE_OPS_BTN =
@@ -107,6 +124,10 @@
 	export let entryNeedsFollowUp = false;
 	/** P84-04 — follow-up toggle (parent mutates Set). */
 	export let onFollowUpClick: () => void = () => {};
+	/** P97-02 — transient read-only synthesis navigation confirmation (not selection/workflow state). */
+	export let synthesisNavigationReveal = false;
+	/** P97-04 — ephemeral orientation copy (subordinate to the row; cleared with reveal highlight). */
+	export let synthesisNavigationContextPreview: { headline: string; lines: string[] } | null = null;
 
 	const TYPE_LABELS: Record<string, string> = {
 		note:         TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
@@ -188,6 +209,9 @@
 	/** P40-02: hide lineage UI for direct manual logs (older APIs omit `provenance`). */
 	$: showProvenanceBlock =
 		entry.provenance != null && entry.provenance.origin_kind !== 'manual';
+
+	/** P95-03 — show grouped inline context (linked images and/or provenance); no new data */
+	$: showInlineContextBlock = linkedImageFiles.length > 0 || showProvenanceBlock;
 
 	// ── AI-assisted text toggle (P28-31) ────────────────────────────────────────
 	let showOriginal = false;
@@ -276,7 +300,7 @@
 	$: hasMetadataLocation = metadataLocationRaw.length > 0;
 	$: hasMetadataCreator = metadataCreatorRaw.length > 0;
 
-	// ── P83-04 — Body expand/collapse (local state; CSS line-clamp; no content mutation) ──
+	// ── P83-04 / P95-01 — Body expand/collapse (local state; CSS line-clamp; no content mutation) ──
 	let bodyEl: HTMLParagraphElement | undefined;
 	let bodyExpanded = false;
 	let showBodyClampToggle = false;
@@ -289,10 +313,10 @@
 			showBodyClampToggle = false;
 			return;
 		}
-		el.classList.add('line-clamp-4', 'overflow-hidden');
+		el.classList.add(TIMELINE_ENTRY_BODY_LINE_CLAMP_TAILWIND, 'overflow-hidden');
 		void el.offsetHeight;
 		const overflows = el.scrollHeight > el.clientHeight + 2;
-		el.classList.remove('line-clamp-4', 'overflow-hidden');
+		el.classList.remove(TIMELINE_ENTRY_BODY_LINE_CLAMP_TAILWIND, 'overflow-hidden');
 		if (showBodyClampToggle !== overflows) {
 			showBodyClampToggle = overflows;
 		}
@@ -330,9 +354,12 @@
 	<!-- ── Compact removed-state card (P28-35) ────────────────────────────────── -->
 	<li
 		id={`ce-timeline-entry-${entry.id}`}
-		class="{DS_TIMELINE_CLASSES.entryRow} ds-timeline-entry-row--removed"
+		class="{DS_TIMELINE_CLASSES.entryRow} ds-timeline-entry-row--removed{synthesisNavigationReveal
+			? ' ds-p97-synthesis-nav-reveal'
+			: ''}"
 		data-testid="timeline-entry-deleted"
 		data-entry-id={entry.id}
+		data-synthesis-timeline-reveal={synthesisNavigationReveal ? '1' : '0'}
 		data-timeline-row-flagged={entryFlagged ? '1' : '0'}
 		data-timeline-row-related={relatePaired ? '1' : '0'}
 		data-timeline-row-followup={entryNeedsFollowUp ? '1' : '0'}
@@ -341,6 +368,14 @@
 			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
 		</div>
 		<div class="{DS_TIMELINE_CLASSES.entryBody}">
+			{#if synthesisNavigationReveal && synthesisNavigationContextPreview}
+				<SynthesisNavigationContextPreview
+					role="authoritative"
+					surface="timeline"
+					headline={synthesisNavigationContextPreview.headline}
+					lines={synthesisNavigationContextPreview.lines}
+				/>
+			{/if}
 			<div
 				class="{DS_CARD_CLASSES.card} min-w-0 {entryFlagged ? 'ds-timeline-entry-card--review-flagged' : ''}{relatePaired
 					? ' ds-timeline-entry-card--relationship-paired'
@@ -350,22 +385,34 @@
 				data-timeline-card-followup={entryNeedsFollowUp ? '1' : '0'}
 			>
 				<div class="flex gap-4 min-w-0">
-					<div class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5">
+					<div
+						class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5 ds-timeline-entry-type-column"
+						data-testid="timeline-entry-type-column"
+					>
+						<span
+							class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta}"
+							title="Entry type"
+							id={`ce-timeline-entry-type-label-${entry.id}`}
+						>{TIMELINE_META_LABEL_TYPE}</span>
 						<span
 							class="{timelineTypeBadgeClass(entry.type)} opacity-80"
 							title={typeBadgeTitle(entry.type)}
+							data-testid="timeline-entry-type-badge"
+							aria-labelledby={`ce-timeline-entry-type-label-${entry.id}`}
 						>
 							{typeLabel(entry.type)}
 						</span>
 					</div>
 					<div class="flex-1 min-w-0 ds-timeline-entry-row__main">
 						<div class="ds-timeline-entry-row__top">
-							<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
+							<div class="ds-timeline-entry-metadata-primary min-w-0">
+								<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
 								<span class="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">Occurred</span>
 								<time
 									datetime={entry.occurred_at}
 									class="text-base font-semibold tabular-nums text-[color:var(--ds-fg)] {DS_TYPE_CLASSES.mono}"
 									title={TIMELINE_TIME_TOOLTIP_OCCURRED}
+									data-testid="timeline-entry-occurred-at"
 								>
 									{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
 								</time>
@@ -376,6 +423,7 @@
 								>
 									Removed from timeline
 								</span>
+								</div>
 							</div>
 							<div class="ds-timeline-entry-row__top-actions">
 								<button
@@ -461,36 +509,11 @@
 										<path d="M9 16h6" />
 									</svg>
 								</button>
-								{#if linkedImageFiles.length > 0}
-									<button
-										type="button"
-										class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded
-										       border border-gray-200 dark:border-gray-600
-										       text-gray-500 dark:text-gray-400
-										       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
-										title="View linked images from case files"
-										data-testid="timeline-entry-linked-images-trigger"
-										on:click={() => (linkedImagesViewerOpen = true)}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											viewBox="0 0 16 16"
-											fill="currentColor"
-											class="size-3.5 shrink-0 opacity-80"
-											aria-hidden="true"
-										>
-											<path
-												d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
-											/>
-										</svg>
-										{linkedImageFiles.length}
-									</button>
-								{/if}
 								<DropdownMenu.Root bind:open={actionsMenuOpen} onOpenChange={(s) => (actionsMenuOpen = s)}>
 									<DropdownMenu.Trigger>
 										<button
 											type="button"
-											class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+											class="ds-timeline-entry-actions-menu-btn"
 											aria-label="More actions for this timeline entry"
 											title="More actions for this timeline entry"
 											data-testid="timeline-entry-actions-menu-trigger"
@@ -546,69 +569,119 @@
 							</div>
 						</div>
 
-						{#if showProvenanceBlock && entry.provenance}
-							<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
+						{#if showInlineContextBlock}
+							<div
+								class="ds-timeline-entry-inline-context min-w-0"
+								data-testid="timeline-entry-inline-context"
+							>
+								{#if linkedImageFiles.length > 0}
+									<div
+										class="ds-timeline-entry-linked-files-row flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"
+										data-testid="timeline-entry-linked-files-row"
+									>
+										<span
+											class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
+											id={`ce-timeline-entry-linked-images-label-${entry.id}`}
+										>{TIMELINE_CONTEXT_LABEL_LINKED_IMAGES}</span>
+										<button
+											type="button"
+											class="ds-timeline-entry-linked-images-trigger inline-flex items-center gap-0.5 text-[10px] font-medium px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+											title="View linked images from case files"
+											data-testid="timeline-entry-linked-images-trigger"
+											aria-labelledby={`ce-timeline-entry-linked-images-label-${entry.id}`}
+											on:click={() => (linkedImagesViewerOpen = true)}
+										>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												viewBox="0 0 16 16"
+												fill="currentColor"
+												class="size-3.5 shrink-0 opacity-80"
+												aria-hidden="true"
+											>
+												<path
+													d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
+												/>
+											</svg>
+											{linkedImageFiles.length}
+										</button>
+									</div>
+								{/if}
+								{#if showProvenanceBlock && entry.provenance}
+									<div class="ds-timeline-entry-context-origin min-w-0" data-testid="timeline-entry-context-origin">
+										<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
+									</div>
+								{/if}
+							</div>
 						{/if}
 
-						<p
-							bind:this={bodyEl}
-							class="ds-timeline-entry-text--removed text-gray-500 dark:text-gray-500 whitespace-pre-wrap break-words"
-							class:line-clamp-4={showBodyClampToggle && !bodyExpanded}
-							class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
-							data-testid="timeline-entry-deleted-text"
-						>
-							{#each splitTextForSearchHighlight(entry.text_original ?? '', searchHighlightNeedle) as seg, hIdx (hIdx)}
-								{#if seg.highlight}
-									<mark
-										class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
-									>{seg.text}</mark>
-								{:else}{seg.text}{/if}
-							{/each}
-						</p>
-						{#if showBodyClampToggle}
-							<button
-								type="button"
-								class="mt-0.5 text-left text-[10px] font-medium text-gray-500 dark:text-gray-400
-								       hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2 transition"
-								data-testid="timeline-entry-body-toggle"
-								aria-expanded={bodyExpanded}
-								on:click={() => (bodyExpanded = !bodyExpanded)}
+						<TimelineEntryDeclaredRelationshipsBlock {caseId} {entry} />
+
+						<div class="ds-timeline-entry-body-block min-w-0" data-testid="timeline-entry-body-block">
+							<p
+								bind:this={bodyEl}
+								class="ds-timeline-entry-body-primary ds-timeline-entry-text--removed text-gray-500 dark:text-gray-500 whitespace-pre-wrap break-words"
+								class:line-clamp-5={showBodyClampToggle && !bodyExpanded}
+								class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
+								data-testid="timeline-entry-deleted-text"
 							>
-								{bodyExpanded ? 'Show less' : 'Show more'}
-							</button>
-						{/if}
+								{#each splitTextForSearchHighlight(entry.text_original ?? '', searchHighlightNeedle) as seg, hIdx (hIdx)}
+									{#if seg.highlight}
+										<mark
+											class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
+										>{seg.text}</mark>
+									{:else}{seg.text}{/if}
+								{/each}
+							</p>
+							{#if showBodyClampToggle}
+								<button
+									type="button"
+									class="ds-timeline-entry-body-toggle text-left text-[10px] font-medium text-gray-500 dark:text-gray-400 underline underline-offset-2"
+									data-testid="timeline-entry-body-toggle"
+									aria-expanded={bodyExpanded}
+									on:click={() => (bodyExpanded = !bodyExpanded)}
+								>
+									{bodyExpanded ? 'Show less' : 'Show more'}
+								</button>
+							{/if}
+						</div>
 
 						{#if hasMetadataLocation || hasMetadataCreator}
 							<div
-								class="ds-timeline-entry-row__meta-line flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-gray-500/90 dark:text-gray-400/90 {DS_TYPE_CLASSES.meta}"
-								data-testid="timeline-entry-metadata-line"
+								class="ds-timeline-entry-metadata-secondary min-w-0"
+								data-testid="timeline-entry-metadata-secondary"
 							>
-								{#if hasMetadataLocation}
-									<span class="min-w-0 break-words" title={metadataLocationRaw}>
-										at {#each splitTextForSearchHighlight(metadataLocationRaw, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
-											{#if locSeg.highlight}
-												<mark
-													class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
-												>{locSeg.text}</mark>
-											{:else}{locSeg.text}{/if}
-										{/each}
-									</span>
-								{/if}
-								{#if hasMetadataLocation && hasMetadataCreator}
-									<span class="shrink-0 text-gray-400/80 dark:text-gray-500/80 select-none" aria-hidden="true">·</span>
-								{/if}
-								{#if hasMetadataCreator}
-									<span>
-										Entered by <span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
-									</span>
-								{/if}
+								<div
+									class="ds-timeline-entry-row__meta-line flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-gray-500/90 dark:text-gray-400/90 {DS_TYPE_CLASSES.meta}"
+									data-testid="timeline-entry-metadata-line"
+								>
+									{#if hasMetadataLocation}
+										<span class="min-w-0 break-words" title={metadataLocationRaw} data-testid="timeline-entry-location">
+											<span class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} mr-1">{TIMELINE_META_LABEL_LOCATION}</span>
+											{#each splitTextForSearchHighlight(metadataLocationRaw, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
+												{#if locSeg.highlight}
+													<mark
+														class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
+													>{locSeg.text}</mark>
+												{:else}{locSeg.text}{/if}
+											{/each}
+										</span>
+									{/if}
+									{#if hasMetadataLocation && hasMetadataCreator}
+										<span class="shrink-0 text-gray-400/80 dark:text-gray-500/80 select-none" aria-hidden="true">·</span>
+									{/if}
+									{#if hasMetadataCreator}
+										<span data-testid="timeline-entry-entered-by">
+											Entered by <span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
+										</span>
+									{/if}
+								</div>
 							</div>
 						{/if}
 
 						<div
 							class="ds-timeline-entry-row__footer ds-timeline-entry-row__footer--removed flex items-center gap-2 flex-wrap text-[10px] text-gray-400 dark:text-gray-600"
 						>
-							<span class="{DS_TYPE_CLASSES.meta}" title={TIMELINE_TIME_TOOLTIP_RECORDED}>
+							<span class="{DS_TYPE_CLASSES.meta} ds-timeline-entry-recorded-line" title={TIMELINE_TIME_TOOLTIP_RECORDED} data-testid="timeline-entry-recorded-at">
 								Recorded
 								<time
 									datetime={entry.created_at}
@@ -625,7 +698,7 @@
 
 		{#if historyExpanded}
 			<div
-				class="mt-1 pt-2 border-t border-dashed border-amber-200 dark:border-amber-800/50"
+				class="ds-timeline-entry-history-panel"
 				data-testid="timeline-entry-history-panel"
 			>
 				<p class="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 mb-2">
@@ -705,9 +778,10 @@
 	<!-- ── Active entry card ─────────────────────────────────────────────────── -->
 	<li
 		id={`ce-timeline-entry-${entry.id}`}
-		class="{DS_TIMELINE_CLASSES.entryRow}"
+		class="{DS_TIMELINE_CLASSES.entryRow}{synthesisNavigationReveal ? ' ds-p97-synthesis-nav-reveal' : ''}"
 		data-testid="timeline-entry"
 		data-entry-id={entry.id}
+		data-synthesis-timeline-reveal={synthesisNavigationReveal ? '1' : '0'}
 		data-timeline-row-flagged={entryFlagged ? '1' : '0'}
 		data-timeline-row-related={relatePaired ? '1' : '0'}
 		data-timeline-row-followup={entryNeedsFollowUp ? '1' : '0'}
@@ -716,6 +790,14 @@
 			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
 		</div>
 		<div class="{DS_TIMELINE_CLASSES.entryBody}">
+			{#if synthesisNavigationReveal && synthesisNavigationContextPreview}
+				<SynthesisNavigationContextPreview
+					role="authoritative"
+					surface="timeline"
+					headline={synthesisNavigationContextPreview.headline}
+					lines={synthesisNavigationContextPreview.lines}
+				/>
+			{/if}
 			<div
 				class="{DS_CARD_CLASSES.card} min-w-0 {entryFlagged ? 'ds-timeline-entry-card--review-flagged' : ''}{relatePaired
 					? ' ds-timeline-entry-card--relationship-paired'
@@ -726,10 +808,20 @@
 			>
 				<div class="flex gap-4 min-w-0">
 					<!-- P83-01: narrow type column -->
-					<div class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5">
+					<div
+						class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5 ds-timeline-entry-type-column"
+						data-testid="timeline-entry-type-column"
+					>
+						<span
+							class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta}"
+							title="Entry type"
+							id={`ce-timeline-entry-type-label-${entry.id}`}
+						>{TIMELINE_META_LABEL_TYPE}</span>
 						<span
 							class="{timelineTypeBadgeClass(entry.type)}"
 							title={typeBadgeTitle(entry.type)}
+							data-testid="timeline-entry-type-badge"
+							aria-labelledby={`ce-timeline-entry-type-label-${entry.id}`}
 						>
 							{typeLabel(entry.type)}
 						</span>
@@ -737,19 +829,21 @@
 					<div class="flex-1 min-w-0 ds-timeline-entry-row__main">
 						<!-- Top line: occurred_at primary; edited + linked images secondary -->
 						<div class="ds-timeline-entry-row__top">
-							<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
+							<div class="ds-timeline-entry-metadata-primary min-w-0">
+								<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
 								<span class="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">Occurred</span>
 								<time
 									datetime={entry.occurred_at}
 									class="text-base font-semibold tabular-nums text-[color:var(--ds-fg)] {DS_TYPE_CLASSES.mono}"
 									title={TIMELINE_TIME_TOOLTIP_OCCURRED}
+									data-testid="timeline-entry-occurred-at"
 								>
 									{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
 								</time>
 								{#if isEdited}
 									<button
 										type="button"
-										class="{DS_BTN_CLASSES.ghost} text-xs py-0.5 min-h-0"
+										class="{DS_BTN_CLASSES.ghost} ds-timeline-entry-edited-toggle text-xs py-0.5 min-h-0"
 										title={historyExpanded
 											? 'Collapse version history'
 											: `Version ${currentVersion} — click to view history`}
@@ -773,6 +867,7 @@
 										</svg>
 									</button>
 								{/if}
+								</div>
 							</div>
 							<div class="ds-timeline-entry-row__top-actions">
 								<button
@@ -858,40 +953,58 @@
 										<path d="M9 16h6" />
 									</svg>
 								</button>
-								{#if linkedImageFiles.length > 0}
-									<button
-										type="button"
-										class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded
-										       border border-gray-200 dark:border-gray-600
-										       text-gray-500 dark:text-gray-400
-										       hover:bg-gray-50 dark:hover:bg-gray-800 transition"
-										title="View linked images from case files"
-										data-testid="timeline-entry-linked-images-trigger"
-										on:click={() => (linkedImagesViewerOpen = true)}
-									>
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											viewBox="0 0 16 16"
-											fill="currentColor"
-											class="size-3.5 shrink-0 opacity-80"
-											aria-hidden="true"
-										>
-											<path
-												d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
-											/>
-										</svg>
-										{linkedImageFiles.length}
-									</button>
-								{/if}
 							</div>
 						</div>
 
-						{#if showProvenanceBlock && entry.provenance}
-							<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
+						{#if showInlineContextBlock}
+							<div
+								class="ds-timeline-entry-inline-context min-w-0"
+								data-testid="timeline-entry-inline-context"
+							>
+								{#if linkedImageFiles.length > 0}
+									<div
+										class="ds-timeline-entry-linked-files-row flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"
+										data-testid="timeline-entry-linked-files-row"
+									>
+										<span
+											class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
+											id={`ce-timeline-entry-linked-images-label-${entry.id}`}
+										>{TIMELINE_CONTEXT_LABEL_LINKED_IMAGES}</span>
+										<button
+											type="button"
+											class="ds-timeline-entry-linked-images-trigger inline-flex items-center gap-0.5 text-[10px] font-medium px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+											title="View linked images from case files"
+											data-testid="timeline-entry-linked-images-trigger"
+											aria-labelledby={`ce-timeline-entry-linked-images-label-${entry.id}`}
+											on:click={() => (linkedImagesViewerOpen = true)}
+										>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												viewBox="0 0 16 16"
+												fill="currentColor"
+												class="size-3.5 shrink-0 opacity-80"
+												aria-hidden="true"
+											>
+												<path
+													d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
+												/>
+											</svg>
+											{linkedImageFiles.length}
+										</button>
+									</div>
+								{/if}
+								{#if showProvenanceBlock && entry.provenance}
+									<div class="ds-timeline-entry-context-origin min-w-0" data-testid="timeline-entry-context-origin">
+										<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
+									</div>
+								{/if}
+							</div>
 						{/if}
 
+						<TimelineEntryDeclaredRelationshipsBlock {caseId} {entry} />
+
 						{#if isCleaned}
-							<div class="flex items-center gap-2">
+							<div class="ds-timeline-entry-ai-row">
 								<span
 									class="{DS_CHIP_CLASSES.base}"
 									title="AI-assisted text is shown. Use the toggle to see the verbatim original."
@@ -901,9 +1014,7 @@
 								</span>
 								<button
 									type="button"
-									class="text-[10px] text-gray-400 dark:text-gray-500
-									       hover:text-gray-600 dark:hover:text-gray-300
-									       underline underline-offset-2 transition"
+									class="ds-timeline-entry-text-toggle text-[10px] text-gray-400 dark:text-gray-500 underline underline-offset-2"
 									on:click={() => (showOriginal = !showOriginal)}
 									data-testid="timeline-entry-text-toggle"
 								>
@@ -912,71 +1023,92 @@
 							</div>
 						{/if}
 
-						<p
-							bind:this={bodyEl}
-							class="{DS_TYPE_CLASSES.body} whitespace-pre-wrap break-words"
-							class:line-clamp-4={showBodyClampToggle && !bodyExpanded}
-							class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
-							data-testid="timeline-entry-body"
-						>
-							{#each bodyHighlightSegments as seg, bIdx (bIdx)}
-								{#if seg.highlight}
-									<mark
-										class="{DS_TIMELINE_CLASSES.searchMark}"
-									>{seg.text}</mark>
-								{:else}{seg.text}{/if}
-							{/each}
-						</p>
-						{#if showBodyClampToggle}
-							<button
-								type="button"
-								class="mt-0.5 text-left text-[10px] font-medium text-gray-500 dark:text-gray-400
-								       hover:text-gray-700 dark:hover:text-gray-300 underline underline-offset-2 transition"
-								data-testid="timeline-entry-body-toggle"
-								aria-expanded={bodyExpanded}
-								on:click={() => (bodyExpanded = !bodyExpanded)}
+						<div class="ds-timeline-entry-body-block min-w-0" data-testid="timeline-entry-body-block">
+							<p
+								bind:this={bodyEl}
+								class="ds-timeline-entry-body-primary {DS_TYPE_CLASSES.body} whitespace-pre-wrap break-words"
+								class:line-clamp-5={showBodyClampToggle && !bodyExpanded}
+								class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
+								data-testid="timeline-entry-body"
 							>
-								{bodyExpanded ? 'Show less' : 'Show more'}
-							</button>
-						{/if}
-
-						{#if tags.length > 0}
-							<div class="flex flex-wrap gap-1 mt-0.5">
-								{#each tags as tag}
-									<span
-										class="text-xs px-1 py-0.5 rounded
-										       bg-gray-100 dark:bg-gray-800
-										       text-gray-500 dark:text-gray-400 font-mono"
-									>
-										{tag}
-									</span>
+								{#each bodyHighlightSegments as seg, bIdx (bIdx)}
+									{#if seg.highlight}
+										<mark
+											class="{DS_TIMELINE_CLASSES.searchMark}"
+										>{seg.text}</mark>
+									{:else}{seg.text}{/if}
 								{/each}
-							</div>
-						{/if}
+							</p>
+							{#if showBodyClampToggle}
+								<button
+									type="button"
+									class="ds-timeline-entry-body-toggle text-left text-[10px] font-medium text-gray-500 dark:text-gray-400 underline underline-offset-2"
+									data-testid="timeline-entry-body-toggle"
+									aria-expanded={bodyExpanded}
+									on:click={() => (bodyExpanded = !bodyExpanded)}
+								>
+									{bodyExpanded ? 'Show less' : 'Show more'}
+								</button>
+							{/if}
+						</div>
 
-						{#if hasMetadataLocation || hasMetadataCreator}
+						{#if tags.length > 0 || hasMetadataLocation || hasMetadataCreator}
 							<div
-								class="ds-timeline-entry-row__meta-line flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-gray-500/90 dark:text-gray-400/90 {DS_TYPE_CLASSES.meta}"
-								data-testid="timeline-entry-metadata-line"
+								class="ds-timeline-entry-metadata-secondary min-w-0"
+								data-testid="timeline-entry-metadata-secondary"
 							>
-								{#if hasMetadataLocation}
-									<span class="min-w-0 break-words" title={metadataLocationRaw}>
-										at {#each splitTextForSearchHighlight(metadataLocationRaw, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
-											{#if locSeg.highlight}
-												<mark
-													class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
-												>{locSeg.text}</mark>
-											{:else}{locSeg.text}{/if}
-										{/each}
-									</span>
+								{#if tags.length > 0}
+									<div
+										class="ds-timeline-entry-tags-block flex flex-wrap items-baseline gap-x-2 gap-y-1.5"
+										data-testid="timeline-entry-tags-block"
+									>
+										<span
+											class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
+											id={`ce-timeline-entry-tags-label-${entry.id}`}
+										>{TIMELINE_META_LABEL_TAGS}</span>
+										<div
+											class="flex flex-wrap gap-1 min-w-0"
+											role="group"
+											aria-labelledby={`ce-timeline-entry-tags-label-${entry.id}`}
+										>
+											{#each tags as tag}
+												<span
+													class="text-xs px-1 py-0.5 rounded
+													       bg-gray-100 dark:bg-gray-800
+													       text-gray-500 dark:text-gray-400 font-mono"
+												>
+													{tag}
+												</span>
+											{/each}
+										</div>
+									</div>
 								{/if}
-								{#if hasMetadataLocation && hasMetadataCreator}
-									<span class="shrink-0 text-gray-400/80 dark:text-gray-500/80 select-none" aria-hidden="true">·</span>
-								{/if}
-								{#if hasMetadataCreator}
-									<span>
-										Entered by <span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
-									</span>
+								{#if hasMetadataLocation || hasMetadataCreator}
+									<div
+										class="ds-timeline-entry-row__meta-line flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-gray-500/90 dark:text-gray-400/90 {DS_TYPE_CLASSES.meta}"
+										data-testid="timeline-entry-metadata-line"
+									>
+										{#if hasMetadataLocation}
+											<span class="min-w-0 break-words" title={metadataLocationRaw} data-testid="timeline-entry-location">
+												<span class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} mr-1">{TIMELINE_META_LABEL_LOCATION}</span>
+												{#each splitTextForSearchHighlight(metadataLocationRaw, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
+													{#if locSeg.highlight}
+														<mark
+															class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
+														>{locSeg.text}</mark>
+													{:else}{locSeg.text}{/if}
+												{/each}
+											</span>
+										{/if}
+										{#if hasMetadataLocation && hasMetadataCreator}
+											<span class="shrink-0 text-gray-400/80 dark:text-gray-500/80 select-none" aria-hidden="true">·</span>
+										{/if}
+										{#if hasMetadataCreator}
+											<span data-testid="timeline-entry-entered-by">
+												Entered by <span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
+											</span>
+										{/if}
+									</div>
 								{/if}
 							</div>
 						{/if}
@@ -984,7 +1116,7 @@
 						<div
 							class="ds-timeline-entry-row__footer flex items-center gap-2 flex-wrap"
 						>
-							<span class="{DS_TYPE_CLASSES.meta}" title={TIMELINE_TIME_TOOLTIP_RECORDED}>
+							<span class="{DS_TYPE_CLASSES.meta} ds-timeline-entry-recorded-line" title={TIMELINE_TIME_TOOLTIP_RECORDED} data-testid="timeline-entry-recorded-at">
 								Recorded
 								<time
 									datetime={entry.created_at}
@@ -1019,7 +1151,7 @@
 									<DropdownMenu.Trigger>
 										<button
 											type="button"
-											class="p-1 rounded-md text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition"
+											class="ds-timeline-entry-actions-menu-btn"
 											aria-label="More actions for this timeline entry"
 											title="More actions for this timeline entry"
 											data-testid="timeline-entry-actions-menu-trigger"
@@ -1076,7 +1208,7 @@
 		<!-- ── Inline version history (P28-33) ──────────────────────────────────── -->
 		{#if historyExpanded}
 			<div
-				class="mt-1 pt-2 border-t border-dashed border-amber-200 dark:border-amber-800/50"
+				class="ds-timeline-entry-history-panel"
 				data-testid="timeline-entry-history-panel"
 			>
 				<p class="text-[10px] font-semibold uppercase tracking-wide text-amber-600 dark:text-amber-400 mb-2">

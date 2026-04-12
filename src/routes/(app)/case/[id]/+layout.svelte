@@ -7,6 +7,7 @@
 	 * P76-08 — `caseModeActive` for GNAV / case shell coordination.
 	 */
 	import { onMount, onDestroy, tick } from 'svelte';
+	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -48,6 +49,10 @@
 		WAVE3_CASE_SHELL_LEGACY_RAIL_CLASS,
 		WAVE3_CASE_SHELL_GOVERNED_RAIL_CLASS
 	} from '$lib/case/detectiveWave3CaseShell';
+	import {
+		buildCaseSynthesisReadModel,
+		CASE_SYNTHESIS_READ_MODEL_DEV_LOG_LABEL
+	} from '$lib/case/caseSynthesisReadModel';
 
 	caseModeActive.set(true);
 
@@ -147,6 +152,25 @@
 		};
 		schedule();
 		const unsub = page.subscribe(() => schedule());
+		return () => unsub();
+	});
+
+	/** P96-01: dev-only console inspection — `?p96_synthesis=1` on case workspace (read-only contract). */
+	onMount(() => {
+		if (!browser || import.meta.env.PROD) return;
+		let lastDevLogKey = '';
+		const unsub = page.subscribe(($p) => {
+			if ($p.url.searchParams.get('p96_synthesis') !== '1') return;
+			const id = $p.params.id;
+			const token = get(caseEngineToken);
+			if (!id || !token) return;
+			const key = `${id}:${$p.url.search}:tok=${token ? 'y' : 'n'}`;
+			if (key === lastDevLogKey) return;
+			lastDevLogKey = key;
+			void buildCaseSynthesisReadModel(id, token, { includeFileExtractedText: false })
+				.then((m) => console.info(CASE_SYNTHESIS_READ_MODEL_DEV_LOG_LABEL, m))
+				.catch((e) => console.warn(CASE_SYNTHESIS_READ_MODEL_DEV_LOG_LABEL, e));
+		});
 		return () => unsub();
 	});
 

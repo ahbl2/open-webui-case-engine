@@ -25,7 +25,7 @@ describe('TimelineEntryCard Phase 83 guardrails (source contract)', () => {
 		expect(src).toMatch(/timeline-entry-body-toggle/);
 		expect(src).toContain("'Show more'");
 		expect(src).toContain("'Show less'");
-		expect(src).toMatch(/line-clamp-4/);
+		expect(src).toMatch(/line-clamp-5/);
 	});
 
 	it('preserves P83-05 metadata line and ordering cues', () => {

@@ -5,6 +5,7 @@ import { describe, it, expect } from 'vitest';
 import type { CaseTask } from './caseTaskModel';
 import {
 	applyCaseTaskFilters,
+	applyCaseTaskTextSearch,
 	caseTaskShouldOfferDetailToggle,
 	formatCaseTaskArchiveAttribution,
 	formatCaseTaskCompletionAttribution,
@@ -30,61 +31,32 @@ function task(partial: Partial<CaseTask> & Pick<CaseTask, 'id' | 'title' | 'stat
 	};
 }
 
-describe('P90-01 applyCaseTaskFilters', () => {
+describe('P90-01 applyCaseTaskFilters (lifecycle status only)', () => {
 	const sample: CaseTask[] = [
 		task({ id: 'a', title: 'Open Alpha', status: 'open', description: 'notes here' }),
 		task({ id: 'b', title: 'Beta done', status: 'completed', description: null }),
 		task({ id: 'c', title: 'Gamma archived', status: 'archived', description: 'ARCHIVED DESC' })
 	];
 
-	it('returns full list when status is all and text is empty', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'all', textQuery: '' });
+	it('returns shallow copy when status is all', () => {
+		const out = applyCaseTaskFilters(sample, { statusFilter: 'all' });
 		expect(out.map((t) => t.id)).toEqual(['a', 'b', 'c']);
+		expect(out).not.toBe(sample);
 	});
 
 	it('narrows by status open', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'open', textQuery: '' });
+		const out = applyCaseTaskFilters(sample, { statusFilter: 'open' });
 		expect(out.map((t) => t.id)).toEqual(['a']);
 	});
 
 	it('narrows by status completed', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'completed', textQuery: '' });
+		const out = applyCaseTaskFilters(sample, { statusFilter: 'completed' });
 		expect(out.map((t) => t.id)).toEqual(['b']);
 	});
 
 	it('narrows by status archived', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'archived', textQuery: '' });
+		const out = applyCaseTaskFilters(sample, { statusFilter: 'archived' });
 		expect(out.map((t) => t.id)).toEqual(['c']);
-	});
-
-	it('matches title case-insensitively', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'all', textQuery: 'ALPHA' });
-		expect(out.map((t) => t.id)).toEqual(['a']);
-	});
-
-	it('matches description case-insensitively', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'all', textQuery: 'archived desc' });
-		expect(out.map((t) => t.id)).toEqual(['c']);
-	});
-
-	it('trims text query whitespace', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'all', textQuery: '  beta  ' });
-		expect(out.map((t) => t.id)).toEqual(['b']);
-	});
-
-	it('applies intersection: status then text', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'completed', textQuery: 'gamma' });
-		expect(out).toEqual([]);
-	});
-
-	it('applies intersection: text then implicit status via filter', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'all', textQuery: 'notes' });
-		expect(out.map((t) => t.id)).toEqual(['a']);
-	});
-
-	it('returns empty when text matches nothing', () => {
-		const out = applyCaseTaskFilters(sample, { statusFilter: 'all', textQuery: 'zzz' });
-		expect(out).toEqual([]);
 	});
 
 	it('preserves input order (deterministic)', () => {
@@ -92,8 +64,71 @@ describe('P90-01 applyCaseTaskFilters', () => {
 			task({ id: 'z1', title: 'Z', status: 'open' }),
 			task({ id: 'z2', title: 'Y', status: 'open' })
 		];
-		const out = applyCaseTaskFilters(multi, { statusFilter: 'open', textQuery: '' });
+		const out = applyCaseTaskFilters(multi, { statusFilter: 'open' });
 		expect(out.map((t) => t.id)).toEqual(['z1', 'z2']);
+	});
+});
+
+describe('P92-02 applyCaseTaskTextSearch', () => {
+	const sample: CaseTask[] = [
+		task({ id: 'a', title: 'Open Alpha', status: 'open', description: 'notes here' }),
+		task({ id: 'b', title: 'Beta done', status: 'completed', description: null }),
+		task({ id: 'c', title: 'Gamma archived', status: 'archived', description: 'ARCHIVED DESC' })
+	];
+
+	it('returns shallow copy when query empty', () => {
+		const out = applyCaseTaskTextSearch(sample, '');
+		expect(out.map((t) => t.id)).toEqual(['a', 'b', 'c']);
+		expect(out).not.toBe(sample);
+	});
+
+	it('matches title case-insensitively', () => {
+		const out = applyCaseTaskTextSearch(sample, 'ALPHA');
+		expect(out.map((t) => t.id)).toEqual(['a']);
+	});
+
+	it('matches description case-insensitively', () => {
+		const out = applyCaseTaskTextSearch(sample, 'archived desc');
+		expect(out.map((t) => t.id)).toEqual(['c']);
+	});
+
+	it('trims query whitespace', () => {
+		const out = applyCaseTaskTextSearch(sample, '  beta  ');
+		expect(out.map((t) => t.id)).toEqual(['b']);
+	});
+
+	it('applies after status: completed + text', () => {
+		const narrowed = applyCaseTaskFilters(sample, { statusFilter: 'completed' });
+		const out = applyCaseTaskTextSearch(narrowed, 'gamma');
+		expect(out).toEqual([]);
+	});
+
+	it('search with all statuses', () => {
+		const out = applyCaseTaskTextSearch(sample, 'notes');
+		expect(out.map((t) => t.id)).toEqual(['a']);
+	});
+
+	it('returns empty when text matches nothing', () => {
+		const out = applyCaseTaskTextSearch(sample, 'zzz');
+		expect(out).toEqual([]);
+	});
+
+	it('matches assignee display name', () => {
+		const rows: CaseTask[] = [
+			task({
+				id: 'x',
+				title: 'T',
+				status: 'open',
+				assigneeDisplayName: 'Jordan Smith'
+			})
+		];
+		expect(applyCaseTaskTextSearch(rows, 'smith').map((t) => t.id)).toEqual(['x']);
+	});
+
+	it('does not mutate source array', () => {
+		const snap = sample.map((t) => t.id);
+		void applyCaseTaskTextSearch(sample, 'alpha');
+		expect(sample.map((t) => t.id)).toEqual(snap);
 	});
 });
 
@@ -173,7 +208,7 @@ describe('P90-02 sortCaseTasksByCreatedAt', () => {
 				createdAt: '2024-01-02T00:00:00.000Z'
 			})
 		];
-		const filtered = applyCaseTaskFilters(rows, { statusFilter: 'open', textQuery: '' });
+		const filtered = applyCaseTaskFilters(rows, { statusFilter: 'open' });
 		const sorted = sortCaseTasksByCreatedAt(filtered, 'oldest');
 		expect(sorted.map((t) => t.id)).toEqual(['o1', 'o2']);
 	});

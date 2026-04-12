@@ -1,6 +1,7 @@
 <script lang="ts">
 	/**
 	 * P40-02 — Collapsible origin / lineage for non-manual timeline entries.
+	 * P95-04 — summary + files link: focus-visible / interaction classes (scoped via Timeline card).
 	 */
 	import type { TimelineEntryProvenance } from '$lib/apis/caseEngine';
 
@@ -13,7 +14,7 @@
 	data-testid="timeline-entry-provenance"
 >
 	<summary
-		class="cursor-pointer list-none flex flex-wrap items-center gap-1.5 [&::-webkit-details-marker]:hidden"
+		class="ds-timeline-entry-provenance-summary cursor-pointer list-none flex flex-wrap items-center gap-1.5 rounded-sm px-0.5 -mx-0.5 [&::-webkit-details-marker]:hidden"
 	>
 		<span
 			class="font-medium px-1.5 py-0.5 rounded bg-sky-50 dark:bg-sky-900/25 text-sky-800 dark:text-sky-200"
@@ -52,7 +53,7 @@
 				{provenance.source_file_display_name}
 				<a
 					href="/case/{caseId}/files"
-					class="ml-1 text-sky-600 dark:text-sky-400 hover:underline"
+					class="ds-timeline-entry-provenance-files-link ml-1 text-sky-600 dark:text-sky-400 hover:underline rounded-sm"
 					data-testid="timeline-entry-provenance-files-link"
 				>Open Case Files</a>
 			</p>

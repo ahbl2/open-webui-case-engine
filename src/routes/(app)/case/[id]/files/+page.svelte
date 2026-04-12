@@ -46,6 +46,7 @@
 					caseId={$page.params.id}
 					token={$caseEngineToken}
 					focusFileId={$page.url.searchParams.get('file')}
+					synthesisNavigationEnabled={true}
 				/>
 			</div>
 		{:else}

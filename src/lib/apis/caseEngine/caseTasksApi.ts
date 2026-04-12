@@ -13,6 +13,19 @@ function extractError(data: unknown, fallback: string): string {
 	return fallback;
 }
 
+/** P92-05: persisted cross-reference row (Case Engine). */
+export interface CaseEngineCaseTaskCrossRef {
+	id: string;
+	case_id: string;
+	case_task_id: string;
+	linked_entity_type: 'note' | 'file';
+	linked_entity_id: string;
+	created_at: string;
+	created_by: string;
+	display_label: string | null;
+	target_status: 'active' | 'unavailable';
+}
+
 export interface CaseEngineCaseTask {
 	id: string;
 	case_id: string;
@@ -41,6 +54,10 @@ export interface CaseEngineCaseTask {
 	priority: string | null;
 	/** P91-04: optional grouping label — scanning only; not process stage or workflow. */
 	group_label: string | null;
+	/** P93-04: operator attention pin — not ordering or priority. */
+	pinned: boolean;
+	/** P92-05: same-case note/file navigation pointers (read-only from Task surface). */
+	cross_refs: CaseEngineCaseTaskCrossRef[];
 }
 
 /** P91-01: Legacy API users eligible for task assignment (active only). */
@@ -144,6 +161,7 @@ export async function patchCaseTaskContent(
 		due_date?: string | null;
 		priority?: string | null;
 		group_label?: string | null;
+		pinned?: boolean;
 	}
 ): Promise<CaseEngineCaseTask> {
 	const res = await fetch(`${taskBase(caseId)}/${encodeURIComponent(taskId)}`, {
@@ -253,4 +271,49 @@ export async function postCaseTaskRestore(
 	const row = (data as { case_task?: CaseEngineCaseTask }).case_task;
 	if (!row) throw new Error('Restore task: missing case_task');
 	return row;
+}
+
+/** P92-05: add same-case note or file pointer (navigation only). */
+export async function postCaseTaskCrossRef(
+	caseId: string,
+	taskId: string,
+	token: string,
+	body: { linked_entity_type: 'note' | 'file'; linked_entity_id: string }
+): Promise<CaseEngineCaseTaskCrossRef> {
+	const res = await fetch(
+		`${taskBase(caseId)}/${encodeURIComponent(taskId)}/cross-refs`,
+		{
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify(body)
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error(extractError(data, `Add task link failed (${res.status})`));
+	}
+	const row = (data as { case_task_cross_ref?: CaseEngineCaseTaskCrossRef }).case_task_cross_ref;
+	if (!row) throw new Error('Add task link: missing case_task_cross_ref');
+	return row;
+}
+
+/** P92-05: remove pointer row (does not delete note/file). */
+export async function postCaseTaskCrossRefRemove(
+	caseId: string,
+	taskId: string,
+	refId: string,
+	token: string
+): Promise<void> {
+	const res = await fetch(
+		`${taskBase(caseId)}/${encodeURIComponent(taskId)}/cross-refs/${encodeURIComponent(refId)}/remove`,
+		{
+			method: 'POST',
+			headers: authHeaders(token),
+			body: JSON.stringify({})
+		}
+	);
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error(extractError(data, `Remove task link failed (${res.status})`));
+	}
 }

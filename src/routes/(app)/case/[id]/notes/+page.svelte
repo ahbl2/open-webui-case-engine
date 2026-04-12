@@ -108,6 +108,8 @@
 	} from '$lib/apis/caseEngine';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
+	import CaseArrivalOrientationBlock from '$lib/components/case/CaseArrivalOrientationBlock.svelte';
+	import { arrivalContextFromNoteQueryParam } from '$lib/case/p99ArrivalContextPresentation';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import CaseNoteEditor from '$lib/components/case/CaseNoteEditor.svelte';
@@ -139,6 +141,11 @@
 	// initial param so the reactive reset block is a no-op on first render
 	// (onMount handles initial load); it fires only on case switch.
 	$: caseId = $page.params.id;
+	/** P99-02 — `?note=` deep link only; P99-01 contract (no synthesis intent on Notes). */
+	$: p99NoteArrivalContext =
+		typeof caseId === 'string' && caseId
+			? arrivalContextFromNoteQueryParam(caseId, $page.url.searchParams.get('note'))
+			: null;
 	let prevLoadedCaseId: string = $page.params.id ?? '';
 	/** Incremented on each loadNotes() call; guards stale responses from writing to the new case. */
 	let activeNotesLoadId = 0;
@@ -2334,6 +2341,7 @@
 	Renders inside the P19-06 case shell (+layout.svelte). P76-07: Tier L `CaseWorkspaceContentRegion` bounds the page canvas.
 -->
 <CaseWorkspaceContentRegion testId="case-notes-page">
+<CaseArrivalOrientationBlock context={p99NoteArrivalContext} testId="case-notes-p99-arrival" />
 <div class="flex flex-1 min-w-0 min-h-0 overflow-hidden">
 
 	<!-- ══════════════════════════════════════════════════════════════════════ -->

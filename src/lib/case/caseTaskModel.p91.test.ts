@@ -4,7 +4,7 @@
 import { describe, it, expect } from 'vitest';
 import type { CaseTask } from './caseTaskModel';
 import {
-	applyCaseTaskFilters,
+	applyCaseTaskTextSearch,
 	caseTaskOperationalAssigneeLine,
 	caseTaskOperationalDueLineParts,
 	caseTaskOperationalGroupLine,
@@ -28,6 +28,11 @@ describe('P91-02 due date helpers', () => {
 		expect(isCaseTaskDueDateOverdue('2999-12-31')).toBe(false);
 		expect(isCaseTaskDueDateOverdue(null)).toBe(false);
 		expect(isCaseTaskDueDateOverdue('')).toBe(false);
+	});
+
+	it('isCaseTaskDueDateOverdue accepts reference date for tests', () => {
+		expect(isCaseTaskDueDateOverdue('2026-06-01', '2026-06-15')).toBe(true);
+		expect(isCaseTaskDueDateOverdue('2026-06-20', '2026-06-15')).toBe(false);
 	});
 
 	it('formatCaseTaskDueDateDisplay formats YYYY-MM-DD', () => {
@@ -199,7 +204,7 @@ describe('P91-04 group label', () => {
 		expect(sortCaseTasksForList(tasks, 'group_label_a_z').map((t) => t.id)).toEqual(['first', 'second']);
 	});
 
-	it('applyCaseTaskFilters matches group label', () => {
+	it('applyCaseTaskTextSearch matches group label', () => {
 		const tasks: CaseTask[] = [
 			{
 				id: '1',
@@ -212,8 +217,6 @@ describe('P91-04 group label', () => {
 			},
 			{ id: '2', title: 'y', createdAt: 'a', createdBy: 'u', updatedAt: 'a', status: 'open', groupLabel: 'Other' }
 		];
-		expect(applyCaseTaskFilters(tasks, { statusFilter: 'all', textQuery: 'witness' }).map((t) => t.id)).toEqual([
-			'1'
-		]);
+		expect(applyCaseTaskTextSearch(tasks, 'witness').map((t) => t.id)).toEqual(['1']);
 	});
 });

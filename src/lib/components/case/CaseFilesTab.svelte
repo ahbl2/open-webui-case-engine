@@ -1,7 +1,21 @@
 <script lang="ts">
+	/** P98-03 / P98-05 — FilesDeclaredRelationshipsBlock (no-op until file-origin read contract exists in P98-01). */
 	import { onDestroy, tick } from 'svelte';
-	import { dev } from '$app/environment';
+	import { get } from 'svelte/store';
+	import { browser, dev } from '$app/environment';
 	import { goto } from '$app/navigation';
+	import { page } from '$app/stores';
+	import CaseArrivalOrientationBlock from '$lib/components/case/CaseArrivalOrientationBlock.svelte';
+	import { nextP99ArrivalSnapshot } from '$lib/case/p99ArrivalContextPresentation';
+	import type { ArrivalContext } from '$lib/case/p99ArrivalContextReadModel';
+	import { clearSynthesisNavigationPageState } from '$lib/case/synthesisNavigationClear';
+	import { buildSupportingFileContextPreview } from '$lib/case/synthesisNavigationContextPreview';
+	import {
+		P97_SYNTHESIS_REVEAL_HIGHLIGHT_MS,
+		parseFilesSourceKindFromIntent,
+		scheduleStaleSynthesisIntentClear
+	} from '$lib/case/synthesisNavigationP97Shared';
+	import { pickSupportingFilesTargetId } from '$lib/case/supportingSynthesisNavigation';
 	import { toast } from 'svelte-sonner';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import {
@@ -21,6 +35,8 @@
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
+	import FilesDeclaredRelationshipsBlock from '$lib/components/case/FilesDeclaredRelationshipsBlock.svelte';
+	import SynthesisNavigationContextPreview from '$lib/components/case/SynthesisNavigationContextPreview.svelte';
 	import { dataTransferHasFiles } from '$lib/components/case/caseFilesDrop';
 	import {
 		CASE_FILES_SUPPORTED_EXTRACT_TYPES_LABEL,
@@ -62,6 +78,9 @@
 
 	/** P60-05: optional file id from `?file=` — scrolls into view when that row is on the currently loaded page. */
 	export let focusFileId: string | null = null;
+
+	/** P97-03 — when true, consume `synthesisSourceNavigationIntent` on the Files surface (case route). */
+	export let synthesisNavigationEnabled = false;
 
 	/** P42-03 — matches Case Engine paginated default cap (50). */
 	const CASE_FILES_PAGE_SIZE = 50;
@@ -139,6 +158,28 @@
 	/** P60-05: avoid repeated scroll for the same `focusFileId`. */
 	let lastScrolledFocusFileId: string | null = null;
 
+	// P97-03 — synthesis → Files supporting surface (read-only; ephemeral)
+	// P97-04 — orientation preview (cleared with highlight; not persisted)
+	let navTargetId: string | null = null;
+	let revealInFlight = false;
+	let synthesisHighlightId: string | null = null;
+	let synthesisContextPreview: { headline: string; lines: string[] } | null = null;
+	/** From intent `source_kind` at reveal start (before clear). */
+	let synthesisFilesSourceKind: 'case_file' | 'extracted_text' | null = null;
+	let synthesisRevealBanner: 'idle' | 'not_found' = 'idle';
+	let synthesisHighlightTimer: ReturnType<typeof setTimeout> | undefined;
+	let invalidSynthesisIntentClearInFlight = false;
+	let p99ArrivalSnapshot: ArrivalContext | null = null;
+	let p99ArrivalFilesCaseKey = '';
+
+	$: if (browser && synthesisNavigationEnabled && caseId) {
+		if (caseId !== p99ArrivalFilesCaseKey) {
+			p99ArrivalFilesCaseKey = caseId;
+			p99ArrivalSnapshot = null;
+		}
+		p99ArrivalSnapshot = nextP99ArrivalSnapshot($page.state, caseId, 'files', p99ArrivalSnapshot);
+	}
+
 	$: if (caseId && token && caseId !== prevLoadedCaseId) {
 		prevLoadedCaseId = caseId;
 		filesLoadMoreEpoch += 1;
@@ -174,6 +215,17 @@
 		fileDragDepth = 0;
 		filesFilterUploadHintShown = false;
 		lastScrolledFocusFileId = null;
+		navTargetId = null;
+		revealInFlight = false;
+		synthesisHighlightId = null;
+		synthesisContextPreview = null;
+		synthesisFilesSourceKind = null;
+		synthesisRevealBanner = 'idle';
+		if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
+		synthesisHighlightTimer = undefined;
+		invalidSynthesisIntentClearInFlight = false;
+		p99ArrivalSnapshot = null;
+		p99ArrivalFilesCaseKey = '';
 		loadFiles();
 	}
 
@@ -186,6 +238,37 @@
 				document.getElementById(`ce-case-file-${id}`)?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 			});
 		}
+	}
+
+	$: if (browser && synthesisNavigationEnabled && caseId) {
+		const intent = $page.state?.synthesisSourceNavigationIntent;
+		if (intent) {
+			const id = pickSupportingFilesTargetId(intent, caseId);
+			if (!id) {
+				scheduleStaleSynthesisIntentClear(
+					() => get(page),
+					() => invalidSynthesisIntentClearInFlight,
+					(v) => {
+						invalidSynthesisIntentClearInFlight = v;
+					}
+				);
+			} else if (!navTargetId && !revealInFlight) {
+				navTargetId = id;
+				synthesisRevealBanner = 'idle';
+			}
+		}
+	}
+
+	$: if (browser && synthesisNavigationEnabled && navTargetId && !loading && !loadError) {
+		void runRevealSequenceForSynthesisFiles();
+	}
+
+	$: if (loadError && navTargetId) {
+		navTargetId = null;
+		synthesisContextPreview = null;
+		synthesisFilesSourceKind = null;
+		synthesisRevealBanner = 'idle';
+		void clearSynthesisNavigationPageState(get(page));
 	}
 
 	/** P42-05 — shared list params for initial + load-more (search + filters + pagination). */
@@ -278,6 +361,60 @@
 			if (myLoadMoreOp === filesLoadMoreEpoch) {
 				isLoadingMore = false;
 			}
+		}
+	}
+
+	async function runRevealSequenceForSynthesisFiles(): Promise<void> {
+		if (!browser || !navTargetId || revealInFlight) return;
+		if (loading || loadError) return;
+		revealInFlight = true;
+		try {
+			const targetId = navTargetId;
+			const rawIntent = get(page).state?.synthesisSourceNavigationIntent;
+			synthesisFilesSourceKind = parseFilesSourceKindFromIntent(rawIntent);
+			let safety = 0;
+			while (safety < 120) {
+				safety += 1;
+				await tick();
+				if (files.some((f) => f.id === targetId)) {
+					await tick();
+					const hit = files.find((f) => f.id === targetId);
+					synthesisContextPreview = hit
+						? buildSupportingFileContextPreview(hit, synthesisFilesSourceKind)
+						: null;
+					const el = document.getElementById(`ce-case-file-${targetId}`);
+					el?.scrollIntoView({ block: 'center', behavior: 'auto' });
+					synthesisHighlightId = targetId;
+					if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
+					synthesisHighlightTimer = setTimeout(() => {
+						synthesisHighlightId = null;
+						synthesisContextPreview = null;
+						synthesisFilesSourceKind = null;
+						synthesisHighlightTimer = undefined;
+					}, P97_SYNTHESIS_REVEAL_HIGHLIGHT_MS);
+					navTargetId = null;
+					synthesisRevealBanner = 'idle';
+					await clearSynthesisNavigationPageState(get(page));
+					return;
+				}
+				if (files.length >= totalFiles) {
+					break;
+				}
+				if (isLoadingMore) {
+					await tick();
+					await new Promise((r) => setTimeout(r, 40));
+					continue;
+				}
+				await loadMoreFiles();
+				await tick();
+			}
+			synthesisRevealBanner = 'not_found';
+			synthesisContextPreview = null;
+			synthesisFilesSourceKind = null;
+			navTargetId = null;
+			await clearSynthesisNavigationPageState(get(page));
+		} finally {
+			revealInFlight = false;
 		}
 	}
 
@@ -658,6 +795,7 @@
 			clearTimeout(searchDebounceHandle);
 			searchDebounceHandle = undefined;
 		}
+		if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
 		if (proposeWorkflow.step === 'processing') {
 			proposeRequestGeneration += 1;
 			proposeWorkflow.abort.abort();
@@ -715,6 +853,7 @@
 />
 
 <div class="{DS_FILES_CLASSES.workspace}">
+	<CaseArrivalOrientationBlock context={p99ArrivalSnapshot} testId="case-files-p99-arrival" />
 	<!-- P42-09 — upload section label -->
 	<div class="flex flex-col gap-1.5 -mx-1">
 		<h3 class="{DS_FILES_CLASSES.sectionLabel}">Add file to case</h3>
@@ -804,6 +943,18 @@
 		</div>
 	</div>
 
+	{#if synthesisNavigationEnabled && synthesisRevealBanner === 'not_found'}
+		<div
+			class="rounded-md border border-amber-200 dark:border-amber-800/80 bg-amber-50/90 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-950 dark:text-amber-100 mb-3"
+			role="status"
+			data-testid="synthesis-files-reveal-not-found"
+		>
+			This file is not in the current list. It may be filtered out, not loaded yet, or not visible in this
+			view. Adjust search or filters if needed—case files are supporting evidence only; they are not the
+			Timeline.
+		</div>
+	{/if}
+
 	{#if !loadError && !loading && (files.length > 0 || totalFiles > 0)}
 		<p class="{DS_FILES_CLASSES.loadedCount}" data-testid="case-files-loaded-count">
 			{files.length} of {totalFiles} files loaded
@@ -826,8 +977,16 @@
 			{#each files as f (f.id)}
 				<div
 					id={`ce-case-file-${f.id}`}
-					class="{DS_FILES_CLASSES.fileCard}"
+					class="{DS_FILES_CLASSES.fileCard}{synthesisHighlightId === f.id ? ' ds-p97-synthesis-nav-reveal' : ''}"
 				>
+				{#if synthesisNavigationEnabled && synthesisHighlightId === f.id && synthesisContextPreview}
+					<SynthesisNavigationContextPreview
+						role="supporting"
+						surface="files"
+						headline={synthesisContextPreview.headline}
+						lines={synthesisContextPreview.lines}
+					/>
+				{/if}
 				<div class="flex flex-wrap items-center gap-2">
 					<span class="min-w-0 flex-1 truncate font-semibold {DS_TYPE_CLASSES.section}">{f.original_filename}</span>
 					<span
@@ -847,6 +1006,7 @@
 				<p class="text-xs {DS_TYPE_CLASSES.meta}">
 					Uploaded: {formatCaseDateTime(String(f.uploaded_at ?? ''))}
 				</p>
+				<FilesDeclaredRelationshipsBlock {caseId} fileId={f.id} />
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
 					<button
 						type="button"

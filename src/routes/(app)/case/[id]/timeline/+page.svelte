@@ -47,10 +47,18 @@
 	 * P87-03 — Contextual navigation-only link to operational Tasks (not Timeline authority; <a href> only).
 	 * P87-05 — Label/title aligned with header + nav + Tasks panel (same non-authoritative framing).
 	 */
-	import { onMount, onDestroy } from 'svelte';
+	import { onMount, onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
+	import { browser } from '$app/environment';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/stores';
+	import { clearSynthesisNavigationPageState } from '$lib/case/synthesisNavigationClear';
+	import { pickTimelineAuthoritativeTargetId } from '$lib/case/timelineSynthesisNavigation';
+	import { buildAuthoritativeTimelineContextPreview } from '$lib/case/synthesisNavigationContextPreview';
+	import {
+		P97_SYNTHESIS_REVEAL_HIGHLIGHT_MS,
+		scheduleStaleSynthesisIntentClear
+	} from '$lib/case/synthesisNavigationP97Shared';
 	import { DS_WORKFLOW_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import { caseEngineToken, caseEngineUser } from '$lib/stores';
 	import {
@@ -66,6 +74,9 @@
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
+	import CaseArrivalOrientationBlock from '$lib/components/case/CaseArrivalOrientationBlock.svelte';
+	import { nextP99ArrivalSnapshot } from '$lib/case/p99ArrivalContextPresentation';
+	import type { ArrivalContext } from '$lib/case/p99ArrivalContextReadModel';
 	import TimelineEntryCard from '$lib/components/case/TimelineEntryCard.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocumentProposeButton.svelte';
@@ -163,6 +174,18 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	 * `myLoadMoreOp === timelineLoadMoreEpoch` in `finally` avoids clearing `isLoadingMore` for a superseded request.
 	 */
 	let timelineLoadMoreEpoch = 0;
+
+	// ── P97-02 — Synthesis → Timeline row reveal (read-only; ephemeral; no URL/storage persistence) ──
+	let navTargetId: string | null = null;
+	let revealInFlight = false;
+	let synthesisHighlightId: string | null = null;
+	let synthesisRevealBanner: 'idle' | 'not_found' = 'idle';
+	/** P97-04 — cleared with synthesis highlight timer (read-only; not persisted). */
+	let synthesisContextPreview: { headline: string; lines: string[] } | null = null;
+	let synthesisHighlightTimer: ReturnType<typeof setTimeout> | undefined;
+	let invalidSynthesisIntentClearInFlight = false;
+	/** P99-02 — snapshot from synthesis intent; in-memory only (not storage). */
+	let p99ArrivalSnapshot: ArrivalContext | null = null;
 
 	// ── Micro-interaction: auto-focus first field when a form opens (P28-38) ──
 	function focusOnMount(node: HTMLElement): { destroy(): void } {
@@ -343,6 +366,59 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		// when the user scrolls far enough to reveal the sentinel again.
 	}
 
+	async function clearSynthesisNavState(): Promise<void> {
+		if (!browser) return;
+		await clearSynthesisNavigationPageState(get(page));
+	}
+
+	async function runRevealSequence(): Promise<void> {
+		if (!browser || !navTargetId || revealInFlight) return;
+		if (loading || loadError) return;
+		revealInFlight = true;
+		try {
+			const targetId = navTargetId;
+			let safety = 0;
+			while (safety < 120) {
+				safety += 1;
+				await tick();
+				if (entries.some((e) => e.id === targetId)) {
+					await tick();
+					const hit = entries.find((e) => e.id === targetId);
+					synthesisContextPreview = hit ? buildAuthoritativeTimelineContextPreview(hit) : null;
+					const el = document.getElementById(`ce-timeline-entry-${targetId}`);
+					el?.scrollIntoView({ block: 'center', behavior: 'auto' });
+					synthesisHighlightId = targetId;
+					if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
+					synthesisHighlightTimer = setTimeout(() => {
+						synthesisHighlightId = null;
+						synthesisContextPreview = null;
+						synthesisHighlightTimer = undefined;
+					}, P97_SYNTHESIS_REVEAL_HIGHLIGHT_MS);
+					navTargetId = null;
+					synthesisRevealBanner = 'idle';
+					await clearSynthesisNavState();
+					return;
+				}
+				if (!hasMore) {
+					break;
+				}
+				if (isLoadingMore) {
+					await tick();
+					await new Promise((r) => setTimeout(r, 40));
+					continue;
+				}
+				await loadMoreEntries();
+				await tick();
+			}
+			synthesisRevealBanner = 'not_found';
+			synthesisContextPreview = null;
+			navTargetId = null;
+			await clearSynthesisNavState();
+		} finally {
+			revealInFlight = false;
+		}
+	}
+
 	// ── Role + deleted-entry visibility (P28-35) ───────────────────────────────
 	// isAdmin: true when the current Case Engine session is ADMIN.
 	// showDeleted: ADMIN-only toggle — when true, fetches include soft-deleted entries.
@@ -404,6 +480,15 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		relationshipPendingId = null;
 		relationshipPair = null;
 		followUpEntryIds = new Set();
+		navTargetId = null;
+		revealInFlight = false;
+		synthesisHighlightId = null;
+		synthesisContextPreview = null;
+		synthesisRevealBanner = 'idle';
+		if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
+		synthesisHighlightTimer = undefined;
+		invalidSynthesisIntentClearInFlight = false;
+		p99ArrivalSnapshot = null;
 	}
 
 	async function loadEntries(): Promise<void> {
@@ -930,6 +1015,8 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 
 	onDestroy(() => {
 		clearTimeout(searchDebounceHandle);
+		if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
+		synthesisContextPreview = null;
 		resetTimelineDictation();
 		resetTimelineImport();
 		resetTimelineTranscription();
@@ -1142,6 +1229,42 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		Math.max(lastKnownUnfilteredTotal, entries.length)
 	);
 	$: searchHighlightNeedle = normalizeTimelineSearchNeedle(filterSearchText);
+
+	// P99-02 — arrival orientation strip (read-only; P99-01 contract only)
+	$: if (browser && caseId) {
+		p99ArrivalSnapshot = nextP99ArrivalSnapshot($page.state, caseId, 'timeline', p99ArrivalSnapshot);
+	}
+
+	// P97-02 — consume synthesis navigation intent (authoritative Timeline only; invalid intents cleared)
+	$: if (browser && caseId) {
+		const intent = $page.state?.synthesisSourceNavigationIntent;
+		if (intent) {
+			const id = pickTimelineAuthoritativeTargetId(intent, caseId);
+			if (!id) {
+				scheduleStaleSynthesisIntentClear(
+					() => get(page),
+					() => invalidSynthesisIntentClearInFlight,
+					(v) => {
+						invalidSynthesisIntentClearInFlight = v;
+					}
+				);
+			} else if (!navTargetId && !revealInFlight) {
+				navTargetId = id;
+				synthesisRevealBanner = 'idle';
+			}
+		}
+	}
+
+	$: if (browser && navTargetId && !loading && !loadError) {
+		void runRevealSequence();
+	}
+
+	$: if (loadError && navTargetId) {
+		navTargetId = null;
+		synthesisContextPreview = null;
+		synthesisRevealBanner = 'idle';
+		void clearSynthesisNavState();
+	}
 
 	// P41-48: header data-state line — loaded vs server total (filters use matching total).
 	$: timelineHeaderDataLine = (() => {
@@ -1512,6 +1635,8 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		</div>
 	</div>
 
+	<CaseArrivalOrientationBlock context={p99ArrivalSnapshot} testId="case-timeline-p99-arrival" />
+
 	<!-- Lifecycle error banners (P28-35) — shown beneath header if a delete/restore fails -->
 	{#if deleteLifecycleError}
 		<div
@@ -1679,6 +1804,16 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 
 		<!-- Loading / error / list states -->
 		<div class="flex-1 min-h-0 flex flex-col">
+		{#if synthesisRevealBanner === 'not_found'}
+			<div
+				class="rounded-md border border-amber-200 dark:border-amber-800/80 bg-amber-50/90 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-950 dark:text-amber-100 mb-3"
+				role="status"
+				data-testid="synthesis-timeline-reveal-not-found"
+			>
+				This Timeline entry is not in the current list. It may be filtered out, not loaded yet, or no longer
+				available in this view. Adjust filters if needed—the official Timeline record is unchanged.
+			</div>
+		{/if}
 		{#if loadError}
 			<CaseErrorState
 				title="Failed to load timeline"
@@ -1994,6 +2129,10 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 						onEditRequest={() => startEdit(entry)}
 						onDeleteRequest={() => handleDeleteEntry(entry)}
 						onRestoreRequest={isAdmin ? () => handleRestoreEntry(entry) : null}
+						synthesisNavigationReveal={synthesisHighlightId === entry.id}
+						synthesisNavigationContextPreview={synthesisHighlightId === entry.id
+							? synthesisContextPreview
+							: null}
 					/>
 					{/if}
 			{/each}

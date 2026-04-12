@@ -18,6 +18,8 @@
 	import CaseOverviewSummaryCards from '$lib/components/case/CaseOverviewSummaryCards.svelte';
 	import CaseOverviewRecentActivity from '$lib/components/case/CaseOverviewRecentActivity.svelte';
 	import CaseOverviewLinkedPanels from '$lib/components/case/CaseOverviewLinkedPanels.svelte';
+	import CaseSynthesisReadModelOverviewSection from '$lib/components/case/CaseSynthesisReadModelOverviewSection.svelte';
+	import CaseUnderstandingOverviewSection from '$lib/components/case/CaseUnderstandingOverviewSection.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import { applyStatusOntoPostSnapshot } from '$lib/case/summaryTabSnapshotMerge';
@@ -346,6 +348,22 @@
 			<span class="{DS_SUMMARY_CLASSES.navSep} hidden sm:inline" aria-hidden="true">·</span>
 			<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
 				<a
+					href="#summary-module-synthesis-read"
+					class={DS_SUMMARY_CLASSES.navLink}
+					title="Jump to read-only Timeline-first synthesis (no AI; does not change records)"
+				>
+					What we know (read-only)
+				</a>
+				<span class={DS_SUMMARY_CLASSES.navSep} aria-hidden="true">·</span>
+				<a
+					href="#summary-module-case-understanding"
+					class={DS_SUMMARY_CLASSES.navLink}
+					title="Jump to deterministic text patterns (read-only; not a ranking)"
+				>
+					Case understanding
+				</a>
+				<span class={DS_SUMMARY_CLASSES.navSep} aria-hidden="true">·</span>
+				<a
 					href="#summary-module-case-summary"
 					class={DS_SUMMARY_CLASSES.navLink}
 					title="Jump to Case Summary (AI-derived saved snapshot)"
@@ -386,6 +404,11 @@
 				</a>
 			</div>
 		</nav>
+
+		{#if caseId}
+			<CaseSynthesisReadModelOverviewSection caseId={caseId} />
+			<CaseUnderstandingOverviewSection caseId={caseId} />
+		{/if}
 
 		<!-- Primary: Case Summary (AI-derived) -->
 		<section
