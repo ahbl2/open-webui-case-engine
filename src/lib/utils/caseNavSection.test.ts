@@ -67,6 +67,10 @@ describe('resolveActiveCaseSection', () => {
 		expect(resolveActiveCaseSection('/case/abc123/entities')).toBe('entities');
 	});
 
+	it('resolves /case/[id]/tasks to tasks', () => {
+		expect(resolveActiveCaseSection('/case/abc123/tasks')).toBe('tasks');
+	});
+
 	// ── Fallback behaviour ──────────────────────────────────────────────────
 	it('falls back to chat for the bare /case/[id] path', () => {
 		expect(resolveActiveCaseSection('/case/abc123')).toBe('chat');
@@ -94,7 +98,8 @@ describe('resolveActiveCaseSection', () => {
 			'notes',
 			'proposals',
 			'activity',
-			'entities'
+			'entities',
+			'tasks'
 		];
 		for (const section of expected) {
 			expect(resolveActiveCaseSection(`/case/x/${section}`)).toBe(section);

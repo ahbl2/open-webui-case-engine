@@ -2,11 +2,15 @@
 	/**
 	 * P82-02 — Case workspace header + compact context strip (identity + optional metadata + pending proposals).
 	 * Uses only data passed from the case layout (existing stores / getCaseById mapping); no new API calls.
+	 * P87-03 — Navigation-only link to Tasks (operational); no counts, no persistence, no Timeline coupling.
+	 * P87-05 — Wording/title aligned with Timeline + Tasks panel (non-authoritative read layer).
+	 * P91-06 — Guardrails: Tasks link remains canonical; no Timeline coupling.
 	 */
 	import { goto } from '$app/navigation';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
 	import {
 		DS_BADGE_CLASSES,
+		DS_BTN_CLASSES,
 		DS_CASE_SHELL_CLASSES,
 		DS_CHIP_CLASSES,
 		DS_TYPE_CLASSES
@@ -126,13 +130,24 @@
 					</div>
 				</div>
 
-				<button
-					type="button"
-					class="ce-l-identity-edit shrink-0 self-start sm:self-center"
-					on:click={onEdit}
-				>
-					Edit Case
-				</button>
+				<div class="flex shrink-0 flex-wrap items-center gap-2 self-start sm:self-center">
+					<!-- P87-03: <a href> only — no goto, no counts, no task state -->
+					<a
+						href={`/case/${caseId}/tasks`}
+						class="{DS_BTN_CLASSES.ghost} text-xs whitespace-nowrap min-h-0 py-1.5 px-2"
+						data-testid="case-workspace-header-tasks-link"
+						title="Operational tasks — not part of the official Timeline"
+					>
+						Tasks (Operational)
+					</a>
+					<button
+						type="button"
+						class="ce-l-identity-edit shrink-0"
+						on:click={onEdit}
+					>
+						Edit Case
+					</button>
+				</div>
 			</div>
 		{/if}
 	</header>

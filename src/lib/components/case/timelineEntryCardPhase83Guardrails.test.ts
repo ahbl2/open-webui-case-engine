@@ -40,3 +40,15 @@ describe('TimelineEntryCard Phase 83 guardrails (source contract)', () => {
 		expect(src).not.toMatch(/askCase|askCross|cross-case/i);
 	});
 });
+
+/** P84-06 — Confirms Phase 83 contracts still hold with P84 ops present (same source file). */
+describe('TimelineEntryCard P84-06 vs Phase 83 (no regression)', () => {
+	it('keeps P83 time + body contracts while P84 ops toolbar is present', () => {
+		const src = readFileSync(cardPath, 'utf8');
+		expect(src).toContain('TIMELINE_TIME_TOOLTIP_OCCURRED');
+		expect(src).toMatch(/timeline-entry-body-toggle/);
+		expect(src).toContain('TIMELINE_OPS_BTN');
+		expect(src).not.toMatch(/localStorage/);
+		expect(src).not.toMatch(/sessionStorage/);
+	});
+});

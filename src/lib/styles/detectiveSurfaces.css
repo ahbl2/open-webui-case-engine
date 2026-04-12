@@ -635,6 +635,343 @@
 	}
 
 	/*
+	 * P84 — Timeline operational affordances (P84-01…P84-05; session-only; no persistence).
+	 * Card modifiers: `--review-flagged` (attention), `--relationship-paired` (context), `--followup-marked` (action).
+	 * Hierarchy: flag strongest (left rail + tint) → relationship medium (top strip) → follow-up light (bottom strip).
+	 * Sub-tickets: P84-02 flagged scan; P84-03 relationship strip; P84-04 follow-up strip; combined-state rules below.
+	 */
+	.ds-timeline-entry-row .ds-card.ds-timeline-entry-card--review-flagged {
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 64%, transparent),
+			inset 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 24%, var(--ds-border-subtle));
+		background-color: color-mix(in oklab, var(--ds-status-warning-bg) 44%, var(--ds-bg-surface));
+	}
+
+	html.dark .ds-timeline-entry-row .ds-card.ds-timeline-entry-card--review-flagged {
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 52%, transparent),
+			inset 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 38%, var(--ds-border-subtle));
+		background-color: color-mix(in oklab, var(--ds-status-warning-bg) 30%, var(--ds-bg-surface));
+	}
+
+	.ds-timeline-entry-row--removed .ds-card.ds-timeline-entry-card--review-flagged {
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 58%, transparent),
+			inset 0 0 0 1px
+				color-mix(
+					in oklab,
+					var(--ds-status-warning-fg) 22%,
+					color-mix(in oklab, var(--ds-status-danger-border) 72%, var(--ds-border-subtle))
+				);
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-warning-bg) 34%,
+			color-mix(in oklab, var(--ds-status-danger-bg) 55%, var(--ds-bg-surface))
+		);
+		opacity: 0.95;
+	}
+
+	html.dark .ds-timeline-entry-row--removed .ds-card.ds-timeline-entry-card--review-flagged {
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 50%, transparent),
+			inset 0 0 0 1px
+				color-mix(
+					in oklab,
+					var(--ds-status-warning-fg) 32%,
+					color-mix(in oklab, var(--ds-status-danger-border) 65%, var(--ds-border-subtle))
+				);
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-warning-bg) 26%,
+			color-mix(in oklab, var(--ds-status-danger-bg) 48%, var(--ds-bg-surface))
+		);
+	}
+
+	.ds-timeline-entry-row .ds-timeline-entry-flag-toggle--active {
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 32%, transparent);
+		background-color: color-mix(in oklab, var(--ds-status-warning-bg) 58%, var(--ds-bg-surface));
+	}
+
+	html.dark .ds-timeline-entry-row .ds-timeline-entry-flag-toggle--active {
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 45%, transparent);
+		background-color: color-mix(in oklab, var(--ds-status-warning-bg) 36%, var(--ds-bg-muted));
+	}
+
+	/* Relationship pair: top inset strip (distinct from flag left rail). */
+	.ds-timeline-entry-row .ds-card.ds-timeline-entry-card--relationship-paired:not(.ds-timeline-entry-card--review-flagged) {
+		box-shadow: inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 38%, transparent);
+		background-color: color-mix(in oklab, var(--ds-accent) 8%, var(--ds-bg-surface));
+	}
+
+	html.dark .ds-timeline-entry-row .ds-card.ds-timeline-entry-card--relationship-paired:not(.ds-timeline-entry-card--review-flagged) {
+		box-shadow: inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 48%, transparent);
+		background-color: color-mix(in oklab, var(--ds-accent) 10%, var(--ds-bg-surface));
+	}
+
+	.ds-timeline-entry-row .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--relationship-paired {
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 64%, transparent),
+			inset 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 24%, var(--ds-border-subtle)),
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 38%, transparent);
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-warning-bg) 40%,
+			color-mix(in oklab, var(--ds-accent) 8%, var(--ds-bg-surface))
+		);
+	}
+
+	html.dark .ds-timeline-entry-row .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--relationship-paired {
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 52%, transparent),
+			inset 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 38%, var(--ds-border-subtle)),
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 45%, transparent);
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-warning-bg) 28%,
+			color-mix(in oklab, var(--ds-accent) 10%, var(--ds-bg-surface))
+		);
+	}
+
+	.ds-timeline-entry-row--removed .ds-card.ds-timeline-entry-card--relationship-paired:not(.ds-timeline-entry-card--review-flagged) {
+		box-shadow: inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 38%, transparent);
+		background-color: color-mix(
+			in oklab,
+			var(--ds-accent) 8%,
+			color-mix(in oklab, var(--ds-status-danger-bg) 55%, var(--ds-bg-surface))
+		);
+	}
+
+	.ds-timeline-entry-row--removed .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--relationship-paired {
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 58%, transparent),
+			inset 0 0 0 1px
+				color-mix(
+					in oklab,
+					var(--ds-status-warning-fg) 22%,
+					color-mix(in oklab, var(--ds-status-danger-border) 72%, var(--ds-border-subtle))
+				),
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 36%, transparent);
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-warning-bg) 30%,
+			color-mix(in oklab, var(--ds-accent) 8%, color-mix(in oklab, var(--ds-status-danger-bg) 55%, var(--ds-bg-surface)))
+		);
+		opacity: 0.95;
+	}
+
+	html.dark .ds-timeline-entry-row--removed .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--relationship-paired {
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 50%, transparent),
+			inset 0 0 0 1px
+				color-mix(
+					in oklab,
+					var(--ds-status-warning-fg) 32%,
+					color-mix(in oklab, var(--ds-status-danger-border) 65%, var(--ds-border-subtle))
+				),
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 42%, transparent);
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-warning-bg) 24%,
+			color-mix(in oklab, var(--ds-accent) 8%, color-mix(in oklab, var(--ds-status-danger-bg) 48%, var(--ds-bg-surface)))
+		);
+	}
+
+	.ds-timeline-entry-row .ds-timeline-entry-relate-toggle--pending {
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-accent) 32%, transparent);
+	}
+
+	.ds-timeline-entry-row .ds-timeline-entry-relate-toggle--paired {
+		color: var(--ds-accent-strong);
+	}
+
+	/* Follow-up marker: bottom inset strip (info; distinct from flag + relationship). */
+	.ds-timeline-entry-row .ds-timeline-entry-followup-toggle--active {
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-status-info-fg) 28%, transparent);
+		background-color: color-mix(in oklab, var(--ds-status-info-bg) 45%, var(--ds-bg-surface));
+		color: var(--ds-status-info-fg);
+	}
+
+	html.dark .ds-timeline-entry-row .ds-timeline-entry-followup-toggle--active {
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-status-info-fg) 38%, transparent);
+		background-color: color-mix(in oklab, var(--ds-status-info-bg) 32%, var(--ds-bg-muted));
+	}
+
+	.ds-timeline-entry-row .ds-card.ds-timeline-entry-card--followup-marked:not(.ds-timeline-entry-card--review-flagged):not(
+			.ds-timeline-entry-card--relationship-paired
+		) {
+		background-color: color-mix(in oklab, var(--ds-status-info-bg) 14%, var(--ds-bg-surface));
+		box-shadow: inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 22%, transparent);
+	}
+
+	html.dark .ds-timeline-entry-row .ds-card.ds-timeline-entry-card--followup-marked:not(.ds-timeline-entry-card--review-flagged):not(
+			.ds-timeline-entry-card--relationship-paired
+		) {
+		background-color: color-mix(in oklab, var(--ds-status-info-bg) 12%, var(--ds-bg-surface));
+		box-shadow: inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 30%, transparent);
+	}
+
+	.ds-timeline-entry-row .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--followup-marked:not(
+			.ds-timeline-entry-card--relationship-paired
+		) {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 12%,
+			color-mix(in oklab, var(--ds-status-warning-bg) 44%, var(--ds-bg-surface))
+		);
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 64%, transparent),
+			inset 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 24%, var(--ds-border-subtle)),
+			inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 20%, transparent);
+	}
+
+	html.dark .ds-timeline-entry-row .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--followup-marked:not(
+			.ds-timeline-entry-card--relationship-paired
+		) {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 10%,
+			color-mix(in oklab, var(--ds-status-warning-bg) 30%, var(--ds-bg-surface))
+		);
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 52%, transparent),
+			inset 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 38%, var(--ds-border-subtle)),
+			inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 26%, transparent);
+	}
+
+	.ds-timeline-entry-row .ds-card.ds-timeline-entry-card--relationship-paired.ds-timeline-entry-card--followup-marked:not(
+			.ds-timeline-entry-card--review-flagged
+		) {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 12%,
+			color-mix(in oklab, var(--ds-accent) 8%, var(--ds-bg-surface))
+		);
+		box-shadow:
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 38%, transparent),
+			inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 22%, transparent);
+	}
+
+	html.dark .ds-timeline-entry-row .ds-card.ds-timeline-entry-card--relationship-paired.ds-timeline-entry-card--followup-marked:not(
+			.ds-timeline-entry-card--review-flagged
+		) {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 10%,
+			color-mix(in oklab, var(--ds-accent) 10%, var(--ds-bg-surface))
+		);
+		box-shadow:
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 48%, transparent),
+			inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 28%, transparent);
+	}
+
+	.ds-timeline-entry-row .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--relationship-paired.ds-timeline-entry-card--followup-marked {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 10%,
+			color-mix(
+				in oklab,
+				var(--ds-status-warning-bg) 40%,
+				color-mix(in oklab, var(--ds-accent) 8%, var(--ds-bg-surface))
+			)
+		);
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 64%, transparent),
+			inset 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 24%, var(--ds-border-subtle)),
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 38%, transparent),
+			inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 20%, transparent);
+	}
+
+	html.dark .ds-timeline-entry-row .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--relationship-paired.ds-timeline-entry-card--followup-marked {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 8%,
+			color-mix(
+				in oklab,
+				var(--ds-status-warning-bg) 28%,
+				color-mix(in oklab, var(--ds-accent) 10%, var(--ds-bg-surface))
+			)
+		);
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 52%, transparent),
+			inset 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 38%, var(--ds-border-subtle)),
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 45%, transparent),
+			inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 26%, transparent);
+	}
+
+	.ds-timeline-entry-row--removed .ds-card.ds-timeline-entry-card--followup-marked:not(.ds-timeline-entry-card--review-flagged):not(
+			.ds-timeline-entry-card--relationship-paired
+		) {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 12%,
+			color-mix(in oklab, var(--ds-status-danger-bg) 55%, var(--ds-bg-surface))
+		);
+		box-shadow: inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 22%, transparent);
+	}
+
+	.ds-timeline-entry-row--removed .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--followup-marked:not(
+			.ds-timeline-entry-card--relationship-paired
+		) {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 10%,
+			color-mix(
+				in oklab,
+				var(--ds-status-warning-bg) 34%,
+				color-mix(in oklab, var(--ds-status-danger-bg) 55%, var(--ds-bg-surface))
+			)
+		);
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 58%, transparent),
+			inset 0 0 0 1px
+				color-mix(
+					in oklab,
+					var(--ds-status-warning-fg) 22%,
+					color-mix(in oklab, var(--ds-status-danger-border) 72%, var(--ds-border-subtle))
+				),
+			inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 20%, transparent);
+	}
+
+	.ds-timeline-entry-row--removed .ds-card.ds-timeline-entry-card--relationship-paired.ds-timeline-entry-card--followup-marked:not(
+			.ds-timeline-entry-card--review-flagged
+		) {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 10%,
+			color-mix(
+				in oklab,
+				var(--ds-accent) 8%,
+				color-mix(in oklab, var(--ds-status-danger-bg) 55%, var(--ds-bg-surface))
+			)
+		);
+		box-shadow:
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 38%, transparent),
+			inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 22%, transparent);
+	}
+
+	.ds-timeline-entry-row--removed .ds-card.ds-timeline-entry-card--review-flagged.ds-timeline-entry-card--relationship-paired.ds-timeline-entry-card--followup-marked {
+		background-color: color-mix(
+			in oklab,
+			var(--ds-status-info-bg) 8%,
+			color-mix(
+				in oklab,
+				var(--ds-status-warning-bg) 28%,
+				color-mix(in oklab, var(--ds-accent) 8%, color-mix(in oklab, var(--ds-status-danger-bg) 55%, var(--ds-bg-surface)))
+			)
+		);
+		box-shadow:
+			inset 4px 0 0 0 color-mix(in oklab, var(--ds-status-warning-fg) 58%, transparent),
+			inset 0 0 0 1px
+				color-mix(
+					in oklab,
+					var(--ds-status-warning-fg) 22%,
+					color-mix(in oklab, var(--ds-status-danger-border) 72%, var(--ds-border-subtle))
+				),
+			inset 0 2px 0 0 color-mix(in oklab, var(--ds-accent) 36%, transparent),
+			inset 0 -2px 0 0 color-mix(in oklab, var(--ds-status-info-fg) 20%, transparent);
+	}
+
+	/*
 	 * P83-03 — Timeline entry readability: calmer padding, vertical rhythm, body line length.
 	 * Scoped to `.ds-timeline-entry-row` only (no behavior / data changes).
 	 */
@@ -662,9 +999,10 @@
 		flex-wrap: wrap;
 		align-items: center;
 		justify-content: flex-end;
-		gap: var(--ds-space-1);
+		gap: var(--ds-space-2);
 		flex-shrink: 0;
-		padding-top: 0.125rem;
+		/* P85-04 — hairline nudge from scale (was 0.125rem; same as half of --ds-space-1) */
+		padding-top: calc(var(--ds-space-1) / 2);
 	}
 
 	.ds-timeline-entry-row p.ds-type-body {
@@ -696,7 +1034,7 @@
 	.ds-timeline-search-mark {
 		background-color: color-mix(in oklab, var(--ds-status-warning-fg) 14%, var(--ds-bg-muted));
 		border-radius: var(--ds-radius-sm);
-		padding: 0 0.125rem;
+		padding: 0 calc(var(--ds-space-1) / 2);
 		color: inherit;
 	}
 
@@ -1555,6 +1893,36 @@
 		font-size: var(--ds-type-meta-size);
 		line-height: var(--ds-type-meta-leading);
 		color: var(--ds-text-muted);
+	}
+
+	/*
+	 * P86-01 — Tasks / Leads operational shell (`CaseTasksPanel`); not Timeline / not governed proposals.
+	 */
+	.ds-case-tasks-page-identity {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--ds-space-2);
+		width: 100%;
+	}
+
+	.ds-case-tasks-page-identity__heading {
+		margin: 0;
+	}
+
+	.ds-case-tasks-page-identity__meta {
+		margin: 0;
+		margin-left: auto;
+		font-size: var(--ds-type-meta-size);
+		line-height: var(--ds-type-meta-leading);
+		color: var(--ds-text-muted);
+	}
+
+	.ds-case-tasks-empty-shell {
+		background-color: var(--ds-bg-muted);
+		border: 1px dashed var(--ds-border-default);
+		border-radius: var(--ds-radius-md);
+		padding: var(--ds-space-6);
 	}
 
 	.ds-proposals-toolbar {

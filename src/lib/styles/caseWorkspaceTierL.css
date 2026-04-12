@@ -376,6 +376,46 @@ html {
 	}
 
 	/*
+	 * P86-01 — Tasks / Leads tab shell (operational only; non-authoritative; no Timeline tokens).
+	 */
+	.ce-l-tasks-shell {
+		display: flex;
+		flex-direction: column;
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow: hidden;
+		position: relative;
+		background-color: var(--ce-l-canvas);
+		color: var(--ce-l-text-on-canvas);
+	}
+
+	.ce-l-tasks-hero {
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: 0.375rem;
+		padding: 0.75rem 1rem;
+		border-bottom: 1px solid var(--ce-l-chrome-border);
+		background-color: var(--ce-l-chrome);
+	}
+
+	.ce-l-tasks-hero-title {
+		color: var(--ce-l-text-primary);
+	}
+
+	.ce-l-tasks-hero-descriptor {
+		color: var(--ce-l-text-secondary);
+	}
+
+	.ce-l-tasks-workspace {
+		flex: 1 1 0%;
+		min-height: 0;
+		min-width: 0;
+		overflow: hidden;
+	}
+
+	/*
 	 * P71-08 — Activity tab shell (P70-06 S1 / W1; P70-04 B operational hero + controls row).
 	 */
 	.ce-l-activity-shell {

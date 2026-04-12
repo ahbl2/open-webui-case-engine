@@ -11,6 +11,7 @@ const caseRoutesDir = join(__dirname, '../../routes/(app)/case/[id]');
 
 const caseTabPages = [
 	'summary/+page.svelte',
+	'tasks/+page.svelte',
 	'timeline/+page.svelte',
 	'files/+page.svelte',
 	'intelligence/+page.svelte',

@@ -75,3 +75,20 @@ describe('sortTimelineEntriesOfficialOrder (P41-44-FU2)', () => {
 		expect(sorted.map((r) => r.id)).toEqual(['x1', 'x2']);
 	});
 });
+
+describe('sortTimelineEntriesOfficialOrder (P85-06 — empty / singleton)', () => {
+	it('returns empty array for empty input without mutating', () => {
+		const input: { id: string; occurred_at: string }[] = [];
+		const out = sortTimelineEntriesOfficialOrder(input);
+		expect(out).toEqual([]);
+		expect(out).not.toBe(input);
+	});
+
+	it('returns a new array for a single row and does not mutate the input', () => {
+		const input = [{ id: 'only', occurred_at: '2025-01-01T00:00:00.000Z' }];
+		const out = sortTimelineEntriesOfficialOrder(input);
+		expect(out).toEqual(input);
+		expect(out).not.toBe(input);
+		expect(input[0].id).toBe('only');
+	});
+});

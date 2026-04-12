@@ -43,11 +43,15 @@
 	 *   - Dirty-switch guard: opening edit while create form has content (or vice versa)
 	 *     triggers the shared ConfirmDialog before discarding
 	 *   - No change_reason required for create (contrast with P28-34 edit)
+	 *
+	 * P87-03 — Contextual navigation-only link to operational Tasks (not Timeline authority; <a href> only).
+	 * P87-05 — Label/title aligned with header + nav + Tasks panel (same non-authoritative framing).
 	 */
 	import { onMount, onDestroy } from 'svelte';
 	import { get } from 'svelte/store';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { page } from '$app/stores';
+	import { DS_WORKFLOW_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import { caseEngineToken, caseEngineUser } from '$lib/stores';
 	import {
 		listCaseTimelineEntriesPage,
@@ -142,6 +146,8 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	} from '$lib/caseTimeline/timelineAudioTranscription';
 	import { transcribeAudio } from '$lib/apis/audio';
 	import { CASE_CANCEL_BTN_CLASS, CASE_ASSIST_BTN_CLASS } from '$lib/caseButtonClasses';
+	import { nextRelateState, isEntryInRelationPair } from '$lib/caseTimeline/timelineEntryRelateUi';
+	import { removeFollowUpEntryId, toggleFollowUpEntryId } from '$lib/caseTimeline/timelineEntryFollowUpUi';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -395,6 +401,9 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		editError = '';
 		showDiscardConfirm = false;
 		pendingDiscardAction = null;
+		relationshipPendingId = null;
+		relationshipPair = null;
+		followUpEntryIds = new Set();
 	}
 
 	async function loadEntries(): Promise<void> {
@@ -500,6 +509,26 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	let restoreLifecycleError = '';
 	let restoreInFlight = false;
 
+	/** P84-03 — local-only 1:1 entry pairing (timeline page scope; not persisted). */
+	let relationshipPendingId: string | null = null;
+	let relationshipPair: { a: string; b: string } | null = null;
+
+	function handleTimelineRelateClick(entryId: string): void {
+		const next = nextRelateState(
+			{ pendingId: relationshipPendingId, pair: relationshipPair },
+			entryId
+		);
+		relationshipPendingId = next.pendingId;
+		relationshipPair = next.pair;
+	}
+
+	/** P84-04 — session-only follow-up markers (page-scoped Set; not persisted). */
+	let followUpEntryIds = new Set<string>();
+
+	function handleFollowUpToggle(entryId: string): void {
+		followUpEntryIds = toggleFollowUpEntryId(followUpEntryIds, entryId);
+	}
+
 	function handleDeleteEntry(entry: TimelineEntry): void {
 		pendingDeleteEntry = entry;
 		showDeleteConfirm = true;
@@ -540,6 +569,16 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			}
 			// If entry was being edited, cancel the draft.
 			if (editingEntryId === entryId) cancelEdit();
+			// P84-03: drop local pairing if a participant row is removed.
+			if (relationshipPair && isEntryInRelationPair(entryId, relationshipPair)) {
+				relationshipPair = null;
+				relationshipPendingId = null;
+			} else if (relationshipPendingId === entryId) {
+				relationshipPendingId = null;
+			}
+			if (followUpEntryIds.has(entryId)) {
+				followUpEntryIds = removeFollowUpEntryId(followUpEntryIds, entryId);
+			}
 		} catch (e: unknown) {
 			deleteLifecycleError = e instanceof Error ? e.message : 'Remove failed. Please try again.';
 		} finally {
@@ -1411,6 +1450,18 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			<!-- Thin divider between the two entry actions -->
 			<span class="w-px h-3.5 shrink-0 bg-[color:var(--ce-l-border-strong)]" aria-hidden="true"></span>
 
+			<!-- P87-03 / P87-05: navigation-only; no task counts; same title string as header Tasks link -->
+			<a
+				href={`/case/${caseId}/tasks`}
+				class="{DS_WORKFLOW_CLASSES.embedNavLink} {DS_WORKFLOW_CLASSES.embedNavLinkCompact}"
+				data-testid="case-timeline-open-tasks-operational"
+				title="Operational tasks — not part of the official Timeline"
+			>
+				Open Tasks (Operational)
+			</a>
+
+			<span class="w-px h-3.5 shrink-0 bg-[color:var(--ce-l-border-strong)]" aria-hidden="true"></span>
+
 			<!-- Create from document: upload → propose → review in Proposals tab -->
 			<TimelineDocumentProposeButton
 				caseId={caseId}
@@ -1935,6 +1986,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 						{caseId}
 						token={$caseEngineToken ?? ''}
 						searchHighlightNeedle={searchHighlightNeedle}
+						relationshipPendingId={relationshipPendingId}
+						relationshipPair={relationshipPair}
+						onRelateClick={() => handleTimelineRelateClick(entry.id)}
+						entryNeedsFollowUp={followUpEntryIds.has(entry.id)}
+						onFollowUpClick={() => handleFollowUpToggle(entry.id)}
 						onEditRequest={() => startEdit(entry)}
 						onDeleteRequest={() => handleDeleteEntry(entry)}
 						onRestoreRequest={isAdmin ? () => handleRestoreEntry(entry) : null}

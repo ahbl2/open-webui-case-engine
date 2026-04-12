@@ -234,6 +234,14 @@ export const DS_PROPOSALS_CLASSES = {
 	formControl: 'ds-timeline-form-control'
 } as const;
 
+/** P86-01 — Operational tasks / leads (`/case/:id/tasks`); non-authoritative shell only */
+export const DS_CASE_TASKS_CLASSES = {
+	pageIdentity: 'ds-case-tasks-page-identity',
+	pageIdentityHeading: 'ds-case-tasks-page-identity__heading',
+	pageIdentityMeta: 'ds-case-tasks-page-identity__meta',
+	emptyShell: 'ds-case-tasks-empty-shell'
+} as const;
+
 /** P77-07 — Files & Evidence workspace (`/case/:id/files`); `CaseFilesTab` + route hero */
 export const DS_FILES_CLASSES = {
 	pageIdentity: 'ds-files-page-identity',

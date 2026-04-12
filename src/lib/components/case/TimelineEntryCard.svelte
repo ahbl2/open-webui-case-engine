@@ -10,6 +10,11 @@
 	 *                     P83-05 — metadata line consistency (order, separators, type display; trim only; no new fields)
 	 *                     P83-02 — explicit Occurred vs Recorded labels + tooltips (no timestamp logic changes)
 	 *                     P83-03 — readability + scanning (spacing, hierarchy, body line rhythm; see detectiveSurfaces.css)
+	 *                     P84-01 — local-only review flag (not persisted; no ordering/filter changes)
+	 *                     P84-02 — flagged row scan affordance (CSS in detectiveSurfaces.css; no new controls)
+	 *                     P84-03 — local-only entry pairing (parent state on timeline page; not persisted)
+	 *                     P84-04 — local-only follow-up marker (parent Set on timeline page; not persisted)
+	 *                     P84-05 — ops toolbar consistency (shared chrome, titles, combined-state contract)
 	 *
 	 * Truth signals (P28-31):
 	 *   1. AI-assisted transparency — badge + show/hide original toggle
@@ -62,6 +67,20 @@
 	const TIMELINE_TIME_TOOLTIP_OCCURRED = 'When the event happened.';
 	const TIMELINE_TIME_TOOLTIP_RECORDED = 'When this entry was added to the system.';
 
+	/** P84-05 — Ops toolbar (flag → relate → follow-up): shared chrome + session-only titles */
+	const TIMELINE_OPS_BTN =
+		'inline-flex items-center justify-center min-h-8 min-w-8 shrink-0 rounded-md p-1 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition';
+	const TIMELINE_OPS_FOCUS_FLAG =
+		'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900';
+	const TIMELINE_OPS_FOCUS_RELATE =
+		'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-violet-400/45 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900';
+	const TIMELINE_OPS_FOCUS_FOLLOWUP =
+		'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/45 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900';
+	const TIMELINE_OPS_TITLE_FLAG = 'Attention during review. Not saved (session only).';
+	const TIMELINE_OPS_TITLE_RELATE =
+		'Visual link between two entries (context). Not saved (session only).';
+	const TIMELINE_OPS_TITLE_FOLLOWUP = 'Follow-up reminder. Not saved (session only).';
+
 	export let entry: TimelineEntry;
 	/** Case ID — required for the versions endpoint. */
 	export let caseId: string;
@@ -78,6 +97,16 @@
 	export let onRestoreRequest: (() => void) | null = null;
 	/** P39-02A: trim+lowercase needle from `normalizeTimelineSearchNeedle`; empty = no highlight */
 	export let searchHighlightNeedle = '';
+	/** P84-03 — pending source id for 1:1 relate pairing (timeline page scope only). */
+	export let relationshipPendingId: string | null = null;
+	/** P84-03 — sorted pair of entry ids when paired; null when idle or pending only. */
+	export let relationshipPair: { a: string; b: string } | null = null;
+	/** P84-03 — relate control clicked (parent runs pairing state machine). */
+	export let onRelateClick: () => void = () => {};
+	/** P84-04 — whether this entry id is in the page follow-up Set. */
+	export let entryNeedsFollowUp = false;
+	/** P84-04 — follow-up toggle (parent mutates Set). */
+	export let onFollowUpClick: () => void = () => {};
 
 	const TYPE_LABELS: Record<string, string> = {
 		note:         TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
@@ -129,6 +158,28 @@
 	let linkedImagesViewerOpen = false;
 	/** Notes-style kebab menu (per card instance). */
 	let actionsMenuOpen = false;
+
+	/** P84-01 — local review flag; not persisted; lost on refresh/navigation/remount. */
+	let entryFlagged = false;
+
+	function toggleEntryFlag(): void {
+		entryFlagged = !entryFlagged;
+	}
+
+	/** P84-03 — derive labels / card class from parent pairing state (no local persistence). */
+	$: relatePaired =
+		relationshipPair !== null &&
+		(relationshipPair.a === entry.id || relationshipPair.b === entry.id);
+	$: relatePendingSource = relationshipPendingId === entry.id && relationshipPair === null;
+	$: relateOtherPending =
+		relationshipPendingId !== null && relationshipPendingId !== entry.id && relationshipPair === null;
+	$: relateLabel =
+		relatePaired || relatePendingSource
+			? 'Clear relationship'
+			: relateOtherPending
+				? 'Relate to selected entry'
+				: 'Select for relationship';
+	$: relateAriaPressed = relatePaired || relatePendingSource;
 
 	$: tags = parseTags(entry.tags);
 	$: isDeleted = !!entry.deleted_at;
@@ -258,6 +309,21 @@
 		}
 		void updateBodyClampState();
 	});
+
+	// P85-03 — When an entry becomes soft-deleted in place (same row id stays mounted), clear local-only
+	// UI state so review flag / expand / version panel / menus do not leak from the active card view.
+	let prevIsDeleted = false;
+	$: {
+		if (isDeleted && !prevIsDeleted) {
+			entryFlagged = false;
+			bodyExpanded = false;
+			historyExpanded = false;
+			showOriginal = false;
+			actionsMenuOpen = false;
+			linkedImagesViewerOpen = false;
+		}
+		prevIsDeleted = isDeleted;
+	}
 </script>
 
 {#if isDeleted}
@@ -267,12 +333,22 @@
 		class="{DS_TIMELINE_CLASSES.entryRow} ds-timeline-entry-row--removed"
 		data-testid="timeline-entry-deleted"
 		data-entry-id={entry.id}
+		data-timeline-row-flagged={entryFlagged ? '1' : '0'}
+		data-timeline-row-related={relatePaired ? '1' : '0'}
+		data-timeline-row-followup={entryNeedsFollowUp ? '1' : '0'}
 	>
 		<div class="{DS_TIMELINE_CLASSES.entrySpine}" aria-hidden="true">
 			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
 		</div>
 		<div class="{DS_TIMELINE_CLASSES.entryBody}">
-			<div class="{DS_CARD_CLASSES.card} min-w-0">
+			<div
+				class="{DS_CARD_CLASSES.card} min-w-0 {entryFlagged ? 'ds-timeline-entry-card--review-flagged' : ''}{relatePaired
+					? ' ds-timeline-entry-card--relationship-paired'
+					: ''}{entryNeedsFollowUp ? ' ds-timeline-entry-card--followup-marked' : ''}"
+				data-timeline-card-flagged={entryFlagged ? '1' : '0'}
+				data-timeline-card-related={relatePaired ? '1' : '0'}
+				data-timeline-card-followup={entryNeedsFollowUp ? '1' : '0'}
+			>
 				<div class="flex gap-4 min-w-0">
 					<div class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5">
 						<span
@@ -302,6 +378,89 @@
 								</span>
 							</div>
 							<div class="ds-timeline-entry-row__top-actions">
+								<button
+									type="button"
+									class="{TIMELINE_OPS_BTN} {TIMELINE_OPS_FOCUS_FLAG} {entryFlagged
+										? 'text-amber-600 dark:text-amber-400 ds-timeline-entry-flag-toggle--active'
+										: ''}"
+									aria-pressed={entryFlagged}
+									aria-label={entryFlagged ? 'Unflag entry' : 'Flag entry'}
+									title={TIMELINE_OPS_TITLE_FLAG}
+									data-testid="timeline-entry-flag-toggle"
+									data-timeline-review-flag={entryFlagged ? '1' : '0'}
+									on:click|stopPropagation={toggleEntryFlag}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="size-4 shrink-0"
+										aria-hidden="true"
+									>
+										<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+										<line x1="4" x2="4" y1="22" y2="15" />
+									</svg>
+								</button>
+								<button
+									type="button"
+									class="{TIMELINE_OPS_BTN} {TIMELINE_OPS_FOCUS_RELATE} {relatePendingSource
+										? 'ds-timeline-entry-relate-toggle--pending'
+										: ''} {relatePaired ? 'ds-timeline-entry-relate-toggle--paired' : ''}"
+									aria-pressed={relateAriaPressed}
+									aria-label={relateLabel}
+									title={TIMELINE_OPS_TITLE_RELATE}
+									data-testid="timeline-entry-relate-toggle"
+									data-timeline-relate-paired={relatePaired ? '1' : '0'}
+									on:click|stopPropagation={onRelateClick}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="size-4 shrink-0"
+										aria-hidden="true"
+									>
+										<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+										<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+									</svg>
+								</button>
+								<button
+									type="button"
+									class="{TIMELINE_OPS_BTN} {TIMELINE_OPS_FOCUS_FOLLOWUP} {entryNeedsFollowUp
+										? 'ds-timeline-entry-followup-toggle--active'
+										: ''}"
+									aria-pressed={entryNeedsFollowUp}
+									aria-label={entryNeedsFollowUp ? 'Remove follow-up marker' : 'Mark for follow-up'}
+									title={TIMELINE_OPS_TITLE_FOLLOWUP}
+									data-testid="timeline-followup-toggle"
+									data-timeline-followup-toggle={entryNeedsFollowUp ? '1' : '0'}
+									on:click|stopPropagation={onFollowUpClick}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="size-4 shrink-0"
+										aria-hidden="true"
+									>
+										<rect width="8" height="4" x="8" y="2" rx="1" ry="1" fill="none" />
+										<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+										<path d="M9 12h6" />
+										<path d="M9 16h6" />
+									</svg>
+								</button>
 								{#if linkedImageFiles.length > 0}
 									<button
 										type="button"
@@ -549,12 +708,22 @@
 		class="{DS_TIMELINE_CLASSES.entryRow}"
 		data-testid="timeline-entry"
 		data-entry-id={entry.id}
+		data-timeline-row-flagged={entryFlagged ? '1' : '0'}
+		data-timeline-row-related={relatePaired ? '1' : '0'}
+		data-timeline-row-followup={entryNeedsFollowUp ? '1' : '0'}
 	>
 		<div class="{DS_TIMELINE_CLASSES.entrySpine}" aria-hidden="true">
 			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
 		</div>
 		<div class="{DS_TIMELINE_CLASSES.entryBody}">
-			<div class="{DS_CARD_CLASSES.card} min-w-0">
+			<div
+				class="{DS_CARD_CLASSES.card} min-w-0 {entryFlagged ? 'ds-timeline-entry-card--review-flagged' : ''}{relatePaired
+					? ' ds-timeline-entry-card--relationship-paired'
+					: ''}{entryNeedsFollowUp ? ' ds-timeline-entry-card--followup-marked' : ''}"
+				data-timeline-card-flagged={entryFlagged ? '1' : '0'}
+				data-timeline-card-related={relatePaired ? '1' : '0'}
+				data-timeline-card-followup={entryNeedsFollowUp ? '1' : '0'}
+			>
 				<div class="flex gap-4 min-w-0">
 					<!-- P83-01: narrow type column -->
 					<div class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5">
@@ -605,8 +774,91 @@
 									</button>
 								{/if}
 							</div>
-							{#if linkedImageFiles.length > 0}
-								<div class="ds-timeline-entry-row__top-actions">
+							<div class="ds-timeline-entry-row__top-actions">
+								<button
+									type="button"
+									class="{TIMELINE_OPS_BTN} {TIMELINE_OPS_FOCUS_FLAG} {entryFlagged
+										? 'text-amber-600 dark:text-amber-400 ds-timeline-entry-flag-toggle--active'
+										: ''}"
+									aria-pressed={entryFlagged}
+									aria-label={entryFlagged ? 'Unflag entry' : 'Flag entry'}
+									title={TIMELINE_OPS_TITLE_FLAG}
+									data-testid="timeline-entry-flag-toggle"
+									data-timeline-review-flag={entryFlagged ? '1' : '0'}
+									on:click|stopPropagation={toggleEntryFlag}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="size-4 shrink-0"
+										aria-hidden="true"
+									>
+										<path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+										<line x1="4" x2="4" y1="22" y2="15" />
+									</svg>
+								</button>
+								<button
+									type="button"
+									class="{TIMELINE_OPS_BTN} {TIMELINE_OPS_FOCUS_RELATE} {relatePendingSource
+										? 'ds-timeline-entry-relate-toggle--pending'
+										: ''} {relatePaired ? 'ds-timeline-entry-relate-toggle--paired' : ''}"
+									aria-pressed={relateAriaPressed}
+									aria-label={relateLabel}
+									title={TIMELINE_OPS_TITLE_RELATE}
+									data-testid="timeline-entry-relate-toggle"
+									data-timeline-relate-paired={relatePaired ? '1' : '0'}
+									on:click|stopPropagation={onRelateClick}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="size-4 shrink-0"
+										aria-hidden="true"
+									>
+										<path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71" />
+										<path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71" />
+									</svg>
+								</button>
+								<button
+									type="button"
+									class="{TIMELINE_OPS_BTN} {TIMELINE_OPS_FOCUS_FOLLOWUP} {entryNeedsFollowUp
+										? 'ds-timeline-entry-followup-toggle--active'
+										: ''}"
+									aria-pressed={entryNeedsFollowUp}
+									aria-label={entryNeedsFollowUp ? 'Remove follow-up marker' : 'Mark for follow-up'}
+									title={TIMELINE_OPS_TITLE_FOLLOWUP}
+									data-testid="timeline-followup-toggle"
+									data-timeline-followup-toggle={entryNeedsFollowUp ? '1' : '0'}
+									on:click|stopPropagation={onFollowUpClick}
+								>
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="size-4 shrink-0"
+										aria-hidden="true"
+									>
+										<rect width="8" height="4" x="8" y="2" rx="1" ry="1" fill="none" />
+										<path d="M16 4h2a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h2" />
+										<path d="M9 12h6" />
+										<path d="M9 16h6" />
+									</svg>
+								</button>
+								{#if linkedImageFiles.length > 0}
 									<button
 										type="button"
 										class="inline-flex items-center gap-0.5 text-[10px] font-medium px-1.5 py-0.5 rounded
@@ -630,8 +882,8 @@
 										</svg>
 										{linkedImageFiles.length}
 									</button>
-								</div>
-							{/if}
+								{/if}
+							</div>
 						</div>
 
 						{#if showProvenanceBlock && entry.provenance}

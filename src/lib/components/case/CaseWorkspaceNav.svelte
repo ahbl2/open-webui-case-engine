@@ -1,6 +1,9 @@
 <script lang="ts">
 	/**
 	 * P82-01 — Case-scoped left rail (Phase 82 scope: five destinations).
+	 * P86-05 — Tasks tab added for cross-surface visibility; operational-only, not Timeline parity.
+	 * P87-05 — Label matches global Tasks naming: Tasks (Operational); read-layer consistency only.
+	 * P91-06 — Guardrails: Tasks remain operational-only; not Timeline parity or chronological authority.
 	 * P82-01-FU1 — No “More tools” section; other case routes remain reachable via bookmarks/redirects and app chrome.
 	 */
 	import { page } from '$app/stores';
@@ -11,12 +14,15 @@
 	$: activeSection = resolveActiveCaseSection($page.url.pathname);
 	$: wave3CaseShellEnabled = isDetectiveWave3CaseShellEnabled();
 
+	// P86-05: Order is intentional — overview and record surfaces first; operational Tasks last. Do not re-sort (e.g. alphabetize) without charter review.
 	const primaryNavItems: Array<{ id: string; label: string }> = [
 		{ id: 'summary', label: 'Overview' },
 		{ id: 'timeline', label: 'Timeline' },
 		{ id: 'files', label: 'Files' },
 		{ id: 'entities', label: 'Entities' },
-		{ id: 'notes', label: 'Notes' }
+		{ id: 'notes', label: 'Notes' },
+		// P86-05 / P87-05: Tasks — operational-only and non-authoritative. Do not elevate to Timeline parity.
+		{ id: 'tasks', label: 'Tasks (Operational)' }
 	];
 
 	function primaryHref(id: string, sectionId: string): string {

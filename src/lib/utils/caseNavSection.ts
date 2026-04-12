@@ -2,6 +2,7 @@
  * P19-06 — Case workspace nav section resolution.
  * P76-05 — Deterministic first-path-segment matching after `/case/:id/` so nested routes
  * (e.g. intelligence/entity/...) keep the parent tab active — no substring collisions.
+ * P86-05 — `tasks` resolves for `/case/:id/tasks` (operational surface; not Timeline authority).
  *
  * Pure function — safe for layout + contracts tests.
  */
@@ -18,7 +19,9 @@ export type CaseNavSection =
 	| 'files'
 	| 'notes'
 	| 'activity'
-	| 'entities';
+	| 'entities'
+	// P86-05: `tasks` — operational-only; not Timeline authority.
+	| 'tasks';
 
 const VALID_CASE_SECTIONS = new Set<string>([
 	'chat',
@@ -32,7 +35,9 @@ const VALID_CASE_SECTIONS = new Set<string>([
 	'files',
 	'notes',
 	'activity',
-	'entities'
+	'entities',
+	// P86-05: operational Tasks route — not Timeline authority.
+	'tasks'
 ]);
 
 /**
