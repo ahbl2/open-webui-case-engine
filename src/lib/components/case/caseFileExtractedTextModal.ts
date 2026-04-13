@@ -1,5 +1,7 @@
 /**
  * P40-05B — Build modal body for Case File extracted text (shared by Extract + View paths).
+ * P104-02 — Non-EXTRACTED rows never present stored text as if it were a successful extraction;
+ * when the server retained text for diagnostics, it is explicitly labeled (raw artifact ≠ extracted success).
  */
 export type CaseFileTextPayload = {
 	status: string;
@@ -9,16 +11,25 @@ export type CaseFileTextPayload = {
 
 /**
  * Human-readable modal content aligned with GET /files/:id/text fields.
- * Empty extracted body uses “(No text)”; non-EXTRACTED statuses prefix message when present.
+ * EXTRACTED: body is extracted text (or “(No text)” when empty/whitespace).
+ * Non-EXTRACTED: status + message first; optional stored text only under an explicit diagnostic banner.
  */
 export function buildCaseFileExtractedTextModalBody(data: CaseFileTextPayload): string {
 	const raw = data.extracted_text ?? '';
-	const body = raw.trim() === '' ? '(No text)' : raw;
-	if (data.status !== 'EXTRACTED' && data.message) {
-		return `[${data.status}] ${data.message}\n\n${body}`;
+	const trimmed = raw.trim();
+
+	if (data.status === 'EXTRACTED') {
+		const body = trimmed === '' ? '(No text)' : raw;
+		if (trimmed === '' && (data.message ?? '').trim()) {
+			return `${data.message}\n\n${body}`;
+		}
+		return body;
 	}
-	if (data.status === 'EXTRACTED' && raw.trim() === '' && (data.message ?? '').trim()) {
-		return `${data.message}\n\n${body}`;
+
+	const msg = (data.message ?? '').trim() || 'No extracted text available for this status.';
+	const head = `[${data.status}] ${msg}`;
+	if (trimmed === '') {
+		return head;
 	}
-	return body;
+	return `${head}\n\n---\nDiagnostic text (not a successful extraction; not interchangeable with raw file bytes):\n${raw}`;
 }

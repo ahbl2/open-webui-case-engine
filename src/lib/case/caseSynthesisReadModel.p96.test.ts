@@ -210,7 +210,7 @@ describe('buildCaseSynthesisReadModel async (P96-01)', () => {
 		const listTimeline = vi.fn(async () => [] as TimelineEntry[]);
 		const listTasks = vi.fn(async () => [] as CaseEngineCaseTask[]);
 		const listFiles = vi.fn(async () => [] as CaseFile[]);
-		const getFileText = vi.fn(async () => ({ extracted_text: '' }));
+		const getFileText = vi.fn(async () => ({ status: 'EXTRACTED', extracted_text: '' }));
 
 		await buildCaseSynthesisReadModel('case-x', 'tok', {
 			generatedAtIso: '2026-01-01T00:00:00.000Z',
@@ -244,7 +244,7 @@ describe('buildCaseSynthesisReadModel async (P96-01)', () => {
 				],
 				listTasks: async () => [task({ id: 'tn1', title: 'task title' })],
 				listFiles: async () => [file({ id: 'fn1', original_filename: 'z.txt' })],
-				getFileText: async () => ({ extracted_text: '' })
+				getFileText: async () => ({ status: 'EXTRACTED', extracted_text: '' })
 			}
 		});
 		expect(m.timeline_facts).toHaveLength(1);

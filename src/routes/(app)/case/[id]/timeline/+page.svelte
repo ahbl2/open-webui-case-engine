@@ -25,6 +25,7 @@
 	 * P39-06 — deterministic cleanup of composer text (rule-based; visible result; no auto-save; P39-01 §5)
 	 * P39-07 — audio file transcription into the bottom composer (OWUI STT backend; raw transcript → editable; P39-01 §5)
 	 * P40-04 — direct edit mutation guardrails (reason length + operator copy; server remains authoritative)
+	 * P109-01 — manual evidence selection (session-only; shared store with Files tab)
 	 *
 	 * Displays the official case record from `timeline_entries` via
 	 * GET /cases/:id/entries. This is distinct from notebook notes
@@ -46,6 +47,10 @@
 	 *
 	 * P87-03 — Contextual navigation-only link to operational Tasks (not Timeline authority; <a href> only).
 	 * P87-05 — Label/title aligned with header + nav + Tasks panel (same non-authoritative framing).
+	 * P108-01 — Entity → timeline read-only lens (`?entityLens=`); explicit evidence links only; no inference.
+	 * P108-03 — Return to entity detail from lens banner (`<a href>`; no history override).
+	 * P108-04 — Shared `CaseEntityLensBanner` for consistent `entityLens` filter-state UI.
+	 * P108-05 — Doctrine-safe lens copy/status via `p108EntityTimelineLensCopy`.
 	 */
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
@@ -56,12 +61,19 @@
 	import { pickTimelineAuthoritativeTargetId } from '$lib/case/timelineSynthesisNavigation';
 	import { buildAuthoritativeTimelineContextPreview } from '$lib/case/synthesisNavigationContextPreview';
 	import {
+		isP103TimelineNavigationIntent,
+		isStaleP103NavigationIntentShape
+	} from '$lib/case/p103CitationNavigationIntent';
+	import { P103_REVEAL_NOT_FOUND_TIMELINE_COPY } from '$lib/case/p103NavigationOperatorCopy';
+	import {
 		P97_SYNTHESIS_REVEAL_HIGHLIGHT_MS,
 		scheduleStaleSynthesisIntentClear
 	} from '$lib/case/synthesisNavigationP97Shared';
 	import { DS_WORKFLOW_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import { caseEngineToken, caseEngineUser } from '$lib/stores';
+	import { getCaseEntityDetail } from '$lib/apis/caseEngine/caseEntitiesApi';
 	import {
+		listCaseTimelineEntries,
 		listCaseTimelineEntriesPage,
 		createCaseTimelineEntry,
 		updateCaseTimelineEntry,
@@ -73,6 +85,8 @@
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
+	import CaseAiProposalDraftPanel from '$lib/components/case/CaseAiProposalDraftPanel.svelte';
+	import CaseEntityLensBanner from '$lib/components/case/CaseEntityLensBanner.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import CaseArrivalOrientationBlock from '$lib/components/case/CaseArrivalOrientationBlock.svelte';
 	import { nextP99ArrivalSnapshot } from '$lib/case/p99ArrivalContextPresentation';
@@ -159,6 +173,25 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	import { CASE_CANCEL_BTN_CLASS, CASE_ASSIST_BTN_CLASS } from '$lib/caseButtonClasses';
 	import { nextRelateState, isEntryInRelationPair } from '$lib/caseTimeline/timelineEntryRelateUi';
 	import { removeFollowUpEntryId, toggleFollowUpEntryId } from '$lib/caseTimeline/timelineEntryFollowUpUi';
+	import {
+		filterTimelineEntriesToEntityLinkedOnly,
+		parseEntityLensEntityIdFromSearchParams,
+		timelineEntryIdsLinkedFromEntityEvidence
+	} from '$lib/case/p108EntityTimelineLens';
+	import {
+		P108_ENTITY_TIMELINE_LENS_EMPTY,
+		p108EntityLensTimelineLoadedCountLabel
+	} from '$lib/case/p108EntityTimelineLensCopy';
+	import {
+		ensureEvidenceSelectionCaseScope,
+		toggleEvidenceSelection,
+		isEvidenceSelected,
+		evidenceSelection,
+		pruneEvidenceSelectionAfterTimelineSync,
+		removeEvidenceSelectionKey
+	} from '$lib/case/p109EvidenceSelection';
+	import { isTimelineEntrySelectableForEvidence } from '$lib/case/p109EvidenceSelectionGates';
+	import CaseEvidenceSelectionStatusBar from '$lib/components/case/CaseEvidenceSelectionStatusBar.svelte';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -166,6 +199,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	// initial param so the reactive reset block is a no-op on first render
 	// (onMount handles initial load); it fires only on case switch.
 	$: caseId = $page.params.id;
+	/** P109-01 — UI-only selection store is case-scoped (clears when `caseId` changes). */
+	$: if (caseId) ensureEvidenceSelectionCaseScope(caseId);
+	/** P108-01 — URL-driven; user navigates from entity detail with `?entityLens=` only (no auto-apply). */
+	$: entityLensEntityId = parseEntityLensEntityIdFromSearchParams($page.url.searchParams);
+	let entityLensLabel = '';
 	let prevLoadedCaseId: string = $page.params.id ?? '';
 	/** Incremented on each loadEntries() call; guards stale responses from writing to the new case. */
 	let activeEntriesLoadId = 0;
@@ -306,6 +344,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	}
 
 	async function loadMoreEntries(): Promise<void> {
+		if (entityLensEntityId) return;
 		if (!$caseEngineToken || !hasMore || isLoadingMore || loading) return;
 		const fetchGeneration = activeEntriesLoadId;
 		const requestedCaseId = caseId;
@@ -340,6 +379,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			const fresh = result.entries.filter((e) => !existingIds.has(e.id));
 			entries = [...entries, ...fresh];
 			hasMore = result.hasMore;
+			pruneEvidenceSelectionAfterTimelineSync(caseId, entries, hasMore);
 			// Do NOT update totalEntries here. The boundary-filtered total from loadMore can
 			// diverge from the authoritative count (e.g. proposals with historical occurred_at
 			// committed mid-scroll enter the boundary window and inflate the count). The total
@@ -506,7 +546,9 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		isLoadingMore = false;
 		loadMoreError = '';
 		scrollBoundary = null;
+		entityLensLabel = '';
 		const dateInverted =
+			!entityLensEntityId &&
 			isTimelineFilterDateRangeInverted(filterDateFrom, filterDateTo) &&
 			filterDateFrom.trim() !== '' &&
 			filterDateTo.trim() !== '';
@@ -514,9 +556,43 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			if (loadId !== activeEntriesLoadId) return;
 			entries = [];
 			totalEntries = 0;
+			pruneEvidenceSelectionAfterTimelineSync(caseId, [], false);
 			const now = new Date();
 			loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 			loading = false;
+			return;
+		}
+		if (entityLensEntityId) {
+			try {
+				const detail = await getCaseEntityDetail(caseId, entityLensEntityId, $caseEngineToken, {
+					includeRetired: true
+				});
+				if (loadId !== activeEntriesLoadId) return;
+				const linkedIds = new Set(timelineEntryIdsLinkedFromEntityEvidence(detail.evidence_links));
+				const all = await listCaseTimelineEntries(caseId, $caseEngineToken, {
+					includeDeleted: isAdmin && showDeleted
+				});
+				if (loadId !== activeEntriesLoadId) return;
+				const filtered = filterTimelineEntriesToEntityLinkedOnly(all, linkedIds);
+				entries = filtered;
+				totalEntries = filtered.length;
+				hasMore = false;
+				scrollBoundary = null;
+				lastKnownUnfilteredTotal = filtered.length;
+				entityLensLabel = detail.case_entity.display_label;
+				pruneEvidenceSelectionAfterTimelineSync(caseId, entries, false);
+				const now = new Date();
+				loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+			} catch (e: unknown) {
+				if (loadId !== activeEntriesLoadId) return;
+				entries = [];
+				totalEntries = 0;
+				hasMore = false;
+				pruneEvidenceSelectionAfterTimelineSync(caseId, [], false);
+				loadError = e instanceof Error ? e.message : 'Failed to load entity timeline lens.';
+			} finally {
+				if (loadId === activeEntriesLoadId) loading = false;
+			}
 			return;
 		}
 		try {
@@ -551,6 +627,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			}
 			const now = new Date();
 			loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
+			pruneEvidenceSelectionAfterTimelineSync(caseId, entries, hasMore);
 		} catch (e: unknown) {
 			if (loadId !== activeEntriesLoadId) return;
 			loadError = e instanceof Error ? e.message : 'Failed to load timeline entries.';
@@ -628,6 +705,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		pendingDeleteEntry = null;
 		try {
 			await softDeleteTimelineEntry(entryId, $caseEngineToken);
+			removeEvidenceSelectionKey('timeline_entry', entryId, caseId);
 			if (showDeleted && isAdmin) {
 				// ADMIN with showDeleted=true: mark entry as deleted in the local list
 				// so it renders as the removed-state card without a full re-fetch.
@@ -1218,11 +1296,18 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		timelineCreateOutsideFiltersHint = false;
 	}
 
+	/** P108-01 — clears `?entityLens=` only; full timeline reload via reactive `loadEntries`. */
+	function clearEntityLens(): void {
+		void goto(`/case/${encodeURIComponent(caseId)}/timeline`, { replaceState: true });
+	}
+
 	$: filtersActive =
 		normalizeTimelineSearchNeedle(filterSearchText) !== '' ||
 		filterDateFrom !== '' ||
 		filterDateTo !== '' ||
 		activeFilter !== 'all';
+
+	$: filtersOrEntityLens = filtersActive || !!entityLensEntityId;
 
 	$: filterDateRangeInvalid = isTimelineFilterDateRangeInverted(filterDateFrom, filterDateTo);
 	$: showLargeTimelineFilterHint = shouldShowLargeTimelineFilterHint(
@@ -1235,22 +1320,42 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		p99ArrivalSnapshot = nextP99ArrivalSnapshot($page.state, caseId, 'timeline', p99ArrivalSnapshot);
 	}
 
+	// P103-02 — citation navigation intent (timeline_entry; same reveal sequence as P97; read-only)
+	$: if (browser && caseId) {
+		const raw = $page.state?.p103CitationNavigationIntent;
+		if (raw !== undefined && raw !== null) {
+			if (isP103TimelineNavigationIntent(raw, caseId)) {
+				if (!navTargetId && !revealInFlight) {
+					navTargetId = raw.target_id;
+					synthesisRevealBanner = 'idle';
+				}
+			} else if (isStaleP103NavigationIntentShape(raw)) {
+				void clearSynthesisNavState();
+			}
+		}
+	}
+
 	// P97-02 — consume synthesis navigation intent (authoritative Timeline only; invalid intents cleared)
 	$: if (browser && caseId) {
-		const intent = $page.state?.synthesisSourceNavigationIntent;
-		if (intent) {
-			const id = pickTimelineAuthoritativeTargetId(intent, caseId);
-			if (!id) {
-				scheduleStaleSynthesisIntentClear(
-					() => get(page),
-					() => invalidSynthesisIntentClearInFlight,
-					(v) => {
-						invalidSynthesisIntentClearInFlight = v;
-					}
-				);
-			} else if (!navTargetId && !revealInFlight) {
-				navTargetId = id;
-				synthesisRevealBanner = 'idle';
+		const p103Raw = $page.state?.p103CitationNavigationIntent;
+		if (p103Raw && isP103TimelineNavigationIntent(p103Raw, caseId)) {
+			// P103-02 consumes timeline citation navigation first; do not merge with synthesis intent.
+		} else {
+			const intent = $page.state?.synthesisSourceNavigationIntent;
+			if (intent) {
+				const id = pickTimelineAuthoritativeTargetId(intent, caseId);
+				if (!id) {
+					scheduleStaleSynthesisIntentClear(
+						() => get(page),
+						() => invalidSynthesisIntentClearInFlight,
+						(v) => {
+							invalidSynthesisIntentClearInFlight = v;
+						}
+					);
+				} else if (!navTargetId && !revealInFlight) {
+					navTargetId = id;
+					synthesisRevealBanner = 'idle';
+				}
 			}
 		}
 	}
@@ -1269,7 +1374,10 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	// P41-48: header data-state line — loaded vs server total (filters use matching total).
 	$: timelineHeaderDataLine = (() => {
 		if (loading && entries.length === 0) return '';
-		if (!filtersActive && entries.length === 0 && totalEntries === 0) return '';
+		if (!filtersActive && !entityLensEntityId && entries.length === 0 && totalEntries === 0) return '';
+		if (entityLensEntityId) {
+			return p108EntityLensTimelineLoadedCountLabel(entries.length);
+		}
 		return `${entries.length} of ${totalEntries} entries loaded`;
 	})();
 
@@ -1278,6 +1386,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	});
 
 	// P41-46: refetch page 1 when filter state or show-deleted changes (search is debounced into filterQueryForApi).
+	// P108-01: entity lens is URL-driven (`entityLensEntityId` from `$page.url`).
 	$: if (caseId && $caseEngineToken && prevLoadedCaseId === caseId && timelineListMounted) {
 		void activeFilter;
 		void filterDateFrom;
@@ -1285,6 +1394,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		void filterQueryForApi;
 		void showDeleted;
 		void isAdmin;
+		void entityLensEntityId;
 		void loadEntries();
 	}
 
@@ -1635,7 +1745,18 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		</div>
 	</div>
 
+	<div class="px-3 sm:px-4 max-w-[1200px] mx-auto w-full">
+		<CaseAiProposalDraftPanel
+			caseId={caseId}
+			caseEngineToken={$caseEngineToken ?? ''}
+			defaultProposalType="timeline_entry"
+			surfaceLabel="Timeline"
+		/>
+	</div>
+
 	<CaseArrivalOrientationBlock context={p99ArrivalSnapshot} testId="case-timeline-p99-arrival" />
+
+	<CaseEvidenceSelectionStatusBar />
 
 	<!-- Lifecycle error banners (P28-35) — shown beneath header if a delete/restore fails -->
 	{#if deleteLifecycleError}
@@ -1685,10 +1806,20 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		</div>
 	{/if}
 
+	{#if !loadError && entityLensEntityId}
+		<CaseEntityLensBanner
+			surface="timeline"
+			caseId={caseId}
+			entityId={entityLensEntityId}
+			entityLabel={entityLensLabel || entityLensEntityId}
+			onClear={clearEntityLens}
+		/>
+	{/if}
+
 	<!-- ── Search + date range + type (P28-32 type chips; P39-02 text + dates) ── -->
 	<!-- Do not gate on `loading`: filter refetch sets loading=true and would unmount this bar,
 	     destroying the search input and dropping focus (debounced search). -->
-	{#if !loadError && (lastKnownUnfilteredTotal > 0 || filtersActive)}
+	{#if !loadError && (lastKnownUnfilteredTotal > 0 || filtersOrEntityLens)}
 		<div
 			class="ce-l-timeline-toolbar shrink-0 flex flex-col gap-2 px-4 py-2"
 			data-testid="case-timeline-search-filter-bar"
@@ -1708,11 +1839,13 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					bind:this={timelineFilterSearchEl}
 					bind:value={filterSearchText}
 					on:input={onFilterSearchInput}
+					disabled={!!entityLensEntityId}
 					placeholder="Search timeline (text, location, type)"
 					class="text-xs rounded border border-gray-300 dark:border-gray-600
 					       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100
 					       px-2 py-1.5 min-w-[10rem] flex-1 max-w-md
-					       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
+					       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600
+					       disabled:opacity-50 disabled:cursor-not-allowed"
 					data-testid="case-timeline-filter-search"
 					aria-label="Search timeline entries"
 				/>
@@ -1723,9 +1856,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 							id="timeline-filter-date-from"
 							type="date"
 							bind:value={filterDateFrom}
+							disabled={!!entityLensEntityId}
 							class="text-xs rounded border border-gray-300 dark:border-gray-600
 							       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
-							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
+							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600
+							       disabled:opacity-50 disabled:cursor-not-allowed"
 							data-testid="case-timeline-filter-date-from"
 						/>
 						<span class="text-[10px] text-gray-400 dark:text-gray-500">–</span>
@@ -1734,9 +1869,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 							id="timeline-filter-date-to"
 							type="date"
 							bind:value={filterDateTo}
+							disabled={!!entityLensEntityId}
 							class="text-xs rounded border border-gray-300 dark:border-gray-600
 							       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
-							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
+							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600
+							       disabled:opacity-50 disabled:cursor-not-allowed"
 							data-testid="case-timeline-filter-date-to"
 						/>
 					</div>
@@ -1752,7 +1889,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				</div>
 				<button
 					type="button"
-					disabled={!filtersActive}
+					disabled={!filtersActive || !!entityLensEntityId}
 					class="text-xs font-medium px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600
 					       text-gray-600 dark:text-gray-300
 					       hover:bg-gray-100 dark:hover:bg-gray-800
@@ -1762,7 +1899,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				>
 					Clear filters
 				</button>
-				{#if filtersActive}
+				{#if filtersActive && !entityLensEntityId}
 					<span
 						class="text-xs text-gray-500 dark:text-gray-400 tabular-nums"
 						data-testid="case-timeline-filter-shown-count"
@@ -1780,10 +1917,12 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				{#each FILTER_TYPES as ft}
 					<button
 						type="button"
+						disabled={!!entityLensEntityId}
 						class="text-xs px-2.5 py-1 rounded-full transition font-medium
 						       {activeFilter === ft.value
 						           ? 'bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900'
-						           : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200'}"
+						           : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200'}
+						       disabled:opacity-40 disabled:cursor-not-allowed"
 						on:click={() => (activeFilter = ft.value)}
 						aria-pressed={activeFilter === ft.value}
 						data-testid="case-timeline-filter-{ft.value}"
@@ -1810,8 +1949,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				role="status"
 				data-testid="synthesis-timeline-reveal-not-found"
 			>
-				This Timeline entry is not in the current list. It may be filtered out, not loaded yet, or no longer
-				available in this view. Adjust filters if needed—the official Timeline record is unchanged.
+				{P103_REVEAL_NOT_FOUND_TIMELINE_COPY}
 			</div>
 		{/if}
 		{#if loadError}
@@ -1825,7 +1963,14 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			<CaseLoadingState label="Loading timeline…" testId="case-timeline-loading" />
 
 		{:else if entries.length === 0}
-			{#if filtersActive}
+			{#if entityLensEntityId}
+				<p
+					class="text-sm text-gray-400 dark:text-gray-500 text-center py-12 max-w-md mx-auto"
+					data-testid="case-timeline-entity-lens-empty"
+				>
+					{P108_ENTITY_TIMELINE_LENS_EMPTY}
+				</p>
+			{:else if filtersActive}
 				<!-- P39-02 / P41-46: server-side filters returned no rows -->
 				<p
 					class="text-sm text-gray-400 dark:text-gray-500 text-center py-12"
@@ -2133,6 +2278,10 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 						synthesisNavigationContextPreview={synthesisHighlightId === entry.id
 							? synthesisContextPreview
 							: null}
+						manualEvidenceSelectionEnabled={isTimelineEntrySelectableForEvidence(entry)}
+						manualEvidenceSelected={isEvidenceSelected($evidenceSelection, 'timeline_entry', entry.id)}
+						onManualEvidenceSelectionToggle={() =>
+							toggleEvidenceSelection('timeline_entry', entry.id, caseId)}
 					/>
 					{/if}
 			{/each}

@@ -7,6 +7,8 @@ declare global {
 		// interface PageData {}
 		// interface Platform {}
 		interface PageState {
+			/** P103-02: one-shot citation navigation intent (Case Engine `p103.1` payload); timeline/tasks only in this slice. */
+			p103CitationNavigationIntent?: import('$lib/case/p103CitationNavigationIntent').P103CitationNavigationIntent;
 			/** P97-01: one-shot synthesis → source navigation intent (read-only; no URL persistence). */
 			synthesisSourceNavigationIntent?: import('$lib/case/caseSynthesisSourceNavigation').SynthesisSourceNavigationIntent;
 			/**

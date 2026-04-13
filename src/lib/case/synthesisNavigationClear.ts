@@ -1,6 +1,6 @@
 /**
- * P97 / P99 — Clear **history state** for synthesis/arrival handoff (read-only; no URL persistence).
- * Replaces with `{}` so `synthesisSourceNavigationIntent` and `p98DeclaredRelationshipOrigin` both clear.
+ * P97 / P99 / P103 — Clear **history state** for synthesis/arrival/P103 citation handoff (read-only; no URL persistence).
+ * Replaces with `{}` so `synthesisSourceNavigationIntent`, `p103CitationNavigationIntent`, and `p98DeclaredRelationshipOrigin` all clear.
  */
 import { goto } from '$app/navigation';
 

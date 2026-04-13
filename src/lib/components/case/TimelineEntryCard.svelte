@@ -21,6 +21,7 @@
 	 *                     P84-03 — local-only entry pairing (parent state on timeline page; not persisted)
 	 *                     P84-04 — local-only follow-up marker (parent Set on timeline page; not persisted)
 	 *                     P84-05 — ops toolbar consistency (shared chrome, titles, combined-state contract)
+	 *                     P109-01 — manual evidence selection checkbox (active entries only; session-only store)
 	 *
 	 * Truth signals (P28-31):
 	 *   1. AI-assisted transparency — badge + show/hide original toggle
@@ -71,6 +72,7 @@
 		DS_TIMELINE_CLASSES,
 		DS_TYPE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
+	import { P109_EVIDENCE_SELECTION_TIMELINE_TOGGLE_TITLE } from '$lib/case/p109EvidenceSelectionCopy';
 
 	/** P83-02 — occurred_at vs created_at; UI copy only */
 	const TIMELINE_TIME_TOOLTIP_OCCURRED = 'When the event happened.';
@@ -128,6 +130,11 @@
 	export let synthesisNavigationReveal = false;
 	/** P97-04 — ephemeral orientation copy (subordinate to the row; cleared with reveal highlight). */
 	export let synthesisNavigationContextPreview: { headline: string; lines: string[] } | null = null;
+
+	/** P109-01 — manual evidence selection (active entries only; parent gates on `!entry.deleted_at`). */
+	export let manualEvidenceSelectionEnabled = false;
+	export let manualEvidenceSelected = false;
+	export let onManualEvidenceSelectionToggle: () => void = () => {};
 
 	const TYPE_LABELS: Record<string, string> = {
 		note:         TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
@@ -870,6 +877,22 @@
 								</div>
 							</div>
 							<div class="ds-timeline-entry-row__top-actions">
+								{#if manualEvidenceSelectionEnabled}
+									<label
+										class="inline-flex items-center shrink-0 cursor-pointer"
+										title={P109_EVIDENCE_SELECTION_TIMELINE_TOGGLE_TITLE}
+										data-testid="timeline-entry-manual-evidence-select"
+									>
+										<input
+											type="checkbox"
+											class="rounded border-gray-300 dark:border-gray-600 size-3.5 text-slate-600 focus:ring-slate-500"
+											checked={manualEvidenceSelected}
+											aria-label="Select this timeline entry for manual evidence packaging (this session only)"
+											on:click|stopPropagation
+											on:change|stopPropagation={onManualEvidenceSelectionToggle}
+										/>
+									</label>
+								{/if}
 								<button
 									type="button"
 									class="{TIMELINE_OPS_BTN} {TIMELINE_OPS_FOCUS_FLAG} {entryFlagged

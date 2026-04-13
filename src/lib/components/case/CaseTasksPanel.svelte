@@ -40,6 +40,11 @@
 	import { clearSynthesisNavigationPageState } from '$lib/case/synthesisNavigationClear';
 	import { buildSupportingTaskContextPreview } from '$lib/case/synthesisNavigationContextPreview';
 	import {
+		isP103TaskNavigationIntent,
+		isStaleP103NavigationIntentShape
+	} from '$lib/case/p103CitationNavigationIntent';
+	import { P103_REVEAL_NOT_FOUND_TASKS_COPY } from '$lib/case/p103NavigationOperatorCopy';
+	import {
 		P97_SYNTHESIS_REVEAL_HIGHLIGHT_MS,
 		scheduleStaleSynthesisIntentClear
 	} from '$lib/case/synthesisNavigationP97Shared';
@@ -360,20 +365,33 @@
 	}
 
 	$: if (browser && caseId && $page.url.pathname.includes('/tasks')) {
-		const intent = $page.state?.synthesisSourceNavigationIntent;
-		if (intent) {
-			const id = pickSupportingTaskTargetId(intent, caseId);
-			if (!id) {
-				scheduleStaleSynthesisIntentClear(
-					() => get(page),
-					() => invalidSynthesisIntentClearInFlight,
-					(v) => {
-						invalidSynthesisIntentClearInFlight = v;
-					}
-				);
-			} else if (!navTargetId && !revealInFlight) {
-				navTargetId = id;
-				synthesisRevealBanner = 'idle';
+		const p103Raw = $page.state?.p103CitationNavigationIntent;
+		if (p103Raw !== undefined && p103Raw !== null) {
+			if (isP103TaskNavigationIntent(p103Raw, caseId)) {
+				if (!navTargetId && !revealInFlight) {
+					navTargetId = p103Raw.target_id;
+					synthesisRevealBanner = 'idle';
+				}
+			} else if (isStaleP103NavigationIntentShape(p103Raw)) {
+				void clearSynthesisNavigationPageState(get(page));
+			}
+		}
+		if (!(p103Raw && isP103TaskNavigationIntent(p103Raw, caseId))) {
+			const intent = $page.state?.synthesisSourceNavigationIntent;
+			if (intent) {
+				const id = pickSupportingTaskTargetId(intent, caseId);
+				if (!id) {
+					scheduleStaleSynthesisIntentClear(
+						() => get(page),
+						() => invalidSynthesisIntentClearInFlight,
+						(v) => {
+							invalidSynthesisIntentClearInFlight = v;
+						}
+					);
+				} else if (!navTargetId && !revealInFlight) {
+					navTargetId = id;
+					synthesisRevealBanner = 'idle';
+				}
 			}
 		}
 	}
@@ -1478,9 +1496,7 @@
 				role="status"
 				data-testid="synthesis-tasks-reveal-not-found"
 			>
-				This task is not in the current list. It may be filtered out, not loaded yet, or not visible in the
-				current section. Adjust filters if needed—operational tasks are supporting only; they are not Timeline
-				entries.
+				{P103_REVEAL_NOT_FOUND_TASKS_COPY}
 			</div>
 		{/if}
 

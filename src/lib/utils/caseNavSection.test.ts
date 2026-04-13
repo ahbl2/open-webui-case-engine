@@ -67,8 +67,24 @@ describe('resolveActiveCaseSection', () => {
 		expect(resolveActiveCaseSection('/case/abc123/entities')).toBe('entities');
 	});
 
+	it('keeps entities active for nested entity detail route', () => {
+		expect(resolveActiveCaseSection('/case/abc123/entities/ent-uuid-1')).toBe('entities');
+	});
+
 	it('resolves /case/[id]/tasks to tasks', () => {
 		expect(resolveActiveCaseSection('/case/abc123/tasks')).toBe('tasks');
+	});
+
+	it('resolves /case/[id]/query to query', () => {
+		expect(resolveActiveCaseSection('/case/abc123/query')).toBe('query');
+	});
+
+	it('resolves /case/[id]/evidence-sets to evidence-sets', () => {
+		expect(resolveActiveCaseSection('/case/abc123/evidence-sets')).toBe('evidence-sets');
+	});
+
+	it('keeps evidence-sets active for nested evidence set detail route', () => {
+		expect(resolveActiveCaseSection('/case/abc123/evidence-sets/set-uuid-1')).toBe('evidence-sets');
 	});
 
 	// ── Fallback behaviour ──────────────────────────────────────────────────
@@ -99,7 +115,9 @@ describe('resolveActiveCaseSection', () => {
 			'proposals',
 			'activity',
 			'entities',
-			'tasks'
+			'query',
+			'tasks',
+			'evidence-sets'
 		];
 		for (const section of expected) {
 			expect(resolveActiveCaseSection(`/case/x/${section}`)).toBe(section);

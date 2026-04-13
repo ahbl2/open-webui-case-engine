@@ -1,13 +1,31 @@
 <script lang="ts">
 	/** P98-03 / P98-05 — FilesDeclaredRelationshipsBlock (no-op until file-origin read contract exists in P98-01). */
+	/** P108-02 — `?entityLens=` read-only file list lens (explicit case_file links; same param as P108-01). */
+	/** P108-03 — Return to entity detail from lens banner (`<a href>`). */
+	/** P108-04 — Shared `CaseEntityLensBanner` for consistent `entityLens` filter-state UI. */
+	/** P108-05 — Doctrine-safe lens copy/status via `p108EntityTimelineLensCopy`. */
+	/** P109-01 — Manual evidence selection checkbox + shared session-only store with Timeline. */
 	import { onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { browser, dev } from '$app/environment';
 	import { goto } from '$app/navigation';
 	import { page } from '$app/stores';
 	import CaseArrivalOrientationBlock from '$lib/components/case/CaseArrivalOrientationBlock.svelte';
+	import CaseEntityLensBanner from '$lib/components/case/CaseEntityLensBanner.svelte';
 	import { nextP99ArrivalSnapshot } from '$lib/case/p99ArrivalContextPresentation';
 	import type { ArrivalContext } from '$lib/case/p99ArrivalContextReadModel';
+	import {
+		isP103FileNavigationIntent,
+		isStaleP103NavigationIntentShape,
+		validateP103TextSpanAgainstExtractedText
+	} from '$lib/case/p103CitationNavigationIntent';
+	import { isCaseFileExtractedTextUsable } from '$lib/case/p104FileTextAccess';
+	import {
+		P103_FILES_SPAN_INVALID_COPY,
+		P103_FILES_SPAN_UNAVAILABLE_COPY,
+		P103_REVEAL_NOT_FOUND_FILES_CITATION_COPY,
+		P103_REVEAL_NOT_FOUND_FILES_SYNTHESIS_COPY
+	} from '$lib/case/p103NavigationOperatorCopy';
 	import { clearSynthesisNavigationPageState } from '$lib/case/synthesisNavigationClear';
 	import { buildSupportingFileContextPreview } from '$lib/case/synthesisNavigationContextPreview';
 	import {
@@ -18,7 +36,9 @@
 	import { pickSupportingFilesTargetId } from '$lib/case/supportingSynthesisNavigation';
 	import { toast } from 'svelte-sonner';
 	import Spinner from '$lib/components/common/Spinner.svelte';
+	import { getCaseEntityDetail } from '$lib/apis/caseEngine/caseEntitiesApi';
 	import {
+		listCaseFiles,
 		listCaseFilesPage,
 		uploadCaseFile,
 		downloadCaseFile,
@@ -44,6 +64,27 @@
 		isCaseFileLikelyExtractable
 	} from '$lib/components/case/caseFilesExtractSupport';
 	import { buildCaseFileExtractedTextModalBody } from '$lib/components/case/caseFileExtractedTextModal';
+	import {
+		caseFileIdsLinkedFromEntityEvidence,
+		filterCaseFilesToEntityLinkedOnly,
+		parseEntityLensEntityIdFromSearchParams
+	} from '$lib/case/p108EntityTimelineLens';
+	import {
+		P108_ENTITY_FILES_LENS_EMPTY,
+		P108_ENTITY_FILES_LENS_EMPTY_TITLE,
+		p108EntityLensFilesLoadedCountLabel
+	} from '$lib/case/p108EntityTimelineLensCopy';
+	import {
+		ensureEvidenceSelectionCaseScope,
+		toggleEvidenceSelection,
+		isEvidenceSelected,
+		evidenceSelection,
+		pruneEvidenceSelectionAfterFilesSync,
+		removeEvidenceSelectionKey
+	} from '$lib/case/p109EvidenceSelection';
+	import { isCaseFileSelectableForEvidence } from '$lib/case/p109EvidenceSelectionGates';
+	import { P109_EVIDENCE_SELECTION_FILE_TOGGLE_TITLE } from '$lib/case/p109EvidenceSelectionCopy';
+	import CaseEvidenceSelectionStatusBar from '$lib/components/case/CaseEvidenceSelectionStatusBar.svelte';
 	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 	import {
@@ -81,6 +122,17 @@
 
 	/** P97-03 — when true, consume `synthesisSourceNavigationIntent` on the Files surface (case route). */
 	export let synthesisNavigationEnabled = false;
+
+	/** P108-02 — URL `?entityLens=` (same query key as P108-01 timeline lens). */
+	$: entityLensEntityId = parseEntityLensEntityIdFromSearchParams($page.url.searchParams);
+	let entityLensLabel = '';
+
+	/** P109-01 — shared manual selection is case-scoped (same store as Timeline). */
+	$: if (caseId) ensureEvidenceSelectionCaseScope(caseId);
+
+	function filesListHasMorePages(): boolean {
+		return totalFiles > 0 && files.length < totalFiles;
+	}
 
 	/** P42-03 — matches Case Engine paginated default cap (50). */
 	const CASE_FILES_PAGE_SIZE = 50;
@@ -169,6 +221,12 @@
 	let synthesisRevealBanner: 'idle' | 'not_found' = 'idle';
 	let synthesisHighlightTimer: ReturnType<typeof setTimeout> | undefined;
 	let invalidSynthesisIntentClearInFlight = false;
+	// P103-03 — citation → file (optional explicit text_span); read-only
+	let p103NavTextSpan: { start: number; end: number } | null = null;
+	let p103RevealActive = false;
+	let p103FileCitationBanner: 'idle' | 'not_found' | 'span_invalid' | 'span_unavailable' = 'idle';
+	let viewTextRawForSpan: string | null = null;
+	let viewTextSpanRange: { start: number; end: number } | null = null;
 	let p99ArrivalSnapshot: ArrivalContext | null = null;
 	let p99ArrivalFilesCaseKey = '';
 
@@ -224,9 +282,13 @@
 		if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
 		synthesisHighlightTimer = undefined;
 		invalidSynthesisIntentClearInFlight = false;
+		p103NavTextSpan = null;
+		p103RevealActive = false;
+		p103FileCitationBanner = 'idle';
+		viewTextRawForSpan = null;
+		viewTextSpanRange = null;
 		p99ArrivalSnapshot = null;
 		p99ArrivalFilesCaseKey = '';
-		loadFiles();
 	}
 
 	$: if (focusFileId && files.length > 0 && focusFileId !== lastScrolledFocusFileId) {
@@ -241,26 +303,46 @@
 	}
 
 	$: if (browser && synthesisNavigationEnabled && caseId) {
-		const intent = $page.state?.synthesisSourceNavigationIntent;
-		if (intent) {
-			const id = pickSupportingFilesTargetId(intent, caseId);
-			if (!id) {
-				scheduleStaleSynthesisIntentClear(
-					() => get(page),
-					() => invalidSynthesisIntentClearInFlight,
-					(v) => {
-						invalidSynthesisIntentClearInFlight = v;
-					}
-				);
-			} else if (!navTargetId && !revealInFlight) {
-				navTargetId = id;
-				synthesisRevealBanner = 'idle';
+		const p103Raw = $page.state?.p103CitationNavigationIntent;
+		if (p103Raw !== undefined && p103Raw !== null) {
+			if (isP103FileNavigationIntent(p103Raw, caseId)) {
+				if (!navTargetId && !revealInFlight) {
+					navTargetId = p103Raw.target_id;
+					p103NavTextSpan = p103Raw.text_span ?? null;
+					p103RevealActive = true;
+					p103FileCitationBanner = 'idle';
+					synthesisRevealBanner = 'idle';
+				}
+			} else if (isStaleP103NavigationIntentShape(p103Raw)) {
+				void clearSynthesisNavigationPageState(get(page));
+			}
+		}
+		if (!(p103Raw && isP103FileNavigationIntent(p103Raw, caseId))) {
+			const intent = $page.state?.synthesisSourceNavigationIntent;
+			if (intent) {
+				const id = pickSupportingFilesTargetId(intent, caseId);
+				if (!id) {
+					scheduleStaleSynthesisIntentClear(
+						() => get(page),
+						() => invalidSynthesisIntentClearInFlight,
+						(v) => {
+							invalidSynthesisIntentClearInFlight = v;
+						}
+					);
+				} else if (!navTargetId && !revealInFlight) {
+					navTargetId = id;
+					synthesisRevealBanner = 'idle';
+				}
 			}
 		}
 	}
 
 	$: if (browser && synthesisNavigationEnabled && navTargetId && !loading && !loadError) {
-		void runRevealSequenceForSynthesisFiles();
+		if (p103RevealActive) {
+			void runRevealSequenceForP103Files();
+		} else {
+			void runRevealSequenceForSynthesisFiles();
+		}
 	}
 
 	$: if (loadError && navTargetId) {
@@ -268,6 +350,9 @@
 		synthesisContextPreview = null;
 		synthesisFilesSourceKind = null;
 		synthesisRevealBanner = 'idle';
+		p103NavTextSpan = null;
+		p103RevealActive = false;
+		p103FileCitationBanner = 'idle';
 		void clearSynthesisNavigationPageState(get(page));
 	}
 
@@ -298,11 +383,16 @@
 	}
 
 	$: hasActiveListConstraints =
-		fileSearchApplied.trim().length > 0 ||
-		mimeCategoryFilter !== '' ||
-		hasTagsFilter !== 'all';
+		!entityLensEntityId &&
+		(fileSearchApplied.trim().length > 0 ||
+			mimeCategoryFilter !== '' ||
+			hasTagsFilter !== 'all');
 
 	$: if (!hasActiveListConstraints) filesFilterUploadHintShown = false;
+
+	function clearEntityFilesLens(): void {
+		void goto(`/case/${encodeURIComponent(caseId)}/files`, { replaceState: true });
+	}
 
 	async function loadFiles() {
 		activeLoadId += 1;
@@ -312,6 +402,30 @@
 		loadError = '';
 		isLoadingMore = false;
 		loadMoreError = '';
+		entityLensLabel = '';
+		if (entityLensEntityId) {
+			try {
+				const detail = await getCaseEntityDetail(caseId, entityLensEntityId, token, { includeRetired: true });
+				if (loadId !== activeLoadId) return;
+				const linkedIds = new Set(caseFileIdsLinkedFromEntityEvidence(detail.evidence_links));
+				const all = await listCaseFiles(caseId, token);
+				if (loadId !== activeLoadId) return;
+				const filtered = filterCaseFilesToEntityLinkedOnly(all, linkedIds);
+				files = filtered;
+				totalFiles = filtered.length;
+				entityLensLabel = detail.case_entity.display_label;
+				pruneEvidenceSelectionAfterFilesSync(caseId, files, false);
+			} catch (e: unknown) {
+				if (loadId !== activeLoadId) return;
+				loadError = e instanceof Error ? e.message : 'Failed to load entity files lens.';
+				files = [];
+				totalFiles = 0;
+				pruneEvidenceSelectionAfterFilesSync(caseId, [], false);
+			} finally {
+				if (loadId === activeLoadId) loading = false;
+			}
+			return;
+		}
 		try {
 			const { files: page, totalFiles: total } = await listCaseFilesPage(
 				caseId,
@@ -321,11 +435,13 @@
 			if (loadId !== activeLoadId) return;
 			files = page;
 			totalFiles = total;
+			pruneEvidenceSelectionAfterFilesSync(caseId, files, filesListHasMorePages());
 		} catch (e: any) {
 			if (loadId !== activeLoadId) return;
 			loadError = e?.message ?? 'Failed to load files.';
 			files = [];
 			totalFiles = 0;
+			pruneEvidenceSelectionAfterFilesSync(caseId, [], false);
 		} finally {
 			if (loadId === activeLoadId) loading = false;
 		}
@@ -333,6 +449,7 @@
 
 	/** P42-03 — append next page; stale-safe (case switch / superseding loadFiles). */
 	async function loadMoreFiles() {
+		if (entityLensEntityId) return;
 		if (loading || isLoadingMore || files.length >= totalFiles) return;
 		const fetchGeneration = activeLoadId;
 		const requestedCaseId = caseId;
@@ -353,6 +470,7 @@
 			const fresh = more.filter((f) => !existingIds.has(f.id));
 			files = [...files, ...fresh];
 			totalFiles = total;
+			pruneEvidenceSelectionAfterFilesSync(caseId, files, filesListHasMorePages());
 		} catch (e: unknown) {
 			if (!isStaleTimelineLoadMoreAppend(fetchGeneration, activeLoadId, requestedCaseId, caseId)) {
 				loadMoreError = e instanceof Error ? e.message : 'Failed to load more files.';
@@ -364,8 +482,116 @@
 		}
 	}
 
+	/** P103-03 — citation → case file (+ optional explicit text span in extracted text modal). Read-only. */
+	async function runRevealSequenceForP103Files(): Promise<void> {
+		if (!browser || !navTargetId || revealInFlight) return;
+		if (!p103RevealActive) return;
+		if (loading || loadError) return;
+		revealInFlight = true;
+		try {
+			const targetId = navTargetId;
+			const span = p103NavTextSpan;
+			let safety = 0;
+			while (safety < 120) {
+				safety += 1;
+				await tick();
+				if (files.some((f) => f.id === targetId)) {
+					await tick();
+					const hit = files.find((f) => f.id === targetId);
+					synthesisContextPreview = hit ? buildSupportingFileContextPreview(hit, 'case_file') : null;
+					const el = document.getElementById(`ce-case-file-${targetId}`);
+					el?.scrollIntoView({ block: 'center', behavior: 'auto' });
+					synthesisHighlightId = targetId;
+					if (!span) {
+						if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
+						synthesisHighlightTimer = setTimeout(() => {
+							synthesisHighlightId = null;
+							synthesisContextPreview = null;
+							synthesisHighlightTimer = undefined;
+						}, P97_SYNTHESIS_REVEAL_HIGHLIGHT_MS);
+						navTargetId = null;
+						p103NavTextSpan = null;
+						p103RevealActive = false;
+						synthesisRevealBanner = 'idle';
+						await clearSynthesisNavigationPageState(get(page));
+						return;
+					}
+					let data: Awaited<ReturnType<typeof getCaseFileText>>;
+					try {
+						data = await getCaseFileText(targetId, token);
+					} catch {
+						p103FileCitationBanner = 'span_unavailable';
+						synthesisHighlightId = null;
+						synthesisContextPreview = null;
+						navTargetId = null;
+						p103NavTextSpan = null;
+						p103RevealActive = false;
+						await clearSynthesisNavigationPageState(get(page));
+						return;
+					}
+					const raw = data.extracted_text ?? '';
+					if (!isCaseFileExtractedTextUsable(data.status, raw)) {
+						p103FileCitationBanner = 'span_unavailable';
+						synthesisHighlightId = null;
+						synthesisContextPreview = null;
+						navTargetId = null;
+						p103NavTextSpan = null;
+						p103RevealActive = false;
+						await clearSynthesisNavigationPageState(get(page));
+						return;
+					}
+					const vr = validateP103TextSpanAgainstExtractedText(span, raw);
+					if (!vr.ok) {
+						p103FileCitationBanner = 'span_invalid';
+						synthesisHighlightId = null;
+						synthesisContextPreview = null;
+						navTargetId = null;
+						p103NavTextSpan = null;
+						p103RevealActive = false;
+						await clearSynthesisNavigationPageState(get(page));
+						return;
+					}
+					viewTextFileId = targetId;
+					viewTextRawForSpan = raw;
+					viewTextSpanRange = { start: span.start, end: span.end };
+					viewTextContent = null;
+					viewTextLoading = false;
+					synthesisHighlightId = null;
+					synthesisContextPreview = null;
+					if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
+					synthesisHighlightTimer = undefined;
+					navTargetId = null;
+					p103NavTextSpan = null;
+					p103RevealActive = false;
+					synthesisRevealBanner = 'idle';
+					await clearSynthesisNavigationPageState(get(page));
+					return;
+				}
+				if (files.length >= totalFiles) {
+					break;
+				}
+				if (isLoadingMore) {
+					await tick();
+					await new Promise((r) => setTimeout(r, 40));
+					continue;
+				}
+				await loadMoreFiles();
+				await tick();
+			}
+			p103FileCitationBanner = 'not_found';
+			synthesisContextPreview = null;
+			navTargetId = null;
+			p103NavTextSpan = null;
+			p103RevealActive = false;
+			await clearSynthesisNavigationPageState(get(page));
+		} finally {
+			revealInFlight = false;
+		}
+	}
+
 	async function runRevealSequenceForSynthesisFiles(): Promise<void> {
 		if (!browser || !navTargetId || revealInFlight) return;
+		if (p103RevealActive) return;
 		if (loading || loadError) return;
 		revealInFlight = true;
 		try {
@@ -418,7 +644,11 @@
 		}
 	}
 
-	loadFiles();
+	/** P108-02 — reload when `entityLens` query changes (same case). */
+	$: if (caseId && token && prevLoadedCaseId === caseId) {
+		void entityLensEntityId;
+		void loadFiles();
+	}
 
 	/** P42-04 — debounced server search; avoids stale rapid typing via `activeLoadId` in `loadFiles`. */
 	function scheduleFileSearchApply() {
@@ -547,6 +777,8 @@
 	/** P40-05B: same GET /files/:id/text path as “View extracted text” so the modal is never blank after extract. */
 	async function loadExtractedTextIntoModal(fileId: string): Promise<void> {
 		viewTextFileId = fileId;
+		viewTextRawForSpan = null;
+		viewTextSpanRange = null;
 		viewTextContent = null;
 		viewTextLoading = true;
 		try {
@@ -599,6 +831,8 @@
 	function closeViewText() {
 		viewTextFileId = null;
 		viewTextContent = null;
+		viewTextRawForSpan = null;
+		viewTextSpanRange = null;
 	}
 
 	async function handleDownload(f: CaseFile) {
@@ -825,6 +1059,7 @@
 		deletingFileId = f.id;
 		try {
 			await deleteCaseFile(caseId, f.id, token);
+			removeEvidenceSelectionKey('file', f.id, caseId);
 			if (viewTextFileId === f.id) closeViewText();
 			if (listIncludesDeleted) {
 				files = files.map((x) =>
@@ -854,6 +1089,16 @@
 
 <div class="{DS_FILES_CLASSES.workspace}">
 	<CaseArrivalOrientationBlock context={p99ArrivalSnapshot} testId="case-files-p99-arrival" />
+	<CaseEvidenceSelectionStatusBar />
+	{#if entityLensEntityId}
+		<CaseEntityLensBanner
+			surface="files"
+			caseId={caseId}
+			entityId={entityLensEntityId}
+			entityLabel={entityLensLabel || entityLensEntityId}
+			onClear={clearEntityFilesLens}
+		/>
+	{/if}
 	<!-- P42-09 — upload section label -->
 	<div class="flex flex-col gap-1.5 -mx-1">
 		<h3 class="{DS_FILES_CLASSES.sectionLabel}">Add file to case</h3>
@@ -907,20 +1152,22 @@
 				type="search"
 				bind:value={fileSearchDraft}
 				on:input={onFileSearchInput}
+				disabled={!!entityLensEntityId}
 				placeholder="Search files by name, type, or tag"
 				aria-label="Search case files"
 				autocomplete="off"
 				data-testid="case-files-search-input"
-				class="w-full {DS_FILES_CLASSES.formControl}"
+				class="w-full {DS_FILES_CLASSES.formControl} disabled:opacity-50 disabled:cursor-not-allowed"
 			/>
 		</div>
 		<div class="flex flex-wrap items-center gap-2">
 			<select
 				bind:value={mimeCategoryFilter}
 				on:change={onListFiltersChange}
+				disabled={!!entityLensEntityId}
 				aria-label="Filter by file type category"
 				data-testid="case-files-filter-mime-category"
-				class="min-w-[9rem] {DS_FILES_CLASSES.formControl} py-1.5 text-sm"
+				class="min-w-[9rem] {DS_FILES_CLASSES.formControl} py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<option value="">All types</option>
 				<option value="image">Image</option>
@@ -932,9 +1179,10 @@
 			<select
 				bind:value={hasTagsFilter}
 				on:change={onListFiltersChange}
+				disabled={!!entityLensEntityId}
 				aria-label="Filter by tags"
 				data-testid="case-files-filter-has-tags"
-				class="min-w-[9rem] {DS_FILES_CLASSES.formControl} py-1.5 text-sm"
+				class="min-w-[9rem] {DS_FILES_CLASSES.formControl} py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
 			>
 				<option value="all">All files</option>
 				<option value="with">With tags</option>
@@ -949,15 +1197,47 @@
 			role="status"
 			data-testid="synthesis-files-reveal-not-found"
 		>
-			This file is not in the current list. It may be filtered out, not loaded yet, or not visible in this
-			view. Adjust search or filters if needed—case files are supporting evidence only; they are not the
-			Timeline.
+			{P103_REVEAL_NOT_FOUND_FILES_SYNTHESIS_COPY}
 		</div>
 	{/if}
 
-	{#if !loadError && !loading && (files.length > 0 || totalFiles > 0)}
+	{#if synthesisNavigationEnabled && p103FileCitationBanner === 'not_found'}
+		<div
+			class="rounded-md border border-amber-200 dark:border-amber-800/80 bg-amber-50/90 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-950 dark:text-amber-100 mb-3"
+			role="status"
+			data-testid="p103-files-reveal-not-found"
+		>
+			{P103_REVEAL_NOT_FOUND_FILES_CITATION_COPY}
+		</div>
+	{/if}
+
+	{#if synthesisNavigationEnabled && p103FileCitationBanner === 'span_invalid'}
+		<div
+			class="rounded-md border border-amber-200 dark:border-amber-800/80 bg-amber-50/90 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-950 dark:text-amber-100 mb-3"
+			role="status"
+			data-testid="p103-files-span-invalid"
+		>
+			{P103_FILES_SPAN_INVALID_COPY}
+		</div>
+	{/if}
+
+	{#if synthesisNavigationEnabled && p103FileCitationBanner === 'span_unavailable'}
+		<div
+			class="rounded-md border border-amber-200 dark:border-amber-800/80 bg-amber-50/90 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-950 dark:text-amber-100 mb-3"
+			role="status"
+			data-testid="p103-files-span-unavailable"
+		>
+			{P103_FILES_SPAN_UNAVAILABLE_COPY}
+		</div>
+	{/if}
+
+	{#if !loadError && !loading && (entityLensEntityId || files.length > 0 || totalFiles > 0)}
 		<p class="{DS_FILES_CLASSES.loadedCount}" data-testid="case-files-loaded-count">
-			{files.length} of {totalFiles} files loaded
+			{#if entityLensEntityId}
+				{p108EntityLensFilesLoadedCountLabel(files.length)}
+			{:else}
+				{files.length} of {totalFiles} files loaded
+			{/if}
 		</p>
 	{/if}
 
@@ -966,12 +1246,20 @@
 	{:else if loadError}
 		<CaseErrorState title="Failed to load files" message={loadError} onRetry={loadFiles} />
 	{:else if files.length === 0}
+		{#if entityLensEntityId}
+			<CaseEmptyState
+				title={P108_ENTITY_FILES_LENS_EMPTY_TITLE}
+				description={P108_ENTITY_FILES_LENS_EMPTY}
+				testId="case-files-entity-lens-empty"
+			/>
+		{:else}
 		<CaseEmptyState
 			title={hasActiveListConstraints ? 'No matching files.' : 'No files yet.'}
 			description={hasActiveListConstraints
 				? 'Try adjusting search or filters, or reset them to see all files in this case.'
 				: 'Choose a file or drag files into the upload area above.'}
 		/>
+		{/if}
 	{:else}
 		<div class="flex flex-col gap-4">
 			{#each files as f (f.id)}
@@ -988,6 +1276,23 @@
 					/>
 				{/if}
 				<div class="flex flex-wrap items-center gap-2">
+					{#if isCaseFileSelectableForEvidence(f)}
+						<label
+							class="inline-flex items-center shrink-0 cursor-pointer"
+							title={P109_EVIDENCE_SELECTION_FILE_TOGGLE_TITLE}
+							data-testid="case-file-manual-evidence-select"
+						>
+							<input
+								type="checkbox"
+								class="rounded border-gray-300 dark:border-gray-600 size-3.5 text-slate-600 focus:ring-slate-500"
+								checked={isEvidenceSelected($evidenceSelection, 'file', f.id)}
+								aria-label="Select this file for manual evidence packaging (this session only)"
+								on:click|stopPropagation
+								on:change|stopPropagation={() =>
+									toggleEvidenceSelection('file', f.id, caseId)}
+							/>
+						</label>
+					{/if}
 					<span class="min-w-0 flex-1 truncate font-semibold {DS_TYPE_CLASSES.section}">{f.original_filename}</span>
 					<span
 						class="{DS_FILES_CLASSES.extBadge} {isCaseFileLikelyExtractable(
@@ -1271,6 +1576,16 @@
 			<div class="{DS_FILES_CLASSES.extractedBody}">
 				{#if viewTextLoading}
 					<div class="{DS_TYPE_CLASSES.meta}">Loading...</div>
+				{:else if viewTextSpanRange !== null && viewTextRawForSpan !== null}
+					<pre
+						class="{DS_FILES_CLASSES.extractedPre}"
+						data-testid="case-file-extracted-text-body"
+						><span>{viewTextRawForSpan.slice(0, viewTextSpanRange.start)}</span><mark
+							class="bg-yellow-200 dark:bg-yellow-900/50 rounded px-0.5"
+							data-testid="case-file-extracted-text-span-mark">{viewTextRawForSpan.slice(
+								viewTextSpanRange.start,
+								viewTextSpanRange.end
+							)}</mark><span>{viewTextRawForSpan.slice(viewTextSpanRange.end)}</span></pre>
 				{:else if viewTextContent !== null}
 					<pre
 						class="{DS_FILES_CLASSES.extractedPre}"

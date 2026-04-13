@@ -21,7 +21,11 @@ export type CaseNavSection =
 	| 'activity'
 	| 'entities'
 	// P86-05: `tasks` — operational-only; not Timeline authority.
-	| 'tasks';
+	| 'tasks'
+	// P102-04: single-case read-only query (Case Engine `POST /cases/:id/query`).
+	| 'query'
+	// P109-03: explicit evidence groupings (non-authoritative; Case Engine storage).
+	| 'evidence-sets';
 
 const VALID_CASE_SECTIONS = new Set<string>([
 	'chat',
@@ -37,7 +41,11 @@ const VALID_CASE_SECTIONS = new Set<string>([
 	'activity',
 	'entities',
 	// P86-05: operational Tasks route — not Timeline authority.
-	'tasks'
+	'tasks',
+	// P102-04: Case query — read-only; not cross-case search.
+	'query',
+	// P109-03: evidence sets — explicit grouping only; not Timeline authority.
+	'evidence-sets'
 ]);
 
 /**

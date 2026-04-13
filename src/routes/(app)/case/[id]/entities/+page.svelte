@@ -1,8 +1,19 @@
 <script lang="ts">
 	/**
-	 * P82-01 — Entities primary-nav stub (Phase 82); full Entity intelligence hub remains at `/case/[id]/intelligence`.
+	 * P106-02 / P106-05 — Case entities list (read-only UI). Timeline is authoritative; entities are supporting.
 	 */
-	import CasePhase82WorkspaceStubPage from '$lib/components/case/CasePhase82WorkspaceStubPage.svelte';
+	import { page } from '$app/stores';
+	import CaseEntitiesPanel from '$lib/components/case/CaseEntitiesPanel.svelte';
+	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
+	import { caseEngineToken } from '$lib/stores';
+
+	$: caseId = String($page.params.id ?? '');
 </script>
 
-<CasePhase82WorkspaceStubPage pageTitle="Entities" testId="case-phase82-stub-entities" />
+<CaseWorkspaceContentRegion testId="case-entities-page">
+	<div class="px-3 sm:px-4 pt-3 sm:pt-4 max-w-[960px] mx-auto w-full min-h-0 overflow-auto">
+		{#key caseId}
+			<CaseEntitiesPanel caseId={caseId} caseEngineToken={$caseEngineToken ?? ''} />
+		{/key}
+	</div>
+</CaseWorkspaceContentRegion>

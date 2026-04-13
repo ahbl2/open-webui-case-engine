@@ -18,6 +18,7 @@ import type { CaseFile, TimelineEntry } from '$lib/apis/caseEngine';
 import { getCaseFileText, listCaseFiles, listCaseTimelineEntries } from '$lib/apis/caseEngine';
 import type { CaseEngineCaseTask } from '$lib/apis/caseEngine/caseTasksApi';
 import { listCaseTasks } from '$lib/apis/caseEngine/caseTasksApi';
+import { isCaseFileExtractedTextUsable } from '$lib/case/p104FileTextAccess';
 import { sortTimelineEntriesOfficialOrder } from '$lib/caseTimeline/timelineEntriesOfficialSort';
 
 /** Maximum characters for extracted_text reference_text (deterministic cap; no semantic truncation). */
@@ -201,7 +202,11 @@ export interface CaseSynthesisReadModelDeps {
 	) => Promise<TimelineEntry[]>;
 	listTasks: (caseId: string, token: string) => Promise<CaseEngineCaseTask[]>;
 	listFiles: (caseId: string, token: string) => Promise<CaseFile[]>;
-	getFileText: (fileId: string, token: string) => Promise<{ extracted_text: string }>;
+	/** GET /files/:id/text shape; only EXTRACTED + non-empty text may populate synthesis extracted_text rows (P104-02). */
+	getFileText: (
+		fileId: string,
+		token: string
+	) => Promise<{ status: string; extracted_text: string }>;
 }
 
 const defaultDeps: CaseSynthesisReadModelDeps = {
@@ -242,7 +247,7 @@ export async function buildCaseSynthesisReadModel(
 		for (const f of activeFiles) {
 			try {
 				const body = await deps.getFileText(f.id, token);
-				if (body.extracted_text != null && body.extracted_text !== '') {
+				if (isCaseFileExtractedTextUsable(body.status, body.extracted_text)) {
 					fileExtractedTextByFileId[f.id] = body.extracted_text;
 				}
 			} catch {

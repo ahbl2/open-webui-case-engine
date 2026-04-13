@@ -15,14 +15,26 @@ describe('buildCaseFileExtractedTextModalBody (P40-05B)', () => {
 		).toBe('Hello from file');
 	});
 
-	it('matches View path: non-EXTRACTED status prefixes message', () => {
+	it('matches View path: non-EXTRACTED status shows status + message only when no stored text', () => {
 		expect(
 			buildCaseFileExtractedTextModalBody({
 				status: 'ERROR',
 				message: 'PDF extraction failed',
 				extracted_text: ''
 			})
-		).toBe('[ERROR] PDF extraction failed\n\n(No text)');
+		).toBe('[ERROR] PDF extraction failed');
+	});
+
+	it('non-EXTRACTED with stored text labels it as diagnostic only (P104-02)', () => {
+		expect(
+			buildCaseFileExtractedTextModalBody({
+				status: 'FAILED',
+				message: 'Parser error',
+				extracted_text: 'partial line'
+			})
+		).toBe(
+			'[FAILED] Parser error\n\n---\nDiagnostic text (not a successful extraction; not interchangeable with raw file bytes):\npartial line'
+		);
 	});
 
 	it('shows (No text) for EXTRACTED with empty string and optional advisory message after extract', () => {

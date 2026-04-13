@@ -9,6 +9,7 @@
 	import { page } from '$app/stores';
 	import { resolveActiveCaseSection } from '$lib/utils/caseNavSection';
 	import { isDetectiveWave3CaseShellEnabled } from '$lib/case/detectiveWave3CaseShell';
+	import { P109_EVIDENCE_SETS_NAV_LABEL } from '$lib/case/p109EvidenceSetsCopy';
 
 	$: caseId = $page.params.id ?? '';
 	$: activeSection = resolveActiveCaseSection($page.url.pathname);
@@ -19,8 +20,13 @@
 		{ id: 'summary', label: 'Overview' },
 		{ id: 'timeline', label: 'Timeline' },
 		{ id: 'files', label: 'Files' },
-		{ id: 'entities', label: 'Entities' },
+		// P109-03 / P109-05: label must match `P109_EVIDENCE_SETS_NAV_LABEL` in `p109EvidenceSetsCopy.ts`.
+		{ id: 'evidence-sets', label: P109_EVIDENCE_SETS_NAV_LABEL },
+		// P106-05: Entities are supporting-only; label parallels Tasks (Operational).
+		{ id: 'entities', label: 'Entities (supporting)' },
 		{ id: 'notes', label: 'Notes' },
+		// P102-04: read-only case query — not cross-case search or global intelligence.
+		{ id: 'query', label: 'Case query' },
 		// P86-05 / P87-05: Tasks — operational-only and non-authoritative. Do not elevate to Timeline parity.
 		{ id: 'tasks', label: 'Tasks (Operational)' }
 	];
