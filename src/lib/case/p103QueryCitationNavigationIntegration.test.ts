@@ -58,6 +58,13 @@ describe('query citation → P103 intent (integration)', () => {
 		).toBeNull();
 	});
 
+	it('P117-04: case_workflow_item does not produce navigation intent', () => {
+		expect(resolveQueryCitationNavigation(caseId, caseId, { kind: 'case_workflow_item', id: 'w9' }).kind).toBe(
+			'unsupported_case_workflow_item'
+		);
+		expect(intentFromQueryCitation({ kind: 'case_workflow_item', id: 'w9' })).toBeNull();
+	});
+
 	it('wrong envelope case id does not yield intent', () => {
 		const c: CaseQueryCitation = { kind: 'timeline_entry', id: 'e1' };
 		expect(resolveQueryCitationNavigation(caseId, 'other-case', c).kind).toBe('invalid_case_context');

@@ -27,6 +27,8 @@
 		{ id: 'notes', label: 'Notes' },
 		// P102-04: read-only case query — not cross-case search or global intelligence.
 		{ id: 'query', label: 'Case query' },
+		// P117-04: Phase 117 case workflow items — operational only; not legacy P13 workflow routes.
+		{ id: 'case-workflow', label: 'Workflow items (operational)' },
 		// P86-05 / P87-05: Tasks — operational-only and non-authoritative. Do not elevate to Timeline parity.
 		{ id: 'tasks', label: 'Tasks (Operational)' }
 	];

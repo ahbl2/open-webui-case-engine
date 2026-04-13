@@ -74,6 +74,12 @@ describe('resolveQueryCitationNavigation', () => {
 		).toBe('unsupported_notebook_or_read_model');
 	});
 
+	it('P117-04: case_workflow_item citations are not navigable from query', () => {
+		expect(
+			resolveQueryCitationNavigation(cid, cid, { kind: 'case_workflow_item', id: 'w1' }).kind
+		).toBe('unsupported_case_workflow_item');
+	});
+
 	it('returns invalid_case_context when envelope case differs', () => {
 		const c: CaseQueryCitation = { kind: 'timeline_entry', id: 'e1' };
 		expect(resolveQueryCitationNavigation(cid, 'other', c).kind).toBe('invalid_case_context');

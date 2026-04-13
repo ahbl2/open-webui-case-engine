@@ -2183,14 +2183,14 @@ export async function listCaseTimelineEntriesPage(
 }
 
 /**
- * P28-35: Soft-delete a timeline entry.
- * Endpoint: DELETE /entries/:entryId  (not case-scoped in the URL)
- * Available to any authenticated user with mutate access to the entry's case.
+ * P28-35 / P116-04: Soft-delete a timeline entry.
+ * Endpoint: DELETE /cases/:caseId/entries/:entryId (case-scoped; aligns with other case entry routes).
+ * The legacy DELETE /entries/:entryId remains supported server-side; this client uses the case-scoped path.
  * Returns 204 No Content. The entry is NOT permanently deleted — an ADMIN can restore it.
  * The action is audited as ENTRY_DELETE_SOFT.
  */
-export async function softDeleteTimelineEntry(entryId: string, token: string): Promise<void> {
-	const res = await fetch(`${CASE_ENGINE_BASE_URL}/entries/${entryId}`, {
+export async function softDeleteTimelineEntry(caseId: string, entryId: string, token: string): Promise<void> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/entries/${entryId}`, {
 		method: 'DELETE',
 		headers: { Authorization: `Bearer ${token}` }
 	});

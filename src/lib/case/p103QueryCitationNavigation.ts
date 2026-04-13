@@ -18,6 +18,7 @@ function isValidExplicitTextSpan(span: { start: number; end: number }): boolean 
 export type QueryCitationNavigationResolution =
 	| { kind: 'navigable'; payload: CitationNavigationPayload }
 	| { kind: 'unsupported_notebook_or_read_model' }
+	| { kind: 'unsupported_case_workflow_item' }
 	| { kind: 'invalid_case_context' }
 	| { kind: 'invalid_file_span' }
 	| { kind: 'invalid_citation' };
@@ -25,6 +26,7 @@ export type QueryCitationNavigationResolution =
 /**
  * Deterministic: same active case, envelope case, and citation → same resolution (no I/O).
  * Only timeline_entry, case_task, and case_file are navigable via delivered P103 integrations.
+ * Phase 117 workflow items are cited for transparency; navigation is not mapped here (matches Case Engine resolver).
  */
 export function resolveQueryCitationNavigation(
 	activeCaseId: string,
@@ -35,6 +37,9 @@ export function resolveQueryCitationNavigation(
 		return { kind: 'invalid_case_context' };
 	}
 	const case_id = envelopeCaseId.trim();
+	if (c.kind === 'case_workflow_item') {
+		return { kind: 'unsupported_case_workflow_item' };
+	}
 	if (c.kind === 'notebook_note' || c.kind === 'case_read_model') {
 		return { kind: 'unsupported_notebook_or_read_model' };
 	}

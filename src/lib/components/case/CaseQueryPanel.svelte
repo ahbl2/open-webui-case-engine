@@ -4,6 +4,7 @@
 	 * P102-05 — Shared presentation + case_id match hardening (no cross-case display).
 	 * P103-04 — Citation affordances → existing P103 navigation (explicit operator action only).
 	 * P103-05 — Shared operator copy + case-id alignment with P103 intent validators.
+	 * P118-04 — Citation navigation resolved via Case Engine `/navigation/citation` only (no client route tables).
 	 */
 	import { onDestroy } from 'svelte';
 	import {
@@ -11,6 +12,9 @@
 		type CaseQueryCitation,
 		type CaseQueryResponseEnvelope
 	} from '$lib/apis/caseEngine/caseQueryApi';
+	import { postCaseCitationNavigation } from '$lib/apis/caseEngine/caseNavigationApi';
+	import type { CitationNavigationResult } from '$lib/case/p118CitationNavigationTypes';
+	import { navigateFromCitationNavigationResult } from '$lib/case/p118CitationNavigationNavigate';
 	import {
 		hasActiveStructuredFiltersUi,
 		structuredFiltersFromUiFields
@@ -26,16 +30,22 @@
 		P113_CASE_QUERY_RETRIEVAL_TRANSPARENCY_TITLE,
 		referentialFactsCitationsAligned
 	} from '$lib/case/p113CaseQueryRetrievalTransparency';
-	import { navigateToCitationNavigationPayload } from '$lib/case/p103CitationNavigationIntent';
+	import { referentialFactInclusionLabel } from '$lib/case/p115CaseQueryRelationshipProvenance';
 	import {
-		P103_QUERY_CITATION_INVALID_CASE_COPY,
-		P103_QUERY_CITATION_INVALID_ID_COPY,
-		P103_QUERY_CITATION_INVALID_SPAN_COPY,
-		P103_QUERY_CITATION_UNSUPPORTED_COPY,
 		P103_QUERY_NAVIGATION_CASE_MISMATCH_COPY,
 		P103_QUERY_NAVIGATION_FAILED_COPY
 	} from '$lib/case/p103NavigationOperatorCopy';
-	import { resolveQueryCitationNavigation } from '$lib/case/p103QueryCitationNavigation';
+	import {
+		P118_NAVIGATION_CASE_MISMATCH_COPY,
+		P118_NAVIGATION_INVALID_REFERENCE_COPY,
+		P118_NAVIGATION_LOADING_COPY,
+		P118_NAVIGATION_MISSING_CASE_COPY,
+		P118_NAVIGATION_PREFETCH_FAILED_COPY,
+		P118_NAVIGATION_RECORD_UNAVAILABLE_COPY,
+		P118_NAVIGATION_UNKNOWN_KIND_COPY,
+		P118_NAVIGATION_UNSUPPORTED_KIND_COPY,
+		P118_NAVIGATION_WORKFLOW_ITEM_COPY
+	} from '$lib/case/p118NavigationOperatorCopy';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
 	export let caseId: string;
@@ -48,10 +58,17 @@
 	let filterOccurredAtTo = '';
 	let filterTagsCommaSeparated = '';
 	let filterLocationText = '';
+	/** P115-04: default off — operator must enable explicitly. */
+	let includeRelationshipLinkedRecords = false;
 	let loading = false;
 	let clientError = '';
 	let citationNavError = '';
 	let envelope: CaseQueryResponseEnvelope | null = null;
+
+	/** P118-04: Case Engine navigation results per citation key (no client-side route construction). */
+	let citationNavByKey: Record<string, CitationNavigationResult | 'loading'> = {};
+	let citationNavPrefetchError = '';
+	let citationPrefetchGen = 0;
 
 	/** Monotonic guard: ignore slow responses from a previous case or superseded request. */
 	let requestGeneration = 0;
@@ -64,10 +81,14 @@
 		filterOccurredAtTo = '';
 		filterTagsCommaSeparated = '';
 		filterLocationText = '';
+		includeRelationshipLinkedRecords = false;
 		loading = false;
 		clientError = '';
 		citationNavError = '';
 		envelope = null;
+		citationNavByKey = {};
+		citationNavPrefetchError = '';
+		citationPrefetchGen += 1;
 		requestGeneration += 1;
 		activeCaseKey = nextId;
 	}
@@ -98,6 +119,35 @@
 		filterLocationText = '';
 	}
 
+	async function prefetchCitationNavigations(env: CaseQueryResponseEnvelope): Promise<void> {
+		if (!caseEngineToken || !caseId) return;
+		const gen = ++citationPrefetchGen;
+		const myCase = caseId;
+		const envCase = env.case_id;
+		citationNavPrefetchError = '';
+		const initial: Record<string, CitationNavigationResult | 'loading'> = {};
+		for (const c of env.citations) {
+			initial[citationStableKey(c)] = 'loading';
+		}
+		citationNavByKey = initial;
+		try {
+			for (const c of env.citations) {
+				if (gen !== citationPrefetchGen || myCase !== caseId) return;
+				const k = citationStableKey(c);
+				const nav = await postCaseCitationNavigation(myCase, caseEngineToken, {
+					citation: c,
+					enforce_envelope_case_id: envCase
+				});
+				if (gen !== citationPrefetchGen || myCase !== caseId) return;
+				citationNavByKey = { ...citationNavByKey, [k]: nav };
+			}
+		} catch (e: unknown) {
+			if (gen !== citationPrefetchGen || myCase !== caseId) return;
+			citationNavPrefetchError =
+				e instanceof Error ? e.message : P118_NAVIGATION_PREFETCH_FAILED_COPY;
+		}
+	}
+
 	async function submitQuery(): Promise<void> {
 		const q = question.trim();
 		clientError = '';
@@ -114,6 +164,8 @@
 		const gen = ++requestGeneration;
 		loading = true;
 		envelope = null;
+		citationNavByKey = {};
+		citationNavPrefetchError = '';
 		try {
 			const filters = structuredFiltersFromUiFields({
 				typeToken: filterTypeToken,
@@ -124,7 +176,8 @@
 			});
 			const res = await postCaseQuery(myCase, caseEngineToken, {
 				question: q,
-				...(filters ? { filters } : {})
+				...(filters ? { filters } : {}),
+				...(includeRelationshipLinkedRecords ? { include_relationship_linked_records: true } : {})
 			});
 			if (gen !== requestGeneration || myCase !== caseId) return;
 			if (!caseQueryResponseMatchesActiveCase(res.case_id, caseId)) {
@@ -134,6 +187,7 @@
 				return;
 			}
 			envelope = res;
+			void prefetchCitationNavigations(res);
 		} catch (e: unknown) {
 			if (gen !== requestGeneration || myCase !== caseId) return;
 			envelope = null;
@@ -154,17 +208,70 @@
 						? 'ce-l-case-query-status--refused'
 						: 'ce-l-case-query-status--error';
 
-	function citationResolution(c: CaseQueryCitation) {
-		if (!envelope) return null;
-		return resolveQueryCitationNavigation(caseId, envelope.case_id, c);
+	function citationStableKey(c: CaseQueryCitation): string {
+		if (c.kind === 'case_read_model') {
+			return `case_read_model:${c.id}:${c.read_surface}`;
+		}
+		if (c.kind === 'case_file' && c.text_span) {
+			return `case_file:${c.id}:${c.text_span.start}:${c.text_span.end}`;
+		}
+		return `${c.kind}:${c.id}`;
+	}
+
+	function unavailableNavigationCopy(
+		r: Extract<CitationNavigationResult, { ok: false }>
+	): string {
+		const code = r.unavailable.reason_code;
+		if (code === 'UNSUPPORTED_CITATION_KIND') {
+			return P118_NAVIGATION_WORKFLOW_ITEM_COPY;
+		}
+		if (code === 'RECORD_NOT_AVAILABLE') {
+			return P118_NAVIGATION_RECORD_UNAVAILABLE_COPY;
+		}
+		if (code === 'UNKNOWN_RECORD_KIND') {
+			return P118_NAVIGATION_UNKNOWN_KIND_COPY;
+		}
+		if (code === 'INVALID_CITATION') {
+			return P118_NAVIGATION_INVALID_REFERENCE_COPY;
+		}
+		if (code === 'MISSING_CASE_CONTEXT') {
+			return P118_NAVIGATION_MISSING_CASE_COPY;
+		}
+		if (code === 'CASE_ID_MISMATCH') {
+			return P118_NAVIGATION_CASE_MISMATCH_COPY;
+		}
+		return P118_NAVIGATION_UNSUPPORTED_KIND_COPY;
+	}
+
+	type CitationNavUi =
+		| { kind: 'loading' }
+		| { kind: 'prefetch_error' }
+		| { kind: 'navigable' }
+		| { kind: 'unavailable'; detail: string };
+
+	function citationNavUi(c: CaseQueryCitation): CitationNavUi {
+		if (!envelope) return { kind: 'loading' };
+		if (citationNavPrefetchError) {
+			return { kind: 'prefetch_error' };
+		}
+		const k = citationStableKey(c);
+		const r = citationNavByKey[k];
+		if (r === undefined || r === 'loading') {
+			return { kind: 'loading' };
+		}
+		if (r.ok) {
+			return { kind: 'navigable' };
+		}
+		return { kind: 'unavailable', detail: unavailableNavigationCopy(r) };
 	}
 
 	async function openCitationFromQuery(c: CaseQueryCitation): Promise<void> {
 		if (!envelope) return;
 		citationNavError = '';
-		const r = resolveQueryCitationNavigation(caseId, envelope.case_id, c);
-		if (r.kind !== 'navigable') return;
-		const res = await navigateToCitationNavigationPayload(r.payload, caseId);
+		const k = citationStableKey(c);
+		const r = citationNavByKey[k];
+		if (r === undefined || r === 'loading' || !r.ok) return;
+		const res = await navigateFromCitationNavigationResult(r, caseId);
 		if (!res.ok) {
 			citationNavError =
 				res.reason === 'CASE_ID_MISMATCH'
@@ -321,6 +428,28 @@
 		</button>
 	</div>
 
+	<div
+		class="mt-4 rounded border border-gray-200 dark:border-gray-600 p-3 space-y-2"
+		data-testid="case-query-relationship-linked-toggle-section"
+	>
+		<label class="flex items-start gap-2 cursor-pointer">
+			<input
+				type="checkbox"
+				class="mt-1"
+				bind:checked={includeRelationshipLinkedRecords}
+				disabled={loading}
+				data-testid="case-query-include-relationship-linked"
+			/>
+			<span class="text-sm text-gray-800 dark:text-gray-200">
+				<span class="font-medium">Include relationship-linked records</span>
+				<span class="block text-xs text-gray-600 dark:text-gray-400 mt-0.5">
+					When enabled, Case Engine may include rows reached by explicit same-case relationships (one hop). Linked
+					inclusions are not direct query matches.
+				</span>
+			</span>
+		</label>
+	</div>
+
 	{#if !caseEngineToken}
 		<p class="mt-3 text-sm text-amber-800 dark:text-amber-200" data-testid="case-query-no-token">
 			Case Engine session is required for this case.
@@ -382,12 +511,22 @@
 					<ul class="mt-2 space-y-3 list-none pl-0">
 						{#each envelope.referential_facts as fact, i (fact.source_type + '-' + fact.source_id + '-' + fact.field_name + '-' + i)}
 							{@const sup = envelope.citations[i]}
-							{@const r = sup ? citationResolution(sup) : null}
+							{@const ui = sup ? citationNavUi(sup) : null}
 							<li
 								class="rounded border border-gray-200 dark:border-gray-600 p-2 text-sm"
 								data-testid="case-query-transparency-row"
 								data-transparency-index={i}
 							>
+								{#if envelope.trace.relationship_retrieval}
+									<p
+										class="mb-2 text-xs text-gray-700 dark:text-gray-300"
+										data-testid="case-query-fact-inclusion-provenance"
+										data-inclusion-label={referentialFactInclusionLabel(fact, envelope.trace)}
+									>
+										<span class="font-medium text-gray-800 dark:text-gray-200">Inclusion:</span>
+										<span class="ml-1 font-mono">{referentialFactInclusionLabel(fact, envelope.trace)}</span>
+									</p>
+								{/if}
 								<dl class="grid grid-cols-1 gap-1 sm:grid-cols-2 text-xs sm:text-sm">
 									<div>
 										<span class="text-gray-500 dark:text-gray-400">source_type</span>
@@ -414,7 +553,7 @@
 										<span class="font-medium text-gray-700 dark:text-gray-300">Cited support</span>
 										<span class="ml-1 font-mono">{formatCaseQueryCitationLabel(sup)}</span>
 									</div>
-									{#if r?.kind === 'navigable'}
+									{#if ui?.kind === 'navigable'}
 										<div class="mt-2">
 											<button
 												type="button"
@@ -423,36 +562,27 @@
 												aria-label="Open cited record for this citation"
 												on:click={() => void openCitationFromQuery(sup)}
 											>
-												Open cited record
+												Open record
 											</button>
 										</div>
-									{:else if r?.kind === 'unsupported_notebook_or_read_model'}
+									{:else if ui?.kind === 'loading'}
+										<p class="mt-2 text-xs text-gray-600 dark:text-gray-400" data-testid="case-query-transparency-citation-loading">
+											{P118_NAVIGATION_LOADING_COPY}
+										</p>
+									{:else if ui?.kind === 'prefetch_error'}
+										<p
+											class="mt-2 text-xs text-red-700 dark:text-red-300"
+											data-testid="case-query-transparency-citation-prefetch-error"
+											role="alert"
+										>
+											{citationNavPrefetchError}
+										</p>
+									{:else if ui?.kind === 'unavailable'}
 										<p
 											class="mt-2 text-xs text-gray-600 dark:text-gray-400"
-											data-testid="case-query-transparency-citation-unsupported"
+											data-testid="case-query-transparency-citation-unavailable"
 										>
-											{P103_QUERY_CITATION_UNSUPPORTED_COPY}
-										</p>
-									{:else if r?.kind === 'invalid_file_span'}
-										<p
-											class="mt-2 text-xs text-amber-800 dark:text-amber-200"
-											data-testid="case-query-transparency-citation-invalid-span"
-										>
-											{P103_QUERY_CITATION_INVALID_SPAN_COPY}
-										</p>
-									{:else if r?.kind === 'invalid_case_context'}
-										<p
-											class="mt-2 text-xs text-amber-800 dark:text-amber-200"
-											data-testid="case-query-transparency-citation-invalid-case"
-										>
-											{P103_QUERY_CITATION_INVALID_CASE_COPY}
-										</p>
-									{:else if r?.kind === 'invalid_citation'}
-										<p
-											class="mt-2 text-xs text-amber-800 dark:text-amber-200"
-											data-testid="case-query-transparency-citation-invalid"
-										>
-											{P103_QUERY_CITATION_INVALID_ID_COPY}
+											{ui.detail}
 										</p>
 									{/if}
 								{/if}
@@ -492,7 +622,7 @@
 					{/if}
 					<ul class="mt-1 space-y-2 list-none pl-0">
 						{#each envelope.citations as c, i (i + '-' + c.kind + '-' + c.id)}
-							{@const r = citationResolution(c)}
+							{@const ui = citationNavUi(c)}
 							<li
 								class="rounded border border-gray-200 dark:border-gray-600 p-2 text-sm"
 								data-testid="case-query-citation-row"
@@ -509,7 +639,7 @@
 										Span: {c.text_span.start}–{c.text_span.end}
 									</div>
 								{/if}
-								{#if r?.kind === 'navigable'}
+								{#if ui.kind === 'navigable'}
 									<div class="mt-2">
 										<button
 											type="button"
@@ -518,36 +648,24 @@
 											aria-label="Open cited record for this citation"
 											on:click={() => void openCitationFromQuery(c)}
 										>
-											Open cited record
+											Open record
 										</button>
 									</div>
-								{:else if r?.kind === 'unsupported_notebook_or_read_model'}
-									<p
-										class="mt-2 text-xs text-gray-600 dark:text-gray-400"
-										data-testid="case-query-citation-unsupported"
-									>
-										{P103_QUERY_CITATION_UNSUPPORTED_COPY}
+								{:else if ui.kind === 'loading'}
+									<p class="mt-2 text-xs text-gray-600 dark:text-gray-400" data-testid="case-query-citation-loading">
+										{P118_NAVIGATION_LOADING_COPY}
 									</p>
-								{:else if r?.kind === 'invalid_file_span'}
+								{:else if ui.kind === 'prefetch_error'}
 									<p
-										class="mt-2 text-xs text-amber-800 dark:text-amber-200"
-										data-testid="case-query-citation-invalid-span"
+										class="mt-2 text-xs text-red-700 dark:text-red-300"
+										data-testid="case-query-citation-prefetch-error"
+										role="alert"
 									>
-										{P103_QUERY_CITATION_INVALID_SPAN_COPY}
+										{citationNavPrefetchError}
 									</p>
-								{:else if r?.kind === 'invalid_case_context'}
-									<p
-										class="mt-2 text-xs text-amber-800 dark:text-amber-200"
-										data-testid="case-query-citation-invalid-case"
-									>
-										{P103_QUERY_CITATION_INVALID_CASE_COPY}
-									</p>
-								{:else if r?.kind === 'invalid_citation'}
-									<p
-										class="mt-2 text-xs text-amber-800 dark:text-amber-200"
-										data-testid="case-query-citation-invalid"
-									>
-										{P103_QUERY_CITATION_INVALID_ID_COPY}
+								{:else if ui.kind === 'unavailable'}
+									<p class="mt-2 text-xs text-gray-600 dark:text-gray-400" data-testid="case-query-citation-unavailable">
+										{ui.detail}
 									</p>
 								{/if}
 							</li>
@@ -564,6 +682,14 @@
 						<pre
 							class="mt-1 whitespace-pre-wrap text-xs font-mono text-gray-800 dark:text-gray-200 rounded border border-gray-200 dark:border-gray-600 p-2"
 						>{JSON.stringify(envelope.trace.structured_filters)}</pre>
+					</div>
+				{/if}
+				{#if envelope.trace.relationship_retrieval}
+					<div class="mt-2" data-testid="case-query-trace-relationship-retrieval">
+						<div class="text-xs text-gray-600 dark:text-gray-400">Relationship-linked retrieval (from Case Engine)</div>
+						<pre
+							class="mt-1 whitespace-pre-wrap text-xs font-mono text-gray-800 dark:text-gray-200 rounded border border-gray-200 dark:border-gray-600 p-2"
+						>{JSON.stringify(envelope.trace.relationship_retrieval)}</pre>
 					</div>
 				{/if}
 				<p class="mt-1 text-sm text-gray-800 dark:text-gray-200">

@@ -5,6 +5,7 @@
 	 */
 	import { page } from '$app/stores';
 	import CaseQueryPanel from '$lib/components/case/CaseQueryPanel.svelte';
+	import CaseRelationshipsPanel from '$lib/components/case/CaseRelationshipsPanel.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import { caseEngineToken } from '$lib/stores';
 
@@ -15,6 +16,7 @@
 	<div class="px-3 sm:px-4 pt-3 sm:pt-4 max-w-[960px] mx-auto w-full min-h-0 overflow-auto">
 		{#key caseId}
 			<CaseQueryPanel caseId={caseId} caseEngineToken={$caseEngineToken ?? ''} />
+			<CaseRelationshipsPanel caseId={caseId} caseEngineToken={$caseEngineToken ?? ''} />
 		{/key}
 	</div>
 </CaseWorkspaceContentRegion>

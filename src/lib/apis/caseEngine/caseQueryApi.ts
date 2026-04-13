@@ -107,6 +107,7 @@ export interface CaseQueryStructuredFilters {
 export type CaseQueryReferentialSourceType =
 	| 'timeline_entry'
 	| 'case_task'
+	| 'case_workflow_item'
 	| 'case_file'
 	| 'notebook_note';
 
@@ -120,6 +121,7 @@ export interface CaseQueryReferentialFactRow {
 export type CaseQueryCitation =
 	| { kind: 'timeline_entry'; id: string; excerpt?: string; field_name?: string }
 	| { kind: 'case_task'; id: string; excerpt?: string; field_name?: string }
+	| { kind: 'case_workflow_item'; id: string; excerpt?: string; field_name?: string }
 	| {
 			kind: 'case_file';
 			id: string;
@@ -129,6 +131,30 @@ export type CaseQueryCitation =
 	  }
 	| { kind: 'notebook_note'; id: string; excerpt?: string; field_name?: string }
 	| { kind: 'case_read_model'; id: string; read_surface: 'understanding' | 'synthesis' };
+
+/** P115-03 — Operational trace when relationship-linked retrieval was requested; no semantics. */
+export interface CaseQueryRelationshipRetrievalTrace {
+	requested: boolean;
+	enabled: boolean;
+	base_match_refs: Array<{ kind: string; id: string }>;
+	tuples_considered: Array<{
+		relationship_id: string;
+		source_record_type: string;
+		source_record_id: string;
+		target_record_type: string;
+		target_record_id: string;
+		relationship_type: string;
+	}>;
+	linked_included: Array<{
+		kind: string;
+		id: string;
+		via_relationship_id: string;
+	}>;
+	linked_excluded: Array<{
+		reason: string;
+		detail?: string;
+	}>;
+}
 
 export interface CaseQueryTrace {
 	supporting_record_refs: CaseQueryCitation[];
@@ -141,6 +167,8 @@ export interface CaseQueryTrace {
 	contract_violation?: CaseQueryContractViolationCode;
 	/** P114-03: Applied structured filters snapshot when predicates were active (Case Engine). */
 	structured_filters?: CaseQueryStructuredFilters;
+	/** P115-03: Present when the client requested relationship-linked retrieval. */
+	relationship_retrieval?: CaseQueryRelationshipRetrievalTrace;
 }
 
 /** Mirrors Case Engine P102-01 / P102-03 / P113 response envelope. */
@@ -158,12 +186,13 @@ export interface CaseQueryResponseEnvelope {
 /**
  * Submit a single-case question. Always sends `scope: THIS_CASE` per P113-04 (backend is authority for scope).
  * P114-04: Include `filters` only when explicitly provided with at least one active predicate.
+ * P115-04: Include `include_relationship_linked_records` only when explicitly true (default off in UI).
  * HTTP errors throw; HTTP 200 returns the envelope (including refused/degraded/error statuses).
  */
 export async function postCaseQuery(
 	caseId: string,
 	token: string,
-	body: { question: string; filters?: CaseQueryStructuredFilters }
+	body: { question: string; filters?: CaseQueryStructuredFilters; include_relationship_linked_records?: boolean }
 ): Promise<CaseQueryResponseEnvelope> {
 	const q = String(body.question ?? '').trim();
 	if (!q) {
@@ -172,6 +201,9 @@ export async function postCaseQuery(
 	const payload: Record<string, unknown> = { question: q, scope: 'THIS_CASE' as const };
 	if (body.filters !== undefined && hasActiveStructuredFilters(body.filters)) {
 		payload.filters = body.filters;
+	}
+	if (body.include_relationship_linked_records === true) {
+		payload.include_relationship_linked_records = true;
 	}
 	const outboundRequestId = newRequestId();
 	const doFetch = () =>

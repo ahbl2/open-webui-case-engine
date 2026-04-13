@@ -704,7 +704,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		const entryId = pendingDeleteEntry.id;
 		pendingDeleteEntry = null;
 		try {
-			await softDeleteTimelineEntry(entryId, $caseEngineToken);
+			await softDeleteTimelineEntry(caseId, entryId, $caseEngineToken);
 			removeEvidenceSelectionKey('timeline_entry', entryId, caseId);
 			if (showDeleted && isAdmin) {
 				// ADMIN with showDeleted=true: mark entry as deleted in the local list

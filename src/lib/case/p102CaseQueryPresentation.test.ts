@@ -39,6 +39,7 @@ describe('p102CaseQueryPresentation', () => {
 		const samples: CaseQueryCitation[] = [
 			{ kind: 'timeline_entry', id: 'te1' },
 			{ kind: 'case_task', id: 't1' },
+			{ kind: 'case_workflow_item', id: 'w1' },
 			{ kind: 'case_file', id: 'f1' },
 			{ kind: 'notebook_note', id: '99' },
 			{ kind: 'case_read_model', id: 'rm1', read_surface: 'synthesis' }
@@ -54,5 +55,10 @@ describe('p102CaseQueryPresentation', () => {
 	it('formatCaseQueryCitationLabel includes field_name when present (P113)', () => {
 		const c: CaseQueryCitation = { kind: 'timeline_entry', id: 'e1', field_name: 'text_original' };
 		expect(formatCaseQueryCitationLabel(c)).toMatch(/field text_original/);
+	});
+
+	it('P117-04: workflow item citations are labeled operational', () => {
+		const c: CaseQueryCitation = { kind: 'case_workflow_item', id: 'w1' };
+		expect(formatCaseQueryCitationLabel(c)).toMatch(/workflow item \(operational\)/i);
 	});
 });

@@ -48,6 +48,8 @@ export function formatCaseQueryCitationLabel(c: CaseQueryCitation): string {
 			return `Timeline entry ${c.id}${fieldSuffix}`;
 		case 'case_task':
 			return `Case task ${c.id}${fieldSuffix}`;
+		case 'case_workflow_item':
+			return `Workflow item (operational) ${c.id}${fieldSuffix}`;
 		case 'case_file':
 			return `Case file ${c.id}${fieldSuffix}`;
 		case 'notebook_note':

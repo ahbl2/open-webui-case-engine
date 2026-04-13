@@ -25,7 +25,9 @@ export type CaseNavSection =
 	// P102-04: single-case read-only query (Case Engine `POST /cases/:id/query`).
 	| 'query'
 	// P109-03: explicit evidence groupings (non-authoritative; Case Engine storage).
-	| 'evidence-sets';
+	| 'evidence-sets'
+	// P117-04: Phase 117 `case_workflow_items` — distinct URL from legacy `workflow` tab.
+	| 'case-workflow';
 
 const VALID_CASE_SECTIONS = new Set<string>([
 	'chat',
@@ -45,7 +47,9 @@ const VALID_CASE_SECTIONS = new Set<string>([
 	// P102-04: Case query — read-only; not cross-case search.
 	'query',
 	// P109-03: evidence sets — explicit grouping only; not Timeline authority.
-	'evidence-sets'
+	'evidence-sets',
+	// P117-04: operational workflow items (Phase 117); not legacy P13 workflow.
+	'case-workflow'
 ]);
 
 /**

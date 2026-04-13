@@ -35,6 +35,11 @@ describe('caseQueryApi.ts (static)', () => {
 		expect(src).toContain('filters');
 		expect(src).toContain('hasActiveStructuredFilters');
 	});
+
+	it('P115-04: supports include_relationship_linked_records only when true', () => {
+		expect(src).toContain('include_relationship_linked_records');
+		expect(src).toContain('relationship_retrieval');
+	});
 });
 
 describe('postCaseQuery', () => {
@@ -89,6 +94,22 @@ describe('postCaseQuery', () => {
 		await postCaseQuery('c1', 'tok', { question: 'hello', filters: {} });
 		const init = vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit | undefined;
 		expect(String(init?.body)).toBe(JSON.stringify({ question: 'hello', scope: 'THIS_CASE' }));
+	});
+
+	it('P115-04: omits include_relationship_linked_records when not enabled', async () => {
+		vi.mocked(fetch).mockClear();
+		await postCaseQuery('c1', 'tok', { question: 'hello' });
+		const init = vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit | undefined;
+		expect(String(init?.body)).not.toContain('include_relationship_linked');
+	});
+
+	it('P115-04: sends include_relationship_linked_records true when requested', async () => {
+		vi.mocked(fetch).mockClear();
+		await postCaseQuery('c1', 'tok', { question: 'hello', include_relationship_linked_records: true });
+		const init = vi.mocked(fetch).mock.calls[0]?.[1] as RequestInit | undefined;
+		expect(String(init?.body)).toBe(
+			JSON.stringify({ question: 'hello', scope: 'THIS_CASE', include_relationship_linked_records: true })
+		);
 	});
 
 	it('throws on empty question', async () => {
