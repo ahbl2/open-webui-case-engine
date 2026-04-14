@@ -44,4 +44,16 @@ describe('P132.5 case workspace shell route wiring', () => {
 		expect(src).toContain('delegateBodyScroll={true}');
 		expect(src).toContain('P1325_SHELL_TIMELINE_PANEL_TITLE');
 	});
+
+	it('P132.5-03 — right rail uses Activity/Tools stack (no route navigation)', () => {
+		const src = readFileSync(layoutPath, 'utf8');
+		expect(src).toContain('CaseWorkspaceRightPanelStack');
+		expect(src).toContain('P1325_RIGHT_STACK_PANEL_TITLE');
+		expect(src).toContain('slot="right"');
+		const rightIdx = src.indexOf('slot="right"');
+		expect(rightIdx).toBeGreaterThan(-1);
+		const afterRight = src.slice(rightIdx, rightIdx + 800);
+		expect(afterRight).toContain('delegateBodyScroll={true}');
+		expect(afterRight).toContain('CaseWorkspaceRightPanelStack');
+	});
 });

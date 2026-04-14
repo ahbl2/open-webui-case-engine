@@ -5,6 +5,7 @@
 	 * P123-02 — `CaseWorkspaceCaseSidebar` (list + Phase 123 surface links).
 	 * P132.5-01 — `CaseWorkspaceLayoutShell` (left / center / right) + `CaseWorkspaceShellPanel` frames.
 	 * P132.5-02 — Timeline route: primary center panel (`case-workspace-shell-timeline-panel`, delegated scroll).
+	 * P132.5-03 — Right rail: `CaseWorkspaceRightPanelStack` (Activity / AI / Proposals; internal tabs only).
 	 * P76-02 — Wave 3 `ds-case-shell*` frame + `data-region`.
 	 * P76-08 — `caseModeActive` for GNAV / case shell coordination.
 	 */
@@ -38,16 +39,16 @@
 	} from '$lib/utils/caseWorkspaceScrollDiagnostics';
 	import CaseWorkspaceLayoutShell from '$lib/components/case/CaseWorkspaceLayoutShell.svelte';
 	import CaseWorkspaceShellPanel from '$lib/components/case/CaseWorkspaceShellPanel.svelte';
+	import CaseWorkspaceRightPanelStack from '$lib/components/case/CaseWorkspaceRightPanelStack.svelte';
 	import CaseWorkspaceCaseSidebar from '$lib/components/case/CaseWorkspaceCaseSidebar.svelte';
 	import CaseWorkspaceHeader from '$lib/components/case/CaseWorkspaceHeader.svelte';
 	import CaseExportPanel from '$lib/components/case/CaseExportPanel.svelte';
 	import EditCaseModal from '$lib/components/case/EditCaseModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
-	import { DS_CASE_SHELL_CLASSES, DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+	import { DS_CASE_SHELL_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import {
 		P1325_SHELL_LEFT_ZONE_TITLE,
-		P1325_SHELL_RIGHT_ZONE_TITLE,
-		P1325_SHELL_RIGHT_ZONE_PLACEHOLDER,
+		P1325_RIGHT_STACK_PANEL_TITLE,
 		P1325_SHELL_TIMELINE_PANEL_TITLE
 	} from '$lib/caseContext/p1325CaseWorkspaceShellCopy';
 	import { caseIdentityStripExpandedPosture } from '$lib/utils/caseIdentityStrip';
@@ -327,10 +328,12 @@
 		</svelte:fragment>
 
 		<svelte:fragment slot="right">
-			<CaseWorkspaceShellPanel testId="case-workspace-shell-right-panel" title={P1325_SHELL_RIGHT_ZONE_TITLE}>
-				<p class="{DS_TYPE_CLASSES.body} m-0 text-xs text-[color:var(--ce-l-text-muted)]">
-					{P1325_SHELL_RIGHT_ZONE_PLACEHOLDER}
-				</p>
+			<CaseWorkspaceShellPanel
+				testId="case-workspace-shell-right-panel"
+				title={P1325_RIGHT_STACK_PANEL_TITLE}
+				delegateBodyScroll={true}
+			>
+				<CaseWorkspaceRightPanelStack caseId={routeCaseId ?? ''} />
 			</CaseWorkspaceShellPanel>
 		</svelte:fragment>
 	</CaseWorkspaceLayoutShell>
