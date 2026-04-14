@@ -16,9 +16,9 @@ const validationPath = join(here, '../../case/p107CaseEntityFormValidation.ts');
 describe('CaseEntitiesPanel.svelte (P107-01)', () => {
 	const src = readFileSync(listPanelPath, 'utf8');
 
-	it('exposes create entry point and mounts mutate form (mutations live in CaseEntityMutateForm; no inline fetch)', () => {
+	it('exposes create entry point and mounts create form (mutations live in CaseEntityCreateForm; no inline fetch)', () => {
 		expect(src).toContain('data-testid="case-entities-panel--create-open"');
-		expect(src).toContain('CaseEntityMutateForm');
+		expect(src).toContain('CaseEntityCreateForm');
 		expect(src).toContain('$lib/apis/caseEngine/caseEntitiesApi');
 		expect(src).not.toContain('fetch(');
 	});

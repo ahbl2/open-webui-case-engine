@@ -57,11 +57,11 @@ describe('CaseEntitiesPanel.svelte (P106-02)', () => {
 describe('entities/+page.svelte (P106-02)', () => {
 	const src = readFileSync(pagePath, 'utf8');
 
-	it('mounts CaseEntitiesPanel with case id and token', () => {
+	it('mounts CaseEntitiesPanel with route case id and token', () => {
 		expect(src).toContain('CaseEntitiesPanel');
 		expect(src).toContain('caseEngineToken');
-		expect(src).toContain('$page.params.id');
-		expect(src).toContain('#key caseId');
+		expect(src).toContain('getRouteCaseIdString');
+		expect(src).toContain('#key routeCaseId');
 	});
 });
 

@@ -11,7 +11,7 @@ export const P107_CASE_ENTITY_FORM_HEADING_CREATE = 'New supporting entity';
 export const P107_CASE_ENTITY_FORM_HEADING_EDIT = 'Edit supporting entity';
 
 export const P107_CASE_ENTITY_FORM_SUPPORTING_NOTE =
-	'Supporting record only. The Timeline is authoritative. Enter values manually; nothing here is verified fact or official chronology.';
+	'Supporting record only. Timeline entries are the committed chronology. Enter values manually; nothing here is verified fact or a substitute for Timeline.';
 
 export const P107_CASE_ENTITY_FIELD_ENTITY_TYPE = 'Entity type';
 

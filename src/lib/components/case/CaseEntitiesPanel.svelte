@@ -1,15 +1,19 @@
 <script lang="ts">
 	/**
 	 * P106-02 / P106-03 / P106-05 — Case-scoped entities list. Rows link to detail. No client re-sort of server list order.
-	 * P107-01 — Create form. P107-04 — Deterministic filter/group (client-side; read contract unchanged).
+	 * P107-01 — Create form (P126-02: `CaseEntityCreateForm`). P107-04 — Deterministic filter/group (client-side; read contract unchanged).
 	 * P107-05 — Read-only audit line on rows (literal `updated_at` from list read).
 	 */
 	import { onDestroy } from 'svelte';
 	import { goto } from '$app/navigation';
 	import { getCaseEntitiesList, type CaseEngineCaseEntity } from '$lib/apis/caseEngine/caseEntitiesApi';
 	import { auditFieldDisplay } from '$lib/case/p107CaseEntityAudit';
-	import CaseEntityMutateForm from '$lib/components/case/CaseEntityMutateForm.svelte';
-	import { P107_CASE_ENTITY_CREATE_BUTTON } from '$lib/case/p107CaseEntityCreateEditCopy';
+	import CaseEntityCreateForm from '$lib/components/case/CaseEntityCreateForm.svelte';
+	import {
+		P126_ENTITY_CREATE_ENTRY_BUTTON,
+		P126_ENTITY_CREATE_TOAST_SUCCESS
+	} from '$lib/caseContext/p126EntityCreateCopy';
+	import { toast } from 'svelte-sonner';
 	import {
 		filterEntitiesForOrganization,
 		groupByEntityTypePreservingOrder,
@@ -103,6 +107,7 @@
 
 	async function handleCreated(entity: CaseEngineCaseEntity): Promise<void> {
 		showCreateForm = false;
+		toast.success(P126_ENTITY_CREATE_TOAST_SUCCESS);
 		await loadList();
 		const cid = String(caseId ?? '').trim();
 		if (cid && entity?.id) {
@@ -157,18 +162,16 @@
 						showCreateForm = !showCreateForm;
 					}}
 				>
-					{P107_CASE_ENTITY_CREATE_BUTTON}
+					{P126_ENTITY_CREATE_ENTRY_BUTTON}
 				</button>
 			</div>
 		{/if}
 	</header>
 
 	{#if showCreateForm && caseEngineToken}
-		<CaseEntityMutateForm
-			mode="create"
+		<CaseEntityCreateForm
 			caseId={caseId}
 			caseEngineToken={caseEngineToken}
-			initialEntity={null}
 			onSuccess={(e) => void handleCreated(e)}
 			onCancel={() => {
 				showCreateForm = false;
