@@ -1,5 +1,6 @@
 /**
- * P71-08 — Activity tab shell (P70-06 S1 / W1; P70-04 B): Tier L framing + primary list scroll.
+ * P71-08 — Activity tab shell (Tier L framing + primary scroll).
+ * P129-01 — Audit framing (`CaseActivityFraming`) replaces legacy hero; scroll contract preserved.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -10,13 +11,12 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const pagePath = join(__dirname, '../../routes/(app)/case/[id]/activity/+page.svelte');
 const pageSource = readFileSync(pagePath, 'utf8');
 
-describe('case activity shell (P71-08 / P70-06)', () => {
-	it('uses CaseWorkspaceContentRegion and Tier L Activity shell classes', () => {
+describe('case activity shell (P71-08 / P129-01)', () => {
+	it('uses CaseWorkspaceContentRegion, P129 framing, and Tier L Activity shell classes', () => {
 		expect(pageSource).toContain('CaseWorkspaceContentRegion');
 		expect(pageSource).toContain('testId="case-activity-page"');
+		expect(pageSource).toContain('CaseActivityFraming');
 		expect(pageSource).toContain('ce-l-activity-shell');
-		expect(pageSource).toContain('ce-l-activity-hero');
-		expect(pageSource).toContain('ce-l-activity-hero-title');
 		expect(pageSource).toContain('ce-l-activity-primary-scroll');
 		expect(pageSource).toContain('data-testid="case-activity-primary-scroll"');
 	});

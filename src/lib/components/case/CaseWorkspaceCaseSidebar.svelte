@@ -26,6 +26,7 @@
 		P124_NAV_TITLE_TIMELINE,
 		P124_SIDEBAR_SURFACE_BOUNDARY_HINT
 	} from '$lib/caseContext/p124SurfaceSeparationCopy';
+	import { P129_NAV_TITLE_ACTIVITY } from '$lib/caseContext/p129ActivityFramingCopy';
 	import { getRouteCaseId } from '$lib/caseContext/routeCaseContext';
 
 	let cases: CaseEngineCase[] = [];
@@ -100,10 +101,19 @@
 			label: 'Files',
 			path: 'files' as const,
 			navTitle: P124_NAV_TITLE_FILES
+		},
+		{
+			id: 'activity' as const,
+			label: 'Activity',
+			path: 'activity' as const,
+			navTitle: P129_NAV_TITLE_ACTIVITY
 		}
 	];
 
-	function surfaceHref(caseId: string, section: 'timeline' | 'notes' | 'files'): string {
+	function surfaceHref(
+		caseId: string,
+		section: 'timeline' | 'notes' | 'files' | 'activity'
+	): string {
 		return `/case/${caseId}/${section}`;
 	}
 </script>
