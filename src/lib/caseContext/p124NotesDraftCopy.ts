@@ -1,5 +1,5 @@
 /**
- * P124-04 — Notes surface identity (non-authoritative drafts; static operator copy only).
+ * P124-04 — Notes surface identity (draft workspace only; static operator copy).
  */
 
 export const P124_NOTES_SURFACE_TITLE = 'Notes — Working drafts';
@@ -10,7 +10,7 @@ export const P124_NOTES_SURFACE_TITLE = 'Notes — Working drafts';
 export const P124_NOTES_DRAFT_BODY =
 	'Private working notes for this case — not the committed timeline. Saving keeps content in this notebook until you use the governed proposal flow where your process requires it.';
 
-/** Left list chrome — scannability without implying authority. */
+/** Left list chrome — scannability without implying official record status. */
 export const P124_NOTES_LIST_HEADING = 'Draft notes';
 
 export const P124_NOTES_LIST_SUBLINE = 'Owner-scoped — not the timeline record.';
