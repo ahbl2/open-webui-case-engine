@@ -6,10 +6,10 @@
 export const P106_CASE_ENTITIES_LIST_HEADING = 'Supporting entities';
 
 export const P106_CASE_ENTITIES_SUPPORTING_COPY =
-	'Supporting records only. The Timeline is the official case record, not verified facts and not a substitute for Timeline entries.';
+	'Supporting records only. Timeline entries are the committed chronology; entities are labels you add—not a substitute for Timeline entries.';
 
 export const P106_CASE_ENTITIES_EMPTY_COPY =
-	'No structured entities for this case yet. The Timeline remains the official record.';
+	'No structured entities yet. They appear only when you create them; nothing here is generated from Timeline, Notes, or Files without your action.';
 
 export const P106_CASE_ENTITIES_LOADING = 'Loading…';
 
@@ -22,7 +22,7 @@ export const P106_CASE_ENTITIES_RETIRED_LABEL = 'Retired';
 /** P106-03 — Entity detail + explicit evidence links (read-only). */
 
 export const P106_CASE_ENTITY_DETAIL_SUPPORTING_COPY =
-	'Supporting record only. The Timeline is authoritative. This view is not verified fact or official chronology.';
+	'Supporting record only. Timeline entries are the committed chronology. This view is not a substitute for Timeline.';
 
 export const P106_CASE_ENTITY_DETAIL_BACK_TO_LIST = 'Back to entities';
 
