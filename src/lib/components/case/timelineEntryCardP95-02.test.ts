@@ -13,15 +13,17 @@ describe('TimelineEntryCard P95-02 metadata readability (source contract)', () =
 		const src = readFileSync(cardPath, 'utf8');
 		expect(src).toMatch(/data-testid="timeline-entry-occurred-at"/);
 		expect(src).toMatch(/ds-timeline-entry-metadata-primary/);
-		expect(src).toMatch(/>Occurred</);
+		expect(src).toMatch(/P124_TIMELINE_LABEL_EVENT_OCCURRED/);
+		expect(src).toMatch(/Event occurred/);
 	});
 
 	it('surfaces recorded (created_at) and authorship with stable test ids', () => {
 		const src = readFileSync(cardPath, 'utf8');
 		expect(src).toMatch(/data-testid="timeline-entry-recorded-at"/);
 		expect(src).toMatch(/data-testid="timeline-entry-entered-by"/);
-		expect(src).toMatch(/Recorded\b/);
-		expect(src).toMatch(/Entered by/);
+		expect(src).toMatch(/P124_TIMELINE_LABEL_ENTRY_LOGGED_AT/);
+		expect(src).toMatch(/Entry logged/);
+		expect(src).toMatch(/P124_TIMELINE_LABEL_LOGGED_BY/);
 	});
 
 	it('labels type, tags, and location explicitly without workflow/task wording', () => {

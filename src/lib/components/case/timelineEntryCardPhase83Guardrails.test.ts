@@ -10,13 +10,12 @@ import { describe, it, expect } from 'vitest';
 const cardPath = join(dirname(fileURLToPath(import.meta.url)), 'TimelineEntryCard.svelte');
 
 describe('TimelineEntryCard Phase 83 guardrails (source contract)', () => {
-	it('preserves P83-02 time semantics and creator wording', () => {
+	it('preserves P83-02 time semantics and creator wording (P124-02 definitional tooltips)', () => {
 		const src = readFileSync(cardPath, 'utf8');
-		expect(src).toContain('TIMELINE_TIME_TOOLTIP_OCCURRED');
-		expect(src).toContain('TIMELINE_TIME_TOOLTIP_RECORDED');
-		expect(src).toContain('When the event happened.');
-		expect(src).toContain('When this entry was added to the system.');
-		expect(src).toMatch(/Entered by/);
+		expect(src).toContain('P124_TIMELINE_TOOLTIP_OCCURRED_AT');
+		expect(src).toContain('P124_TIMELINE_TOOLTIP_CREATED_AT');
+		expect(src).toContain('P124_TIMELINE_TOOLTIP_CREATED_BY');
+		expect(src).toContain('P124_TIMELINE_LABEL_LOGGED_BY');
 		expect(src).not.toMatch(/Recorded by/);
 	});
 
@@ -45,7 +44,7 @@ describe('TimelineEntryCard Phase 83 guardrails (source contract)', () => {
 describe('TimelineEntryCard P84-06 vs Phase 83 (no regression)', () => {
 	it('keeps P83 time + body contracts while P84 ops toolbar is present', () => {
 		const src = readFileSync(cardPath, 'utf8');
-		expect(src).toContain('TIMELINE_TIME_TOOLTIP_OCCURRED');
+		expect(src).toContain('P124_TIMELINE_TOOLTIP_OCCURRED_AT');
 		expect(src).toMatch(/timeline-entry-body-toggle/);
 		expect(src).toContain('TIMELINE_OPS_BTN');
 		expect(src).not.toMatch(/localStorage/);

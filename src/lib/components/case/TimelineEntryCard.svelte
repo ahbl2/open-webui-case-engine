@@ -14,7 +14,8 @@
 	 *                     P95-05 — cross-entry spacing rhythm; unified section stack (no IA change)
 	 *                     P98-02 — declared same-case relationship strip (read-only; P98-01 contract; no navigation)
 	 *                     P83-05 — metadata line consistency (order, separators, type display; trim only; no new fields)
-	 *                     P83-02 — explicit Occurred vs Recorded labels + tooltips (no timestamp logic changes)
+	 *                     P83-02 — explicit occurred vs recorded labels + tooltips (no timestamp logic changes)
+	 *                     P124-02 — clearer occurred_at / created_at / created_by labeling (copy + layout only)
 	 *                     P83-03 — readability + scanning (spacing, hierarchy, body line rhythm; see detectiveSurfaces.css)
 	 *                     P84-01 — local-only review flag (not persisted; no ordering/filter changes)
 	 *                     P84-02 — flagged row scan affordance (CSS in detectiveSurfaces.css; no new controls)
@@ -73,10 +74,14 @@
 		DS_TYPE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
 	import { P109_EVIDENCE_SELECTION_TIMELINE_TOGGLE_TITLE } from '$lib/case/p109EvidenceSelectionCopy';
-
-	/** P83-02 — occurred_at vs created_at; UI copy only */
-	const TIMELINE_TIME_TOOLTIP_OCCURRED = 'When the event happened.';
-	const TIMELINE_TIME_TOOLTIP_RECORDED = 'When this entry was added to the system.';
+	import {
+		P124_TIMELINE_LABEL_ENTRY_LOGGED_AT,
+		P124_TIMELINE_LABEL_EVENT_OCCURRED,
+		P124_TIMELINE_LABEL_LOGGED_BY,
+		P124_TIMELINE_TOOLTIP_CREATED_AT,
+		P124_TIMELINE_TOOLTIP_CREATED_BY,
+		P124_TIMELINE_TOOLTIP_OCCURRED_AT
+	} from '$lib/caseContext/p124TimelineMetadataLabels';
 
 	/** P95-02 — metadata row labels (presentation only; no data changes) */
 	const TIMELINE_META_LABEL_TYPE = 'Type';
@@ -126,7 +131,7 @@
 	export let entryNeedsFollowUp = false;
 	/** P84-04 — follow-up toggle (parent mutates Set). */
 	export let onFollowUpClick: () => void = () => {};
-	/** P97-02 — transient read-only synthesis navigation confirmation (not selection/workflow state). */
+	/** P97-02 — transient read-only synthesis navigation confirmation (not selection routing state). */
 	export let synthesisNavigationReveal = false;
 	/** P97-04 — ephemeral orientation copy (subordinate to the row; cleared with reveal highlight). */
 	export let synthesisNavigationContextPreview: { headline: string; lines: string[] } | null = null;
@@ -414,12 +419,17 @@
 						<div class="ds-timeline-entry-row__top">
 							<div class="ds-timeline-entry-metadata-primary min-w-0">
 								<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
-								<span class="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">Occurred</span>
+								<span
+									class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
+									id={`ce-timeline-entry-occurred-label-${entry.id}`}
+									title={P124_TIMELINE_TOOLTIP_OCCURRED_AT}
+								>{P124_TIMELINE_LABEL_EVENT_OCCURRED}</span>
 								<time
 									datetime={entry.occurred_at}
 									class="text-base font-semibold tabular-nums text-[color:var(--ds-fg)] {DS_TYPE_CLASSES.mono}"
-									title={TIMELINE_TIME_TOOLTIP_OCCURRED}
+									title={P124_TIMELINE_TOOLTIP_OCCURRED_AT}
 									data-testid="timeline-entry-occurred-at"
+									aria-labelledby={`ce-timeline-entry-occurred-label-${entry.id}`}
 								>
 									{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
 								</time>
@@ -677,8 +687,9 @@
 										<span class="shrink-0 text-gray-400/80 dark:text-gray-500/80 select-none" aria-hidden="true">·</span>
 									{/if}
 									{#if hasMetadataCreator}
-										<span data-testid="timeline-entry-entered-by">
-											Entered by <span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
+										<span data-testid="timeline-entry-entered-by" title={P124_TIMELINE_TOOLTIP_CREATED_BY}>
+											<span class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} mr-1">{P124_TIMELINE_LABEL_LOGGED_BY}</span>
+											<span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
 										</span>
 									{/if}
 								</div>
@@ -688,12 +699,16 @@
 						<div
 							class="ds-timeline-entry-row__footer ds-timeline-entry-row__footer--removed flex items-center gap-2 flex-wrap text-[10px] text-gray-400 dark:text-gray-600"
 						>
-							<span class="{DS_TYPE_CLASSES.meta} ds-timeline-entry-recorded-line" title={TIMELINE_TIME_TOOLTIP_RECORDED} data-testid="timeline-entry-recorded-at">
-								Recorded
+							<span
+								class="{DS_TYPE_CLASSES.meta} ds-timeline-entry-recorded-line inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5"
+								title={P124_TIMELINE_TOOLTIP_CREATED_AT}
+								data-testid="timeline-entry-recorded-at"
+							>
+								<span class="ds-timeline-entry-meta-label">{P124_TIMELINE_LABEL_ENTRY_LOGGED_AT}</span>
 								<time
 									datetime={entry.created_at}
 									class="{DS_TYPE_CLASSES.mono}"
-									title={TIMELINE_TIME_TOOLTIP_RECORDED}
+									title={P124_TIMELINE_TOOLTIP_CREATED_AT}
 								>
 									{formatCaseDateTime(entry.created_at)}
 								</time>
@@ -744,7 +759,7 @@
 								</p>
 								{#if !sameTimestamp(ver.prior_occurred_at, entry.occurred_at)}
 									<p class="text-[10px] text-gray-400 dark:text-gray-500">
-										Occurred (then):
+										Event occurred (then):
 										<span class="font-mono">{formatOperationalCaseDateTimeWithSeconds(ver.prior_occurred_at)}</span>
 									</p>
 								{/if}
@@ -838,12 +853,17 @@
 						<div class="ds-timeline-entry-row__top">
 							<div class="ds-timeline-entry-metadata-primary min-w-0">
 								<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
-								<span class="text-xs font-medium text-gray-500 dark:text-gray-400 shrink-0">Occurred</span>
+								<span
+									class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
+									id={`ce-timeline-entry-occurred-label-${entry.id}`}
+									title={P124_TIMELINE_TOOLTIP_OCCURRED_AT}
+								>{P124_TIMELINE_LABEL_EVENT_OCCURRED}</span>
 								<time
 									datetime={entry.occurred_at}
 									class="text-base font-semibold tabular-nums text-[color:var(--ds-fg)] {DS_TYPE_CLASSES.mono}"
-									title={TIMELINE_TIME_TOOLTIP_OCCURRED}
+									title={P124_TIMELINE_TOOLTIP_OCCURRED_AT}
 									data-testid="timeline-entry-occurred-at"
+									aria-labelledby={`ce-timeline-entry-occurred-label-${entry.id}`}
 								>
 									{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
 								</time>
@@ -1127,8 +1147,9 @@
 											<span class="shrink-0 text-gray-400/80 dark:text-gray-500/80 select-none" aria-hidden="true">·</span>
 										{/if}
 										{#if hasMetadataCreator}
-											<span data-testid="timeline-entry-entered-by">
-												Entered by <span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
+											<span data-testid="timeline-entry-entered-by" title={P124_TIMELINE_TOOLTIP_CREATED_BY}>
+												<span class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} mr-1">{P124_TIMELINE_LABEL_LOGGED_BY}</span>
+												<span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
 											</span>
 										{/if}
 									</div>
@@ -1139,12 +1160,16 @@
 						<div
 							class="ds-timeline-entry-row__footer flex items-center gap-2 flex-wrap"
 						>
-							<span class="{DS_TYPE_CLASSES.meta} ds-timeline-entry-recorded-line" title={TIMELINE_TIME_TOOLTIP_RECORDED} data-testid="timeline-entry-recorded-at">
-								Recorded
+							<span
+								class="{DS_TYPE_CLASSES.meta} ds-timeline-entry-recorded-line inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5"
+								title={P124_TIMELINE_TOOLTIP_CREATED_AT}
+								data-testid="timeline-entry-recorded-at"
+							>
+								<span class="ds-timeline-entry-meta-label">{P124_TIMELINE_LABEL_ENTRY_LOGGED_AT}</span>
 								<time
 									datetime={entry.created_at}
 									class="{DS_TYPE_CLASSES.mono}"
-									title={TIMELINE_TIME_TOOLTIP_RECORDED}
+									title={P124_TIMELINE_TOOLTIP_CREATED_AT}
 								>
 									{formatCaseDateTime(entry.created_at)}
 								</time>
@@ -1153,10 +1178,10 @@
 							{#if isRetrospective}
 								<span
 									class="{DS_CHIP_CLASSES.base}"
-									title="Recorded approximately {retrospectiveHours} hours after the event occurred."
+									title="Entry logged (created_at) approximately {retrospectiveHours} hours after the event (occurred_at)."
 									data-testid="timeline-entry-retrospective"
 								>
-									Recorded +{retrospectiveHours}h after occurrence
+									Logged +{retrospectiveHours}h after event
 								</span>
 							{/if}
 
@@ -1270,7 +1295,7 @@
 								</p>
 								{#if !sameTimestamp(ver.prior_occurred_at, entry.occurred_at)}
 									<p class="text-[10px] text-gray-400 dark:text-gray-500">
-										Occurred (then):
+										Event occurred (then):
 										<span class="font-mono">{formatOperationalCaseDateTimeWithSeconds(ver.prior_occurred_at)}</span>
 									</p>
 								{/if}
