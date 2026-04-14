@@ -17,7 +17,7 @@ describe('CaseCaseWorkflowItemsPanel.svelte (P117-04)', () => {
 	it('uses Phase 117 caseWorkflowItemsApi only (not legacy workflow-items)', () => {
 		expect(src).toContain("$lib/apis/caseEngine/caseWorkflowItemsApi");
 		expect(src).toContain('listCaseWorkflowItems');
-		expect(src).toContain('createCaseWorkflowItem');
+		expect(src).toContain('CaseWorkflowCreateForm');
 		expect(src).toContain('updateCaseWorkflowItem');
 		expect(src).not.toContain('/workflow-items');
 		expect(src).not.toContain('CaseWorkflowTab');
@@ -38,6 +38,7 @@ describe('CaseCaseWorkflowItemsPanel.svelte (P117-04)', () => {
 		expect(src).toContain('data-testid="case-workflow-panel--error"');
 		expect(src).toContain('data-testid="case-workflow-panel--list"');
 		expect(src).toContain('data-testid="case-workflow-panel--create-form"');
+		expect(src).toContain('data-testid="case-workflow-panel--type"');
 		expect(src).toContain('data-testid="case-workflow-panel--local-filters"');
 	});
 

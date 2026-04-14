@@ -3,7 +3,6 @@
 	import { toast } from 'svelte-sonner';
 import {
 	listWorkflowItems,
-	createWorkflowItem,
 	updateWorkflowItem,
 	deleteWorkflowItem,
 	restoreWorkflowItem,
@@ -12,11 +11,23 @@ import {
 	rejectWorkflowProposal,
 	listWorkflowSupportLinks,
 	type WorkflowItem,
-	type WorkflowItemCreateInput,
 	type WorkflowItemType,
 	type WorkflowProposal,
 	type WorkflowSupportLink
 } from '$lib/apis/caseEngine';
+import {
+	listCaseWorkflowItems,
+	type CaseEngineCaseWorkflowItem
+} from '$lib/apis/caseEngine/caseWorkflowItemsApi';
+import CaseWorkflowCreateForm from '$lib/components/case/CaseWorkflowCreateForm.svelte';
+import {
+	P127_WORKFLOW_CREATE_ENTRY_BUTTON,
+	P127_WORKFLOW_CREATE_MODAL_TITLE,
+	P127_WORKFLOW_CREATE_SUCCESS_TOAST,
+	P127_WORKFLOW_P117_LIST_EMPTY,
+	P127_WORKFLOW_P117_LIST_LOADING,
+	P127_WORKFLOW_P117_LIST_SECTION_TITLE
+} from '$lib/caseContext/p127WorkflowCreateCopy';
 import {
 	hrefForSupportLinkTarget,
 	isWorkflowSupportLinkStale,
@@ -73,6 +84,10 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	let filter: FilterType = 'all';
 	let includeDeleted = false;
 	let createOpen = false;
+	let createFormKey = 0;
+	/** P127-02 — Phase 117 `case_workflow_items` (explicit create + list); distinct from legacy P13 rows below. */
+	let p117WorkflowItems: CaseEngineCaseWorkflowItem[] = [];
+	let p117WorkflowLoading = false;
 	let editItem: WorkflowItem | null = null;
 	let deleteTarget: WorkflowItem | null = null;
 	let restoreTarget: WorkflowItem | null = null;
@@ -181,14 +196,13 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	$: if (caseId && token && caseId !== prevWorkflowCaseId) {
 		prevWorkflowCaseId = caseId;
 		items = [];
+		p117WorkflowItems = [];
 		loading = true;
 		loadError = '';
 		createOpen = false;
 		editItem = null;
 		deleteTarget = null;
 		restoreTarget = null;
-		createResultMessage = null;
-		createResultTone = null;
 		showDeleteConfirm = false;
 		showRestoreConfirm = false;
 		proposals = [];
@@ -212,16 +226,6 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		clearPostAcceptHighlight();
 	}
 
-	// Create form
-	let createType: WorkflowItemType = 'HYPOTHESIS';
-	let createTitle = '';
-	let createDescription = '';
-	let createStatus = 'OPEN';
-	let createPriority: number | null = null;
-	let createSubmitting = false;
-	let createResultMessage: string | null = null;
-	let createResultTone: 'ok' | 'warn' | 'error' | null = null;
-
 	// Edit form (immutable: type, case_id, origin, created_*)
 	let editTitle = '';
 	let editDescription = '';
@@ -229,14 +233,33 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	let editPriority: number | null = null;
 	let editSubmitting = false;
 
-	$: statusOptionsCreate = getStatusesForType(createType as LocalType);
-	$: if (createType && statusOptionsCreate.length && !statusOptionsCreate.includes(createStatus)) {
-		createStatus = statusOptionsCreate[0];
-	}
-
 	$: if (caseId && token) {
 		loadItems();
 		loadProposals();
+		void loadP117WorkflowItems();
+	}
+
+	async function loadP117WorkflowItems(): Promise<void> {
+		const myCase = caseId;
+		const tok = token;
+		if (!myCase || !tok) {
+			p117WorkflowItems = [];
+			return;
+		}
+		p117WorkflowLoading = true;
+		try {
+			p117WorkflowItems = await listCaseWorkflowItems(myCase, tok);
+		} catch {
+			p117WorkflowItems = [];
+		} finally {
+			p117WorkflowLoading = false;
+		}
+	}
+
+	async function handleP117CreateSuccess(): Promise<void> {
+		closeCreate();
+		toast.success(P127_WORKFLOW_CREATE_SUCCESS_TOAST);
+		await loadP117WorkflowItems();
 	}
 
 	async function loadItems() {
@@ -315,63 +338,12 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	}
 
 	function openCreate() {
-		createType = 'HYPOTHESIS';
-		createTitle = '';
-		createDescription = '';
-		createStatus = 'OPEN';
-		createPriority = null;
-		createResultMessage = null;
-		createResultTone = null;
+		createFormKey += 1;
 		createOpen = true;
 	}
 
 	function closeCreate() {
 		createOpen = false;
-	}
-
-	async function submitCreate() {
-		const title = createTitle.trim();
-		if (!title) {
-			toast.error('Title is required');
-			return;
-		}
-		createSubmitting = true;
-		try {
-			const payload: WorkflowItemCreateInput = {
-				type: createType,
-				title,
-				description: createDescription.trim() || undefined,
-				status: createStatus,
-				priority: createPriority ?? undefined
-			};
-			const created = await createWorkflowItem(caseId, token, payload);
-			closeCreate();
-			await loadItems();
-			const visibleInCurrentList = items.some((item) => item.id === created.id);
-			if (visibleInCurrentList) {
-				createResultTone = 'ok';
-				createResultMessage = 'Workflow item created and visible in this list.';
-				toast.success('Workflow item created and visible in this list.');
-			} else if (filter !== 'all' && created.type !== filter) {
-				filter = 'all';
-				await loadItems();
-				createResultTone = 'warn';
-				createResultMessage =
-					'Workflow item created. The view switched to "All" so you can confirm it in the list.';
-				toast.info('Workflow item created. Switched to "All" to show it.');
-			} else {
-				createResultTone = 'warn';
-				createResultMessage =
-					'Workflow item creation returned success, but visibility could not be confirmed in the current list.';
-				toast.warning('Workflow item created, but visibility could not be confirmed.');
-			}
-		} catch (e) {
-			createResultTone = 'error';
-			createResultMessage = 'Workflow item was not created.';
-			toast.error((e as Error)?.message ?? 'Create failed');
-		} finally {
-			createSubmitting = false;
-		}
 	}
 
 	function openEdit(item: WorkflowItem) {
@@ -833,26 +805,46 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 				type="button"
 				class="{DS_WORKFLOW_CLASSES.createToolbarBtn} shrink-0"
 				on:click={openCreate}
+				data-testid="workflow-p127-create-open"
 			>
-				Create workflow item
+				{P127_WORKFLOW_CREATE_ENTRY_BUTTON}
 			</button>
 		</div>
 	</section>
 
-	{#if createResultMessage}
-		<div
-			class="{DS_WORKFLOW_CLASSES.resultBanner} {createResultTone === 'ok'
-				? DS_WORKFLOW_CLASSES.resultBannerOk
-				: createResultTone === 'error'
-					? DS_WORKFLOW_CLASSES.resultBannerErr
-					: DS_WORKFLOW_CLASSES.resultBannerWarn}"
-			role="status"
-			aria-live="polite"
-			data-testid="workflow-create-result"
-		>
-			{createResultMessage}
-		</div>
-	{/if}
+	<section
+		class="min-w-0 shrink-0 border-b border-[color:var(--ce-l-border-subtle)] px-3 py-3 sm:px-4 {embedded ? 'p-2' : ''}"
+		data-testid="workflow-p127-operational-items-section"
+		aria-label={P127_WORKFLOW_P117_LIST_SECTION_TITLE}
+	>
+		<h3 class="text-sm font-medium text-[color:var(--ce-l-text-primary)] m-0 mb-2">
+			{P127_WORKFLOW_P117_LIST_SECTION_TITLE}
+		</h3>
+		{#if p117WorkflowLoading}
+			<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="workflow-p117-items-loading">
+				{P127_WORKFLOW_P117_LIST_LOADING}
+			</p>
+		{:else if p117WorkflowItems.length === 0}
+			<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="workflow-p117-items-empty">
+				{P127_WORKFLOW_P117_LIST_EMPTY}
+			</p>
+		{:else}
+			<ul class="flex flex-col gap-2 list-none p-0 m-0" data-testid="workflow-p117-items-list">
+				{#each p117WorkflowItems as w (w.workflow_item_id)}
+					<li
+						class="rounded border border-[color:var(--ce-l-border-subtle)] px-3 py-2 text-sm text-[color:var(--ce-l-text-primary)]"
+						data-testid="workflow-p117-items-row"
+						data-workflow-p117-id={w.workflow_item_id}
+					>
+						<span class="font-medium">{w.title}</span>
+						<span class="text-xs text-[color:var(--ce-l-text-muted)] ml-2"
+							>{w.workflow_type} · {w.status}</span
+						>
+					</li>
+				{/each}
+			</ul>
+		{/if}
+	</section>
 
 	<!-- List (hypotheses / gaps) -->
 	<!-- shrink-0: do not use min-h-0 here — in a column flex (main) it lets this region shrink below the table, overflow: visible paints rows under the proposals panel -->
@@ -1601,78 +1593,26 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	</section>
 </div>
 
-<!-- Create modal -->
+<!-- P127-02 — Create modal (Phase 117 case_workflow_items only; no legacy priority). -->
 {#if createOpen}
 	<div
 		class="{DS_OVERLAY_CLASSES.backdrop} z-50 flex min-h-full items-center justify-center p-4"
 		role="dialog"
 		aria-modal="true"
 		aria-labelledby="create-workflow-title"
+		data-testid="workflow-p127-create-modal"
 	>
 		<div class="{DS_MODAL_CLASSES.panel} max-w-md w-full p-4 max-h-[90vh] overflow-auto">
-			<h3 id="create-workflow-title" class="{DS_WORKFLOW_TEXT_CLASSES.modalTitle}">Create workflow item</h3>
-			<form on:submit|preventDefault={submitCreate} class="flex flex-col gap-3">
-				<div>
-					<label class="{DS_WORKFLOW_TEXT_CLASSES.modalLabel}">Type</label>
-					<select
-						bind:value={createType}
-						class="w-full {DS_TIMELINE_CLASSES.formControl}"
-					>
-						<option value="HYPOTHESIS">{formatWorkflowItemTypeForDisplay('HYPOTHESIS')}</option>
-						<option value="GAP">{formatWorkflowItemTypeForDisplay('GAP')}</option>
-					</select>
-				</div>
-				<div>
-					<label class="{DS_WORKFLOW_TEXT_CLASSES.modalLabel}">Title *</label>
-					<input
-						type="text"
-						bind:value={createTitle}
-						class="w-full {DS_TIMELINE_CLASSES.formControl}"
-						placeholder="Short title"
-					/>
-				</div>
-				<div>
-					<label class="{DS_WORKFLOW_TEXT_CLASSES.modalLabel}">Description</label>
-					<textarea
-						bind:value={createDescription}
-						rows="2"
-						class="w-full {DS_TIMELINE_CLASSES.formControl}"
-						placeholder="Optional"
-					></textarea>
-				</div>
-				<div>
-					<label class="{DS_WORKFLOW_TEXT_CLASSES.modalLabel}">Status</label>
-					<select
-						bind:value={createStatus}
-						class="w-full {DS_TIMELINE_CLASSES.formControl}"
-					>
-						{#each statusOptionsCreate as s}
-							<option value={s}>{formatWorkflowStatusForDisplay(s)}</option>
-						{/each}
-					</select>
-				</div>
-				<div>
-					<label class="{DS_WORKFLOW_TEXT_CLASSES.modalLabel}">Priority (number)</label>
-					<input
-						type="number"
-						bind:value={createPriority}
-						class="w-full {DS_TIMELINE_CLASSES.formControl}"
-						placeholder="Optional"
-					/>
-				</div>
-				<div class="flex gap-2 justify-end pt-2">
-					<button type="button" class="{DS_BTN_CLASSES.ghost} text-sm" on:click={closeCreate}>
-						Cancel
-					</button>
-					<button
-						type="submit"
-						class="{DS_BTN_CLASSES.primary} text-sm disabled:opacity-50"
-						disabled={createSubmitting}
-					>
-						{createSubmitting ? 'Creating…' : 'Create'}
-					</button>
-				</div>
-			</form>
+			<h3 id="create-workflow-title" class="{DS_WORKFLOW_TEXT_CLASSES.modalTitle}">{P127_WORKFLOW_CREATE_MODAL_TITLE}</h3>
+			{#key createFormKey}
+				<CaseWorkflowCreateForm
+					testIdPrefix="workflow-p127-create"
+					caseId={caseId}
+					token={token}
+					onCancel={closeCreate}
+					onSuccess={() => void handleP117CreateSuccess()}
+				/>
+			{/key}
 		</div>
 	</div>
 {/if}

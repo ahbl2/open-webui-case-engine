@@ -5,16 +5,18 @@
 	 * Updates are versioned in the engine; this UI does not expose version history (by design for this ticket).
 	 */
 	import { onDestroy } from 'svelte';
+	import { toast } from 'svelte-sonner';
 	import {
-		createCaseWorkflowItem,
 		listCaseWorkflowItems,
 		updateCaseWorkflowItem,
 		type CaseEngineCaseWorkflowItem,
 		type CaseWorkflowItemStatus,
 		type CaseWorkflowItemType
 	} from '$lib/apis/caseEngine/caseWorkflowItemsApi';
+	import CaseWorkflowCreateForm from '$lib/components/case/CaseWorkflowCreateForm.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import * as P117 from '$lib/case/p117CaseWorkflowItemsCopy';
+	import { P127_WORKFLOW_CREATE_SUCCESS_TOAST } from '$lib/caseContext/p127WorkflowCreateCopy';
 
 	export let caseId: string;
 	export let caseEngineToken: string;
@@ -23,13 +25,7 @@
 	let clientError = '';
 	let items: CaseEngineCaseWorkflowItem[] = [];
 	let showCreateForm = false;
-
-	let createWorkflowType: CaseWorkflowItemType = 'TASK';
-	let createTitle = '';
-	let createDescription = '';
-	let createStatusChoice: '' | CaseWorkflowItemStatus = '';
-	let createError = '';
-	let createBusy = false;
+	let createFormKey = 0;
 
 	let editingId: string | null = null;
 	let editTitle = '';
@@ -51,12 +47,7 @@
 		clientError = '';
 		items = [];
 		showCreateForm = false;
-		createWorkflowType = 'TASK';
-		createTitle = '';
-		createDescription = '';
-		createStatusChoice = '';
-		createError = '';
-		createBusy = false;
+		createFormKey = 0;
 		editingId = null;
 		editTitle = '';
 		editDescription = '';
@@ -117,40 +108,14 @@
 		editBusy = false;
 	}
 
-	async function submitCreate(): Promise<void> {
+	async function handleCreateSuccess(): Promise<void> {
 		const myCase = caseId;
-		if (!myCase || !caseEngineToken) return;
-		const title = createTitle.trim();
-		if (!title) {
-			createError = 'Title is required.';
-			return;
-		}
-		createBusy = true;
-		createError = '';
+		if (!myCase) return;
 		const gen = requestGeneration;
-		try {
-			const payload: Parameters<typeof createCaseWorkflowItem>[2] = {
-				workflow_type: createWorkflowType,
-				title
-			};
-			const desc = createDescription.trim();
-			payload.description = desc.length > 0 ? desc : null;
-			if (createStatusChoice !== '') {
-				payload.status = createStatusChoice;
-			}
-			await createCaseWorkflowItem(myCase, caseEngineToken, payload);
-			if (gen !== requestGeneration || myCase !== caseId) return;
-			showCreateForm = false;
-			createTitle = '';
-			createDescription = '';
-			createStatusChoice = '';
-			await loadList();
-		} catch (e: unknown) {
-			if (gen !== requestGeneration || myCase !== caseId) return;
-			createError = e instanceof Error ? e.message : P117.P117_CASE_WORKFLOW_ERROR_GENERIC;
-		} finally {
-			if (gen === requestGeneration && myCase === caseId) createBusy = false;
-		}
+		showCreateForm = false;
+		toast.success(P127_WORKFLOW_CREATE_SUCCESS_TOAST);
+		await loadList();
+		if (gen !== requestGeneration || myCase !== caseId) return;
 	}
 
 	async function submitEdit(): Promise<void> {
@@ -240,7 +205,7 @@
 					disabled={loading}
 					on:click={() => {
 						showCreateForm = !showCreateForm;
-						createError = '';
+						if (showCreateForm) createFormKey += 1;
 					}}
 				>
 					{P117.P117_CASE_WORKFLOW_CREATE_OPEN}
@@ -254,74 +219,17 @@
 			class="rounded border border-[color:var(--ce-l-border-subtle)] p-3 flex flex-col gap-2"
 			data-testid="case-workflow-panel--create-form"
 		>
-			<div class="text-sm font-medium text-[color:var(--ce-l-text-primary)]">{P117.P117_CASE_WORKFLOW_CREATE_SECTION}</div>
-			<label class="flex flex-col gap-1 text-sm">
-				<span class="text-[color:var(--ce-l-text-secondary)]">{P117.P117_CASE_WORKFLOW_FIELD_TYPE}</span>
-				<select
-					class="rounded border border-[color:var(--ce-l-border-subtle)] bg-transparent px-2 py-1"
-					bind:value={createWorkflowType}
-					data-testid="case-workflow-panel--create-type"
-				>
-					<option value="TASK">{P117.P117_CASE_WORKFLOW_TYPE_TASK}</option>
-					<option value="LEAD">{P117.P117_CASE_WORKFLOW_TYPE_LEAD}</option>
-				</select>
-			</label>
-			<label class="flex flex-col gap-1 text-sm">
-				<span class="text-[color:var(--ce-l-text-secondary)]">{P117.P117_CASE_WORKFLOW_FIELD_TITLE}</span>
-				<input
-					class="rounded border border-[color:var(--ce-l-border-subtle)] bg-transparent px-2 py-1"
-					bind:value={createTitle}
-					data-testid="case-workflow-panel--create-title"
-				/>
-			</label>
-			<label class="flex flex-col gap-1 text-sm">
-				<span class="text-[color:var(--ce-l-text-secondary)]">{P117.P117_CASE_WORKFLOW_FIELD_DESCRIPTION}</span>
-				<textarea
-					class="rounded border border-[color:var(--ce-l-border-subtle)] bg-transparent px-2 py-1 min-h-[72px]"
-					bind:value={createDescription}
-					data-testid="case-workflow-panel--create-description"
-				/>
-			</label>
-			<label class="flex flex-col gap-1 text-sm">
-				<span class="text-[color:var(--ce-l-text-secondary)]"
-					>{P117.P117_CASE_WORKFLOW_FIELD_STATUS} ({P117.P117_CASE_WORKFLOW_STATUS_OPTIONAL_HINT})</span
-				>
-				<select
-					class="rounded border border-[color:var(--ce-l-border-subtle)] bg-transparent px-2 py-1"
-					bind:value={createStatusChoice}
-					data-testid="case-workflow-panel--create-status"
-				>
-					<option value="">{P117.P117_CASE_WORKFLOW_FILTER_STATUS_ALL}</option>
-					<option value="OPEN">{P117.P117_CASE_WORKFLOW_STATUS_OPEN}</option>
-					<option value="IN_PROGRESS">{P117.P117_CASE_WORKFLOW_STATUS_IN_PROGRESS}</option>
-					<option value="CLOSED">{P117.P117_CASE_WORKFLOW_STATUS_CLOSED}</option>
-				</select>
-			</label>
-			{#if createError}
-				<p class="text-sm text-red-600 dark:text-red-400" data-testid="case-workflow-panel--create-error">{createError}</p>
-			{/if}
-			<div class="flex gap-2">
-				<button
-					type="button"
-					class="rounded px-3 py-1.5 text-sm font-medium border border-[color:var(--ce-l-border-subtle)]"
-					data-testid="case-workflow-panel--create-submit"
-					disabled={createBusy}
-					on:click={() => void submitCreate()}
-				>
-					{P117.P117_CASE_WORKFLOW_CREATE_SUBMIT}
-				</button>
-				<button
-					type="button"
-					class="rounded px-3 py-1.5 text-sm text-[color:var(--ce-l-text-secondary)]"
-					disabled={createBusy}
-					on:click={() => {
+			{#key createFormKey}
+				<CaseWorkflowCreateForm
+					testIdPrefix="case-workflow-panel"
+					caseId={caseId}
+					token={caseEngineToken}
+					onCancel={() => {
 						showCreateForm = false;
-						createError = '';
 					}}
-				>
-					{P117.P117_CASE_WORKFLOW_CREATE_CANCEL}
-				</button>
-			</div>
+					onSuccess={() => void handleCreateSuccess()}
+				/>
+			{/key}
 		</section>
 	{/if}
 
