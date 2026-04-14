@@ -38,6 +38,7 @@ import {
 		formatWorkflowProposalTypeForDisplay,
 		type WorkflowItemType as LocalType
 	} from '$lib/components/case/workflowStatus';
+	import { P127_WORKFLOW_EMPTY_MANUAL_CREATION_LINE } from '$lib/caseContext/p127WorkflowFramingCopy';
 	import {
 		DS_BADGE_CLASSES,
 		DS_BTN_CLASSES,
@@ -897,6 +898,12 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 					class="mt-3 flex flex-col gap-2"
 					data-testid="workflow-items-empty-next-steps"
 				>
+					<p
+						class="{DS_TYPE_CLASSES.meta} text-[color:var(--ce-l-text-secondary)]"
+						data-testid="workflow-items-empty-p127-manual-only"
+					>
+						{P127_WORKFLOW_EMPTY_MANUAL_CREATION_LINE}
+					</p>
 					<p class="{DS_TYPE_CLASSES.meta} text-[color:var(--ce-l-text-secondary)]">
 						Next steps on this case: open Proposals for governed drafts, Timeline for the official record, or Notes for
 						working notes.
