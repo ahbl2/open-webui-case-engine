@@ -563,8 +563,8 @@
 		padding: var(--ds-space-3);
 		display: flex;
 		flex-direction: column;
-		/* P83-03 — row separation for long-list scanning */
-		gap: var(--ds-space-4);
+		/* P83-03 — row separation for long-list scanning · P124-03 — slightly more air between rows */
+		gap: var(--ds-space-5);
 		min-width: 0;
 	}
 
@@ -983,13 +983,15 @@
 	 * Scoped to `.ds-timeline-entry-row` only (no behavior / data changes).
 	 */
 	.ds-timeline-entry-row .ds-card {
-		padding: var(--ds-space-4);
+		/* P124-03 — calmer interior without changing content */
+		padding: var(--ds-space-5);
 	}
 
 	.ds-timeline-entry-row__main {
 		display: flex;
 		flex-direction: column;
-		gap: var(--ds-space-3);
+		/* P124-03 — clearer band between top actions, body, metadata, footer */
+		gap: var(--ds-space-4);
 		min-width: 0;
 		align-items: stretch;
 	}
@@ -1253,7 +1255,8 @@
 
 	.ds-timeline-entry-row__footer {
 		margin-top: 0;
-		padding-top: var(--ds-space-2);
+		/* P124-03 — recorded line / actions slightly below body */
+		padding-top: var(--ds-space-3);
 		border-top: 1px solid var(--ds-border-subtle);
 	}
 

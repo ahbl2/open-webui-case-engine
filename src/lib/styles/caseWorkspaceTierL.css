@@ -256,13 +256,14 @@ html {
 		color: var(--ce-l-text-on-canvas);
 	}
 
+	/* P124-03 — surface controls band: more padding, top-align wrapped actions */
 	.ce-l-timeline-hero {
 		flex-shrink: 0;
 		display: flex;
-		align-items: center;
+		align-items: flex-start;
 		justify-content: space-between;
-		gap: 0.5rem;
-		padding: 0.75rem 1rem;
+		gap: 0.75rem 1rem;
+		padding: 0.875rem 1.25rem;
 		border-bottom: 1px solid var(--ce-l-chrome-border);
 		background-color: var(--ce-l-chrome);
 	}
@@ -275,10 +276,12 @@ html {
 		color: var(--ce-l-text-muted);
 	}
 
+	/* P124-03 — hero/toolbar/scroll rhythm (presentation only) */
 	.ce-l-timeline-toolbar {
 		flex-shrink: 0;
 		border-bottom: 1px solid var(--ce-l-chrome-border);
 		background-color: var(--ce-l-canvas);
+		scroll-margin-top: 0.25rem;
 	}
 
 	.ce-l-timeline-primary-scroll {
@@ -286,6 +289,7 @@ html {
 		min-height: 0;
 		overflow-y: auto;
 		-webkit-overflow-scrolling: touch;
+		scroll-padding-block: 0.5rem;
 	}
 
 	/*

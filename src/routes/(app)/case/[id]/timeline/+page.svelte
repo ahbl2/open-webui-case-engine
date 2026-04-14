@@ -52,6 +52,7 @@
 	 * P108-04 — Shared `CaseEntityLensBanner` for consistent `entityLens` filter-state UI.
 	 * P108-05 — Doctrine-safe lens copy/status via `p108EntityTimelineLensCopy`.
 	 * P124-01 — Authority framing banner (`CaseTimelineAuthorityFraming`; static copy only).
+	 * P124-03 — Tier L + DS spacing for scanability (layout/CSS only; no ordering or grouping).
 	 */
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
@@ -1650,7 +1651,9 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 
 	<!-- ── Section header ──────────────────────────────────────────────────── -->
 	<div class="ce-l-timeline-hero">
-		<div class="flex flex-col gap-0.5 min-w-0">
+		<!-- P71-05 shell hook; primary title remains in CaseTimelineAuthorityFraming (P124-01). -->
+		<div class="sr-only ce-l-timeline-hero-title">Timeline surface</div>
+		<div class="flex flex-col gap-1 min-w-0">
 			{#if timelineHeaderDataLine}
 				<p
 					class="m-0 text-xs ce-l-timeline-hero-meta"
@@ -1938,7 +1941,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 
 	<!-- ── Timeline list ───────────────────────────────────────────────────── -->
 	<div
-		class="ce-l-timeline-primary-scroll px-4 pt-4 flex flex-col gap-4 {composerOpen ? 'pb-80' : 'pb-6'}"
+		class="ce-l-timeline-primary-scroll px-4 sm:px-5 pt-5 flex flex-col gap-5 {composerOpen ? 'pb-80' : 'pb-8'}"
 		data-testid="case-timeline-primary-scroll"
 		bind:this={scrollContainerEl}
 	>
@@ -1999,7 +2002,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			{/if}
 		{:else}
 			<!-- Chronological list — occurred_at ASC (earliest at top) -->
-			<ol class="flex flex-col gap-3" aria-label="Official case timeline">
+			<ol class="flex flex-col gap-4" aria-label="Official case timeline">
 			{#each entries as entry (entry.id)}
 				{#if editingEntryId === entry.id && editDraft}
 						<!-- ── Inline governed edit form (P28-34) ──────────────────── -->

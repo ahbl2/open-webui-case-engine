@@ -12,6 +12,7 @@
 	 *                     P95-03 — inline context strip: linked images + origin/lineage (existing data only)
 	 *                     P95-04 — interaction polish: hover/focus-visible + hit targets (existing controls only)
 	 *                     P95-05 — cross-entry spacing rhythm; unified section stack (no IA change)
+	 *                     P124-03 — type/main column gap + DS row/card rhythm (layout only; no ordering)
 	 *                     P98-02 — declared same-case relationship strip (read-only; P98-01 contract; no navigation)
 	 *                     P83-05 — metadata line consistency (order, separators, type display; trim only; no new fields)
 	 *                     P83-02 — explicit occurred vs recorded labels + tooltips (no timestamp logic changes)
@@ -396,7 +397,7 @@
 				data-timeline-card-related={relatePaired ? '1' : '0'}
 				data-timeline-card-followup={entryNeedsFollowUp ? '1' : '0'}
 			>
-				<div class="flex gap-4 min-w-0">
+				<div class="flex gap-5 min-w-0">
 					<div
 						class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5 ds-timeline-entry-type-column"
 						data-testid="timeline-entry-type-column"
@@ -828,7 +829,7 @@
 				data-timeline-card-related={relatePaired ? '1' : '0'}
 				data-timeline-card-followup={entryNeedsFollowUp ? '1' : '0'}
 			>
-				<div class="flex gap-4 min-w-0">
+				<div class="flex gap-5 min-w-0">
 					<!-- P83-01: narrow type column -->
 					<div
 						class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5 ds-timeline-entry-type-column"
