@@ -9,6 +9,6 @@
 	<title>Command Center</title>
 </svelte:head>
 
-<div class="flex min-h-0 min-h-full flex-1 flex-col overflow-hidden" data-testid="command-center-page">
+<div class="flex min-h-0 flex-1 flex-col overflow-hidden" data-testid="command-center-page">
 	<CommandCenterPanel />
 </div>
