@@ -87,6 +87,10 @@ describe('resolveActiveCaseSection', () => {
 		expect(resolveActiveCaseSection('/case/abc123/case-workflow')).toBe('case-workflow');
 	});
 
+	it('resolves /case/[id]/ai-workspace to ai-workspace', () => {
+		expect(resolveActiveCaseSection('/case/abc123/ai-workspace')).toBe('ai-workspace');
+	});
+
 	it('keeps evidence-sets active for nested evidence set detail route', () => {
 		expect(resolveActiveCaseSection('/case/abc123/evidence-sets/set-uuid-1')).toBe('evidence-sets');
 	});
@@ -122,7 +126,8 @@ describe('resolveActiveCaseSection', () => {
 			'query',
 			'tasks',
 			'evidence-sets',
-			'case-workflow'
+			'case-workflow',
+			'ai-workspace'
 		];
 		for (const section of expected) {
 			expect(resolveActiveCaseSection(`/case/x/${section}`)).toBe(section);

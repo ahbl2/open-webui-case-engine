@@ -27,6 +27,7 @@
 		P124_SIDEBAR_SURFACE_BOUNDARY_HINT
 	} from '$lib/caseContext/p124SurfaceSeparationCopy';
 	import { P129_NAV_TITLE_ACTIVITY } from '$lib/caseContext/p129ActivityFramingCopy';
+	import { P130_NAV_TITLE_AI_WORKSPACE } from '$lib/caseContext/p130AIWorkspaceCopy';
 	import { getRouteCaseId } from '$lib/caseContext/routeCaseContext';
 
 	let cases: CaseEngineCase[] = [];
@@ -107,12 +108,18 @@
 			label: 'Activity',
 			path: 'activity' as const,
 			navTitle: P129_NAV_TITLE_ACTIVITY
+		},
+		{
+			id: 'ai-workspace' as const,
+			label: 'AI Workspace',
+			path: 'ai-workspace' as const,
+			navTitle: P130_NAV_TITLE_AI_WORKSPACE
 		}
 	];
 
 	function surfaceHref(
 		caseId: string,
-		section: 'timeline' | 'notes' | 'files' | 'activity'
+		section: 'timeline' | 'notes' | 'files' | 'activity' | 'ai-workspace'
 	): string {
 		return `/case/${caseId}/${section}`;
 	}

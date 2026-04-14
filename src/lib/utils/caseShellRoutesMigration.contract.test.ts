@@ -17,6 +17,7 @@ const caseTabPages = [
 	'intelligence/+page.svelte',
 	'workflow/+page.svelte',
 	'activity/+page.svelte',
+	'ai-workspace/+page.svelte',
 	'chat/+page.svelte',
 	'notes/+page.svelte',
 	'proposals/+page.svelte',

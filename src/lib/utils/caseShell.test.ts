@@ -225,7 +225,20 @@ describe('case shell — nav section routing', () => {
 		expect(resolveActiveCaseSection('/case/abc/chat')).toBe('chat');
 	});
 
-	it.each(['summary', 'workflow', 'warrants', 'intelligence', 'timeline', 'files', 'notes', 'proposals', 'activity'] as const)(
+	it.each(
+		[
+			'summary',
+			'workflow',
+			'warrants',
+			'intelligence',
+			'timeline',
+			'files',
+			'notes',
+			'proposals',
+			'activity',
+			'ai-workspace'
+		] as const
+	)(
 		'future section %s resolves correctly when its route is added',
 		(section) => {
 			// When P19-08/P19-14 add these routes, the resolver will already work correctly.

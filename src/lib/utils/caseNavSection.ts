@@ -27,7 +27,9 @@ export type CaseNavSection =
 	// P109-03: explicit evidence groupings (non-authoritative; Case Engine storage).
 	| 'evidence-sets'
 	// P117-04: Phase 117 `case_workflow_items` — distinct URL from legacy `workflow` tab.
-	| 'case-workflow';
+	| 'case-workflow'
+	// P130-01 — Non-authoritative AI assistant surface (explicit user-initiated session only).
+	| 'ai-workspace';
 
 const VALID_CASE_SECTIONS = new Set<string>([
 	'chat',
@@ -49,7 +51,8 @@ const VALID_CASE_SECTIONS = new Set<string>([
 	// P109-03: evidence sets — explicit grouping only; not Timeline authority.
 	'evidence-sets',
 	// P117-04: operational workflow items (Phase 117); not legacy P13 workflow.
-	'case-workflow'
+	'case-workflow',
+	'ai-workspace'
 ]);
 
 /**
