@@ -1,0 +1,42 @@
+/**
+ * P131-01 — Command Center surface: no Case Engine, no fetch, no mutation paths (source-level).
+ */
+import { readFileSync } from 'node:fs';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
+import { describe, expect, it } from 'vitest';
+
+const here = dirname(fileURLToPath(import.meta.url));
+const panelPath = join(here, '../components/operator/CommandCenterPanel.svelte');
+const pagePath = join(here, '../../routes/(app)/command-center/+page.svelte');
+const copyPath = join(here, 'p131CommandCenterCopy.ts');
+const gnavPath = join(here, '../components/layout/DetectiveGnavPrimaryNav.svelte');
+
+describe('P131-01 Command Center guardrails (source)', () => {
+	it('CommandCenterPanel and route page do not touch Case Engine or fetch', () => {
+		for (const p of [panelPath, pagePath]) {
+			const src = readFileSync(p, 'utf8');
+			expect(src).not.toMatch(/\$lib\/apis\/caseEngine/);
+			expect(src).not.toMatch(/\bfetch\s*\(/);
+			expect(src).not.toMatch(/\$app\/environment/);
+		}
+	});
+
+	it('copy module is strings only', () => {
+		const src = readFileSync(copyPath, 'utf8');
+		expect(src).not.toMatch(/\$lib\/apis/);
+		expect(src).not.toMatch(/\bfetch\s*\(/);
+	});
+
+	it('Command Center surface does not reference mutation HTTP paths', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).not.toMatch(/\/case-proposals/);
+		expect(src).not.toMatch(/\/entries/);
+	});
+
+	it('GNAV links to /command-center with stable test id', () => {
+		const src = readFileSync(gnavPath, 'utf8');
+		expect(src).toContain('href="/command-center"');
+		expect(src).toContain('data-testid="detective-gnav-command-center"');
+	});
+});

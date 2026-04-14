@@ -100,6 +100,8 @@
 	$: isDetectiveWorkspace =
 		$page.url.pathname === '/home' ||
 		$page.url.pathname === '/cases' ||
+		$page.url.pathname === '/command-center' ||
+		$page.url.pathname.startsWith('/command-center/') ||
 		$page.url.pathname === '/search' ||
 		$page.url.pathname.startsWith('/search/') ||
 		$page.url.pathname.startsWith('/case/');
