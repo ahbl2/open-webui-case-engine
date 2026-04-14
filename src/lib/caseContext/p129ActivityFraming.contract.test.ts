@@ -63,8 +63,8 @@ describe('activity +page (P129-01)', () => {
 		expect(idxFraming).toBeLessThan(idxScroll);
 	});
 
-	it('does not fetch activity data in this ticket', () => {
-		expect(src).not.toMatch(/\bfetch\s*\(/);
+	it('delegates activity data to CaseActivityList (P129-03)', () => {
+		expect(src).toContain('CaseActivityList');
 		expect(src).not.toMatch(/listCaseTimelineEntries|listProposals|listCaseFiles/);
 	});
 });
