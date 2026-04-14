@@ -1194,6 +1194,8 @@ export async function listCaseFiles(
  * Prefer extending file-list behavior here (and on the server list route) only with explicit contract
  * discipline — see {@link listCaseFiles} note on dual-shape + optional-param sprawl.
  *
+ * **P125-04:** `query` also matches stored `case_file_text.extracted_text` substring (same Case Engine route; no new endpoint).
+ *
  * P42-05: optional `mimeCategory` and `hasTags` combine with `query` before pagination on the server.
  * See {@link listCaseFiles} for contract-complexity and invalid-parameter notes.
  */

@@ -7,6 +7,7 @@
 	/** P109-01 — Manual evidence selection checkbox + shared session-only store with Timeline. */
 	/** P125-02 — Explicit per-row metadata labels + uniform type display (same API fields; no new list semantics). */
 	/** P125-03 — Read-only view modal: identity + optional image/PDF preview + extracted text (raw) framing. */
+	/** P125-04 — Case-scoped search uses GET /cases/:id/files?query= only; Case Engine order (no client rescoring). */
 	import { onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { browser, dev } from '$app/environment';
@@ -113,6 +114,10 @@
 		P125_FILE_VIEW_PREVIEW_LOADING,
 		P125_FILE_VIEW_PREVIEW_UNSUPPORTED
 	} from '$lib/caseContext/p125FileViewingCopy';
+	import {
+		P125_FILE_SEARCH_ACTIVE_FRAMING,
+		P125_FILE_SEARCH_EMPTY_DESCRIPTION
+	} from '$lib/caseContext/p125FileSearchCopy';
 	import {
 		DS_BTN_CLASSES,
 		DS_FILES_CLASSES,
@@ -467,6 +472,12 @@
 		(fileSearchApplied.trim().length > 0 ||
 			mimeCategoryFilter !== '' ||
 			hasTagsFilter !== 'all');
+
+	$: hasOnlySearchAsListConstraint =
+		!entityLensEntityId &&
+		fileSearchApplied.trim().length > 0 &&
+		mimeCategoryFilter === '' &&
+		hasTagsFilter === 'all';
 
 	$: if (!hasActiveListConstraints) filesFilterUploadHintShown = false;
 
@@ -1250,8 +1261,8 @@
 				bind:value={fileSearchDraft}
 				on:input={onFileSearchInput}
 				disabled={!!entityLensEntityId}
-				placeholder="Search files by name, type, or tag"
-				aria-label="Search case files"
+				placeholder="Search this case (name, type, tag, extracted text)"
+				aria-label="Search files in this case — name, type, tag, or stored extracted text"
 				autocomplete="off"
 				data-testid="case-files-search-input"
 				class="w-full {DS_FILES_CLASSES.formControl} disabled:opacity-50 disabled:cursor-not-allowed"
@@ -1287,6 +1298,16 @@
 			</select>
 		</div>
 	</div>
+
+	{#if !entityLensEntityId && fileSearchApplied.trim().length > 0}
+		<div
+			class="mb-3 rounded-md border border-[color:var(--ce-l-border-strong)] px-3 py-2 text-xs leading-snug text-[color:var(--ce-l-text-muted)]"
+			data-testid="case-files-search-source-framing"
+			role="status"
+		>
+			{P125_FILE_SEARCH_ACTIVE_FRAMING}
+		</div>
+	{/if}
 
 	{#if synthesisNavigationEnabled && synthesisRevealBanner === 'not_found'}
 		<div
@@ -1362,7 +1383,9 @@
 				<CaseEmptyState
 					title={hasActiveListConstraints ? P125_FILES_EMPTY_FILTERED_TITLE : P125_FILES_EMPTY_TITLE}
 					description={hasActiveListConstraints
-						? P125_FILES_EMPTY_FILTERED_DESCRIPTION
+						? hasOnlySearchAsListConstraint
+							? P125_FILE_SEARCH_EMPTY_DESCRIPTION
+							: P125_FILES_EMPTY_FILTERED_DESCRIPTION
 						: P125_FILES_EMPTY_DESCRIPTION}
 				/>
 			{/if}
@@ -1400,7 +1423,12 @@
 							/>
 						</label>
 					{/if}
-					<div class="min-w-0 flex-1 flex flex-col gap-2">
+					<button
+						type="button"
+						class="min-w-0 flex-1 flex flex-col gap-2 rounded-md border border-transparent p-1 text-left transition hover:bg-black/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ce-l-border-strong)] dark:hover:bg-white/[0.06]"
+						data-testid="case-file-row-open-view"
+						on:click={() => void loadExtractedTextIntoModal(f.id)}
+					>
 						<p class="m-0 min-w-0 truncate text-sm font-medium {DS_TYPE_CLASSES.section}" data-testid="case-file-row-name">
 							{f.original_filename}
 						</p>
@@ -1417,7 +1445,7 @@
 							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_SIZE}</dt>
 							<dd class="m-0 {DS_TYPE_CLASSES.mono}">{formatCaseFileSizeDisplay(f.file_size_bytes)}</dd>
 						</dl>
-					</div>
+					</button>
 				</div>
 				<FilesDeclaredRelationshipsBlock {caseId} fileId={f.id} />
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
