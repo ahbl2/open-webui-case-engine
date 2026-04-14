@@ -6634,3 +6634,11 @@ export async function restoreCaseIntelligenceAssociation(
 	if (!row) throw new Error('Case Engine returned OK but missing committed_association.');
 	return row;
 }
+
+export {
+	listCaseActivityEvents,
+	type CaseActivityEvent,
+	type CaseActivityEventType,
+	type CaseActivityTargetType,
+	type ListCaseActivityEventsResult
+} from './caseP129ActivityEventsApi';
