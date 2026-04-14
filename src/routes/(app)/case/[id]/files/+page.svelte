@@ -2,6 +2,8 @@
 	/**
 	 * P19-14 — Case Files Route
 	 * P71-06 — Tier L shell / framing (P70-06 S1, P70-04 B); presentation only.
+	 * P123-04 — Route case id via `getRouteCaseId` only; explicit no-case placeholder.
+	 * P125-01 — Evidence framing (`CaseFilesEvidenceFraming`; static copy only; always above file list).
 	 *
 	 * Route-native files page for the case workspace.
 	 * Renders inside the P19-06 case shell layout.
@@ -20,8 +22,13 @@
 	 */
 	import { page } from '$app/stores';
 	import { caseEngineToken } from '$lib/stores';
+	import { getRouteCaseId } from '$lib/caseContext/routeCaseContext';
 	import CaseFilesTab from '$lib/components/case/CaseFilesTab.svelte';
+	import CaseFilesEvidenceFraming from '$lib/components/case/CaseFilesEvidenceFraming.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
+	import CaseWorkspaceRouteSurfacePlaceholder from '$lib/components/case/CaseWorkspaceRouteSurfacePlaceholder.svelte';
+
+	$: routeCaseId = getRouteCaseId($page.params);
 </script>
 
 <!--
@@ -29,32 +36,42 @@
 	All file operations are case-scoped and go through Case Engine.
 	This route renders inside the P19-06 case shell (+layout.svelte).
 -->
-<CaseWorkspaceContentRegion testId="case-files-page">
-	<div class="ce-l-files-shell">
-		<!-- Section header -->
-		<div class="ce-l-files-hero">
-			<h2 class="ce-l-files-hero-title text-sm font-semibold">Case Files</h2>
-			<span class="ce-l-files-hero-meta text-xs"
-				>— case-scoped evidence and supporting documents</span
-			>
-		</div>
+{#if !routeCaseId}
+	<CaseWorkspaceRouteSurfacePlaceholder surface="Files" testId="case-files-placeholder" />
+{:else}
+	<CaseWorkspaceContentRegion testId="case-files-page">
+		<div class="ce-l-files-shell">
+			<!-- P125-01 — Evidence framing: always visible (empty, loading, populated, no-token). -->
+			<CaseFilesEvidenceFraming />
 
-		<!-- Files content — reuse the existing well-tested component -->
-		{#if $caseEngineToken}
-			<div class="ce-l-files-primary-scroll" data-testid="case-files-primary-scroll">
-				<CaseFilesTab
-					caseId={$page.params.id}
-					token={$caseEngineToken}
-					focusFileId={$page.url.searchParams.get('file')}
-					synthesisNavigationEnabled={true}
-				/>
+			<!-- Case id line (primary label lives in CaseFilesEvidenceFraming) -->
+			<div class="ce-l-files-hero">
+				<div class="sr-only ce-l-files-hero-title">Files surface</div>
+				<p
+					class="ce-l-files-hero-meta text-xs mt-1 font-mono"
+					data-testid="case-files-route-case-id"
+				>
+					{routeCaseId}
+				</p>
 			</div>
-		{:else}
-			<div class="ce-l-files-primary-scroll" data-testid="case-files-primary-scroll">
-				<div class="flex items-center justify-center min-h-[8rem] p-4">
-					<p class="text-sm ce-l-files-hero-meta">Not authenticated to Case Engine.</p>
+
+			<!-- Files content — reuse the existing well-tested component -->
+			{#if $caseEngineToken}
+				<div class="ce-l-files-primary-scroll" data-testid="case-files-primary-scroll">
+					<CaseFilesTab
+						caseId={routeCaseId}
+						token={$caseEngineToken}
+						focusFileId={$page.url.searchParams.get('file')}
+						synthesisNavigationEnabled={true}
+					/>
 				</div>
-			</div>
-		{/if}
-	</div>
-</CaseWorkspaceContentRegion>
+			{:else}
+				<div class="ce-l-files-primary-scroll" data-testid="case-files-primary-scroll">
+					<div class="flex items-center justify-center min-h-[8rem] p-4">
+						<p class="text-sm ce-l-files-hero-meta">Not authenticated to Case Engine.</p>
+					</div>
+				</div>
+			{/if}
+		</div>
+	</CaseWorkspaceContentRegion>
+{/if}

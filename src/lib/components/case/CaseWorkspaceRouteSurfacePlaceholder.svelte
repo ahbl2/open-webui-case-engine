@@ -6,7 +6,8 @@
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import CaseTimelineAuthorityFraming from '$lib/components/case/CaseTimelineAuthorityFraming.svelte';
 	import CaseNotesDraftFraming from '$lib/components/case/CaseNotesDraftFraming.svelte';
-	import { DS_EMPTY_CLASSES, DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+	import CaseFilesEvidenceFraming from '$lib/components/case/CaseFilesEvidenceFraming.svelte';
+	import { DS_EMPTY_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import { P123_NO_CASE_ROUTE_BODY } from '$lib/caseContext/p123CaseWorkspaceCopy';
 
 	export let surface: 'Timeline' | 'Notes' | 'Files';
@@ -31,9 +32,10 @@
 				<CaseNotesDraftFraming />
 			</div>
 		{:else}
-			<h2 class="{DS_TYPE_CLASSES.section} text-sm font-semibold text-[color:var(--ce-l-text-primary)]">
-				{surface}
-			</h2>
+			<!-- P125-01 — Same evidence identity framing as populated Files (route id missing). -->
+			<div class="mb-2 w-full shrink-0">
+				<CaseFilesEvidenceFraming />
+			</div>
 		{/if}
 		<p
 			class="{DS_EMPTY_CLASSES.description} text-sm text-[color:var(--ce-l-text-muted)]"
