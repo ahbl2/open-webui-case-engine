@@ -47,6 +47,8 @@
 	 *   first so the subsequent beforeNavigate from goto() sees a clean state.
 	 *   willUnload (tab close, hard external navigation) is not guarded.
 	 *
+	 * P124-04 — Draft identity banner + list chrome; presentation only (no persistence/authority change).
+	 *
 	 * Note browser search (P28-28):
 	 *   `browserSearch` drives a reactive `filteredNotes` derived from `notes`.
 	 *   Filter is client-side, case-insensitive; matches title and note content.
@@ -135,18 +137,28 @@
 	} from '$lib/caseNotes/structuredNotesFeatureCapability';
 	import { computeStructuredDraftHydration } from '$lib/caseNotes/structuredNotesDraftEditorHydration';
 	import { renderNotesCleanText } from '$lib/caseNotes/structuredNotesCleanText';
+	import CaseWorkspaceRouteSurfacePlaceholder from '$lib/components/case/CaseWorkspaceRouteSurfacePlaceholder.svelte';
+	import CaseNotesDraftFraming from '$lib/components/case/CaseNotesDraftFraming.svelte';
+	import {
+		P124_NOTES_IDLE_EMPTY_HINT,
+		P124_NOTES_LIST_HEADING,
+		P124_NOTES_LIST_SUBLINE
+	} from '$lib/caseContext/p124NotesDraftCopy';
+	import { getRouteCaseId } from '$lib/caseContext/routeCaseContext';
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
 	// this component for a different case. prevLoadedCaseId is seeded to the
 	// initial param so the reactive reset block is a no-op on first render
 	// (onMount handles initial load); it fires only on case switch.
-	$: caseId = $page.params.id;
+	// P123-03 / P123-04 — case id from route params only (`getRouteCaseId`).
+	$: routeCaseId = getRouteCaseId($page.params);
+	$: caseId = routeCaseId ?? '';
 	/** P99-02 — `?note=` deep link only; P99-01 contract (no synthesis intent on Notes). */
 	$: p99NoteArrivalContext =
 		typeof caseId === 'string' && caseId
 			? arrivalContextFromNoteQueryParam(caseId, $page.url.searchParams.get('note'))
 			: null;
-	let prevLoadedCaseId: string = $page.params.id ?? '';
+	let prevLoadedCaseId: string = getRouteCaseId($page.params) ?? '';
 	/** Incremented on each loadNotes() call; guards stale responses from writing to the new case. */
 	let activeNotesLoadId = 0;
 	/** P60-05: `?note=` deep-link — re-apply when the query value changes, not on every refresh. */
@@ -2340,7 +2352,11 @@
 	Two-panel layout: left browser + right focused editor.
 	Renders inside the P19-06 case shell (+layout.svelte). P76-07: Tier L `CaseWorkspaceContentRegion` bounds the page canvas.
 -->
+{#if !routeCaseId}
+	<CaseWorkspaceRouteSurfacePlaceholder surface="Notes" testId="case-notes-placeholder" />
+{:else}
 <CaseWorkspaceContentRegion testId="case-notes-page">
+<CaseNotesDraftFraming />
 <CaseArrivalOrientationBlock context={p99NoteArrivalContext} testId="case-notes-p99-arrival" />
 <div class="flex flex-1 min-w-0 min-h-0 overflow-hidden">
 
@@ -2355,8 +2371,11 @@
 			<div class="flex items-center justify-between gap-2">
 				<div class="min-w-0">
 					<h2 class="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
-						Case Notes
+						{P124_NOTES_LIST_HEADING}
 					</h2>
+					<p class="m-0 mt-0.5 text-[10px] leading-tight text-gray-400 dark:text-gray-500">
+						{P124_NOTES_LIST_SUBLINE}
+					</p>
 				</div>
 				<button
 					type="button"
@@ -2602,9 +2621,12 @@
 	</div>
 
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
-	<!-- RIGHT PANEL — Focused Workspace                                       -->
+	<!-- RIGHT PANEL — Focused Workspace (draft editor; P124-04 visual band)      -->
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
-	<div class="flex flex-1 flex-col min-w-0 min-h-0 overflow-hidden">
+	<div
+		class="flex flex-1 flex-col min-w-0 min-h-0 overflow-hidden border-l border-dashed border-gray-200/90 dark:border-gray-700/90 bg-slate-50/40 dark:bg-gray-950/30"
+		data-notes-draft-workspace-column="true"
+	>
 		{#if recentlyDeletedNote && !notesNarrativeFullWorkspaceActive}
 			<div
 				class="mx-5 mt-3 rounded-md border border-gray-200 bg-gray-50 px-3 py-2 text-xs text-gray-700 dark:border-gray-700 dark:bg-gray-900 dark:text-gray-200"
@@ -2639,10 +2661,10 @@
 
 		{#if mode === 'idle'}
 			<!-- ── Idle: nothing selected ──────────────────────────────────── -->
-			<div class="flex-1 flex items-center justify-center">
+			<div class="flex-1 flex items-center justify-center px-4">
 				<CaseEmptyState
 					title="No note selected."
-					description='Choose a note from the list, or click "+ New" to start writing.'
+					description={`${P124_NOTES_IDLE_EMPTY_HINT} Choose a note from the list, or click "+ New" to start writing.`}
 					testId="case-notes-empty"
 				/>
 			</div>
@@ -2682,9 +2704,14 @@
 						</div>
 					</div>
 				{:else}
+				<!-- Title input + editor — P124-04 dashed draft shell (layout only; same save semantics) -->
+				<div
+					class="relative flex flex-1 min-h-0 flex-col mx-4 my-3 rounded-xl border border-dashed border-gray-300/90 dark:border-gray-600/80 bg-white/60 dark:bg-gray-900/35 overflow-hidden"
+					data-notes-draft-editor-shell="true"
+				>
 				<!-- Title input -->
 				<div
-					class="shrink-0 px-5 pt-4 pb-3 border-b border-gray-200 dark:border-gray-800"
+					class="shrink-0 px-4 pt-4 pb-3 border-b border-gray-200/90 dark:border-gray-800/90"
 				>
 					<input
 						type="text"
@@ -2762,6 +2789,7 @@
 							/>
 						</div>
 					{/if}
+				</div>
 				</div>
 			
 				{#if dictationState !== 'idle'}
@@ -3963,6 +3991,7 @@
 	</div>
 </div>
 </CaseWorkspaceContentRegion>
+{/if}
 
 <!-- ── Unsaved-changes confirmation dialog (P28-27) ─────────────────────── -->
 <ConfirmDialog

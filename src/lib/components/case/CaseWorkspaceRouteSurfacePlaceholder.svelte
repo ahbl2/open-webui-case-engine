@@ -5,6 +5,7 @@
 <script lang="ts">
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import CaseTimelineAuthorityFraming from '$lib/components/case/CaseTimelineAuthorityFraming.svelte';
+	import CaseNotesDraftFraming from '$lib/components/case/CaseNotesDraftFraming.svelte';
 	import { DS_EMPTY_CLASSES, DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import { P123_NO_CASE_ROUTE_BODY } from '$lib/caseContext/p123CaseWorkspaceCopy';
 
@@ -23,6 +24,11 @@
 			<!-- P124-01 — Same authority framing as populated Timeline (route id missing). -->
 			<div class="mb-2 w-full shrink-0">
 				<CaseTimelineAuthorityFraming />
+			</div>
+		{:else if surface === 'Notes'}
+			<!-- P124-04 — Same draft identity framing as populated Notes (route id missing). -->
+			<div class="mb-2 w-full shrink-0">
+				<CaseNotesDraftFraming />
 			</div>
 		{:else}
 			<h2 class="{DS_TYPE_CLASSES.section} text-sm font-semibold text-[color:var(--ce-l-text-primary)]">
