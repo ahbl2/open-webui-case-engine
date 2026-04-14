@@ -4,6 +4,7 @@
 	 * P82-02 — `CaseWorkspaceHeader` (identity + context strip + pending proposals link).
 	 * P123-02 — `CaseWorkspaceCaseSidebar` (list + Phase 123 surface links).
 	 * P132.5-01 — `CaseWorkspaceLayoutShell` (left / center / right) + `CaseWorkspaceShellPanel` frames.
+	 * P132.5-02 — Timeline route: primary center panel (`case-workspace-shell-timeline-panel`, delegated scroll).
 	 * P76-02 — Wave 3 `ds-case-shell*` frame + `data-region`.
 	 * P76-08 — `caseModeActive` for GNAV / case shell coordination.
 	 */
@@ -46,7 +47,8 @@
 	import {
 		P1325_SHELL_LEFT_ZONE_TITLE,
 		P1325_SHELL_RIGHT_ZONE_TITLE,
-		P1325_SHELL_RIGHT_ZONE_PLACEHOLDER
+		P1325_SHELL_RIGHT_ZONE_PLACEHOLDER,
+		P1325_SHELL_TIMELINE_PANEL_TITLE
 	} from '$lib/caseContext/p1325CaseWorkspaceShellCopy';
 	import { caseIdentityStripExpandedPosture } from '$lib/utils/caseIdentityStrip';
 	import {
@@ -290,7 +292,17 @@
 							{#if $activeCaseMeta && $caseEngineToken && routeCaseId}
 								<CaseExportPanel caseId={routeCaseId} token={$caseEngineToken} />
 							{/if}
-							<slot />
+							{#if activeSection === 'timeline'}
+								<CaseWorkspaceShellPanel
+									testId="case-workspace-shell-timeline-panel"
+									title={P1325_SHELL_TIMELINE_PANEL_TITLE}
+									delegateBodyScroll={true}
+								>
+									<slot />
+								</CaseWorkspaceShellPanel>
+							{:else}
+								<slot />
+							{/if}
 						{/if}
 					</div>
 

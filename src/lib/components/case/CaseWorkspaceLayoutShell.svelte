@@ -17,9 +17,10 @@
 	</aside>
 
 	<section
-		class="order-1 flex min-h-[40vh] min-w-0 flex-1 flex-col overflow-hidden lg:min-h-0 lg:order-2"
+		class="order-1 flex min-h-[40vh] min-w-0 flex-1 flex-col overflow-hidden lg:min-h-0 lg:min-w-0 lg:basis-0 lg:grow lg:order-2"
 		data-testid="case-workspace-shell-center"
 		data-region="case-workspace-shell-center"
+		data-p1325-center-primary="true"
 		aria-label="Primary work area"
 	>
 		<slot name="center" />

@@ -1,5 +1,5 @@
 /**
- * P132.5-01 — Case `/case/[id]` layout wires the three-zone shell without pulling new backend concerns.
+ * P132.5-01 / P132.5-02 — Case `/case/[id]` layout wires the three-zone shell without pulling new backend concerns.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -10,7 +10,7 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const layoutPath = join(__dirname, '../../routes/(app)/case/[id]/+layout.svelte');
 const shellCmpPath = join(__dirname, '../components/case/CaseWorkspaceLayoutShell.svelte');
 
-describe('P132.5-01 case workspace shell route wiring', () => {
+describe('P132.5 case workspace shell route wiring', () => {
 	it('embeds CaseWorkspaceLayoutShell with header before sidebar and preserves case-shell-body canvas', () => {
 		const src = readFileSync(layoutPath, 'utf8');
 		expect(src).toContain('CaseWorkspaceLayoutShell');
@@ -35,5 +35,13 @@ describe('P132.5-01 case workspace shell route wiring', () => {
 		const src = readFileSync(layoutPath, 'utf8');
 		const n = (src.match(/data-testid="case-workspace-shell"/g) ?? []).length;
 		expect(n).toBe(1);
+	});
+
+	it('P132.5-02 — wraps Timeline in primary panel with delegated scroll (no new API imports)', () => {
+		const src = readFileSync(layoutPath, 'utf8');
+		expect(src).toContain("activeSection === 'timeline'");
+		expect(src).toContain('case-workspace-shell-timeline-panel');
+		expect(src).toContain('delegateBodyScroll={true}');
+		expect(src).toContain('P1325_SHELL_TIMELINE_PANEL_TITLE');
 	});
 });
