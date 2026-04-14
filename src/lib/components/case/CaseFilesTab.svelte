@@ -8,6 +8,7 @@
 	/** P125-02 — Explicit per-row metadata labels + uniform type display (same API fields; no new list semantics). */
 	/** P125-03 — Read-only view modal: identity + optional image/PDF preview + extracted text (raw) framing. */
 	/** P125-04 — Case-scoped search uses GET /cases/:id/files?query= only; Case Engine order (no client rescoring). */
+	/** P125-05 — Boundary discipline line + shared nav copy alignment (Files ≠ Timeline ≠ Notes; no logic change). */
 	import { onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { browser, dev } from '$app/environment';
@@ -118,6 +119,7 @@
 		P125_FILE_SEARCH_ACTIVE_FRAMING,
 		P125_FILE_SEARCH_EMPTY_DESCRIPTION
 	} from '$lib/caseContext/p125FileSearchCopy';
+	import { P125_FILES_BOUNDARY_DISCIPLINE_LINE } from '$lib/caseContext/p125FilesBoundaryCopy';
 	import {
 		DS_BTN_CLASSES,
 		DS_FILES_CLASSES,
@@ -1251,6 +1253,11 @@
 	<div class="{DS_FILES_CLASSES.doctrineHelp}" data-testid="case-files-extraction-help">
 		Text extraction supported for: <span class="{DS_TYPE_CLASSES.mono}" data-testid="case-files-supported-extract-types"
 			>{CASE_FILES_SUPPORTED_EXTRACT_TYPES_LABEL}</span
+		>
+		<span
+			class="mt-1.5 block text-[11px] leading-snug text-[color:var(--ce-l-text-muted)]"
+			data-testid="case-files-boundary-discipline"
+			>{P125_FILES_BOUNDARY_DISCIPLINE_LINE}</span
 		>
 	</div>
 

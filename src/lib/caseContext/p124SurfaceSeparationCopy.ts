@@ -11,12 +11,12 @@ export const P124_NAV_TITLE_TIMELINE =
 export const P124_NAV_TITLE_NOTES =
 	'Notebook — working drafts only. Not the case timeline. Owner-scoped.';
 
-/** `title` on sidebar link to Files. */
+/** `title` on sidebar link to Files — supporting evidence only; distinct roles. */
 export const P124_NAV_TITLE_FILES =
-	'Case files — attachments. Separate from Timeline and Notebook.';
+	'Case files — supporting evidence only. Not the committed Timeline; separate from Notebook drafts.';
 
 /**
  * Visible hint under surface links: reinforces separate pages and roles (presentation only).
  */
 export const P124_SIDEBAR_SURFACE_BOUNDARY_HINT =
-	'Separate pages — Timeline is the committed record; Notes are drafts.';
+	'Separate pages — Timeline is the committed record; Notes are drafts; Files are supporting attachments only.';
