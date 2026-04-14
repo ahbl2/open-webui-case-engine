@@ -1,8 +1,9 @@
 <script lang="ts">
 	/**
 	 * P19-06 — Case Workspace Shell
-	 * P82-01 — `CaseWorkspaceShell` + `CaseWorkspaceNav` (left rail).
 	 * P82-02 — `CaseWorkspaceHeader` (identity + context strip + pending proposals link).
+	 * P123-02 — `CaseWorkspaceCaseSidebar` (list + Phase 123 surface links).
+	 * P132.5-01 — `CaseWorkspaceLayoutShell` (left / center / right) + `CaseWorkspaceShellPanel` frames.
 	 * P76-02 — Wave 3 `ds-case-shell*` frame + `data-region`.
 	 * P76-08 — `caseModeActive` for GNAV / case shell coordination.
 	 */
@@ -34,12 +35,19 @@
 		runCaseWorkspaceScrollDiagnostics,
 		shouldRunCaseWorkspaceScrollDiagnostics
 	} from '$lib/utils/caseWorkspaceScrollDiagnostics';
-	import CaseWorkspaceShell from '$lib/components/case/CaseWorkspaceShell.svelte';
-	import CaseWorkspaceNav from '$lib/components/case/CaseWorkspaceNav.svelte';
+	import CaseWorkspaceLayoutShell from '$lib/components/case/CaseWorkspaceLayoutShell.svelte';
+	import CaseWorkspaceShellPanel from '$lib/components/case/CaseWorkspaceShellPanel.svelte';
+	import CaseWorkspaceCaseSidebar from '$lib/components/case/CaseWorkspaceCaseSidebar.svelte';
 	import CaseWorkspaceHeader from '$lib/components/case/CaseWorkspaceHeader.svelte';
+	import CaseExportPanel from '$lib/components/case/CaseExportPanel.svelte';
 	import EditCaseModal from '$lib/components/case/EditCaseModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
-	import { DS_CASE_SHELL_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+	import { DS_CASE_SHELL_CLASSES, DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+	import {
+		P1325_SHELL_LEFT_ZONE_TITLE,
+		P1325_SHELL_RIGHT_ZONE_TITLE,
+		P1325_SHELL_RIGHT_ZONE_PLACEHOLDER
+	} from '$lib/caseContext/p1325CaseWorkspaceShellCopy';
 	import { caseIdentityStripExpandedPosture } from '$lib/utils/caseIdentityStrip';
 	import {
 		isDetectiveWave3CaseShellEnabled,
@@ -53,6 +61,7 @@
 		buildCaseSynthesisReadModel,
 		CASE_SYNTHESIS_READ_MODEL_DEV_LOG_LABEL
 	} from '$lib/case/caseSynthesisReadModel';
+	import { getRouteCaseId } from '$lib/caseContext/routeCaseContext';
 
 	caseModeActive.set(true);
 
@@ -63,7 +72,7 @@
 	let loadUiState: CaseEngineUiState | null = null;
 	let pendingProposalsShellCount: number | null = null;
 
-	let prevCaseId: string = $page.params.id ?? '';
+	let prevCaseId: string = getRouteCaseId($page.params) ?? '';
 
 	function mapCaseToMeta(c: CaseEngineCase) {
 		const createdRaw = c.created_at;
@@ -84,19 +93,28 @@
 	}
 
 	async function loadCaseMeta(caseId: string): Promise<void> {
+		const rid = getRouteCaseId({ id: caseId });
+		if (!rid) {
+			loading = false;
+			loadError = '';
+			loadUiState = 'idle';
+			activeCaseMeta.set(null);
+			pendingProposalsShellCount = null;
+			return;
+		}
 		loading = true;
 		loadError = '';
 		loadUiState = 'loading';
 		activeCaseMeta.set(null);
 		pendingProposalsShellCount = null;
 		try {
-			const c = await getCaseById(caseId, $caseEngineToken!);
+			const c = await getCaseById(rid, $caseEngineToken!);
 			activeCaseMeta.set(mapCaseToMeta(c));
 			activeCaseId.set(c.id as string);
 			activeCaseNumber.set((c.case_number ?? null) as string | null);
 			loadUiState = 'success';
 			try {
-				const pr = await listProposalsPaginated(caseId, $caseEngineToken!, 'pending', {
+				const pr = await listProposalsPaginated(rid, $caseEngineToken!, 'pending', {
 					limit: 1,
 					offset: 0
 				});
@@ -130,7 +148,14 @@
 			return;
 		}
 
-		await loadCaseMeta($page.params.id);
+		const rid = getRouteCaseId($page.params);
+		if (!rid) {
+			loading = false;
+			loadUiState = 'idle';
+			loadError = '';
+			return;
+		}
+		await loadCaseMeta(rid);
 	});
 
 	onDestroy(() => {
@@ -161,7 +186,7 @@
 		let lastDevLogKey = '';
 		const unsub = page.subscribe(($p) => {
 			if ($p.url.searchParams.get('p96_synthesis') !== '1') return;
-			const id = $p.params.id;
+			const id = getRouteCaseId($p.params);
 			const token = get(caseEngineToken);
 			if (!id || !token) return;
 			const key = `${id}:${$p.url.search}:tok=${token ? 'y' : 'n'}`;
@@ -174,10 +199,15 @@
 		return () => unsub();
 	});
 
-	$: if ($page.params.id && $caseEngineToken && $page.params.id !== prevCaseId) {
-		prevCaseId = $page.params.id;
-		loadCaseMeta($page.params.id);
+	$: {
+		const rid = getRouteCaseId($page.params);
+		if (rid && $caseEngineToken && rid !== prevCaseId) {
+			prevCaseId = rid;
+			loadCaseMeta(rid);
+		}
 	}
+
+	$: routeCaseId = getRouteCaseId($page.params);
 
 	$: activeSection = resolveActiveCaseSection($page.url.pathname);
 
@@ -218,64 +248,80 @@
 	data-case-shell-wave3={wave3CaseShellEnabled ? 'on' : 'off'}
 	data-region={wave3CaseShellEnabled ? 'case-shell-root' : undefined}
 >
-	<CaseWorkspaceShell>
-		<svelte:fragment slot="header">
-			<CaseWorkspaceHeader
-				caseId={$page.params.id}
-				{loading}
-				{loadError}
-				meta={$activeCaseMeta}
-				shellHeaderDataUiState={shellHeaderDataUiState}
-				{identityStripExpanded}
-				{wave3CaseShellEnabled}
-				{pendingProposalsShellCount}
-				onEdit={openEditCaseModal}
-			/>
+	<CaseWorkspaceHeader
+		caseId={routeCaseId ?? ''}
+		{loading}
+		{loadError}
+		meta={$activeCaseMeta}
+		shellHeaderDataUiState={shellHeaderDataUiState}
+		{identityStripExpanded}
+		{wave3CaseShellEnabled}
+		{pendingProposalsShellCount}
+		onEdit={openEditCaseModal}
+	/>
+
+	<CaseWorkspaceLayoutShell>
+		<svelte:fragment slot="left">
+			<CaseWorkspaceShellPanel testId="case-workspace-shell-left-panel" title={P1325_SHELL_LEFT_ZONE_TITLE}>
+				<CaseWorkspaceCaseSidebar />
+			</CaseWorkspaceShellPanel>
 		</svelte:fragment>
 
-		<svelte:fragment slot="nav">
-			<CaseWorkspaceNav />
-		</svelte:fragment>
-
-		<div class={caseShellBodyClass} data-region={wave3CaseShellEnabled ? 'case-shell-body' : undefined}>
-			<div class={caseShellCanvasColumnClass} data-region={wave3CaseShellEnabled ? 'case-shell-canvas-column' : undefined}>
+		<svelte:fragment slot="center">
+			<div class={caseShellBodyClass} data-region={wave3CaseShellEnabled ? 'case-shell-body' : undefined}>
 				<div
-					class="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden relative"
-					data-testid="case-workspace-main"
-					data-region={wave3CaseShellEnabled ? 'case-shell-page' : undefined}
+					class={caseShellCanvasColumnClass}
+					data-region={wave3CaseShellEnabled ? 'case-shell-canvas-column' : undefined}
 				>
-					{#if loading && !$activeCaseMeta}
-						<div class="flex items-center justify-center h-full">
-							<Spinner className="size-5" />
-						</div>
-					{:else if loadError}
-						<div class="flex items-center justify-center h-full">
-							<p class="text-sm text-red-500 dark:text-red-400">{loadError}</p>
-						</div>
-					{:else}
-						<slot />
-					{/if}
+					<div
+						class="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden relative"
+						data-testid="case-workspace-main"
+						data-region={wave3CaseShellEnabled ? 'case-shell-page' : undefined}
+					>
+						{#if loading && !$activeCaseMeta}
+							<div class="flex items-center justify-center h-full">
+								<Spinner className="size-5" />
+							</div>
+						{:else if loadError}
+							<div class="flex items-center justify-center h-full">
+								<p class="text-sm text-red-500 dark:text-red-400">{loadError}</p>
+							</div>
+						{:else}
+							{#if $activeCaseMeta && $caseEngineToken && routeCaseId}
+								<CaseExportPanel caseId={routeCaseId} token={$caseEngineToken} />
+							{/if}
+							<slot />
+						{/if}
+					</div>
+
+					<div
+						class="shrink-0 min-h-0"
+						aria-label="Composer region"
+						data-testid="case-composer-region"
+						data-region={wave3CaseShellEnabled ? 'case-shell-composer' : undefined}
+						data-section={activeSection}
+					></div>
 				</div>
 
-				<div
-					class="shrink-0 min-h-0"
-					aria-label="Composer region"
-					data-testid="case-composer-region"
-					data-region={wave3CaseShellEnabled ? 'case-shell-composer' : undefined}
-					data-section={activeSection}
-				></div>
+				{#if activeSection === 'chat'}
+					<div
+						class="{contextRailClass} {DS_CASE_SHELL_CLASSES.rail}"
+						aria-label="Context rail"
+						data-testid="case-context-rail"
+						data-region={wave3CaseShellEnabled ? 'case-shell-rail' : undefined}
+					></div>
+				{/if}
 			</div>
+		</svelte:fragment>
 
-			{#if activeSection === 'chat'}
-				<div
-					class="{contextRailClass} {DS_CASE_SHELL_CLASSES.rail}"
-					aria-label="Context rail"
-					data-testid="case-context-rail"
-					data-region={wave3CaseShellEnabled ? 'case-shell-rail' : undefined}
-				></div>
-			{/if}
-		</div>
-	</CaseWorkspaceShell>
+		<svelte:fragment slot="right">
+			<CaseWorkspaceShellPanel testId="case-workspace-shell-right-panel" title={P1325_SHELL_RIGHT_ZONE_TITLE}>
+				<p class="{DS_TYPE_CLASSES.body} m-0 text-xs text-[color:var(--ce-l-text-muted)]">
+					{P1325_SHELL_RIGHT_ZONE_PLACEHOLDER}
+				</p>
+			</CaseWorkspaceShellPanel>
+		</svelte:fragment>
+	</CaseWorkspaceLayoutShell>
 </div>
 
 <EditCaseModal

@@ -1,6 +1,6 @@
 /**
  * P71-04 — Primary case navigation (P70-05): Tier L tab link hooks + `data-case-tab`.
- * P82-01 — Left rail in `CaseWorkspaceNav.svelte` (replaces horizontal `ce-l-tab-strip` in layout).
+ * P82-01 — Left rail (historically `CaseWorkspaceNav`; P123-02 — `CaseWorkspaceCaseSidebar`).
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -9,21 +9,21 @@ import { describe, expect, it } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const layoutPath = join(__dirname, '../../routes/(app)/case/[id]/+layout.svelte');
-const navPath = join(__dirname, '../components/case/CaseWorkspaceNav.svelte');
+const navPath = join(__dirname, '../components/case/CaseWorkspaceCaseSidebar.svelte');
 const layoutSource = readFileSync(layoutPath, 'utf8');
 const navSource = readFileSync(navPath, 'utf8');
 
-describe('case primary navigation (P71-04 / P70-05) — P82 left rail', () => {
-	it('embeds CaseWorkspaceNav from the case layout', () => {
-		expect(layoutSource).toContain('CaseWorkspaceNav');
-		expect(layoutSource).toContain('CaseWorkspaceShell');
+describe('case primary navigation (P71-04 / P70-05) — P123-02 left rail', () => {
+	it('embeds CaseWorkspaceCaseSidebar and CaseWorkspaceLayoutShell from the case layout (P132.5-01)', () => {
+		expect(layoutSource).toContain('CaseWorkspaceCaseSidebar');
+		expect(layoutSource).toContain('CaseWorkspaceLayoutShell');
 	});
 
 	it('uses Tier L tab link classes and landmark nav on the left rail', () => {
 		expect(navSource).toContain('ce-l-tab-link');
 		expect(navSource).toContain('ce-l-tab-link--active');
 		expect(navSource).toContain('data-testid="case-workspace-nav"');
-		expect(navSource).toContain('aria-label="Case sections"');
+		expect(navSource).toContain('aria-label="Case workspace sections"');
 	});
 
 	it('does not use legacy gray/blue tab utility dialect on links', () => {
@@ -37,14 +37,14 @@ describe('case primary navigation (P71-04 / P70-05) — P82 left rail', () => {
 		expect(navSource).toContain('data-case-tab={item.id}');
 	});
 
-	it('routes primary destinations via primaryHref to /case/[id]/[section]', () => {
-		expect(navSource).toContain('primaryHref(caseId, item.id)');
-		expect(navSource).toContain('return `/case/${id}/${sectionId}`');
+	it('routes Phase 123 surface links via explicit href helper to /case/[id]/[section]', () => {
+		expect(navSource).toContain('surfaceHref');
+		expect(navSource).toContain("return `/case/${caseId}/${section}`");
 	});
 
-	it('keeps CaseWorkspaceHeader (identity surface) before CaseWorkspaceNav in template', () => {
+	it('keeps CaseWorkspaceHeader (identity surface) before CaseWorkspaceCaseSidebar in template', () => {
 		const afterScript = layoutSource.indexOf('</script>');
 		const tmpl = layoutSource.slice(afterScript + 1);
-		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceNav'));
+		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceCaseSidebar'));
 	});
 });
