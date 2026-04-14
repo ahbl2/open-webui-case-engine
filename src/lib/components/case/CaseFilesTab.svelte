@@ -6,6 +6,7 @@
 	/** P108-05 — Doctrine-safe lens copy/status via `p108EntityTimelineLensCopy`. */
 	/** P109-01 — Manual evidence selection checkbox + shared session-only store with Timeline. */
 	/** P125-02 — Explicit per-row metadata labels + uniform type display (same API fields; no new list semantics). */
+	/** P125-03 — Read-only view modal: identity + optional image/PDF preview + extracted text (raw) framing. */
 	import { onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { browser, dev } from '$app/environment';
@@ -39,6 +40,7 @@
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { getCaseEntityDetail } from '$lib/apis/caseEngine/caseEntitiesApi';
 	import {
+		fetchCaseFileObjectUrl,
 		listCaseFiles,
 		listCaseFilesPage,
 		uploadCaseFile,
@@ -98,6 +100,19 @@
 		P125_FILES_LABEL_TYPE,
 		P125_FILES_LABEL_UPLOADED
 	} from '$lib/caseContext/p125FilesBrowserCopy';
+	import {
+		P125_FILE_VIEW_DOWNLOAD_ORIGINAL,
+		P125_FILE_VIEW_EXTRACTED_HEADING,
+		P125_FILE_VIEW_EXTRACTED_SUPPORT,
+		P125_FILE_VIEW_IDENTITY_HEADING,
+		P125_FILE_VIEW_MODAL_TITLE,
+		P125_FILE_VIEW_NO_EXTRACTED_LINE,
+		P125_FILE_VIEW_PREVIEW_ERROR,
+		P125_FILE_VIEW_PREVIEW_HEADING,
+		P125_FILE_VIEW_PREVIEW_IMG_ALT,
+		P125_FILE_VIEW_PREVIEW_LOADING,
+		P125_FILE_VIEW_PREVIEW_UNSUPPORTED
+	} from '$lib/caseContext/p125FileViewingCopy';
 	import {
 		DS_BTN_CLASSES,
 		DS_FILES_CLASSES,
@@ -171,6 +186,56 @@
 	let viewTextFileId: string | null = null;
 	let viewTextContent: string | null = null;
 	let viewTextLoading = false;
+	/** GET /files/:id/text `status` for modal framing (P125-03). */
+	let viewTextExtractStatus: string | null = null;
+	let viewPreviewObjectUrl: string | null = null;
+	let viewPreviewPhase: 'off' | 'loading' | 'ready' | 'unsupported' | 'error' = 'off';
+	let viewPreviewKind: 'none' | 'image' | 'pdf' = 'none';
+
+	$: viewTextFileMeta = viewTextFileId ? (files.find((x) => x.id === viewTextFileId) ?? null) : null;
+
+	function revokeViewPreviewObjectUrl(): void {
+		if (viewPreviewObjectUrl) {
+			URL.revokeObjectURL(viewPreviewObjectUrl);
+			viewPreviewObjectUrl = null;
+		}
+		viewPreviewPhase = 'off';
+		viewPreviewKind = 'none';
+	}
+
+	/** P125-03 — image/PDF blob preview only; otherwise explicit unsupported (read-only; Case Engine GET). */
+	async function prepareViewFilePreview(fileId: string, meta: CaseFile | undefined): Promise<void> {
+		revokeViewPreviewObjectUrl();
+		if (!meta) {
+			viewPreviewPhase = 'unsupported';
+			return;
+		}
+		const mime = meta.mime_type ?? '';
+		const name = meta.original_filename ?? '';
+		const isImg = mime.startsWith('image/');
+		const isPdf = mime === 'application/pdf' || /\.pdf$/i.test(name);
+		if (!isImg && !isPdf) {
+			viewPreviewPhase = 'unsupported';
+			return;
+		}
+		viewPreviewKind = isImg ? 'image' : 'pdf';
+		viewPreviewPhase = 'loading';
+		try {
+			viewPreviewObjectUrl = await fetchCaseFileObjectUrl(fileId, token);
+			viewPreviewPhase = 'ready';
+		} catch {
+			viewPreviewPhase = 'error';
+		}
+	}
+
+	async function handleDownloadFromViewModal(): Promise<void> {
+		if (!viewTextFileId) return;
+		try {
+			await downloadCaseFile(viewTextFileId, viewTextFileMeta?.original_filename ?? 'download', token);
+		} catch (e: any) {
+			toast.error(e?.message ?? 'Download failed');
+		}
+	}
 	let fileInput: HTMLInputElement;
 	/** P42-09 — show “hidden by filters” toast description at most once per active constraint session (reduces noise on sequential uploads). */
 	let filesFilterUploadHintShown = false;
@@ -267,6 +332,10 @@
 		hasTagsFilter = 'all';
 		viewTextFileId = null;
 		viewTextContent = null;
+		viewTextRawForSpan = null;
+		viewTextSpanRange = null;
+		viewTextExtractStatus = null;
+		revokeViewPreviewObjectUrl();
 		uploading = false;
 		extractingId = null;
 		deletingFileId = null;
@@ -574,6 +643,8 @@
 					viewTextSpanRange = { start: span.start, end: span.end };
 					viewTextContent = null;
 					viewTextLoading = false;
+					viewTextExtractStatus = data.status;
+					void prepareViewFilePreview(targetId, hit);
 					synthesisHighlightId = null;
 					synthesisContextPreview = null;
 					if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
@@ -799,8 +870,12 @@
 		viewTextSpanRange = null;
 		viewTextContent = null;
 		viewTextLoading = true;
+		viewTextExtractStatus = null;
+		const meta = files.find((x) => x.id === fileId);
+		void prepareViewFilePreview(fileId, meta);
 		try {
 			const data = await getCaseFileText(fileId, token);
+			viewTextExtractStatus = data.status;
 			viewTextContent = buildCaseFileExtractedTextModalBody({
 				status: data.status,
 				message: data.message,
@@ -808,6 +883,7 @@
 			});
 		} catch (e: any) {
 			viewTextContent = `Error: ${e?.message ?? 'Failed to load'}`;
+			viewTextExtractStatus = null;
 		} finally {
 			viewTextLoading = false;
 		}
@@ -851,6 +927,8 @@
 		viewTextContent = null;
 		viewTextRawForSpan = null;
 		viewTextSpanRange = null;
+		viewTextExtractStatus = null;
+		revokeViewPreviewObjectUrl();
 	}
 
 	async function handleDownload(f: CaseFile) {
@@ -1048,6 +1126,7 @@
 			searchDebounceHandle = undefined;
 		}
 		if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
+		revokeViewPreviewObjectUrl();
 		if (proposeWorkflow.step === 'processing') {
 			proposeRequestGeneration += 1;
 			proposeWorkflow.abort.abort();
@@ -1576,51 +1655,149 @@
 	</div>
 {/if}
 
-<!-- View extracted text modal -->
+<!-- P125-03 — Read-only view: identity + optional source preview + extracted text (raw). -->
 {#if viewTextFileId}
 	<div
 		class="{DS_FILES_CLASSES.modalOverlay}"
 		role="dialog"
 		aria-modal="true"
+		aria-labelledby="case-file-view-dialog-title"
 		on:click={(e) => e.target === e.currentTarget && closeViewText()}
 		on:keydown={(e) => e.key === 'Escape' && closeViewText()}
 		tabindex="-1"
 	>
-		<div
-			class="{DS_FILES_CLASSES.extractedPanel}"
-			on:click|stopPropagation
-		>
+		<div class="{DS_FILES_CLASSES.extractedPanel} max-w-4xl" on:click|stopPropagation>
 			<div class="{DS_FILES_CLASSES.extractedHeader}">
-				<h3 class="font-semibold {DS_TYPE_CLASSES.section}">Extracted text</h3>
-				<button
-					type="button"
-					class="{DS_BTN_CLASSES.ghost} min-h-0 rounded p-1"
-					on:click={closeViewText}
-					aria-label="Close"
-				>
-					<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-5">
-						<path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-					</svg>
-				</button>
+				<h2 id="case-file-view-dialog-title" class="font-semibold {DS_TYPE_CLASSES.section}">
+					{P125_FILE_VIEW_MODAL_TITLE}
+				</h2>
+				<div class="flex items-center gap-2">
+					<button
+						type="button"
+						class="{DS_BTN_CLASSES.secondary} px-2.5 py-1 text-xs"
+						data-testid="case-file-view-download-btn"
+						on:click={() => void handleDownloadFromViewModal()}
+					>
+						{P125_FILE_VIEW_DOWNLOAD_ORIGINAL}
+					</button>
+					<button
+						type="button"
+						class="{DS_BTN_CLASSES.ghost} min-h-0 rounded p-1"
+						on:click={closeViewText}
+						aria-label="Close"
+					>
+						<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="size-5">
+							<path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+						</svg>
+					</button>
+				</div>
 			</div>
-			<div class="{DS_FILES_CLASSES.extractedBody}">
-				{#if viewTextLoading}
-					<div class="{DS_TYPE_CLASSES.meta}">Loading...</div>
-				{:else if viewTextSpanRange !== null && viewTextRawForSpan !== null}
-					<pre
-						class="{DS_FILES_CLASSES.extractedPre}"
-						data-testid="case-file-extracted-text-body"
-						><span>{viewTextRawForSpan.slice(0, viewTextSpanRange.start)}</span><mark
-							class="bg-yellow-200 dark:bg-yellow-900/50 rounded px-0.5"
-							data-testid="case-file-extracted-text-span-mark">{viewTextRawForSpan.slice(
-								viewTextSpanRange.start,
-								viewTextSpanRange.end
-							)}</mark><span>{viewTextRawForSpan.slice(viewTextSpanRange.end)}</span></pre>
-				{:else if viewTextContent !== null}
-					<pre
-						class="{DS_FILES_CLASSES.extractedPre}"
-						data-testid="case-file-extracted-text-body">{viewTextContent}</pre>
-				{/if}
+			<div class="{DS_FILES_CLASSES.extractedBody} space-y-4">
+				<section class="space-y-2" data-testid="case-file-view-identity">
+					<h3
+						class="m-0 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-muted)]"
+					>
+						{P125_FILE_VIEW_IDENTITY_HEADING}
+					</h3>
+					<p
+						class="m-0 truncate text-sm font-medium text-[color:var(--ce-l-text-primary)]"
+						data-testid="case-file-view-name"
+					>
+						{viewTextFileMeta?.original_filename ?? viewTextFileId}
+					</p>
+					{#if viewTextFileMeta}
+						<dl
+							class="m-0 grid max-w-lg grid-cols-[5.5rem_1fr] gap-x-2 gap-y-1 text-xs {DS_TYPE_CLASSES.meta}"
+						>
+							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_TYPE}</dt>
+							<dd class="m-0 {DS_TYPE_CLASSES.mono}" title={viewTextFileMeta.mime_type ?? undefined}>
+								{caseFileExtLabel(viewTextFileMeta.original_filename, viewTextFileMeta.mime_type)}
+							</dd>
+							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_UPLOADED}</dt>
+							<dd class="m-0">
+								{formatCaseDateTime(String(viewTextFileMeta.uploaded_at ?? ''))}
+							</dd>
+							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_SIZE}</dt>
+							<dd class="m-0 {DS_TYPE_CLASSES.mono}">
+								{formatCaseFileSizeDisplay(viewTextFileMeta.file_size_bytes)}
+							</dd>
+						</dl>
+					{/if}
+				</section>
+
+				<section
+					class="space-y-2 rounded-md border border-[color:var(--ce-l-border-strong)] p-3"
+					data-testid="case-file-view-preview"
+				>
+					<h3
+						class="m-0 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-muted)]"
+					>
+						{P125_FILE_VIEW_PREVIEW_HEADING}
+					</h3>
+					{#if viewPreviewPhase === 'loading'}
+						<p class="m-0 text-xs {DS_TYPE_CLASSES.meta}">{P125_FILE_VIEW_PREVIEW_LOADING}</p>
+					{:else if viewPreviewPhase === 'ready' && viewPreviewObjectUrl}
+						{#if viewPreviewKind === 'image'}
+							<img
+								src={viewPreviewObjectUrl}
+								alt={P125_FILE_VIEW_PREVIEW_IMG_ALT}
+								class="max-h-72 max-w-full rounded border border-[color:var(--ce-l-border-strong)] object-contain"
+							/>
+						{:else if viewPreviewKind === 'pdf'}
+							<iframe
+								title={P125_FILE_VIEW_PREVIEW_HEADING}
+								class="h-80 w-full rounded border border-[color:var(--ce-l-border-strong)]"
+								src={viewPreviewObjectUrl}
+							></iframe>
+						{/if}
+					{:else if viewPreviewPhase === 'error'}
+						<p class="m-0 text-xs {DS_TYPE_CLASSES.meta}">{P125_FILE_VIEW_PREVIEW_ERROR}</p>
+					{:else}
+						<p class="m-0 text-xs {DS_TYPE_CLASSES.meta}">{P125_FILE_VIEW_PREVIEW_UNSUPPORTED}</p>
+					{/if}
+				</section>
+
+				<section
+					class="space-y-2 rounded-md border border-[color:var(--ce-l-border-strong)] p-3"
+					data-testid="case-file-view-extracted"
+					aria-label={P125_FILE_VIEW_EXTRACTED_HEADING}
+				>
+					<h3
+						class="m-0 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-muted)]"
+					>
+						{P125_FILE_VIEW_EXTRACTED_HEADING}
+					</h3>
+					<p class="m-0 text-xs leading-snug text-[color:var(--ce-l-text-muted)]">
+						{P125_FILE_VIEW_EXTRACTED_SUPPORT}
+					</p>
+					{#if viewTextLoading}
+						<div class="{DS_TYPE_CLASSES.meta}">Loading...</div>
+					{:else if viewTextSpanRange !== null && viewTextRawForSpan !== null}
+						<pre
+							class="{DS_FILES_CLASSES.extractedPre} border-t border-[color:var(--ce-l-border-strong)] pt-3"
+							data-testid="case-file-extracted-text-body"
+							><span>{viewTextRawForSpan.slice(0, viewTextSpanRange.start)}</span><mark
+								class="rounded border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ds-bg-muted)] px-0.5"
+								data-testid="case-file-extracted-text-span-mark">{viewTextRawForSpan.slice(
+									viewTextSpanRange.start,
+									viewTextSpanRange.end
+								)}</mark><span>{viewTextRawForSpan.slice(viewTextSpanRange.end)}</span></pre
+						>
+					{:else if viewTextContent !== null}
+						{#if viewTextExtractStatus === 'EXTRACTED' && viewTextContent.trim() === '(No text)'}
+							<p
+								class="m-0 text-sm {DS_TYPE_CLASSES.meta}"
+								data-testid="case-file-view-no-extracted"
+							>
+								{P125_FILE_VIEW_NO_EXTRACTED_LINE}
+							</p>
+						{:else}
+							<pre class="{DS_FILES_CLASSES.extractedPre}" data-testid="case-file-extracted-text-body"
+								>{viewTextContent}</pre
+							>
+						{/if}
+					{/if}
+				</section>
 			</div>
 		</div>
 	</div>
