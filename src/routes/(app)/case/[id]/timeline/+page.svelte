@@ -51,6 +51,7 @@
 	 * P108-03 — Return to entity detail from lens banner (`<a href>`; no history override).
 	 * P108-04 — Shared `CaseEntityLensBanner` for consistent `entityLens` filter-state UI.
 	 * P108-05 — Doctrine-safe lens copy/status via `p108EntityTimelineLensCopy`.
+	 * P124-01 — Authority framing banner (`CaseTimelineAuthorityFraming`; static copy only).
 	 */
 	import { onMount, onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
@@ -115,7 +116,6 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		TIMELINE_EMPTY_STATE_DESCRIPTION,
 		TIMELINE_HEADER_RULES_LINE,
 		TIMELINE_LOG_ENTRY_BUTTON_TITLE,
-		TIMELINE_OFFICIAL_RECORD_BADGE_TITLE,
 		TIMELINE_TIME_ZONE_LABEL,
 		TIMELINE_TIME_ZONE_TOOLTIP
 	} from './timelineOperatorMicrocopy';
@@ -192,19 +192,24 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	} from '$lib/case/p109EvidenceSelection';
 	import { isTimelineEntrySelectableForEvidence } from '$lib/case/p109EvidenceSelectionGates';
 	import CaseEvidenceSelectionStatusBar from '$lib/components/case/CaseEvidenceSelectionStatusBar.svelte';
+	import CaseWorkspaceRouteSurfacePlaceholder from '$lib/components/case/CaseWorkspaceRouteSurfacePlaceholder.svelte';
+	import CaseTimelineAuthorityFraming from '$lib/components/case/CaseTimelineAuthorityFraming.svelte';
+	import { getRouteCaseId } from '$lib/caseContext/routeCaseContext';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
 	// this component for a different case. prevLoadedCaseId is seeded to the
 	// initial param so the reactive reset block is a no-op on first render
 	// (onMount handles initial load); it fires only on case switch.
-	$: caseId = $page.params.id;
+	// P123-03 / P123-04 — case id from route params only (`getRouteCaseId`).
+	$: routeCaseId = getRouteCaseId($page.params);
+	$: caseId = routeCaseId ?? '';
 	/** P109-01 — UI-only selection store is case-scoped (clears when `caseId` changes). */
 	$: if (caseId) ensureEvidenceSelectionCaseScope(caseId);
 	/** P108-01 — URL-driven; user navigates from entity detail with `?entityLens=` only (no auto-apply). */
 	$: entityLensEntityId = parseEntityLensEntityIdFromSearchParams($page.url.searchParams);
 	let entityLensLabel = '';
-	let prevLoadedCaseId: string = $page.params.id ?? '';
+	let prevLoadedCaseId: string = getRouteCaseId($page.params) ?? '';
 	/** Incremented on each loadEntries() call; guards stale responses from writing to the new case. */
 	let activeEntriesLoadId = 0;
 	/**
@@ -1635,20 +1640,17 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	onConfirm={executeRestore}
 />
 
+{#if !routeCaseId}
+	<CaseWorkspaceRouteSurfacePlaceholder surface="Timeline" testId="case-timeline-placeholder" />
+{:else}
 <CaseWorkspaceContentRegion testId="case-timeline-page">
 <div class="ce-l-timeline-shell">
+	<!-- P124-01 — Authority framing: always visible (empty, loading, populated). -->
+	<CaseTimelineAuthorityFraming />
 
 	<!-- ── Section header ──────────────────────────────────────────────────── -->
 	<div class="ce-l-timeline-hero">
 		<div class="flex flex-col gap-0.5 min-w-0">
-			<div class="flex items-center gap-2 min-w-0 flex-wrap">
-				<h2 class="ce-l-timeline-hero-title text-sm font-semibold">Case Timeline</h2>
-				<span
-					class="shrink-0 text-xs font-medium px-1.5 py-0.5 rounded
-					       bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300"
-					title={TIMELINE_OFFICIAL_RECORD_BADGE_TITLE}
-				>Official record</span>
-			</div>
 			{#if timelineHeaderDataLine}
 				<p
 					class="m-0 text-xs ce-l-timeline-hero-meta"
@@ -2863,6 +2865,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	{/if}
 </div>
 </CaseWorkspaceContentRegion>
+{/if}
 
 <style>
 	/* Teal sheen for "Improve text" assist button — mirrors Notes workflow-shimmer.
