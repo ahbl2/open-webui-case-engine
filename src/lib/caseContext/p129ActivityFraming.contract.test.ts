@@ -23,7 +23,7 @@ describe('p129ActivityFramingCopy (P129-01)', () => {
 	it('is static exports only; taboo-free', () => {
 		const src = readFileSync(copyPath, 'utf8');
 		expect(src).toMatch(/P129_ACTIVITY_SURFACE_TITLE/);
-		expect(src).toMatch(/P129_ACTIVITY_EMPTY_TITLE/);
+		expect(src).toMatch(/P129_NAV_TITLE_ACTIVITY/);
 		assertNoTaboo(src.toLowerCase());
 		expect(src).not.toMatch(/localStorage|sessionStorage/);
 		expect(src).not.toMatch(/\$page/);

@@ -23,9 +23,3 @@ export const P129_ACTIVITY_FRAMING_BODY_NO_EVALUATION =
 /** Sidebar tab `title` (short). */
 export const P129_NAV_TITLE_ACTIVITY =
 	'Recorded actions in this case — read-only; not the official Timeline.';
-
-/** Placeholder body until P129-02+ (no list rows yet). */
-export const P129_ACTIVITY_EMPTY_TITLE = 'No activity recorded yet';
-
-export const P129_ACTIVITY_EMPTY_DESCRIPTION =
-	'When actions are stored in the activity log, they will appear here. This list only shows recorded events; it does not add or guess events.';
