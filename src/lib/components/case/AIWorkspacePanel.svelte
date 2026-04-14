@@ -1,9 +1,11 @@
 <!--
 	P130-01 — AI Workspace identity + framing (non-authoritative assistant layer).
-	Read-only display: `activeCaseMeta` for labels only. No APIs, no mutations, no proposal actions.
+	P130-02 — Read-only case retrieval on explicit user action (GET-only bundle; no LLM).
 -->
 <script lang="ts">
-	import { activeCaseMeta } from '$lib/stores';
+	import { activeCaseMeta, caseEngineToken } from '$lib/stores';
+	import { buildCaseRetrievalBundle } from '$lib/case/caseDataIngestion';
+	import type { CaseRetrievalBundle } from '$lib/case/caseRetrievalBundleTypes';
 	import {
 		DS_BANNER_CLASSES,
 		DS_PANEL_CLASSES,
@@ -15,34 +17,70 @@
 		P130_AI_WORKSPACE_BOUNDARY_TIMELINE,
 		P130_AI_WORKSPACE_CASE_CONTEXT_HEADING,
 		P130_AI_WORKSPACE_CORE_PRINCIPLE,
+		P130_AI_WORKSPACE_DATA_USED_ENTITIES,
+		P130_AI_WORKSPACE_DATA_USED_FILES,
+		P130_AI_WORKSPACE_DATA_USED_NOTES,
+		P130_AI_WORKSPACE_DATA_USED_SECTION_INTRO,
+		P130_AI_WORKSPACE_DATA_USED_SECTION_TITLE,
+		P130_AI_WORKSPACE_DATA_USED_TIMELINE,
+		P130_AI_WORKSPACE_DATA_USED_WORKFLOW,
+		P130_AI_WORKSPACE_INGESTING_LABEL,
+		P130_AI_WORKSPACE_INGESTION_SUCCESS,
 		P130_AI_WORKSPACE_INPUT_LABEL,
 		P130_AI_WORKSPACE_INPUT_PLACEHOLDER,
+		P130_AI_WORKSPACE_OUTPUT_EMPTY,
 		P130_AI_WORKSPACE_OUTPUT_REGION_LABEL,
-		P130_AI_WORKSPACE_OUTPUT_STUB,
 		P130_AI_WORKSPACE_ROLE_ASSISTANT,
 		P130_AI_WORKSPACE_ROLE_NO_MUTATION,
 		P130_AI_WORKSPACE_ROLE_NO_TIMELINE_WRITE,
 		P130_AI_WORKSPACE_ROLE_REVIEW,
 		P130_AI_WORKSPACE_SCOPE_LABEL,
-		P130_AI_WORKSPACE_SEND_DISABLED_BUTTON,
 		P130_AI_WORKSPACE_SEND_DISABLED_TITLE,
+		P130_AI_WORKSPACE_SEND_RETRIEVE_BUTTON,
+		P130_AI_WORKSPACE_SEND_RETRIEVE_TITLE,
 		P130_AI_WORKSPACE_SESSION_LINE_1,
 		P130_AI_WORKSPACE_SESSION_LINE_2,
 		P130_AI_WORKSPACE_SESSION_LINE_3,
-		P130_AI_WORKSPACE_SOURCES_SECTION_BODY,
-		P130_AI_WORKSPACE_SOURCES_SECTION_TITLE,
+		P130_AI_WORKSPACE_SOURCES_TRACE_BODY,
+		P130_AI_WORKSPACE_SOURCES_TRACE_TITLE,
 		P130_AI_WORKSPACE_SURFACE_TITLE
 	} from '$lib/caseContext/p130AIWorkspaceCopy';
 
 	/** Route case id from `/case/:id/ai-workspace` (display fallback if meta not loaded). */
 	export let caseId: string;
 
+	let bundle: CaseRetrievalBundle | null = null;
+	let ingestionError: string | null = null;
+	let ingesting = false;
+
 	function preventSubmit(e: Event) {
 		e.preventDefault();
 	}
 
+	async function runRetrieval() {
+		const cid = String(caseId ?? '').trim();
+		const token = $caseEngineToken;
+		if (!cid || !token) {
+			ingestionError = 'case_id or token missing — retrieval blocked.';
+			bundle = null;
+			return;
+		}
+		ingestionError = null;
+		ingesting = true;
+		bundle = null;
+		try {
+			bundle = await buildCaseRetrievalBundle(cid, token);
+		} catch (e: unknown) {
+			ingestionError = e instanceof Error ? e.message : String(e);
+			bundle = null;
+		} finally {
+			ingesting = false;
+		}
+	}
+
 	$: caseNumberLabel = ($activeCaseMeta?.case_number ?? '').trim() || caseId || '—';
 	$: caseTitleLabel = ($activeCaseMeta?.title ?? '').trim() || '—';
+	$: canRetrieve = Boolean(String(caseId ?? '').trim() && $caseEngineToken);
 </script>
 
 <div
@@ -150,18 +188,39 @@
 					rows="5"
 				></textarea>
 			</label>
-			<div class="mt-2 flex flex-wrap gap-2">
+			<div class="mt-2 flex flex-wrap items-center gap-2">
 				<button
 					type="button"
-					class="rounded border border-[color:var(--ce-l-border-default)] px-3 py-1.5 text-xs text-[color:var(--ce-l-text-muted)]"
-					disabled
-					data-testid="case-ai-workspace-send-stub"
-					title={P130_AI_WORKSPACE_SEND_DISABLED_TITLE}
+					class="rounded border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)] px-3 py-1.5 text-xs font-medium text-[color:var(--ce-l-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+					disabled={!canRetrieve || ingesting}
+					data-testid="case-ai-workspace-retrieve-button"
+					title={canRetrieve ? P130_AI_WORKSPACE_SEND_RETRIEVE_TITLE : P130_AI_WORKSPACE_SEND_DISABLED_TITLE}
+					on:click={runRetrieval}
 				>
-					{P130_AI_WORKSPACE_SEND_DISABLED_BUTTON}
+					{P130_AI_WORKSPACE_SEND_RETRIEVE_BUTTON}
 				</button>
+				{#if ingesting}
+					<span
+						class="{DS_TYPE_CLASSES.meta} text-[color:var(--ce-l-text-muted)]"
+						data-testid="case-ai-workspace-ingesting-label"
+					>
+						{P130_AI_WORKSPACE_INGESTING_LABEL}
+					</span>
+				{/if}
 			</div>
 		</form>
+
+		{#if ingestionError}
+			<div
+				class="rounded border border-red-300/80 bg-red-50/80 p-3 dark:border-red-800 dark:bg-red-950/40"
+				role="alert"
+				data-testid="case-ai-workspace-ingestion-error"
+			>
+				<p class="{DS_TYPE_CLASSES.body} m-0 text-sm text-red-800 dark:text-red-200">
+					{ingestionError}
+				</p>
+			</div>
+		{/if}
 
 		<section
 			class="{DS_PANEL_CLASSES.primaryDense} border border-[color:var(--ce-l-border-default)]"
@@ -174,24 +233,82 @@
 			>
 				{P130_AI_WORKSPACE_OUTPUT_REGION_LABEL}
 			</h3>
-			<p class="{DS_TYPE_CLASSES.body} m-0 px-3 py-3 text-sm text-[color:var(--ce-l-text-muted)]">
-				{P130_AI_WORKSPACE_OUTPUT_STUB}
-			</p>
+			<div class="px-3 py-3">
+				{#if bundle}
+					<p
+						class="{DS_TYPE_CLASSES.body} m-0 text-sm text-[color:var(--ce-l-text-primary)]"
+						data-testid="case-ai-workspace-ingestion-success"
+					>
+						{P130_AI_WORKSPACE_INGESTION_SUCCESS}
+					</p>
+				{:else}
+					<p class="{DS_TYPE_CLASSES.body} m-0 text-sm text-[color:var(--ce-l-text-muted)]">
+						{P130_AI_WORKSPACE_OUTPUT_EMPTY}
+					</p>
+				{/if}
+			</div>
 		</section>
 
 		<section
 			class="rounded border border-dashed border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-muted)] p-3"
-			aria-labelledby="case-ai-workspace-sources-heading"
-			data-testid="case-ai-workspace-sources-placeholder"
+			aria-labelledby="case-ai-workspace-data-used-heading"
+			data-testid="case-ai-workspace-data-used"
 		>
 			<h3
-				id="case-ai-workspace-sources-heading"
+				id="case-ai-workspace-data-used-heading"
 				class="{DS_TYPE_CLASSES.label} m-0 text-[color:var(--ce-l-text-secondary)]"
 			>
-				{P130_AI_WORKSPACE_SOURCES_SECTION_TITLE}
+				{P130_AI_WORKSPACE_DATA_USED_SECTION_TITLE}
 			</h3>
 			<p class="{DS_TYPE_CLASSES.meta} m-0 mt-1 text-[color:var(--ce-l-text-muted)]">
-				{P130_AI_WORKSPACE_SOURCES_SECTION_BODY}
+				{P130_AI_WORKSPACE_DATA_USED_SECTION_INTRO}
+			</p>
+			{#if bundle}
+				<ul
+					class="m-0 mt-2 list-none space-y-1 p-0 text-sm text-[color:var(--ce-l-text-primary)]"
+					data-testid="case-ai-workspace-data-used-counts"
+				>
+					<li data-testid="case-ai-workspace-count-timeline">
+						{P130_AI_WORKSPACE_DATA_USED_TIMELINE}:
+						<span class="tabular-nums">{bundle.sources.timeline.length}</span>
+					</li>
+					<li data-testid="case-ai-workspace-count-notes">
+						{P130_AI_WORKSPACE_DATA_USED_NOTES}:
+						<span class="tabular-nums">{bundle.sources.notes.length}</span>
+					</li>
+					<li data-testid="case-ai-workspace-count-files">
+						{P130_AI_WORKSPACE_DATA_USED_FILES}:
+						<span class="tabular-nums">{bundle.sources.files.length}</span>
+					</li>
+					<li data-testid="case-ai-workspace-count-entities">
+						{P130_AI_WORKSPACE_DATA_USED_ENTITIES}:
+						<span class="tabular-nums">{bundle.sources.entities.length}</span>
+					</li>
+					<li data-testid="case-ai-workspace-count-workflow">
+						{P130_AI_WORKSPACE_DATA_USED_WORKFLOW}:
+						<span class="tabular-nums">{bundle.sources.workflow.length}</span>
+					</li>
+				</ul>
+			{:else}
+				<p class="{DS_TYPE_CLASSES.meta} m-0 mt-2 text-[color:var(--ce-l-text-muted)]">
+					—
+				</p>
+			{/if}
+		</section>
+
+		<section
+			class="rounded border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)] p-3"
+			aria-labelledby="case-ai-workspace-sources-trace-heading"
+			data-testid="case-ai-workspace-sources-trace"
+		>
+			<h3
+				id="case-ai-workspace-sources-trace-heading"
+				class="{DS_TYPE_CLASSES.label} m-0 text-[color:var(--ce-l-text-secondary)]"
+			>
+				{P130_AI_WORKSPACE_SOURCES_TRACE_TITLE}
+			</h3>
+			<p class="{DS_TYPE_CLASSES.meta} m-0 mt-1 text-[color:var(--ce-l-text-muted)]">
+				{P130_AI_WORKSPACE_SOURCES_TRACE_BODY}
 			</p>
 		</section>
 	</div>

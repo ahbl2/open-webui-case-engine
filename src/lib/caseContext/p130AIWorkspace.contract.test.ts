@@ -1,5 +1,5 @@
 /**
- * P130-01 — AI Workspace framing: static copy; stub panel; no API or mutation paths.
+ * P130-01 / P130-02 — AI Workspace framing + read-only ingestion wiring (no direct fetch in panel).
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -26,6 +26,7 @@ describe('p130AIWorkspaceCopy (P130-01)', () => {
 		const src = readFileSync(copyPath, 'utf8');
 		expect(src).toMatch(/P130_AI_WORKSPACE_SURFACE_TITLE/);
 		expect(src).toMatch(/P130_NAV_TITLE_AI_WORKSPACE/);
+		expect(src).toMatch(/P130_AI_WORKSPACE_DATA_USED_SECTION_TITLE/);
 		assertP130Taboo(src.toLowerCase());
 		expect(src).not.toMatch(/localStorage|sessionStorage/);
 		expect(src).not.toMatch(/\$page/);
@@ -39,10 +40,12 @@ describe('p130AIWorkspaceCopy (P130-01)', () => {
 	});
 });
 
-describe('AIWorkspacePanel.svelte (P130-01)', () => {
+describe('AIWorkspacePanel.svelte (P130-01 / P130-02)', () => {
 	const src = readFileSync(panelPath, 'utf8');
 
-	it('has no Case Engine API imports or fetch', () => {
+	it('uses ingestion helper + token store; no direct Case Engine API or fetch', () => {
+		expect(src).toContain("$lib/case/caseDataIngestion");
+		expect(src).toContain('caseEngineToken');
 		expect(src).not.toMatch(/\$lib\/apis\/caseEngine/);
 		expect(src).not.toMatch(/\bfetch\s*\(/);
 		expect(src).not.toMatch(/onMount\b/);
@@ -61,7 +64,9 @@ describe('AIWorkspacePanel.svelte (P130-01)', () => {
 		expect(src).toContain('data-testid="case-ai-workspace-session-framing"');
 		expect(src).toContain('data-testid="case-ai-workspace-prompt-input"');
 		expect(src).toContain('data-testid="case-ai-workspace-output-placeholder"');
-		expect(src).toContain('data-testid="case-ai-workspace-sources-placeholder"');
+		expect(src).toContain('data-testid="case-ai-workspace-retrieve-button"');
+		expect(src).toContain('data-testid="case-ai-workspace-data-used"');
+		expect(src).toContain('data-testid="case-ai-workspace-data-used-counts"');
 		expect(src).toContain('data-p130-ai-workspace="true"');
 	});
 

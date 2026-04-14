@@ -42,23 +42,47 @@ export const P130_AI_WORKSPACE_SESSION_LINE_3 =
 
 export const P130_AI_WORKSPACE_CASE_CONTEXT_HEADING = 'Active case';
 
-export const P130_AI_WORKSPACE_INPUT_LABEL = 'Prompt (stub — not sent)';
+export const P130_AI_WORKSPACE_INPUT_LABEL = 'Prompt (optional — not sent to a model yet)';
 
 export const P130_AI_WORKSPACE_INPUT_PLACEHOLDER =
-	'Type a draft prompt. This build does not run an assistant or send requests.';
+	'Optional draft text for your own reference. Retrieval uses read-only Case Engine data for this case only.';
 
-export const P130_AI_WORKSPACE_SEND_DISABLED_TITLE =
-	'Sending prompts is not enabled in this build (no model execution).';
+export const P130_AI_WORKSPACE_SEND_RETRIEVE_BUTTON = 'Retrieve case data (read-only)';
 
-export const P130_AI_WORKSPACE_SEND_DISABLED_BUTTON = 'Send (not available)';
+export const P130_AI_WORKSPACE_SEND_RETRIEVE_TITLE =
+	'Load Timeline, Notes, Files, Entities, and Workflow for this case (GET only). No model call.';
+
+export const P130_AI_WORKSPACE_INGESTING_LABEL = 'Retrieving read-only case data…';
+
+export const P130_AI_WORKSPACE_SEND_DISABLED_TITLE = 'Connect to Case Engine and open a case to retrieve data.';
+
+export const P130_AI_WORKSPACE_SEND_DISABLED_BUTTON = 'Retrieve case data (read-only)';
 
 export const P130_AI_WORKSPACE_OUTPUT_REGION_LABEL = 'AI Output (Non-Authoritative)';
 
-export const P130_AI_WORKSPACE_OUTPUT_STUB =
-	'No output yet. This area will hold drafts only; it does not write to the Timeline.';
+export const P130_AI_WORKSPACE_INGESTION_SUCCESS =
+	'Case data retrieved for AI (read-only). No model ran; nothing was saved beyond this session.';
 
-export const P130_AI_WORKSPACE_SOURCES_SECTION_TITLE =
-	'Sources used (Timeline, Notes, Files, Entities, Workflow)';
+export const P130_AI_WORKSPACE_OUTPUT_EMPTY =
+	'No retrieval yet. Use “Retrieve case data” to load read-only case sources for this session.';
 
-export const P130_AI_WORKSPACE_SOURCES_SECTION_BODY =
-	'Reserved. A later step will list which case surfaces were read for a draft.';
+export const P130_AI_WORKSPACE_DATA_USED_SECTION_TITLE = 'Data Used (This Session)';
+
+export const P130_AI_WORKSPACE_DATA_USED_SECTION_INTRO =
+	'Sources read for this session (counts only; full rows stay in memory for a later AI step).';
+
+export const P130_AI_WORKSPACE_DATA_USED_TIMELINE = 'Timeline (authoritative entries)';
+
+export const P130_AI_WORKSPACE_DATA_USED_NOTES = 'Notes (working drafts)';
+
+export const P130_AI_WORKSPACE_DATA_USED_FILES = 'Files (metadata; optional extracted text)';
+
+export const P130_AI_WORKSPACE_DATA_USED_ENTITIES = 'Entities';
+
+export const P130_AI_WORKSPACE_DATA_USED_WORKFLOW = 'Workflow (operational items)';
+
+export const P130_AI_WORKSPACE_SOURCES_TRACE_TITLE =
+	'Source coverage (Timeline, Notes, Files, Entities, Workflow)';
+
+export const P130_AI_WORKSPACE_SOURCES_TRACE_BODY =
+	'Retrieval uses the same five surfaces; Activity is not included here.';
