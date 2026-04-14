@@ -1,7 +1,8 @@
 <script lang="ts">
 	/**
 	 * P106-02 / P106-03 / P106-05 — Case-scoped entities list. Rows link to detail. No client re-sort of server list order.
-	 * P107-01 — Create form (P126-02: `CaseEntityCreateForm`). P107-04 — Deterministic filter/group (client-side; read contract unchanged).
+	 * P107-01 — Create form (P126-02: `CaseEntityCreateForm`). P107-04 — Deterministic filter (client-side; read contract unchanged).
+	 * P126-03 — Flat list in server order; no grouping; type + value labels.
 	 * P107-05 — Read-only audit line on rows (literal `updated_at` from list read).
 	 */
 	import { onDestroy } from 'svelte';
@@ -14,25 +15,19 @@
 		P126_ENTITY_CREATE_TOAST_SUCCESS
 	} from '$lib/caseContext/p126EntityCreateCopy';
 	import { toast } from 'svelte-sonner';
-	import {
-		filterEntitiesForOrganization,
-		groupByEntityTypePreservingOrder,
-		uniqueSortedEntityTypes
-	} from '$lib/case/p107CaseEntityOrganization';
+	import { filterEntitiesForOrganization, uniqueSortedEntityTypes } from '$lib/case/p107CaseEntityOrganization';
 	import { P107_AUDIT_LIST_LAST_UPDATED_LABEL } from '$lib/case/p107CaseEntityAuditCopy';
 	import {
 		P107_ORG_EMPTY_FILTERED,
 		P107_ORG_FILTER_LABEL,
 		P107_ORG_FILTER_TYPE_ALL,
 		P107_ORG_FILTER_TYPE_LABEL,
-		P107_ORG_GROUP_BY_TYPE,
 		P107_ORG_INCLUDE_RETIRED,
 		P107_ORG_NOTE,
 		P107_ORG_RESET,
 		P107_ORG_SECTION_LABEL
 	} from '$lib/case/p107CaseEntityOrganizationCopy';
 	import {
-		P106_CASE_ENTITIES_EMPTY_COPY,
 		P106_CASE_ENTITIES_ERROR_GENERIC,
 		P106_CASE_ENTITIES_LIST_HEADING,
 		P106_CASE_ENTITIES_LOADING,
@@ -40,6 +35,11 @@
 		P106_CASE_ENTITIES_RETIRED_LABEL,
 		P106_CASE_ENTITIES_SUPPORTING_COPY
 	} from '$lib/case/p106CaseEntitiesOperatorCopy';
+	import {
+		P126_ENTITY_LIST_EMPTY_COPY,
+		P126_ENTITY_LIST_ROW_TYPE_LABEL,
+		P126_ENTITY_LIST_ROW_VALUE_LABEL
+	} from '$lib/caseContext/p126EntityListDetailCopy';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
 	export let caseId: string;
@@ -54,7 +54,6 @@
 	let includeRetired = false;
 	let entityTypeFilter = '';
 	let labelFilter = '';
-	let groupByEntityType = false;
 
 	let requestGeneration = 0;
 	let activeCaseKey = '';
@@ -67,7 +66,6 @@
 		includeRetired = false;
 		entityTypeFilter = '';
 		labelFilter = '';
-		groupByEntityType = false;
 		requestGeneration += 1;
 		activeCaseKey = nextId;
 	}
@@ -119,7 +117,6 @@
 		includeRetired = false;
 		entityTypeFilter = '';
 		labelFilter = '';
-		groupByEntityType = false;
 		void loadList();
 	}
 
@@ -128,9 +125,6 @@
 		entityType: entityTypeFilter,
 		labelSubstring: labelFilter
 	});
-	$: groupedForDisplay = groupByEntityType
-		? groupByEntityTypePreservingOrder(filteredEntities)
-		: null;
 
 	$: if (caseId && caseEngineToken && activeCaseKey === caseId) {
 		void loadList();
@@ -223,15 +217,6 @@
 						bind:value={labelFilter}
 					/>
 				</label>
-				<label class="flex items-center gap-2 cursor-pointer self-center sm:self-end">
-					<input
-						type="checkbox"
-						data-testid="case-entities-panel--group-by-type"
-						disabled={loading}
-						bind:checked={groupByEntityType}
-					/>
-					<span>{P107_ORG_GROUP_BY_TYPE}</span>
-				</label>
 				<button
 					type="button"
 					class="rounded px-3 py-1.5 text-sm font-medium border border-[color:var(--ce-l-border-subtle)] text-[color:var(--ce-l-text-primary)] hover:opacity-90 self-start sm:self-end disabled:opacity-60"
@@ -259,51 +244,12 @@
 		</p>
 	{:else if entities.length === 0}
 		<p class="text-sm text-[color:var(--ce-l-text-secondary)]" data-testid="case-entities-panel--empty">
-			{P106_CASE_ENTITIES_EMPTY_COPY}
+			{P126_ENTITY_LIST_EMPTY_COPY}
 		</p>
 	{:else if filteredEntities.length === 0}
 		<p class="text-sm text-[color:var(--ce-l-text-secondary)]" data-testid="case-entities-panel--empty-filtered">
 			{P107_ORG_EMPTY_FILTERED}
 		</p>
-	{:else if groupedForDisplay}
-		<div class="flex flex-col gap-4 min-h-0 overflow-auto" data-testid="case-entities-panel--grouped">
-			{#each groupedForDisplay as g (g.groupKey)}
-				<div class="flex flex-col gap-2" data-testid="case-entities-panel--group" data-entity-type-group={g.groupKey}>
-					<h2 class="text-xs font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">
-						{g.groupKey}
-					</h2>
-					<ul class="flex flex-col gap-2 list-none p-0 m-0" data-testid="case-entities-panel--list">
-						{#each g.items as ent (ent.id)}
-							<li>
-								<a
-									href={`/case/${encodeURIComponent(caseId)}/entities/${encodeURIComponent(ent.id)}`}
-									class="block rounded-md border border-[color:var(--ce-l-border-subtle)] px-3 py-2 bg-[color:var(--ce-l-surface-raised)] no-underline text-inherit hover:opacity-95 focus-visible:outline focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[color:var(--ce-l-focus-ring)]"
-									data-testid="case-entities-row-link"
-									data-case-entity-id={ent.id}
-								>
-									<div class="flex flex-wrap items-baseline justify-between gap-2">
-										<span class="font-medium text-[color:var(--ce-l-text-primary)]">{ent.display_label}</span>
-										{#if ent.deleted_at}
-											<span
-												class="text-xs uppercase tracking-wide text-[color:var(--ce-l-text-muted)]"
-												data-testid="case-entities-row--retired"
-											>
-												{P106_CASE_ENTITIES_RETIRED_LABEL}
-											</span>
-										{/if}
-									</div>
-									<div class="text-xs text-[color:var(--ce-l-text-secondary)] mt-0.5">{ent.entity_type}</div>
-									<div class="text-xs text-[color:var(--ce-l-text-muted)] mt-0.5" data-testid="case-entities-row--audit">
-										{P107_AUDIT_LIST_LAST_UPDATED_LABEL}{' '}
-										<span data-testid="case-entities-row--audit-updated-at">{auditFieldDisplay(ent.updated_at)}</span>
-									</div>
-								</a>
-							</li>
-						{/each}
-					</ul>
-				</div>
-			{/each}
-		</div>
 	{:else}
 		<ul
 			class="flex flex-col gap-2 min-h-0 overflow-auto list-none p-0 m-0"
@@ -317,18 +263,26 @@
 						data-testid="case-entities-row-link"
 						data-case-entity-id={ent.id}
 					>
-						<div class="flex flex-wrap items-baseline justify-between gap-2">
-							<span class="font-medium text-[color:var(--ce-l-text-primary)]">{ent.display_label}</span>
+						<div class="flex flex-wrap items-start justify-between gap-2">
+							<div class="min-w-0 flex-1 space-y-0.5">
+								<div class="text-[0.7rem] uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">
+									{P126_ENTITY_LIST_ROW_TYPE_LABEL}
+								</div>
+								<div class="text-sm text-[color:var(--ce-l-text-primary)] break-words">{ent.entity_type}</div>
+								<div class="text-[0.7rem] uppercase tracking-wide text-[color:var(--ce-l-text-muted)] pt-1">
+									{P126_ENTITY_LIST_ROW_VALUE_LABEL}
+								</div>
+								<div class="text-sm text-[color:var(--ce-l-text-primary)] break-words">{ent.display_label}</div>
+							</div>
 							{#if ent.deleted_at}
 								<span
-									class="text-xs uppercase tracking-wide text-[color:var(--ce-l-text-muted)]"
+									class="text-xs uppercase tracking-wide text-[color:var(--ce-l-text-muted)] shrink-0"
 									data-testid="case-entities-row--retired"
 								>
 									{P106_CASE_ENTITIES_RETIRED_LABEL}
 								</span>
 							{/if}
 						</div>
-						<div class="text-xs text-[color:var(--ce-l-text-secondary)] mt-0.5">{ent.entity_type}</div>
 						<div class="text-xs text-[color:var(--ce-l-text-muted)] mt-0.5" data-testid="case-entities-row--audit">
 							{P107_AUDIT_LIST_LAST_UPDATED_LABEL}{' '}
 							<span data-testid="case-entities-row--audit-updated-at">{auditFieldDisplay(ent.updated_at)}</span>

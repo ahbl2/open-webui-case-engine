@@ -5,6 +5,7 @@
 	 * P107-02 — Retire/restore (Phase 105 POST lifecycle); detail GET uses include_retired to load retired rows by id.
 	 * P108-01 / P108-02 — Read-only links to timeline + files entity lens (`?entityLens=`).
 	 * P108-03 — Same query param; lens banners link back to this detail route.
+	 * P126-03 — Identity / attributes / linked references layout; explicit links only (partitioned by type).
 	 */
 	import { onDestroy } from 'svelte';
 	import {
@@ -29,6 +30,7 @@
 		P107_CASE_ENTITY_RETIRE_CONFIRM
 	} from '$lib/case/p107CaseEntityLifecycleCopy';
 	import { P107_EVIDENCE_UNLINK_BUTTON, P107_EVIDENCE_UNLINK_CONFIRM } from '$lib/case/p107CaseEntityEvidenceLinkCopy';
+	import { DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import { p106LiteralAttributeRows } from '$lib/case/p106CaseEntityLiteralAttributes';
 	import { citationNavigationPayloadFromEntityEvidenceLink } from '$lib/case/p106EntityEvidenceCitationNavigation';
 	import { navigateToCitationNavigationPayload } from '$lib/case/p103CitationNavigationIntent';
@@ -53,17 +55,29 @@
 		P106_CASE_ENTITY_DETAIL_ATTRIBUTES_HEADING,
 		P106_CASE_ENTITY_DETAIL_BACK_TO_LIST,
 		P106_CASE_ENTITY_DETAIL_ERROR_GENERIC,
-		P106_CASE_ENTITY_DETAIL_EVIDENCE_HEADING,
 		P106_CASE_ENTITY_DETAIL_LINK_TYPE_FILE,
 		P106_CASE_ENTITY_DETAIL_LINK_TYPE_TIMELINE,
 		P106_CASE_ENTITY_DETAIL_LOADING,
-		P106_CASE_ENTITY_DETAIL_NO_EVIDENCE,
 		P106_CASE_ENTITY_DETAIL_SUPPORTING_COPY,
 		P106_CASE_ENTITY_DETAIL_TARGET_UNAVAILABLE,
 		P106_CASE_ENTITY_EVIDENCE_UNAVAILABLE_NOTE,
 		P106_CASE_ENTITY_NAVIGATION_FAILED,
 		P106_CASE_ENTITY_OPEN_LINKED_RECORD
 	} from '$lib/case/p106CaseEntitiesOperatorCopy';
+	import {
+		P126_ENTITY_DETAIL_ATTRIBUTES_EMPTY,
+		P126_ENTITY_DETAIL_FIELD_TYPE_LABEL,
+		P126_ENTITY_DETAIL_FIELD_VALUE_LABEL,
+		P126_ENTITY_DETAIL_SECTION_IDENTITY,
+		P126_LINKED_REFERENCES_FILES_EMPTY,
+		P126_LINKED_REFERENCES_HEADING,
+		P126_LINKED_REFERENCES_INTRO,
+		P126_LINKED_REFERENCES_NOTES_UNAVAILABLE,
+		P126_LINKED_REFERENCES_SUB_FILES,
+		P126_LINKED_REFERENCES_SUB_NOTES,
+		P126_LINKED_REFERENCES_SUB_TIMELINE,
+		P126_LINKED_REFERENCES_TIMELINE_EMPTY
+	} from '$lib/caseContext/p126EntityListDetailCopy';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 
 	export let caseId: string;
@@ -144,6 +158,10 @@
 		detail = null;
 		loading = false;
 	}
+
+	$: timelineRefLinks =
+		detail?.evidence_links.filter((l) => l.link_type === 'timeline_entry') ?? [];
+	$: fileRefLinks = detail?.evidence_links.filter((l) => l.link_type === 'case_file') ?? [];
 
 	function linkTypeLabel(link: CaseEngineEvidenceLinkReadItem): string {
 		if (link.link_type === 'timeline_entry') return P106_CASE_ENTITY_DETAIL_LINK_TYPE_TIMELINE;
@@ -270,20 +288,24 @@
 				}}
 			/>
 		{:else}
-			<header class="flex flex-col gap-1 shrink-0">
-				<h1 class="text-lg font-semibold text-[color:var(--ce-l-text-primary)]">
-					{detail.case_entity.display_label}
-				</h1>
-				<p class="text-sm text-[color:var(--ce-l-text-secondary)]">{P106_CASE_ENTITY_DETAIL_SUPPORTING_COPY}</p>
-				<div class="text-sm text-[color:var(--ce-l-text-secondary)]">
-					<span class="text-[color:var(--ce-l-text-muted)]">Type:</span>
-					{detail.case_entity.entity_type}
-					{#if detail.case_entity.deleted_at}
-						<span class="ml-2 text-xs uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">
-							({P106_CASE_ENTITIES_RETIRED_LABEL})
-						</span>
-					{/if}
-				</div>
+			<header class="flex flex-col gap-2 shrink-0" data-testid="case-entity-detail--identity">
+				<h2 class="{DS_TYPE_CLASSES.section} text-sm font-semibold text-[color:var(--ce-l-text-primary)] m-0">
+					{P126_ENTITY_DETAIL_SECTION_IDENTITY}
+				</h2>
+				<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0">{P106_CASE_ENTITY_DETAIL_SUPPORTING_COPY}</p>
+				<dl class="grid grid-cols-1 sm:grid-cols-[minmax(0,12rem)_1fr] gap-x-4 gap-y-1 text-sm m-0">
+					<dt class="text-[color:var(--ce-l-text-muted)] shrink-0">{P126_ENTITY_DETAIL_FIELD_TYPE_LABEL}</dt>
+					<dd class="text-[color:var(--ce-l-text-primary)] break-words">
+						{detail.case_entity.entity_type}
+						{#if detail.case_entity.deleted_at}
+							<span class="ml-2 text-xs uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">
+								({P106_CASE_ENTITIES_RETIRED_LABEL})
+							</span>
+						{/if}
+					</dd>
+					<dt class="text-[color:var(--ce-l-text-muted)] shrink-0">{P126_ENTITY_DETAIL_FIELD_VALUE_LABEL}</dt>
+					<dd class="text-[color:var(--ce-l-text-primary)] break-words">{detail.case_entity.display_label}</dd>
+				</dl>
 				{#if caseEngineToken}
 					<div class="pt-1 flex flex-col gap-1">
 						<a
@@ -388,25 +410,38 @@
 				</dl>
 			</section>
 
-			{#if p106LiteralAttributeRows(detail.case_entity.attributes).length > 0}
-				<section data-testid="case-entity-detail--attributes" class="flex flex-col gap-2">
-					<h2 class="text-sm font-medium text-[color:var(--ce-l-text-primary)]">
-						{P106_CASE_ENTITY_DETAIL_ATTRIBUTES_HEADING}
-					</h2>
-					<dl class="grid grid-cols-1 sm:grid-cols-[minmax(0,12rem)_1fr] gap-x-4 gap-y-1 text-sm">
+			<section
+				data-testid="case-entity-detail--attributes"
+				class="flex flex-col gap-2 rounded-md border border-[color:var(--ce-l-border-subtle)] p-3 bg-[color:var(--ce-l-surface-raised)]"
+			>
+				<h2 class="{DS_TYPE_CLASSES.section} text-sm font-semibold text-[color:var(--ce-l-text-primary)] m-0">
+					{P106_CASE_ENTITY_DETAIL_ATTRIBUTES_HEADING}
+				</h2>
+				{#if p106LiteralAttributeRows(detail.case_entity.attributes).length > 0}
+					<dl class="grid grid-cols-1 sm:grid-cols-[minmax(0,12rem)_1fr] gap-x-4 gap-y-1 text-sm m-0">
 						{#each p106LiteralAttributeRows(detail.case_entity.attributes) as row (row.key)}
 							<dt class="text-[color:var(--ce-l-text-muted)] shrink-0">{row.key}</dt>
 							<dd class="text-[color:var(--ce-l-text-primary)] break-words">{row.value}</dd>
 						{/each}
 					</dl>
-				</section>
-			{/if}
+				{:else}
+					<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="case-entity-detail--attributes-empty">
+						{P126_ENTITY_DETAIL_ATTRIBUTES_EMPTY}
+					</p>
+				{/if}
+			</section>
 		{/if}
 
-		<section data-testid="case-entity-detail--evidence" class="flex flex-col gap-2 min-h-0">
-			<h2 class="text-sm font-medium text-[color:var(--ce-l-text-primary)]">
-				{P106_CASE_ENTITY_DETAIL_EVIDENCE_HEADING}
-			</h2>
+		<section
+			data-testid="case-entity-detail--linked-references"
+			class="flex flex-col gap-3 min-h-0 rounded-md border border-[color:var(--ce-l-border-subtle)] p-3 bg-[color:var(--ce-l-surface-raised)]"
+		>
+			<div>
+				<h2 class="{DS_TYPE_CLASSES.section} text-sm font-semibold text-[color:var(--ce-l-text-primary)] m-0">
+					{P126_LINKED_REFERENCES_HEADING}
+				</h2>
+				<p class="text-xs text-[color:var(--ce-l-text-secondary)] m-0 mt-1 max-w-prose">{P126_LINKED_REFERENCES_INTRO}</p>
+			</div>
 			{#if caseEngineToken && !showEditForm}
 				<CaseEntityEvidenceLinkForm
 					caseId={caseId}
@@ -435,65 +470,156 @@
 					{navigationError}
 				</p>
 			{/if}
-			{#if detail.evidence_links.length === 0}
-				<p class="text-sm text-[color:var(--ce-l-text-secondary)]" data-testid="case-entity-detail--evidence-empty">
-					{P106_CASE_ENTITY_DETAIL_NO_EVIDENCE}
-				</p>
-			{:else}
-				<ul class="flex flex-col gap-2 list-none p-0 m-0" data-testid="case-entity-detail--evidence-list">
-					{#each detail.evidence_links as link (link.id)}
-						<li
-							class="rounded-md border border-[color:var(--ce-l-border-subtle)] px-3 py-2 bg-[color:var(--ce-l-surface-raised)]"
-							data-testid="case-entity-detail--evidence-row"
-							data-evidence-link-type={link.link_type}
+
+			<div class="flex flex-col gap-4">
+				<div data-testid="case-entity-detail--references-timeline-block">
+					<h3 class="text-xs font-medium uppercase tracking-wide text-[color:var(--ce-l-text-muted)] m-0">
+						{P126_LINKED_REFERENCES_SUB_TIMELINE}
+					</h3>
+					{#if timelineRefLinks.length === 0}
+						<p
+							class="text-sm text-[color:var(--ce-l-text-secondary)] m-0 mt-1"
+							data-testid="case-entity-detail--references-timeline-empty"
 						>
-							<div class="text-xs uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">
-								{linkTypeLabel(link)}
-							</div>
-							<div class="text-sm text-[color:var(--ce-l-text-primary)] mt-0.5 break-words">
-								{link.target_label ?? link.target_id}
-							</div>
-							{#if link.target_status === 'unavailable'}
-								<div class="text-xs text-[color:var(--ce-l-text-muted)] mt-1">
-									{P106_CASE_ENTITY_DETAIL_TARGET_UNAVAILABLE}
-								</div>
-								<div
-									class="text-xs text-[color:var(--ce-l-text-muted)] mt-0.5"
-									data-testid="case-entity-detail--evidence-unavailable-note"
+							{P126_LINKED_REFERENCES_TIMELINE_EMPTY}
+						</p>
+					{:else}
+						<ul class="flex flex-col gap-2 list-none p-0 m-0 mt-1" data-testid="case-entity-detail--references-timeline-list">
+							{#each timelineRefLinks as link (link.id)}
+								<li
+									class="rounded-md border border-[color:var(--ce-l-border-subtle)] px-3 py-2 bg-[color:var(--ce-l-surface-base)]"
+									data-testid="case-entity-detail--evidence-row"
+									data-evidence-link-type={link.link_type}
 								>
-									{P106_CASE_ENTITY_EVIDENCE_UNAVAILABLE_NOTE}
-								</div>
-							{:else if citationNavigationPayloadFromEntityEvidenceLink(caseId, link)}
-								<div class="mt-2">
-									<button
-										type="button"
-										class="rounded px-2 py-1 text-xs font-medium bg-gray-800 text-white hover:bg-gray-700 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
-										data-testid="case-entity-detail--evidence-open"
-										aria-label={P106_CASE_ENTITY_OPEN_LINKED_RECORD}
-										on:click={() => void openLinkedRecord(link)}
-									>
-										{P106_CASE_ENTITY_OPEN_LINKED_RECORD}
-									</button>
-								</div>
-							{/if}
-							{#if caseEngineToken && !showEditForm}
-								<div class="mt-2">
-									<button
-										type="button"
-										class="rounded px-2 py-1 text-xs font-medium border border-[color:var(--ce-l-border-subtle)] text-[color:var(--ce-l-text-primary)] hover:opacity-90 disabled:opacity-60"
-										data-testid="case-entity-detail--evidence-unlink"
-										data-evidence-link-id={link.id}
-										disabled={unlinkingLinkId !== null}
-										on:click={() => void handleUnlinkEvidence(link.id)}
-									>
-										{unlinkingLinkId === link.id ? '…' : P107_EVIDENCE_UNLINK_BUTTON}
-									</button>
-								</div>
-							{/if}
-						</li>
-					{/each}
-				</ul>
-			{/if}
+									<div class="text-xs uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">
+										{linkTypeLabel(link)}
+									</div>
+									<div class="text-sm text-[color:var(--ce-l-text-primary)] mt-0.5 break-words">
+										{link.target_label ?? link.target_id}
+									</div>
+									{#if link.target_status === 'unavailable'}
+										<div class="text-xs text-[color:var(--ce-l-text-muted)] mt-1">
+											{P106_CASE_ENTITY_DETAIL_TARGET_UNAVAILABLE}
+										</div>
+										<div
+											class="text-xs text-[color:var(--ce-l-text-muted)] mt-0.5"
+											data-testid="case-entity-detail--evidence-unavailable-note"
+										>
+											{P106_CASE_ENTITY_EVIDENCE_UNAVAILABLE_NOTE}
+										</div>
+									{:else if citationNavigationPayloadFromEntityEvidenceLink(caseId, link)}
+										<div class="mt-2">
+											<button
+												type="button"
+												class="rounded px-2 py-1 text-xs font-medium bg-gray-800 text-white hover:bg-gray-700 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
+												data-testid="case-entity-detail--evidence-open"
+												aria-label={P106_CASE_ENTITY_OPEN_LINKED_RECORD}
+												on:click={() => void openLinkedRecord(link)}
+											>
+												{P106_CASE_ENTITY_OPEN_LINKED_RECORD}
+											</button>
+										</div>
+									{/if}
+									{#if caseEngineToken && !showEditForm}
+										<div class="mt-2">
+											<button
+												type="button"
+												class="rounded px-2 py-1 text-xs font-medium border border-[color:var(--ce-l-border-subtle)] text-[color:var(--ce-l-text-primary)] hover:opacity-90 disabled:opacity-60"
+												data-testid="case-entity-detail--evidence-unlink"
+												data-evidence-link-id={link.id}
+												disabled={unlinkingLinkId !== null}
+												on:click={() => void handleUnlinkEvidence(link.id)}
+											>
+												{unlinkingLinkId === link.id ? '…' : P107_EVIDENCE_UNLINK_BUTTON}
+											</button>
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+
+				<div data-testid="case-entity-detail--references-files-block">
+					<h3 class="text-xs font-medium uppercase tracking-wide text-[color:var(--ce-l-text-muted)] m-0">
+						{P126_LINKED_REFERENCES_SUB_FILES}
+					</h3>
+					{#if fileRefLinks.length === 0}
+						<p
+							class="text-sm text-[color:var(--ce-l-text-secondary)] m-0 mt-1"
+							data-testid="case-entity-detail--references-files-empty"
+						>
+							{P126_LINKED_REFERENCES_FILES_EMPTY}
+						</p>
+					{:else}
+						<ul class="flex flex-col gap-2 list-none p-0 m-0 mt-1" data-testid="case-entity-detail--references-files-list">
+							{#each fileRefLinks as link (link.id)}
+								<li
+									class="rounded-md border border-[color:var(--ce-l-border-subtle)] px-3 py-2 bg-[color:var(--ce-l-surface-base)]"
+									data-testid="case-entity-detail--evidence-row"
+									data-evidence-link-type={link.link_type}
+								>
+									<div class="text-xs uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">
+										{linkTypeLabel(link)}
+									</div>
+									<div class="text-sm text-[color:var(--ce-l-text-primary)] mt-0.5 break-words">
+										{link.target_label ?? link.target_id}
+									</div>
+									{#if link.target_status === 'unavailable'}
+										<div class="text-xs text-[color:var(--ce-l-text-muted)] mt-1">
+											{P106_CASE_ENTITY_DETAIL_TARGET_UNAVAILABLE}
+										</div>
+										<div
+											class="text-xs text-[color:var(--ce-l-text-muted)] mt-0.5"
+											data-testid="case-entity-detail--evidence-unavailable-note"
+										>
+											{P106_CASE_ENTITY_EVIDENCE_UNAVAILABLE_NOTE}
+										</div>
+									{:else if citationNavigationPayloadFromEntityEvidenceLink(caseId, link)}
+										<div class="mt-2">
+											<button
+												type="button"
+												class="rounded px-2 py-1 text-xs font-medium bg-gray-800 text-white hover:bg-gray-700 dark:bg-gray-200 dark:text-gray-900 dark:hover:bg-white"
+												data-testid="case-entity-detail--evidence-open"
+												aria-label={P106_CASE_ENTITY_OPEN_LINKED_RECORD}
+												on:click={() => void openLinkedRecord(link)}
+											>
+												{P106_CASE_ENTITY_OPEN_LINKED_RECORD}
+											</button>
+										</div>
+									{/if}
+									{#if caseEngineToken && !showEditForm}
+										<div class="mt-2">
+											<button
+												type="button"
+												class="rounded px-2 py-1 text-xs font-medium border border-[color:var(--ce-l-border-subtle)] text-[color:var(--ce-l-text-primary)] hover:opacity-90 disabled:opacity-60"
+												data-testid="case-entity-detail--evidence-unlink"
+												data-evidence-link-id={link.id}
+												disabled={unlinkingLinkId !== null}
+												on:click={() => void handleUnlinkEvidence(link.id)}
+											>
+												{unlinkingLinkId === link.id ? '…' : P107_EVIDENCE_UNLINK_BUTTON}
+											</button>
+										</div>
+									{/if}
+								</li>
+							{/each}
+						</ul>
+					{/if}
+				</div>
+
+				<div data-testid="case-entity-detail--references-notes-block">
+					<h3 class="text-xs font-medium uppercase tracking-wide text-[color:var(--ce-l-text-muted)] m-0">
+						{P126_LINKED_REFERENCES_SUB_NOTES}
+					</h3>
+					<p
+						class="text-sm text-[color:var(--ce-l-text-secondary)] m-0 mt-1 max-w-prose"
+						data-testid="case-entity-detail--references-notes-empty"
+					>
+						{P126_LINKED_REFERENCES_NOTES_UNAVAILABLE}
+					</p>
+				</div>
+			</div>
 		</section>
 	{/if}
 </div>

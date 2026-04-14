@@ -14,12 +14,12 @@ const copyPath = join(here, '../../case/p107CaseEntityOrganizationCopy.ts');
 describe('CaseEntitiesPanel.svelte (P107-04)', () => {
 	const src = readFileSync(panelPath, 'utf8');
 
-	it('uses getCaseEntitiesList with includeRetired and client-side organization helpers', () => {
+	it('uses getCaseEntitiesList with includeRetired and client-side filter helpers (no grouping)', () => {
 		expect(src).toContain('getCaseEntitiesList');
 		expect(src).toContain('includeRetired');
 		expect(src).toContain('p107CaseEntityOrganization');
 		expect(src).toContain('filterEntitiesForOrganization');
-		expect(src).toContain('groupByEntityTypePreservingOrder');
+		expect(src).not.toContain('groupByEntityTypePreservingOrder');
 		expect(src).not.toContain('fetch(');
 	});
 
@@ -32,10 +32,9 @@ describe('CaseEntitiesPanel.svelte (P107-04)', () => {
 		expect(src).toContain('data-testid="case-entities-panel--include-retired"');
 		expect(src).toContain('data-testid="case-entities-panel--filter-entity-type"');
 		expect(src).toContain('data-testid="case-entities-panel--filter-label"');
-		expect(src).toContain('data-testid="case-entities-panel--group-by-type"');
 		expect(src).toContain('data-testid="case-entities-panel--org-reset"');
 		expect(src).toContain('data-testid="case-entities-panel--empty-filtered"');
-		expect(src).toContain('data-testid="case-entities-panel--grouped"');
+		expect(src).not.toContain('case-entities-panel--grouped');
 	});
 
 	it('preserves row links to entity detail', () => {

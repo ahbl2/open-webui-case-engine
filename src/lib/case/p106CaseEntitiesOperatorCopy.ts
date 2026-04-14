@@ -8,9 +8,6 @@ export const P106_CASE_ENTITIES_LIST_HEADING = 'Supporting entities';
 export const P106_CASE_ENTITIES_SUPPORTING_COPY =
 	'Supporting records only. Timeline entries are the committed chronology; entities are labels you add—not a substitute for Timeline entries.';
 
-export const P106_CASE_ENTITIES_EMPTY_COPY =
-	'No structured entities yet. They appear only when you create them; nothing here is generated from Timeline, Notes, or Files without your action.';
-
 export const P106_CASE_ENTITIES_LOADING = 'Loading…';
 
 export const P106_CASE_ENTITIES_ERROR_GENERIC = 'Could not load entities. Try again.';
@@ -30,12 +27,7 @@ export const P106_CASE_ENTITY_DETAIL_LOADING = 'Loading entity…';
 
 export const P106_CASE_ENTITY_DETAIL_ERROR_GENERIC = 'Could not load this entity. Try again.';
 
-export const P106_CASE_ENTITY_DETAIL_NO_EVIDENCE =
-	'No explicit evidence links are recorded for this entity. The Timeline remains the official case record.';
-
 export const P106_CASE_ENTITY_DETAIL_ATTRIBUTES_HEADING = 'Attributes (literal values from Case Engine)';
-
-export const P106_CASE_ENTITY_DETAIL_EVIDENCE_HEADING = 'Explicit evidence links (declared only)';
 
 export const P106_CASE_ENTITY_DETAIL_LINK_TYPE_TIMELINE = 'Timeline entry';
 

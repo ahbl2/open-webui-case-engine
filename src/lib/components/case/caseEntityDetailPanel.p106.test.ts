@@ -24,14 +24,17 @@ describe('CaseEntityDetailPanel.svelte (P106-03)', () => {
 		expect(src).not.toMatch(/\.sort\(/);
 	});
 
-	it('exposes test ids for loading, error, evidence, back link', () => {
+	it('exposes test ids for loading, error, linked references, identity, back link', () => {
 		expect(src).toContain('data-testid="case-entity-detail-panel"');
 		expect(src).toContain('data-testid="case-entity-detail--loading"');
 		expect(src).toContain('data-testid="case-entity-detail--error"');
-		expect(src).toContain('data-testid="case-entity-detail--evidence"');
+		expect(src).toContain('data-testid="case-entity-detail--linked-references"');
+		expect(src).toContain('data-testid="case-entity-detail--identity"');
 		expect(src).toContain('data-testid="case-entity-detail-back"');
-		expect(src).toContain('data-testid="case-entity-detail--evidence-list"');
-		expect(src).toContain('data-testid="case-entity-detail--evidence-empty"');
+		expect(src).toContain('data-testid="case-entity-detail--references-timeline-list"');
+		expect(src).toContain('data-testid="case-entity-detail--references-timeline-empty"');
+		expect(src).toContain('data-testid="case-entity-detail--references-files-list"');
+		expect(src).toContain('data-testid="case-entity-detail--references-notes-empty"');
 	});
 
 	it('uses literal attributes helper (no raw JSON.stringify of attributes)', () => {
@@ -66,10 +69,10 @@ describe('CaseEntityDetailPanel.svelte (P106-04)', () => {
 describe('entities/[entityId]/+page.svelte (P106-03)', () => {
 	const src = readFileSync(pagePath, 'utf8');
 
-	it('mounts CaseEntityDetailPanel with case id, entity id, token', () => {
+	it('mounts CaseEntityDetailPanel with route case id, entity id, token', () => {
 		expect(src).toContain('CaseEntityDetailPanel');
 		expect(src).toContain('entityId');
-		expect(src).toContain('$page.params.entityId');
+		expect(src).toContain('getRouteCaseIdString');
 		expect(src).toContain('#key');
 	});
 });
