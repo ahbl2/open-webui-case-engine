@@ -5,6 +5,7 @@
 	/** P108-04 — Shared `CaseEntityLensBanner` for consistent `entityLens` filter-state UI. */
 	/** P108-05 — Doctrine-safe lens copy/status via `p108EntityTimelineLensCopy`. */
 	/** P109-01 — Manual evidence selection checkbox + shared session-only store with Timeline. */
+	/** P125-02 — Explicit per-row metadata labels + uniform type display (same API fields; no new list semantics). */
 	import { onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { browser, dev } from '$app/environment';
@@ -87,6 +88,16 @@
 	import CaseEvidenceSelectionStatusBar from '$lib/components/case/CaseEvidenceSelectionStatusBar.svelte';
 	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
+	import {
+		P125_FILES_BROWSER_LIST_HEADING,
+		P125_FILES_EMPTY_DESCRIPTION,
+		P125_FILES_EMPTY_FILTERED_DESCRIPTION,
+		P125_FILES_EMPTY_FILTERED_TITLE,
+		P125_FILES_EMPTY_TITLE,
+		P125_FILES_LABEL_SIZE,
+		P125_FILES_LABEL_TYPE,
+		P125_FILES_LABEL_UPLOADED
+	} from '$lib/caseContext/p125FilesBrowserCopy';
 	import {
 		DS_BTN_CLASSES,
 		DS_FILES_CLASSES,
@@ -389,6 +400,13 @@
 			hasTagsFilter !== 'all');
 
 	$: if (!hasActiveListConstraints) filesFilterUploadHintShown = false;
+
+	/** P125-02 — deterministic size label only (display; no significance cues). */
+	function formatCaseFileSizeDisplay(bytes: unknown): string {
+		if (typeof bytes !== 'number' || !Number.isFinite(bytes) || bytes < 0) return '—';
+		if (bytes < 1024) return `${bytes} B`;
+		return `${Math.round(bytes / 1024)} KB`;
+	}
 
 	function clearEntityFilesLens(): void {
 		void goto(`/case/${encodeURIComponent(caseId)}/files`, { replaceState: true });
@@ -1245,22 +1263,31 @@
 		<CaseLoadingState label="Loading files…" />
 	{:else if loadError}
 		<CaseErrorState title="Failed to load files" message={loadError} onRetry={loadFiles} />
-	{:else if files.length === 0}
-		{#if entityLensEntityId}
-			<CaseEmptyState
-				title={P108_ENTITY_FILES_LENS_EMPTY_TITLE}
-				description={P108_ENTITY_FILES_LENS_EMPTY}
-				testId="case-files-entity-lens-empty"
-			/>
-		{:else}
-		<CaseEmptyState
-			title={hasActiveListConstraints ? 'No matching files.' : 'No files yet.'}
-			description={hasActiveListConstraints
-				? 'Try adjusting search or filters, or reset them to see all files in this case.'
-				: 'Choose a file or drag files into the upload area above.'}
-		/>
-		{/if}
 	{:else}
+		{#if !entityLensEntityId && files.length > 0}
+			<h3
+				class="{DS_FILES_CLASSES.sectionLabel} mb-2"
+				data-testid="case-files-browser-list-heading"
+			>
+				{P125_FILES_BROWSER_LIST_HEADING}
+			</h3>
+		{/if}
+		{#if files.length === 0}
+			{#if entityLensEntityId}
+				<CaseEmptyState
+					title={P108_ENTITY_FILES_LENS_EMPTY_TITLE}
+					description={P108_ENTITY_FILES_LENS_EMPTY}
+					testId="case-files-entity-lens-empty"
+				/>
+			{:else}
+				<CaseEmptyState
+					title={hasActiveListConstraints ? P125_FILES_EMPTY_FILTERED_TITLE : P125_FILES_EMPTY_TITLE}
+					description={hasActiveListConstraints
+						? P125_FILES_EMPTY_FILTERED_DESCRIPTION
+						: P125_FILES_EMPTY_DESCRIPTION}
+				/>
+			{/if}
+		{:else}
 		<div class="flex flex-col gap-4">
 			{#each files as f (f.id)}
 				<div
@@ -1275,10 +1302,11 @@
 						lines={synthesisContextPreview.lines}
 					/>
 				{/if}
-				<div class="flex flex-wrap items-center gap-2">
+				<!-- P125-02 — one row per file; explicit Type / Uploaded / Size (uniform; no extractability styling on type). -->
+				<div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
 					{#if isCaseFileSelectableForEvidence(f)}
 						<label
-							class="inline-flex items-center shrink-0 cursor-pointer"
+							class="inline-flex shrink-0 cursor-pointer items-center pt-0.5"
 							title={P109_EVIDENCE_SELECTION_FILE_TOGGLE_TITLE}
 							data-testid="case-file-manual-evidence-select"
 						>
@@ -1293,24 +1321,25 @@
 							/>
 						</label>
 					{/if}
-					<span class="min-w-0 flex-1 truncate font-semibold {DS_TYPE_CLASSES.section}">{f.original_filename}</span>
-					<span
-						class="{DS_FILES_CLASSES.extBadge} {isCaseFileLikelyExtractable(
-							f.original_filename,
-							f.mime_type
-						)
-							? DS_FILES_CLASSES.extBadgeExtractable
-							: DS_FILES_CLASSES.extBadgeNeutral}"
-						title={f.mime_type ?? undefined}
-					>{caseFileExtLabel(f.original_filename, f.mime_type)}</span>
-					<span class="shrink-0 text-xs {DS_TYPE_CLASSES.meta}"
-						>{f.file_size_bytes != null ? `${Math.round(f.file_size_bytes / 1024)} KB` : ''}</span
-					>
+					<div class="min-w-0 flex-1 flex flex-col gap-2">
+						<p class="m-0 min-w-0 truncate text-sm font-medium {DS_TYPE_CLASSES.section}" data-testid="case-file-row-name">
+							{f.original_filename}
+						</p>
+						<dl
+							class="m-0 grid max-w-lg grid-cols-[5.5rem_1fr] gap-x-2 gap-y-1 text-xs {DS_TYPE_CLASSES.meta}"
+							data-testid="case-file-row-metadata"
+						>
+							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_TYPE}</dt>
+							<dd class="m-0 {DS_TYPE_CLASSES.mono}" title={f.mime_type ?? undefined}>
+								{caseFileExtLabel(f.original_filename, f.mime_type)}
+							</dd>
+							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_UPLOADED}</dt>
+							<dd class="m-0">{formatCaseDateTime(String(f.uploaded_at ?? ''))}</dd>
+							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_SIZE}</dt>
+							<dd class="m-0 {DS_TYPE_CLASSES.mono}">{formatCaseFileSizeDisplay(f.file_size_bytes)}</dd>
+						</dl>
+					</div>
 				</div>
-				<!-- `uploaded_at`: canonical case datetime (formatCaseDateTime — align with other case tabs; see formatDateTime.ts). -->
-				<p class="text-xs {DS_TYPE_CLASSES.meta}">
-					Uploaded: {formatCaseDateTime(String(f.uploaded_at ?? ''))}
-				</p>
 				<FilesDeclaredRelationshipsBlock {caseId} fileId={f.id} />
 				<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
 					<button
@@ -1458,6 +1487,7 @@
 				</div>
 			{/if}
 		</div>
+		{/if}
 	{/if}
 </div>
 
