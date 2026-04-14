@@ -42,10 +42,10 @@ export const P130_AI_WORKSPACE_SESSION_LINE_3 =
 
 export const P130_AI_WORKSPACE_CASE_CONTEXT_HEADING = 'Active case';
 
-export const P130_AI_WORKSPACE_INPUT_LABEL = 'Prompt (optional — not sent to a model yet)';
+export const P130_AI_WORKSPACE_INPUT_LABEL = 'Prompt (sent only when you click Send to model)';
 
 export const P130_AI_WORKSPACE_INPUT_PLACEHOLDER =
-	'Optional draft text for your own reference. Retrieval uses read-only Case Engine data for this case only.';
+	'Describe what you want the model to do with the retrieved case data. You must retrieve case data first.';
 
 export const P130_AI_WORKSPACE_SEND_RETRIEVE_BUTTON = 'Retrieve case data (read-only)';
 
@@ -60,11 +60,34 @@ export const P130_AI_WORKSPACE_SEND_DISABLED_BUTTON = 'Retrieve case data (read-
 
 export const P130_AI_WORKSPACE_OUTPUT_REGION_LABEL = 'AI Output (Non-Authoritative)';
 
+export const P130_AI_WORKSPACE_AI_SEND_BUTTON = 'Send to model';
+
+export const P130_AI_WORKSPACE_AI_SEND_TITLE =
+	'Run the local model on the prompt and the in-memory retrieval bundle. No Case Engine writes.';
+
+export const P130_AI_WORKSPACE_AI_BUSY = 'Model running…';
+
+export const P130_AI_WORKSPACE_NEED_BUNDLE_FIRST = 'Retrieve case data first.';
+
+export const P130_AI_WORKSPACE_NO_MODEL = 'No chat model available. Select an Ollama model in the workspace.';
+
+export const P130_AI_WORKSPACE_NO_OWUI_TOKEN = 'Open WebUI session token missing.';
+
 export const P130_AI_WORKSPACE_INGESTION_SUCCESS =
 	'Case data retrieved for AI (read-only). No model ran; nothing was saved beyond this session.';
 
 export const P130_AI_WORKSPACE_OUTPUT_EMPTY =
 	'No retrieval yet. Use “Retrieve case data” to load read-only case sources for this session.';
+
+export const P130_AI_WORKSPACE_SECTION_SOURCE_FACTS = 'Source-Backed Facts';
+
+export const P130_AI_WORKSPACE_SECTION_AI_CONTENT = 'AI-Generated Content (Non-Authoritative)';
+
+export const P130_AI_WORKSPACE_SECTION_SOURCES_USED = 'Sources Used';
+
+export const P130_AI_WORKSPACE_PARSE_ERROR = 'Unstructured response';
+
+export const P130_AI_WORKSPACE_TRACEABILITY_WARNINGS = 'Traceability warnings';
 
 export const P130_AI_WORKSPACE_DATA_USED_SECTION_TITLE = 'Data Used (This Session)';
 

@@ -1,11 +1,18 @@
 <!--
 	P130-01 — AI Workspace identity + framing (non-authoritative assistant layer).
 	P130-02 — Read-only case retrieval on explicit user action (GET-only bundle; no LLM).
+	P130-03 — Structured model output via Open WebUI chat completions (no Case Engine writes).
 -->
 <script lang="ts">
-	import { activeCaseMeta, caseEngineToken } from '$lib/stores';
+	import { browser } from '$app/environment';
+	import { activeCaseMeta, caseEngineToken, models } from '$lib/stores';
+	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
+	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { buildCaseRetrievalBundle } from '$lib/case/caseDataIngestion';
 	import type { CaseRetrievalBundle } from '$lib/case/caseRetrievalBundleTypes';
+	import { buildAiWorkspacePromptPayload } from '$lib/case/aiWorkspacePromptBuilder';
+	import { parseAiWorkspaceLlmJsonWithBundle } from '$lib/case/aiWorkspaceResponseParser';
+	import type { AiWorkspaceLlmJsonV1 } from '$lib/case/aiWorkspaceResponseTypes';
 	import {
 		DS_BANNER_CLASSES,
 		DS_PANEL_CLASSES,
@@ -43,7 +50,18 @@
 		P130_AI_WORKSPACE_SESSION_LINE_3,
 		P130_AI_WORKSPACE_SOURCES_TRACE_BODY,
 		P130_AI_WORKSPACE_SOURCES_TRACE_TITLE,
-		P130_AI_WORKSPACE_SURFACE_TITLE
+		P130_AI_WORKSPACE_SURFACE_TITLE,
+		P130_AI_WORKSPACE_AI_SEND_BUTTON,
+		P130_AI_WORKSPACE_AI_SEND_TITLE,
+		P130_AI_WORKSPACE_AI_BUSY,
+		P130_AI_WORKSPACE_NEED_BUNDLE_FIRST,
+		P130_AI_WORKSPACE_NO_MODEL,
+		P130_AI_WORKSPACE_NO_OWUI_TOKEN,
+		P130_AI_WORKSPACE_SECTION_SOURCE_FACTS,
+		P130_AI_WORKSPACE_SECTION_AI_CONTENT,
+		P130_AI_WORKSPACE_SECTION_SOURCES_USED,
+		P130_AI_WORKSPACE_PARSE_ERROR,
+		P130_AI_WORKSPACE_TRACEABILITY_WARNINGS
 	} from '$lib/caseContext/p130AIWorkspaceCopy';
 
 	/** Route case id from `/case/:id/ai-workspace` (display fallback if meta not loaded). */
@@ -52,6 +70,23 @@
 	let bundle: CaseRetrievalBundle | null = null;
 	let ingestionError: string | null = null;
 	let ingesting = false;
+
+	let promptText = '';
+	let parsedAi: AiWorkspaceLlmJsonV1 | null = null;
+	let aiWarnings: string[] = [];
+	let llmError: string | null = null;
+	let parseError: string | null = null;
+	let aiBusy = false;
+
+	function owuiToken(): string {
+		if (!browser) return '';
+		return typeof localStorage !== 'undefined' ? String(localStorage.token ?? '') : '';
+	}
+
+	$: modelId =
+		($models.find((m) => (m as { owned_by?: string }).owned_by === 'ollama') ?? $models[0])?.id ??
+		undefined;
+	$: modelAvailable = $models.length > 0;
 
 	function preventSubmit(e: Event) {
 		e.preventDefault();
@@ -68,6 +103,10 @@
 		ingestionError = null;
 		ingesting = true;
 		bundle = null;
+		parsedAi = null;
+		aiWarnings = [];
+		llmError = null;
+		parseError = null;
 		try {
 			bundle = await buildCaseRetrievalBundle(cid, token);
 		} catch (e: unknown) {
@@ -78,9 +117,88 @@
 		}
 	}
 
+	async function runAiSend() {
+		const cid = String(caseId ?? '').trim();
+		const token = $caseEngineToken;
+		llmError = null;
+		parseError = null;
+		parsedAi = null;
+		aiWarnings = [];
+
+		if (!bundle) {
+			llmError = P130_AI_WORKSPACE_NEED_BUNDLE_FIRST;
+			return;
+		}
+		if (bundle.case_id !== cid) {
+			llmError = P130_AI_WORKSPACE_NEED_BUNDLE_FIRST;
+			return;
+		}
+		if (!promptText.trim()) {
+			llmError = 'Enter a prompt before sending.';
+			return;
+		}
+		if (!token) {
+			llmError = P130_AI_WORKSPACE_NEED_BUNDLE_FIRST;
+			return;
+		}
+		if (!modelAvailable || !modelId) {
+			llmError = P130_AI_WORKSPACE_NO_MODEL;
+			return;
+		}
+		const tok = owuiToken();
+		if (!tok) {
+			llmError = P130_AI_WORKSPACE_NO_OWUI_TOKEN;
+			return;
+		}
+
+		aiBusy = true;
+		try {
+			const { system, user } = buildAiWorkspacePromptPayload({
+				caseId: cid,
+				userPrompt: promptText,
+				bundle
+			});
+			const res = await generateOpenAIChatCompletion(
+				tok,
+				{
+					model: modelId,
+					temperature: 0,
+					stream: false,
+					messages: [
+						{ role: 'system', content: system },
+						{ role: 'user', content: user }
+					]
+				},
+				`${WEBUI_BASE_URL}/api`
+			);
+			const content: string =
+				(res as { choices?: { message?: { content?: string } }[] })?.choices?.[0]?.message?.content ?? '';
+			const parsed = parseAiWorkspaceLlmJsonWithBundle(content, bundle);
+			if (!parsed.ok) {
+				parseError = `${P130_AI_WORKSPACE_PARSE_ERROR}: ${parsed.message}`;
+				return;
+			}
+			parsedAi = parsed.data;
+			aiWarnings = parsed.warnings;
+		} catch (e: unknown) {
+			llmError = e instanceof Error ? e.message : String(e);
+		} finally {
+			aiBusy = false;
+		}
+	}
+
 	$: caseNumberLabel = ($activeCaseMeta?.case_number ?? '').trim() || caseId || '—';
 	$: caseTitleLabel = ($activeCaseMeta?.title ?? '').trim() || '—';
 	$: canRetrieve = Boolean(String(caseId ?? '').trim() && $caseEngineToken);
+	$: canSendAi =
+		canRetrieve &&
+		!ingesting &&
+		!aiBusy &&
+		Boolean(bundle) &&
+		Boolean(promptText.trim()) &&
+		modelAvailable &&
+		Boolean(modelId) &&
+		Boolean(owuiToken());
 </script>
 
 <div
@@ -186,6 +304,7 @@
 					data-testid="case-ai-workspace-prompt-input"
 					autocomplete="off"
 					rows="5"
+					bind:value={promptText}
 				></textarea>
 			</label>
 			<div class="mt-2 flex flex-wrap items-center gap-2">
@@ -199,12 +318,27 @@
 				>
 					{P130_AI_WORKSPACE_SEND_RETRIEVE_BUTTON}
 				</button>
+				<button
+					type="button"
+					class="rounded border border-violet-500/80 bg-violet-950/20 px-3 py-1.5 text-xs font-medium text-[color:var(--ce-l-text-primary)] disabled:cursor-not-allowed disabled:opacity-50"
+					disabled={!canSendAi}
+					data-testid="case-ai-workspace-ai-send-button"
+					title={P130_AI_WORKSPACE_AI_SEND_TITLE}
+					on:click={runAiSend}
+				>
+					{P130_AI_WORKSPACE_AI_SEND_BUTTON}
+				</button>
 				{#if ingesting}
 					<span
 						class="{DS_TYPE_CLASSES.meta} text-[color:var(--ce-l-text-muted)]"
 						data-testid="case-ai-workspace-ingesting-label"
 					>
 						{P130_AI_WORKSPACE_INGESTING_LABEL}
+					</span>
+				{/if}
+				{#if aiBusy}
+					<span class="{DS_TYPE_CLASSES.meta} text-[color:var(--ce-l-text-muted)]" data-testid="case-ai-workspace-ai-busy">
+						{P130_AI_WORKSPACE_AI_BUSY}
 					</span>
 				{/if}
 			</div>
@@ -233,18 +367,113 @@
 			>
 				{P130_AI_WORKSPACE_OUTPUT_REGION_LABEL}
 			</h3>
-			<div class="px-3 py-3">
-				{#if bundle}
-					<p
-						class="{DS_TYPE_CLASSES.body} m-0 text-sm text-[color:var(--ce-l-text-primary)]"
-						data-testid="case-ai-workspace-ingestion-success"
+			<div class="space-y-3 px-3 py-3">
+				<div data-testid="case-ai-workspace-retrieval-status">
+					{#if bundle}
+						<p
+							class="{DS_TYPE_CLASSES.body} m-0 text-sm text-[color:var(--ce-l-text-primary)]"
+							data-testid="case-ai-workspace-ingestion-success"
+						>
+							{P130_AI_WORKSPACE_INGESTION_SUCCESS}
+						</p>
+					{:else}
+						<p class="{DS_TYPE_CLASSES.body} m-0 text-sm text-[color:var(--ce-l-text-muted)]">
+							{P130_AI_WORKSPACE_OUTPUT_EMPTY}
+						</p>
+					{/if}
+				</div>
+
+				{#if llmError}
+					<div
+						class="rounded border border-amber-600/50 bg-amber-50/80 p-2 dark:bg-amber-950/30"
+						role="alert"
+						data-testid="case-ai-workspace-llm-error"
 					>
-						{P130_AI_WORKSPACE_INGESTION_SUCCESS}
-					</p>
-				{:else}
-					<p class="{DS_TYPE_CLASSES.body} m-0 text-sm text-[color:var(--ce-l-text-muted)]">
-						{P130_AI_WORKSPACE_OUTPUT_EMPTY}
-					</p>
+						<p class="{DS_TYPE_CLASSES.body} m-0 text-sm text-amber-900 dark:text-amber-100">
+							{llmError}
+						</p>
+					</div>
+				{/if}
+
+				{#if parseError}
+					<div
+						class="rounded border border-red-300/80 bg-red-50/80 p-2 dark:border-red-800 dark:bg-red-950/40"
+						role="alert"
+						data-testid="case-ai-workspace-parse-error"
+					>
+						<p class="{DS_TYPE_CLASSES.body} m-0 text-sm text-red-800 dark:text-red-200">
+							{parseError}
+						</p>
+					</div>
+				{/if}
+
+				{#if parsedAi}
+					<div class="space-y-3 border-t border-[color:var(--ce-l-border-default)] pt-3" data-testid="case-ai-workspace-ai-structured">
+						<section data-testid="case-ai-workspace-source-backed-facts">
+							<h4 class="{DS_TYPE_CLASSES.label} m-0 text-[color:var(--ce-l-text-secondary)]">
+								{P130_AI_WORKSPACE_SECTION_SOURCE_FACTS}
+							</h4>
+							<ul class="m-0 mt-1 list-disc space-y-2 pl-5 text-sm text-[color:var(--ce-l-text-primary)]">
+								{#each parsedAi.source_backed_facts as fact, i (i)}
+									<li>
+										<p class="m-0">{fact.statement}</p>
+										<p class="{DS_TYPE_CLASSES.meta} m-0 mt-0.5 text-[color:var(--ce-l-text-muted)]">
+											Refs: timeline {fact.refs.timeline_entry_ids?.length ?? 0}, notes {fact.refs.note_ids
+												?.length ?? 0}, files {fact.refs.file_ids?.length ?? 0}, entities {fact.refs
+												.entity_ids?.length ?? 0}, workflow {fact.refs.workflow_item_ids?.length ?? 0}
+										</p>
+									</li>
+								{/each}
+							</ul>
+						</section>
+						<section data-testid="case-ai-workspace-ai-generated">
+							<h4 class="{DS_TYPE_CLASSES.label} m-0 text-[color:var(--ce-l-text-secondary)]">
+								{P130_AI_WORKSPACE_SECTION_AI_CONTENT}
+							</h4>
+							<p class="m-0 mt-1 whitespace-pre-wrap text-sm text-[color:var(--ce-l-text-primary)]">
+								{parsedAi.ai_generated_content}
+							</p>
+						</section>
+						<section data-testid="case-ai-workspace-sources-used-declared">
+							<h4 class="{DS_TYPE_CLASSES.label} m-0 text-[color:var(--ce-l-text-secondary)]">
+								{P130_AI_WORKSPACE_SECTION_SOURCES_USED}
+							</h4>
+							<ul class="m-0 mt-1 list-none space-y-1 text-sm text-[color:var(--ce-l-text-primary)]">
+								<li>Timeline entry IDs: {parsedAi.sources_used.timeline_entry_ids.join(', ') || '—'}</li>
+								<li>Note IDs: {parsedAi.sources_used.note_ids.join(', ') || '—'}</li>
+								<li>
+									Files:
+									{#if parsedAi.sources_used.file_ids.length === 0}
+										—
+									{:else}
+										<ul class="m-0 mt-1 list-disc pl-5">
+											{#each parsedAi.sources_used.file_ids as f (f.id)}
+												<li>{f.id} (extracted text used: {f.extracted_text_used ? 'yes' : 'no'})</li>
+											{/each}
+										</ul>
+									{/if}
+								</li>
+								<li>Entity IDs: {parsedAi.sources_used.entity_ids.join(', ') || '—'}</li>
+								<li>Workflow item IDs: {parsedAi.sources_used.workflow_item_ids.join(', ') || '—'}</li>
+							</ul>
+						</section>
+					</div>
+				{/if}
+
+				{#if aiWarnings.length > 0}
+					<div
+						class="rounded border border-amber-600/50 bg-amber-50/80 p-2 dark:bg-amber-950/30"
+						data-testid="case-ai-workspace-warnings"
+					>
+						<p class="{DS_TYPE_CLASSES.label} m-0 text-amber-950 dark:text-amber-100">
+							{P130_AI_WORKSPACE_TRACEABILITY_WARNINGS}
+						</p>
+						<ul class="m-0 mt-1 list-disc pl-5 text-sm text-amber-900 dark:text-amber-50">
+							{#each aiWarnings as w (w)}
+								<li>{w}</li>
+							{/each}
+						</ul>
+					</div>
 				{/if}
 			</div>
 		</section>

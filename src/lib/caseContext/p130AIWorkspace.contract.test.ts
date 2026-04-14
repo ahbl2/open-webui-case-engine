@@ -1,5 +1,5 @@
 /**
- * P130-01 / P130-02 — AI Workspace framing + read-only ingestion wiring (no direct fetch in panel).
+ * P130-01 / P130-02 / P130-03 — AI Workspace framing, ingestion, structured LLM output (no Case Engine API in panel).
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -40,12 +40,16 @@ describe('p130AIWorkspaceCopy (P130-01)', () => {
 	});
 });
 
-describe('AIWorkspacePanel.svelte (P130-01 / P130-02)', () => {
+describe('AIWorkspacePanel.svelte (P130-01 / P130-02 / P130-03)', () => {
 	const src = readFileSync(panelPath, 'utf8');
 
-	it('uses ingestion helper + token store; no direct Case Engine API or fetch', () => {
+	it('uses ingestion + prompt/parser + OWUI chat completion; no Case Engine API in panel', () => {
 		expect(src).toContain("$lib/case/caseDataIngestion");
+		expect(src).toContain('$lib/case/aiWorkspacePromptBuilder');
+		expect(src).toContain('$lib/case/aiWorkspaceResponseParser');
+		expect(src).toContain('generateOpenAIChatCompletion');
 		expect(src).toContain('caseEngineToken');
+		expect(src).toContain('models');
 		expect(src).not.toMatch(/\$lib\/apis\/caseEngine/);
 		expect(src).not.toMatch(/\bfetch\s*\(/);
 		expect(src).not.toMatch(/onMount\b/);
@@ -67,6 +71,9 @@ describe('AIWorkspacePanel.svelte (P130-01 / P130-02)', () => {
 		expect(src).toContain('data-testid="case-ai-workspace-retrieve-button"');
 		expect(src).toContain('data-testid="case-ai-workspace-data-used"');
 		expect(src).toContain('data-testid="case-ai-workspace-data-used-counts"');
+		expect(src).toContain('data-testid="case-ai-workspace-ai-send-button"');
+		expect(src).toContain('data-testid="case-ai-workspace-source-backed-facts"');
+		expect(src).toContain('data-testid="case-ai-workspace-warnings"');
 		expect(src).toContain('data-p130-ai-workspace="true"');
 	});
 
