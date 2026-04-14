@@ -1149,7 +1149,7 @@ export interface CaseFile {
  * Use for callers that need every row (e.g. Activity feed merge, AI context). Large cases = large payload.
  * For the Files tab, use {@link listCaseFilesPage} instead.
  *
- * Optional `query` (P42-04) matches the server’s filtered list. **Maintenance:** the underlying route already
+ * Optional `query` (P42-04; **P125-04** includes `case_file_text.extracted_text`) matches the server’s filtered list. **Maintenance:** the underlying route already
  * mixes a dual response shape (array vs envelope) with several optional query params (`limit`, `offset`,
  * `query`, `mimeCategory`, `hasTags`, `includeDeleted`, …). The list route is now **multi-concern**;
  * that is acceptable today, but avoid piling on more optional branches without a deliberate API review
