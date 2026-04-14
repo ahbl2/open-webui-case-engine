@@ -10,6 +10,7 @@ const here = dirname(fileURLToPath(import.meta.url));
 const detailPath = join(here, 'CaseEntityDetailPanel.svelte');
 const formPath = join(here, 'CaseEntityEvidenceLinkForm.svelte');
 const copyPath = join(here, '../../case/p107CaseEntityEvidenceLinkCopy.ts');
+const p126LinkCopyPath = join(here, '../../caseContext/p126EntityExplicitLinkCopy.ts');
 
 describe('CaseEntityDetailPanel.svelte (P107-03)', () => {
 	const src = readFileSync(detailPath, 'utf8');
@@ -53,7 +54,18 @@ describe('p107CaseEntityEvidenceLinkCopy (P107-03)', () => {
 	const src = readFileSync(copyPath, 'utf8');
 	const lower = src.toLowerCase();
 
-	it('frames manual references without suggestion or graph language', () => {
+	it('unlink copy stays explicit (no graph language)', () => {
+		expect(lower).toContain('remove');
+		expect(lower).not.toContain('graph');
+		expect(lower).not.toContain('related entities');
+	});
+});
+
+describe('p126EntityExplicitLinkCopy (P126-04)', () => {
+	const src = readFileSync(p126LinkCopyPath, 'utf8');
+	const lower = src.toLowerCase();
+
+	it('frames manual explicit links without suggestion or graph language', () => {
 		expect(lower).toContain('manual');
 		expect(lower).not.toContain('suggest');
 		expect(lower).not.toContain('graph');

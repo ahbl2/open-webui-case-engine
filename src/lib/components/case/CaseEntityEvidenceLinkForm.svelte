@@ -1,25 +1,26 @@
 <script lang="ts">
 	/**
 	 * P107-03 — Manual link to timeline entry or case file (Phase 105 POST). Deterministic pickers only.
+	 * P126-04 — Explicit labels, one link per submit; file list preserves API order (no client re-sort).
 	 */
 	import type { CaseEngineEvidenceLinkReadItem } from '$lib/apis/caseEngine/caseEntitiesApi';
 	import { createCaseEntityEvidenceLink } from '$lib/apis/caseEngine/caseEntitiesApi';
 	import type { CaseFile, TimelineEntry } from '$lib/apis/caseEngine';
 	import { listCaseFiles, listCaseTimelineEntries } from '$lib/apis/caseEngine';
 	import {
-		P107_EVIDENCE_LINK_ADD_UNAVAILABLE_RETIRED,
-		P107_EVIDENCE_LINK_EMPTY_ELIGIBLE,
-		P107_EVIDENCE_LINK_FILTER_LABEL,
-		P107_EVIDENCE_LINK_INTRO,
-		P107_EVIDENCE_LINK_LOAD_ERROR,
-		P107_EVIDENCE_LINK_SELECT_PLACEHOLDER,
-		P107_EVIDENCE_LINK_SUBMIT,
-		P107_EVIDENCE_LINK_SUBMITTING,
-		P107_EVIDENCE_LINK_TOGGLE_CLOSE,
-		P107_EVIDENCE_LINK_TOGGLE_OPEN,
-		P107_EVIDENCE_LINK_TYPE_FILE,
-		P107_EVIDENCE_LINK_TYPE_TIMELINE
-	} from '$lib/case/p107CaseEntityEvidenceLinkCopy';
+		P126_EXPLICIT_LINK_EMPTY_ELIGIBLE,
+		P126_EXPLICIT_LINK_FILTER_LABEL,
+		P126_EXPLICIT_LINK_INTRO,
+		P126_EXPLICIT_LINK_LINK_TO_FILE,
+		P126_EXPLICIT_LINK_LINK_TO_TIMELINE,
+		P126_EXPLICIT_LINK_LOAD_ERROR,
+		P126_EXPLICIT_LINK_RETIRED,
+		P126_EXPLICIT_LINK_SELECT_LABEL,
+		P126_EXPLICIT_LINK_SUBMIT,
+		P126_EXPLICIT_LINK_SUBMITTING,
+		P126_EXPLICIT_LINK_TOGGLE_CLOSE,
+		P126_EXPLICIT_LINK_TOGGLE_OPEN
+	} from '$lib/caseContext/p126EntityExplicitLinkCopy';
 
 	export let caseId: string;
 	export let entityId: string;
@@ -60,10 +61,6 @@
 		return f.original_filename;
 	}
 
-	function sortedFiles(files: CaseFile[]): CaseFile[] {
-		return [...files].sort((a, b) => a.original_filename.localeCompare(b.original_filename));
-	}
-
 	$: linkedTimeline = new Set(
 		evidenceLinks.filter((l) => l.link_type === 'timeline_entry').map((l) => l.target_id)
 	);
@@ -72,7 +69,7 @@
 	$: eligibleTimeline = timelineEntries.filter(
 		(e) => isTimelineEntryActive(e) && !linkedTimeline.has(e.id)
 	);
-	$: eligibleFiles = sortedFiles(caseFiles).filter((f) => isCaseFileActive(f) && !linkedFiles.has(f.id));
+	$: eligibleFiles = caseFiles.filter((f) => isCaseFileActive(f) && !linkedFiles.has(f.id));
 
 	$: ft = filterText.trim().toLowerCase();
 	$: filteredTimeline = ft
@@ -103,7 +100,7 @@
 			if (gen !== pickerLoadGen) return;
 			timelineEntries = [];
 			caseFiles = [];
-			pickerError = e instanceof Error ? e.message : P107_EVIDENCE_LINK_LOAD_ERROR;
+			pickerError = e instanceof Error ? e.message : P126_EXPLICIT_LINK_LOAD_ERROR;
 		} finally {
 			if (gen === pickerLoadGen) pickersLoading = false;
 		}
@@ -159,14 +156,14 @@
 				disabled={!entityActive}
 				on:click={() => togglePanel()}
 			>
-				{panelOpen ? P107_EVIDENCE_LINK_TOGGLE_CLOSE : P107_EVIDENCE_LINK_TOGGLE_OPEN}
+				{panelOpen ? P126_EXPLICIT_LINK_TOGGLE_CLOSE : P126_EXPLICIT_LINK_TOGGLE_OPEN}
 			</button>
 			{#if !entityActive}
-				<span class="text-xs text-[color:var(--ce-l-text-muted)]">{P107_EVIDENCE_LINK_ADD_UNAVAILABLE_RETIRED}</span>
+				<span class="text-xs text-[color:var(--ce-l-text-muted)]">{P126_EXPLICIT_LINK_RETIRED}</span>
 			{/if}
 		</div>
 		{#if panelOpen && entityActive}
-			<p class="text-xs text-[color:var(--ce-l-text-secondary)] max-w-prose">{P107_EVIDENCE_LINK_INTRO}</p>
+			<p class="text-xs text-[color:var(--ce-l-text-secondary)] max-w-prose">{P126_EXPLICIT_LINK_INTRO}</p>
 			{#if pickersLoading}
 				<p class="text-sm text-[color:var(--ce-l-text-secondary)]" data-testid="case-entity-detail--link-evidence-loading">
 					Loading…
@@ -187,7 +184,7 @@
 								selectedTargetId = '';
 							}}
 						/>
-						<span>{P107_EVIDENCE_LINK_TYPE_TIMELINE}</span>
+						<span>{P126_EXPLICIT_LINK_LINK_TO_TIMELINE}</span>
 					</label>
 					<label class="flex items-center gap-2 cursor-pointer">
 						<input
@@ -199,11 +196,11 @@
 								selectedTargetId = '';
 							}}
 						/>
-						<span>{P107_EVIDENCE_LINK_TYPE_FILE}</span>
+						<span>{P126_EXPLICIT_LINK_LINK_TO_FILE}</span>
 					</label>
 				</div>
 				<label class="flex flex-col gap-1 text-sm">
-					<span class="text-[color:var(--ce-l-text-muted)]">{P107_EVIDENCE_LINK_FILTER_LABEL}</span>
+					<span class="text-[color:var(--ce-l-text-muted)]">{P126_EXPLICIT_LINK_FILTER_LABEL}</span>
 					<input
 						type="text"
 						class="rounded border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-base)] px-2 py-1 text-[color:var(--ce-l-text-primary)]"
@@ -213,14 +210,14 @@
 					/>
 				</label>
 				<label class="flex flex-col gap-1 text-sm">
-					<span class="text-[color:var(--ce-l-text-muted)]">{P107_EVIDENCE_LINK_SELECT_PLACEHOLDER}</span>
+					<span class="text-[color:var(--ce-l-text-muted)]">{P126_EXPLICIT_LINK_SELECT_LABEL}</span>
 					<select
 						class="rounded border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-base)] px-2 py-1 text-[color:var(--ce-l-text-primary)]"
 						data-testid="case-entity-detail--link-evidence-select"
 						bind:value={selectedTargetId}
 						disabled={formSubmitting || selectOptions.length === 0}
 					>
-						<option value="">{P107_EVIDENCE_LINK_SELECT_PLACEHOLDER}</option>
+						<option value="">{P126_EXPLICIT_LINK_SELECT_LABEL}</option>
 						{#each selectOptions as opt (opt.id)}
 							<option value={opt.id}>{opt.label}</option>
 						{/each}
@@ -228,7 +225,7 @@
 				</label>
 				{#if selectOptions.length === 0}
 					<p class="text-sm text-[color:var(--ce-l-text-secondary)]" data-testid="case-entity-detail--link-evidence-empty">
-						{P107_EVIDENCE_LINK_EMPTY_ELIGIBLE}
+						{P126_EXPLICIT_LINK_EMPTY_ELIGIBLE}
 					</p>
 				{/if}
 				{#if formError}
@@ -243,7 +240,7 @@
 					disabled={formSubmitting || !selectedTargetId}
 					on:click={() => void submitLink()}
 				>
-					{formSubmitting ? P107_EVIDENCE_LINK_SUBMITTING : P107_EVIDENCE_LINK_SUBMIT}
+					{formSubmitting ? P126_EXPLICIT_LINK_SUBMITTING : P126_EXPLICIT_LINK_SUBMIT}
 				</button>
 			{/if}
 		{/if}
