@@ -16,6 +16,10 @@ html {
 	--ce-l-surface: var(--ds-bg-surface);
 	--ce-l-surface-muted: var(--ds-bg-muted);
 	--ce-l-surface-elevated: var(--ds-bg-elevated);
+	/** P132.5-05 — Card / inset panels (alias + slight lift over flat surface) */
+	--ce-l-surface-raised: color-mix(in oklab, var(--ce-l-surface-muted) 92%, var(--ce-l-border-subtle));
+
+	--ce-l-focus-ring: var(--ds-focus-ring);
 
 	--ce-l-border-subtle: var(--ds-border-subtle);
 	--ce-l-border-default: var(--ds-border-default);

@@ -39,11 +39,12 @@ describe('P125-05 Files boundary enforcement', () => {
 		expect(files).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);
 	});
 
-	it('P124 nav hints name three distinct surface roles including Files as supporting-only', () => {
+	it('P124 nav hints name four distinct surface roles including Files as supporting-only and Entities as explicit', () => {
 		const src = readFileSync(separationCopy, 'utf8');
 		expect(src).toMatch(/P124_NAV_TITLE_FILES/);
 		expect(src.toLowerCase()).toMatch(/supporting evidence/);
 		expect(src.toLowerCase()).toMatch(/files are supporting/);
+		expect(src.toLowerCase()).toMatch(/entities surface/);
 	});
 
 	it('no ranking/relevance/marketing vocabulary in P125 boundary additions', () => {

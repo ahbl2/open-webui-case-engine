@@ -380,7 +380,7 @@
 		<textarea
 			class="mt-1 w-full min-h-[44px] font-mono text-[11px] rounded border border-[color:var(--ce-l-border)] bg-[color:var(--ce-l-surface)] p-2"
 			bind:value={sourceRefsJsonText}
-			placeholder='e.g. [{"kind":"case_file","id":"..."}]'
+			placeholder={'e.g. [{"kind":"case_file","id":"..."}]'}
 			data-testid="p101-ai-proposal-source-refs"
 			disabled={!caseEngineToken.trim()}
 		/>

@@ -11,7 +11,6 @@ const here = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(here, '../../..');
 const panelManagement = readFileSync(join(repoRoot, 'src/lib/components/case/CaseEvidenceSetsPanel.svelte'), 'utf8');
 const panelDetail = readFileSync(join(repoRoot, 'src/lib/components/case/CaseEvidenceSetDetailPanel.svelte'), 'utf8');
-const nav = readFileSync(join(repoRoot, 'src/lib/components/case/CaseWorkspaceNav.svelte'), 'utf8');
 
 const copyStrings = Object.values(copy).filter((v) => typeof v === 'string') as string[];
 
@@ -41,7 +40,7 @@ describe('P109-05 copy guardrails', () => {
 });
 
 describe('P109-05 surface guardrails (Svelte sources)', () => {
-	const combined = `${panelManagement}\n${panelDetail}\n${nav}`;
+	const combined = `${panelManagement}\n${panelDetail}`;
 
 	it('management + detail + nav avoid forbidden wording in source', () => {
 		assertNoForbiddenWording('combined surfaces', combined);
@@ -71,8 +70,8 @@ describe('P109-05 surface guardrails (Svelte sources)', () => {
 		expect(panelManagement).not.toMatch(/\b(delete|retire|restore|rename)\b/i);
 	});
 
-	it('nav imports evidence set label from centralized copy', () => {
-		expect(nav).toContain("from '$lib/case/p109EvidenceSetsCopy'");
-		expect(nav).toContain('P109_EVIDENCE_SETS_NAV_LABEL');
+	it('centralized copy exports evidence sets nav label (left rail is Phase-scoped; P123-02 minimal rail omits evidence sets)', () => {
+		expect(copy.P109_EVIDENCE_SETS_NAV_LABEL).toBeTruthy();
+		expect(String(copy.P109_EVIDENCE_SETS_NAV_LABEL).length).toBeGreaterThan(3);
 	});
 });

@@ -31,10 +31,10 @@ describe('case identity bar layout (P71-03 / P70-04)', () => {
 		expect(headerSource).toContain('ce-l-identity-edit');
 	});
 
-	it('declares CaseWorkspaceHeader before CaseWorkspaceNav in layout template', () => {
+	it('declares CaseWorkspaceHeader before CaseWorkspaceLeftPanelStack in layout template', () => {
 		const afterScript = layoutSource.indexOf('</script>');
 		const tmpl = layoutSource.slice(afterScript + 1);
-		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceNav'));
+		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceLeftPanelStack'));
 	});
 
 	it('identity secondary row uses DS chip + incident meta (P76-04; Tier L identity bar)', () => {

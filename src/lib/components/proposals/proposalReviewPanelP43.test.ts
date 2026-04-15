@@ -226,14 +226,15 @@ describe('ProposalReviewPanel — P45-01 approved vs committed terminology', () 
 		expect(src).toContain('data-testid="proposal-status-tabs-hint"');
 		expect(src).toMatch(/Workflow vs outcome/i);
 		expect(src).toContain('data-testid="tab-approved"');
-		expect(src).toContain('Approved{approvedCount');
+		expect(src).toMatch(/\{!p128Presentation \? 'Approved' : 'Accepted'\}\{approvedCount/);
 		expect(src).toContain('Committed{committedCount');
 	});
 
-	it('Proposals route intro contrasts workflow approve vs commit outcome', () => {
+	it('Proposals route mounts P128 intake framing and proposal review panel', () => {
 		const src = readFileSync(proposalsPagePath, 'utf8');
-		expect(src).toMatch(/Approved<\/strong> workflow tab/i);
-		expect(src).toMatch(/Committed<\/strong> tab lists outcomes/i);
+		expect(src).toContain('CaseProposalFraming');
+		expect(src).toContain('ProposalReviewPanel');
+		expect(src).toContain('getRouteCaseIdString');
 	});
 });
 
@@ -241,7 +242,8 @@ describe('ProposalReviewPanel — P45-09 doctrine de-duplication', () => {
 	it('uses shortened page-layout subtitle and tightened workflow hint', () => {
 		const panel = readFileSync(panelPath, 'utf8');
 		const page = readFileSync(proposalsPagePath, 'utf8');
-		expect(panel).toContain('>Review queue</span>');
+		expect(panel).toMatch(/Review queue/);
+		expect(panel).toContain('P128_LIST_TOOLBAR_LABEL');
 		expect(panel).not.toContain('Review queue — staging until commit');
 		expect(panel).toMatch(/review queues only\./);
 		expect(panel).toMatch(/Committed<\/strong> — outcomes already/);

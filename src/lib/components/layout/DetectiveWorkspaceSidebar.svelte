@@ -2,6 +2,8 @@
 	/**
 	 * Unified workspace sidebar (detective + admin).
 	 * Used for /home, /cases, /search (route + modal), /case/[id]/..., /admin — retractable, state persisted in localStorage.
+	 * P131.8-02 — Density: reduced header/scroll/footer padding (Tailwind); GNAV tokens in `detectiveSurfaces.css`.
+	 * P131.8-07 — Measured vertical rebalance (slightly more shell + user-row breathing room; width unchanged).
 	 */
 	import { onMount, getContext } from 'svelte';
 	import { showSidebar, sidebarWidth, mobile, showSearch, user, config } from '$lib/stores';
@@ -18,8 +20,9 @@
 
 	const i18n = getContext('i18n');
 
-	const MIN_WIDTH = 220;
-	const MAX_WIDTH = 480;
+	/** P131.7-01 — Narrower rail; keep ~20–25% reduction vs legacy 220–480 band. */
+	const MIN_WIDTH = 176;
+	const MAX_WIDTH = 440;
 	const APP_NAME = 'Detective Workspace';
 
 	let navElement: HTMLElement | undefined;
@@ -39,7 +42,7 @@
 		if ($mobile) return;
 		isResizing = true;
 		startClientX = e.clientX;
-		startWidth = $sidebarWidth ?? 260;
+		startWidth = $sidebarWidth ?? 200;
 		document.body.style.userSelect = 'none';
 	};
 
@@ -139,7 +142,7 @@
 		>
 			<!-- Header -->
 			<div
-				class="sidebar px-[0.5625rem] pt-2 pb-1.5 flex justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10 -mb-3"
+				class="sidebar px-2 pt-1.5 pb-0.5 flex justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10 -mb-3"
 			>
 				<span
 					class="flex flex-1 items-center px-1.5 font-medium text-gray-850 dark:text-white font-primary text-sm"
@@ -165,7 +168,7 @@
 
 			<!-- Scrollable: primary nav + case switcher -->
 			<div
-				class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden pt-3 pb-3"
+				class="relative flex flex-col flex-1 overflow-y-auto scrollbar-hidden pt-2 pb-1.5"
 				on:scroll={(e) => {
 					scrollTop = (e.target as HTMLElement).scrollTop;
 				}}
@@ -257,7 +260,7 @@
 			</div>
 
 			<!-- GNAV utility cluster + profile (bottom) — Wave 2 GNAV gated by same flag as app shell frame (P75-04-FU). -->
-			<div class="px-1.5 pt-1.5 pb-2 sticky bottom-0 z-10 -mt-3 sidebar">
+			<div class="px-1.5 pt-1 pb-1.5 sticky bottom-0 z-10 -mt-3 sidebar">
 				<div
 					class="sidebar-bg-gradient-to-t bg-linear-to-t from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mt-6"
 				></div>
@@ -273,12 +276,12 @@
 								className="max-w-[calc(var(--sidebar-width)-1rem)]"
 							>
 								<div
-									class="flex items-center rounded-2xl py-2 px-1.5 w-full hover:bg-gray-100/50 dark:hover:bg-gray-900/50 transition"
+									class="flex items-center rounded-xl py-1.5 px-1.5 w-full hover:bg-gray-100/50 dark:hover:bg-gray-900/50 transition"
 								>
-									<div class="self-center mr-3 relative">
+									<div class="self-center mr-1.5 relative">
 										<img
 											src={`${WEBUI_API_BASE_URL}/users/${$user?.id}/profile/image`}
-											class="size-7 object-cover rounded-full"
+											class="size-6 object-cover rounded-full"
 											alt={$i18n.t('Open User Profile Menu')}
 											aria-label={$i18n.t('Open User Profile Menu')}
 										/>

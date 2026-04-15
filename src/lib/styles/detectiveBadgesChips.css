@@ -51,17 +51,25 @@
 		border-color: var(--ds-status-info-border);
 	}
 
-	/* —— Unit / entity keys (stable, legend-backed — P77 command center) —— */
+	/* —— Unit / entity keys (stable, legend-backed — P77 command center; P131.7-09 — CID green, SIU blue) —— */
 	.ds-badge-unit-cid {
-		background-color: color-mix(in oklab, var(--ds-accent) 18%, var(--ds-bg-muted));
-		color: var(--ds-accent-strong);
-		border-color: color-mix(in oklab, var(--ds-accent) 38%, var(--ds-border-default));
+		border-radius: 9999px;
+		padding: 0.0625rem 0.4rem;
+		font-size: var(--ds-type-label-size);
+		font-weight: 600;
+		background-color: color-mix(in oklab, var(--ds-status-success-bg) 92%, var(--ds-bg-muted));
+		color: var(--ds-status-success-fg);
+		border-color: color-mix(in oklab, var(--ds-status-success-border) 70%, var(--ds-border-default));
 	}
 
 	.ds-badge-unit-siu {
-		background-color: color-mix(in oklab, var(--ds-status-warning-fg) 16%, var(--ds-bg-muted));
-		color: var(--ds-status-warning-fg);
-		border-color: color-mix(in oklab, var(--ds-status-warning-fg) 32%, var(--ds-border-default));
+		border-radius: 9999px;
+		padding: 0.0625rem 0.4rem;
+		font-size: var(--ds-type-label-size);
+		font-weight: 600;
+		background-color: color-mix(in oklab, var(--ds-status-info-bg) 88%, var(--ds-bg-muted));
+		color: var(--ds-status-info-fg);
+		border-color: color-mix(in oklab, var(--ds-status-info-border) 65%, var(--ds-border-default));
 	}
 
 	/* —— Chip: filters, tags, removable tokens (interaction in later tickets) —— */

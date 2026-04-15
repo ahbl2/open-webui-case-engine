@@ -12,15 +12,13 @@ const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8'
 describe('CaseWorkflowTab workflow tooltips (P57-10)', () => {
 	it('disambiguates workflow queue vs case Proposals tab on the proposal panel (P59-11)', () => {
 		expect(tabSource).toMatch(
-			/data-testid="workflow-proposals-panel"[\s\S]*?aria-label="Workflow proposal queue — suggestions for workflow items, separate from case Proposals drafts"/
+			/data-testid="workflow-proposals-panel"[\s\S]*?aria-label=\{P127_WORKFLOW_PROPOSAL_QUEUE_ARIA\}/
 		);
 	});
 
-	it('adds column header tooltips for priority, origin, and citations', () => {
-		expect(tabSource).toContain('title="Urgency 0–3; higher numbers mean higher priority."');
-		expect(tabSource).toContain(
-			'title="Investigator: you added this row on the Workflow tab. System: created when you accepted a workflow suggestion from the workflow proposal queue below (not the case Proposals tab)."'
-		);
+	it('adds column header tooltips for rank, origin, and citations', () => {
+		expect(tabSource).toContain('title={P127_WORKFLOW_LEGACY_RANK_TH_TITLE}');
+		expect(tabSource).toContain('title={P127_WORKFLOW_LEGACY_ORIGIN_TH_TITLE}');
 		expect(tabSource).toContain(
 			'title="Count of evidence links recorded on this workflow item."'
 		);

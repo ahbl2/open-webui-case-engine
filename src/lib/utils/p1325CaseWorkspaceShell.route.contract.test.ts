@@ -9,16 +9,19 @@ import { describe, expect, it } from 'vitest';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const layoutPath = join(__dirname, '../../routes/(app)/case/[id]/+layout.svelte');
 const shellCmpPath = join(__dirname, '../components/case/CaseWorkspaceLayoutShell.svelte');
+const leftStackPath = join(__dirname, '../components/case/CaseWorkspaceLeftPanelStack.svelte');
 
 describe('P132.5 case workspace shell route wiring', () => {
-	it('embeds CaseWorkspaceLayoutShell with header before sidebar and preserves case-shell-body canvas', () => {
+	it('embeds CaseWorkspaceLayoutShell with header before left stack and preserves case-shell-body canvas', () => {
 		const src = readFileSync(layoutPath, 'utf8');
+		const stackSrc = readFileSync(leftStackPath, 'utf8');
 		expect(src).toContain('CaseWorkspaceLayoutShell');
 		expect(src).toContain('CaseWorkspaceShellPanel');
-		expect(src).toContain('CaseWorkspaceCaseSidebar');
+		expect(src).toContain('CaseWorkspaceLeftPanelStack');
+		expect(stackSrc).toContain('CaseWorkspaceCaseSidebar');
 		const tmpl = src.slice(src.indexOf('</script>'));
-		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceCaseSidebar'));
-		expect(tmpl.indexOf('<CaseWorkspaceCaseSidebar')).toBeLessThan(tmpl.indexOf("'case-shell-body'"));
+		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceLeftPanelStack'));
+		expect(tmpl.indexOf('<CaseWorkspaceLeftPanelStack')).toBeLessThan(tmpl.indexOf("'case-shell-body'"));
 		const shellSrc = readFileSync(shellCmpPath, 'utf8');
 		expect(shellSrc).toMatch(/data-testid="case-workspace-layout-shell"/);
 		expect(shellSrc).toMatch(/data-testid="case-workspace-shell-left"/);
@@ -43,6 +46,17 @@ describe('P132.5 case workspace shell route wiring', () => {
 		expect(src).toContain('case-workspace-shell-timeline-panel');
 		expect(src).toContain('delegateBodyScroll={true}');
 		expect(src).toContain('P1325_SHELL_TIMELINE_PANEL_TITLE');
+	});
+
+	it('P132.5-04 — left rail uses context + entity + workflow stack (sidebar embedded, demoted)', () => {
+		const src = readFileSync(layoutPath, 'utf8');
+		const stackSrc = readFileSync(leftStackPath, 'utf8');
+		expect(src).toContain('CaseWorkspaceLeftPanelStack');
+		expect(src).toContain('P1325_LEFT_STACK_PANEL_TITLE');
+		expect(stackSrc).toMatch(/data-testid="p1325-left-stack--case-context"/);
+		expect(stackSrc).toMatch(/data-testid="p1325-left-stack--entities-wrap"/);
+		expect(stackSrc).toMatch(/data-testid="p1325-left-stack--workflow-wrap"/);
+		expect(stackSrc).toMatch(/data-testid="p1325-left-stack--nav-secondary"/);
 	});
 
 	it('P132.5-03 — right rail uses Activity/Tools stack (no route navigation)', () => {

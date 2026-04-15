@@ -22,6 +22,7 @@
 		DS_STATUS_TEXT_CLASSES,
 		DS_STATUS_SURFACE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
+	import { P128_OVERVIEW_PENDING_PROPOSALS_HINT } from '$lib/caseContext/p128ProposalFramingCopy';
 
 	export let caseId: string;
 
@@ -288,9 +289,12 @@
 			{/if}
 		</div>
 
-		<!-- Pending proposals -->
+		<!-- Pending proposals (P128-05 — candidates, not Timeline truth) -->
 		<div class={DS_SUMMARY_CLASSES.outputCard}>
 			<p class={DS_TYPE_CLASSES.label}>Pending proposals</p>
+			<p class="{DS_TYPE_CLASSES.meta} mt-1 text-[11px] leading-snug text-[color:var(--ds-text-muted)]">
+				{P128_OVERVIEW_PENDING_PROPOSALS_HINT}
+			</p>
 			{#if proposals.state === 'loading'}
 				<div class="mt-3 flex items-center gap-2" role="status">
 					<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>

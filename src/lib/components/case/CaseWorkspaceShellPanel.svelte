@@ -2,9 +2,10 @@
 	P132.5-01 — Shell-level panel frame: optional title strip + scrollable body slot.
 	Presentation only; parent supplies content. No data loading or mutation controls.
 	P132.5-02 — `delegateBodyScroll`: body is a bounded flex column so route content (e.g. `.ce-l-content-region`) owns the scrollport.
+	P132.5-05 — DS workspace shell panel chrome (`DS_WORKSPACE_SHELL_CLASSES`).
 -->
 <script lang="ts">
-	import { DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+	import { DS_TYPE_CLASSES, DS_WORKSPACE_SHELL_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 
 	const PANEL_BODY_ARIA = 'body';
 
@@ -20,14 +21,14 @@
 </script>
 
 <section
-	class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden rounded border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface)]"
+	class="{DS_WORKSPACE_SHELL_CLASSES.shellPanel} flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
 	data-testid={testId}
 	data-region="case-workspace-shell-panel"
 	data-p1325-delegate-body-scroll={delegateBodyScroll ? 'true' : undefined}
 >
 	{#if title}
 		<header
-			class="shrink-0 border-b border-[color:var(--ce-l-border-subtle)] px-2 py-1.5"
+			class="{DS_WORKSPACE_SHELL_CLASSES.shellPanelTitle} shrink-0"
 			data-testid="{testId}-title"
 			data-region="case-workspace-shell-panel-title"
 		>
@@ -41,7 +42,7 @@
 	<div
 		class="min-h-0 flex-1 {delegateBodyScroll
 			? 'flex flex-col overflow-hidden p-0'
-			: 'overflow-auto p-2'}"
+			: DS_WORKSPACE_SHELL_CLASSES.shellPanelBodyPad}"
 		data-testid="{testId}-body"
 		data-region="case-workspace-shell-panel-body"
 		aria-label={title ? `${title} ${PANEL_BODY_ARIA}` : PANEL_BODY_ARIA}

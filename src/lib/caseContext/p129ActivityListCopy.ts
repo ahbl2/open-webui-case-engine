@@ -22,4 +22,4 @@ export const P129_ACTIVITY_LIST_ROW_ACTOR_PREFIX = 'Actor';
 
 export const P129_ACTIVITY_LIST_ROW_TARGET_PREFIX = 'Target';
 
-export const P129_ACTIVITY_LIST_METADATA_HEADING = 'Details';
+export const P129_ACTIVITY_LIST_METADATA_HEADING = 'Metadata';

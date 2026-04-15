@@ -550,6 +550,10 @@ export const DS_ENTITY_DETAIL_CLASSES = {
 
 /** P77-02 — Operator Command Center surfaces (`/home` OCC frame); pairs with `OperatorCommandCenterFrame` */
 export const DS_OCC_CLASSES = {
+	/** P131.9-01 — Unified dashboard shell below app top bar (hero + KPI + board; not a nested card stack). */
+	dashboardSurface: 'ds-occ-dashboard-surface',
+	/** P131.9-05B — Desktop-only 3×2 direct grid for bottom six panels (≥1200px; tablet/mobile use `ds-occ-dashboard-grid`). */
+	dashboardBoard: 'ds-occ-dashboard-board',
 	mainCanvas: 'ds-occ-main-canvas',
 	summarySlot: 'ds-occ-summary-slot',
 	summaryLabel: 'ds-occ-summary-slot__label',
@@ -558,6 +562,11 @@ export const DS_OCC_CLASSES = {
 	summaryHint: 'ds-occ-summary-slot__hint',
 	summaryHintLoading: 'ds-occ-summary-slot__hint--loading',
 	mainSection: 'ds-occ-main-section',
+	/** P131.7-05 — Home dashboard bottom-6 board card header/body zones (pairs with `.ds-occ-main-section` / `.ds-occ-rail-panel` shell). */
+	boardCardHeader: 'ds-occ-board-card__header',
+	boardCardBody: 'ds-occ-board-card__body',
+	/** P131.7-05 — `display:contents` wrapper so legacy Home can share one DOM tree without extra chrome. */
+	boardCardPass: 'ds-occ-board-card__pass',
 	sectionHeaderRow: 'ds-occ-section-header-row',
 	sectionHeaderTitle: 'ds-occ-section-header-row__title',
 	sectionHeaderHeading: 'ds-occ-section-header-row__heading',
@@ -689,4 +698,31 @@ export const DS_ASK_INTEGRITY_CLASSES = {
 	supported: 'ds-ask-integrity-supported',
 	degraded: 'ds-ask-integrity-degraded',
 	notApplicable: 'ds-ask-integrity-not-applicable'
+} as const;
+
+/**
+ * P132.5-05 — Case workspace three-zone shell: unified panel chrome, canvas emphasis, rail/tab rhythm.
+ * CSS: `detectiveSurfaces.css` (`.ds-p1325-*`). Pair with Tier L tokens (`--ce-l-*`).
+ */
+export const DS_WORKSPACE_SHELL_CLASSES = {
+	/** Center column: primary canvas (visual weight vs chrome side rails). */
+	layoutCenter: 'ds-p1325-layout-center',
+	/** Side rail chrome (left / right columns in `CaseWorkspaceLayoutShell`). */
+	layoutRail: 'ds-p1325-layout-rail',
+	/** `CaseWorkspaceShellPanel` outer frame (border + shadow + radius). */
+	shellPanel: 'ds-p1325-shell-panel',
+	shellPanelTitle: 'ds-p1325-shell-panel__title',
+	/** Default scroll body padding inside a shell panel (non–delegate-body-scroll). */
+	shellPanelBodyPad: 'ds-p1325-shell-panel__body--pad',
+	/** Right stack internal tab row (internal “tabs” only; not route nav). */
+	rightStackTablist: 'ds-p1325-right-stack-tablist',
+	/** Icon slot next to tab labels (inline SVG, currentColor). */
+	rightStackTabIcon: 'ds-p1325-right-stack-tabicon',
+	/** Case sidebar: primary CTA (Connect) aligned to DS secondary button tokens. */
+	caseSidebarConnect: 'ds-p1325-case-sidebar-connect',
+	/** Case list row selected state (route-highlight). */
+	caseSidebarRowActive: 'ds-p1325-case-sidebar-row--active',
+	caseSidebarSearch: 'ds-p1325-case-sidebar-search',
+	/** Left stack micro-card (case context block). */
+	leftStackInset: 'ds-p1325-left-stack-inset'
 } as const;

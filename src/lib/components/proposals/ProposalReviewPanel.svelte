@@ -72,6 +72,42 @@
 		isDocumentIngestEditDirtyForProposal
 	} from '$lib/utils/proposalDocumentIngestEditGuard';
 	import { isStaleProposalsLoadMoreAppend } from '$lib/utils/proposalListLoadMoreStaleGuard';
+	import CaseProposalCreateForm from '$lib/components/case/CaseProposalCreateForm.svelte';
+	import CaseProposalDetailPanel from '$lib/components/case/CaseProposalDetailPanel.svelte';
+	import { P128_CREATE_ENTRY_BUTTON, P128_CREATE_TOGGLE_CLOSE } from '$lib/caseContext/p128ProposalCreateCopy';
+	import {
+		P128_LIST_TOOLBAR_LABEL,
+		P128_LIST_STATUS_STRIP,
+		P128_TAB_PENDING_TITLE,
+		P128_TAB_ACCEPTED_TITLE,
+		P128_TAB_REJECTED_TITLE,
+		P128_TAB_COMMITTED_TITLE,
+		P128_LIST_LOADING,
+		P128_LIST_EMPTY_PENDING,
+		P128_LIST_EMPTY_PENDING_SEARCH,
+		P128_LIST_EMPTY_ACCEPTED,
+		P128_LIST_EMPTY_REJECTED,
+		P128_LIST_EMPTY_COMMITTED,
+		P128_LIST_ROW_COUNT,
+		P128_LIST_DETAIL_TOGGLE,
+		P128_LIST_DETAIL_TOGGLE_COLLAPSE
+	} from '$lib/caseContext/p128ProposalListCopy';
+	import {
+		p128ProposalListPreviewBody,
+		p128TruncatedPreview,
+		p128StatusDisplayLabel
+	} from '$lib/caseContext/p128ProposalDisplay';
+	import {
+		P128_ACCEPT_BUTTON,
+		P128_ACCEPT_BUTTON_TITLE,
+		P128_REJECT_BUTTON,
+		P128_FINALIZE_RECORD_BUTTON,
+		P128_ACCEPT_SUCCESS_TOAST,
+		P128_REJECT_SUCCESS_TOAST,
+		P128_COMMIT_SUCCESS_TOAST,
+		P128_CHRONO_CONFIRM_BUTTON
+	} from '$lib/caseContext/p128ProposalReviewCopy';
+	import { toast } from 'svelte-sonner';
 	import {
 		DS_BANNER_CLASSES,
 		DS_BTN_CLASSES,
@@ -88,6 +124,12 @@
 	export let token: string;
 	/** `page` = full-height dashboard; `compact` = e.g. Case Tools sidebar. */
 	export let layout: 'compact' | 'page' = 'compact';
+	/** P128-03 — false on embedded surfaces: list + read-only detail only (no approve/reject/commit). */
+	export let reviewActionsEnabled = true;
+	/** P128-04 — full proposals page: one proposal per action (Accept = approve+commit); no bulk or multi-select. */
+	export let p128SingleReviewMode = false;
+	/** P128 list/detail presentation (read-only or single-action page). */
+	$: p128Presentation = !reviewActionsEnabled || p128SingleReviewMode;
 	/** When true, refetch on client afterNavigate (e.g. /proposals ↔ other case tabs; Case Tools embed — P38-03). */
 	export let refreshOnNav = false;
 
@@ -140,6 +182,9 @@
 
 	/** P43-10-FU1 — list region used to find scroll ports (`overflow-y` on this node or ancestors; chat tool uses outer `overflow-auto`). */
 	let proposalListViewportEl: HTMLDivElement | null = null;
+
+	/** P128-02 — manual create form (full proposals page only; chat has its own inline form). */
+	let showCreateProposalForm = false;
 
 	// ── Navigation ─────────────────────────────────────────────────────────────
 
@@ -723,6 +768,9 @@
 			}
 			rejectingId = '';
 			rejectReason = '';
+			if (p128SingleReviewMode) {
+				toast.success(P128_REJECT_SUCCESS_TOAST);
+			}
 			if (proposals.length === 0 && totalForActiveTab > 0 && !hasDirtyDocumentIngestEdits()) {
 				await executeLoadProposals();
 			}
@@ -733,11 +781,30 @@
 		}
 	}
 
+	async function handleP128Accept(id: string): Promise<void> {
+		clearProposalError(id);
+		setInProgress(id, true);
+		try {
+			await approveProposal(caseId, id, token);
+			await commitProposal(caseId, id, token);
+			toast.success(P128_ACCEPT_SUCCESS_TOAST);
+			await loadProposals();
+		} catch (err) {
+			setProposalError(id, classifyApiError(err));
+			await loadProposals();
+		} finally {
+			setInProgress(id, false);
+		}
+	}
+
 	async function handleCommit(id: string): Promise<void> {
 		clearProposalError(id);
 		setInProgress(id, true);
 		try {
 			await commitProposal(caseId, id, token);
+			if (p128SingleReviewMode) {
+				toast.success(P128_COMMIT_SUCCESS_TOAST);
+			}
 			proposals = proposals.filter((p) => p.id !== id);
 			if (activeTab === 'approved') {
 				totalForActiveTab = Math.max(0, totalForActiveTab - 1);
@@ -1002,7 +1069,9 @@
 				Proposals
 			</span>
 		{:else}
-			<span class="{DS_TYPE_CLASSES.meta}">Review queue</span>
+			<span class="{DS_TYPE_CLASSES.meta}"
+				>{p128Presentation ? P128_LIST_TOOLBAR_LABEL : 'Review queue'}</span
+			>
 		{/if}
 		<button
 			type="button"
@@ -1014,7 +1083,37 @@
 		>
 			{loading ? 'Loading…' : '↻ Refresh'}
 		</button>
+		{#if layout === 'page'}
+			<button
+				type="button"
+				class="{DS_BTN_CLASSES.secondary} text-xs shrink-0"
+				on:click={() => {
+					showCreateProposalForm = !showCreateProposalForm;
+				}}
+				disabled={loading || docEditLossDialogShow}
+				data-testid="proposals-p128-create-open"
+			>
+				{showCreateProposalForm ? P128_CREATE_TOGGLE_CLOSE : P128_CREATE_ENTRY_BUTTON}
+			</button>
+		{/if}
 	</div>
+
+	{#if layout === 'page' && showCreateProposalForm}
+		<div class="shrink-0 px-2 sm:px-3 pb-2 border-b border-[color:var(--ce-l-border-subtle)]" data-testid="proposals-p128-create-shell">
+			<CaseProposalCreateForm
+				testIdPrefix="proposal-review-p128-create"
+				caseId={caseId}
+				token={token}
+				onCancel={() => {
+					showCreateProposalForm = false;
+				}}
+				onSuccess={async () => {
+					await loadProposals();
+					showCreateProposalForm = false;
+				}}
+			/>
+		</div>
+	{/if}
 
 	<!-- ── STATUS TAB BAR (P45-02 — workflow vs outcome visual grouping); P45-08 — before Type/Search -->
 	<div class="{DS_PROPOSALS_CLASSES.tabStrip}">
@@ -1024,7 +1123,9 @@
 				class={tabClasses('pending', activeTab)}
 				on:click={() => void selectProposalStatusTab('pending')}
 				data-testid="tab-pending"
-				title="Pending — proposals awaiting review (workflow queue; approve, reject, or edit before commit)"
+				title={!p128Presentation
+					? 'Pending — proposals awaiting review (workflow queue; approve, reject, or edit before commit)'
+					: P128_TAB_PENDING_TITLE}
 			>
 				Pending{pendingCount > 0 ? ` (${pendingCount})` : ''}
 			</button>
@@ -1033,16 +1134,20 @@
 				class={tabClasses('approved', activeTab)}
 				on:click={() => void selectProposalStatusTab('approved')}
 				data-testid="tab-approved"
-				title="Approved — human-reviewed staging only; not on the official case record until you commit"
+				title={!p128Presentation
+					? 'Approved — human-reviewed staging only; not on the official case record until you commit'
+					: P128_TAB_ACCEPTED_TITLE}
 			>
-				Approved{approvedCount > 0 ? ` (${approvedCount})` : ''}
+				{!p128Presentation ? 'Approved' : 'Accepted'}{approvedCount > 0 ? ` (${approvedCount})` : ''}
 			</button>
 			<button
 				type="button"
 				class={tabClasses('rejected', activeTab)}
 				on:click={() => void selectProposalStatusTab('rejected')}
 				data-testid="tab-rejected"
-				title="Rejected — removed from the review workflow (not written to the official case record via commit)"
+				title={!p128Presentation
+					? 'Rejected — removed from the review workflow (not written to the official case record via commit)'
+					: P128_TAB_REJECTED_TITLE}
 			>
 				Rejected{rejectedCount > 0 ? ` (${rejectedCount})` : ''}
 			</button>
@@ -1058,22 +1163,30 @@
 				class={tabClasses('committed', activeTab)}
 				on:click={() => void selectProposalStatusTab('committed')}
 				data-testid="tab-committed"
-				title="Committed — outcome already saved to the case record (official Timeline or governed Note)"
+				title={!p128Presentation
+					? 'Committed — outcome already saved to the case record (official Timeline or governed Note)'
+					: P128_TAB_COMMITTED_TITLE}
 			>
 				Committed{committedCount > 0 ? ` (${committedCount})` : ''}
 			</button>
 		</div>
 	</div>
 
-	<div class="{DS_PROPOSALS_CLASSES.doctrineBand}" data-testid="proposal-status-tabs-hint">
-		<strong class="font-medium text-[color:var(--ds-text-primary)]">Workflow vs outcome:</strong>
-		<strong class="font-medium text-[color:var(--ds-text-primary)]">Pending</strong>, <strong
-			class="font-medium text-[color:var(--ds-text-primary)]">Approved</strong
-		>, and <strong class="font-medium text-[color:var(--ds-text-primary)]">Rejected</strong> — review queues only.
-		<strong class="font-medium text-[color:var(--ds-text-primary)]">Commit</strong> writes the official case
-		record; <strong class="font-medium text-[color:var(--ds-text-primary)]">Committed</strong> — outcomes already
-		on the record.
-	</div>
+	{#if !p128Presentation}
+		<div class="{DS_PROPOSALS_CLASSES.doctrineBand}" data-testid="proposal-status-tabs-hint">
+			<strong class="font-medium text-[color:var(--ds-text-primary)]">Workflow vs outcome:</strong>
+			<strong class="font-medium text-[color:var(--ds-text-primary)]">Pending</strong>, <strong
+				class="font-medium text-[color:var(--ds-text-primary)]">Approved</strong
+			>, and <strong class="font-medium text-[color:var(--ds-text-primary)]">Rejected</strong> — review queues only.
+			<strong class="font-medium text-[color:var(--ds-text-primary)]">Commit</strong> writes the official case
+			record; <strong class="font-medium text-[color:var(--ds-text-primary)]">Committed</strong> — outcomes already
+			on the record.
+		</div>
+	{:else}
+		<div class="{DS_PROPOSALS_CLASSES.doctrineBand}" data-testid="proposal-p128-status-strip-hint">
+			{P128_LIST_STATUS_STRIP}
+		</div>
+	{/if}
 
 	<!-- ── TYPE FILTER ─────────────────────────────────────────────────────── -->
 	<div class="{DS_PROPOSALS_CLASSES.filterRow}">
@@ -1175,8 +1288,15 @@
 			class="shrink-0 px-3 py-1.5 {DS_TYPE_CLASSES.meta} border-b border-[color:var(--ds-border-subtle)] bg-[color:var(--ds-bg-muted)]"
 			data-testid="proposal-queue-mix-summary"
 		>
-			<span class="font-medium text-[color:var(--ds-text-primary)]">This page:</span>
-			{queueMixSummary}
+			{#if !p128Presentation}
+				<span class="font-medium text-[color:var(--ds-text-primary)]">This page:</span>
+				{queueMixSummary}
+			{:else}
+				{P128_LIST_ROW_COUNT.replace('{shown}', String(activeProposals.length)).replace(
+					'{total}',
+					String(totalForActiveTab)
+				)}
+			{/if}
 		</div>
 	{/if}
 
@@ -1195,7 +1315,7 @@
 	{/if}
 
 	<!-- P40-01A: unmistakable when model saw only a prefix of extracted text -->
-	{#if truncatedDocIngestOnActiveTab}
+	{#if !p128Presentation && truncatedDocIngestOnActiveTab}
 		<div
 			class="{DS_BANNER_CLASSES.base} {DS_BANNER_CLASSES.denseModifier} {DS_STATUS_SURFACE_CLASSES.warning} shrink-0 mx-2 mt-1 mb-1 px-3 py-2.5"
 			role="alert"
@@ -1211,7 +1331,7 @@
 	{/if}
 
 	<!-- ── BULK ACTIONS BAR ────────────────────────────────────────────────── -->
-	{#if anySelectedOnTab}
+	{#if !p128Presentation && anySelectedOnTab}
 		<div
 			class="{DS_BANNER_CLASSES.base} {DS_BANNER_CLASSES.denseModifier} {DS_STATUS_SURFACE_CLASSES.info} shrink-0 border-b border-[color:var(--ds-border-default)] px-3 py-2"
 			data-testid="bulk-actions-bar"
@@ -1345,14 +1465,26 @@
 	<!-- ── EMPTY / LOADING ─────────────────────────────────────────────────── -->
 	{#if loading && proposals.length === 0}
 		<div class="px-3 pt-6 pb-5 {DS_EMPTY_CLASSES.description} text-[11px] leading-relaxed not-italic m-0">
-			Loading proposals for this case…
+			{!p128Presentation ? 'Loading proposals for this case…' : P128_LIST_LOADING}
 		</div>
 	{:else if !loading && !loadError && activeProposals.length === 0}
 		<div
 			class="px-3 pt-6 pb-5 {DS_EMPTY_CLASSES.description} text-[11px] leading-relaxed not-italic m-0"
 			data-testid="empty-state"
 		>
-			{#if (activeTab === 'pending' || activeTab === 'approved') && listSearchApplied}
+			{#if p128Presentation}
+				{#if (activeTab === 'pending' || activeTab === 'approved') && listSearchApplied}
+					<span data-testid="empty-search-no-results">{P128_LIST_EMPTY_PENDING_SEARCH}</span>
+				{:else if activeTab === 'pending'}
+					{P128_LIST_EMPTY_PENDING}
+				{:else if activeTab === 'approved'}
+					{P128_LIST_EMPTY_ACCEPTED}
+				{:else if activeTab === 'rejected'}
+					{P128_LIST_EMPTY_REJECTED}
+				{:else}
+					{P128_LIST_EMPTY_COMMITTED}
+				{/if}
+			{:else if (activeTab === 'pending' || activeTab === 'approved') && listSearchApplied}
 				<span data-testid="empty-search-no-results">
 					No matching <strong>{activeTab === 'pending' ? 'Pending' : 'Approved'}</strong> proposals for this
 					search.
@@ -1379,23 +1511,34 @@
 	{:else if activeProposals.length > 0}
 
 		<!-- ── SELECT-ALL HEADER ─────────────────────────────────────────────── -->
-		<div
-			class="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--ds-border-subtle)] bg-[color:var(--ds-bg-muted)] shrink-0"
-		>
-			<input
-				type="checkbox"
-				checked={allSelectedOnTab}
-				indeterminate={anySelectedOnTab && !allSelectedOnTab}
-				on:change={toggleSelectAll}
-				class="accent-blue-600 shrink-0"
-				aria-label="Select all proposals on this tab"
-				data-testid="select-all-checkbox"
-			/>
-			<span class="{DS_TYPE_CLASSES.meta} text-[10px]">
-				{activeProposals.length} proposal{activeProposals.length !== 1 ? 's' : ''}
-				{selectedOnTabCount > 0 ? ` · ${selectedOnTabCount} selected` : ''}
-			</span>
-		</div>
+		{#if !p128Presentation}
+			<div
+				class="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--ds-border-subtle)] bg-[color:var(--ds-bg-muted)] shrink-0"
+			>
+				<input
+					type="checkbox"
+					checked={allSelectedOnTab}
+					indeterminate={anySelectedOnTab && !allSelectedOnTab}
+					on:change={toggleSelectAll}
+					class="accent-blue-600 shrink-0"
+					aria-label="Select all proposals on this tab"
+					data-testid="select-all-checkbox"
+				/>
+				<span class="{DS_TYPE_CLASSES.meta} text-[10px]">
+					{activeProposals.length} proposal{activeProposals.length !== 1 ? 's' : ''}
+					{selectedOnTabCount > 0 ? ` · ${selectedOnTabCount} selected` : ''}
+				</span>
+			</div>
+		{:else}
+			<div
+				class="flex items-center gap-2 px-3 py-1.5 border-b border-[color:var(--ds-border-subtle)] bg-[color:var(--ds-bg-muted)] shrink-0"
+				data-testid="proposal-p128-list-header-row"
+			>
+				<span class="{DS_TYPE_CLASSES.meta} text-[10px]">
+					{activeProposals.length} proposal{activeProposals.length !== 1 ? 's' : ''}
+				</span>
+			</div>
+		{/if}
 
 		<!-- ── PROPOSAL LIST ─────────────────────────────────────────────────── -->
 		<div data-testid="proposal-list" class="flex flex-col gap-2 px-2 pb-2 pt-1">
@@ -1408,7 +1551,9 @@
 
 				{@const needsDateTimeAttention = proposal.proposal_type === 'timeline' && (proposal.status === 'pending' || proposal.status === 'approved') && timelineProposalCommitBlockedByLowChronology(proposal)}
 				<div
-					class="{DS_PROPOSALS_CLASSES.card} {needsDateTimeAttention ? DS_PROPOSALS_CLASSES.cardAttention : ''}"
+					class="{DS_PROPOSALS_CLASSES.card} {needsDateTimeAttention && !p128Presentation
+						? DS_PROPOSALS_CLASSES.cardAttention
+						: ''}"
 					data-testid="proposal-card"
 					data-proposal-id={proposal.id}
 					data-proposal-status={proposal.status}
@@ -1417,13 +1562,15 @@
 					<div class="flex items-start gap-2.5 px-3 pt-3 pb-1">
 
 						<!-- Checkbox -->
-						<input
-							type="checkbox"
-							checked={selected.has(proposal.id)}
-							on:change={() => toggleSelect(proposal.id)}
-							class="mt-0.5 accent-blue-600 shrink-0"
-							aria-label="Select proposal {shortId(proposal.id)}"
-						/>
+						{#if !p128Presentation}
+							<input
+								type="checkbox"
+								checked={selected.has(proposal.id)}
+								on:change={() => toggleSelect(proposal.id)}
+								class="mt-0.5 accent-blue-600 shrink-0"
+								aria-label="Select proposal {shortId(proposal.id)}"
+							/>
+						{/if}
 
 						<!-- Content -->
 						<div class="flex-1 min-w-0">
@@ -1431,14 +1578,24 @@
 							<!-- Badge row -->
 							<div class="flex items-center gap-1.5 flex-wrap mb-1">
 								<!-- Status badge — explicit label -->
-								<span
-									class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider shrink-0
-									       {statusBadgeClasses(proposal.status)}"
-									data-testid="status-badge"
-								>
-									{statusLabel(proposal.status)}
-								</span>
-							{#if proposal.status === 'approved' && proposal.proposal_type === 'timeline' && timelineProposalCommitBlockedByLowChronology(proposal)}
+								{#if !p128Presentation}
+									<span
+										class="px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider shrink-0
+										       {statusBadgeClasses(proposal.status)}"
+										data-testid="status-badge"
+									>
+										{statusLabel(proposal.status)}
+									</span>
+								{:else}
+									<span
+										class="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide shrink-0 ds-badge ds-badge-neutral"
+										data-testid="status-badge"
+										data-p128-status-label={p128StatusDisplayLabel(proposal.status)}
+									>
+										{p128StatusDisplayLabel(proposal.status)}
+									</span>
+								{/if}
+							{#if !p128Presentation && proposal.status === 'approved' && proposal.proposal_type === 'timeline' && timelineProposalCommitBlockedByLowChronology(proposal)}
 								<span
 									class="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide shrink-0 bg-amber-200 text-amber-950 dark:bg-amber-900/55 dark:text-amber-100 border border-amber-500/50"
 									data-testid="approved-chronology-blocked-chip"
@@ -1447,7 +1604,7 @@
 									Time confirm
 								</span>
 							{/if}
-							{#if proposal.status === 'pending' && proposal.proposal_type === 'timeline' && timelineProposalCommitBlockedByLowChronology(proposal)}
+							{#if !p128Presentation && proposal.status === 'pending' && proposal.proposal_type === 'timeline' && timelineProposalCommitBlockedByLowChronology(proposal)}
 								<span
 									class="px-1.5 py-0.5 rounded text-[9px] font-semibold uppercase tracking-wide shrink-0 bg-amber-100 text-amber-900 dark:bg-amber-950/70 dark:text-amber-200 border border-amber-400/60"
 									data-testid="pending-needs-datetime-chip"
@@ -1507,6 +1664,15 @@
 									</span>
 								{/if}
 
+								{#if p128Presentation}
+									<span
+										class="text-[10px] text-gray-500 dark:text-gray-400 shrink-0 max-w-[40%] truncate"
+										data-testid="proposal-created-by"
+										title={proposal.created_by}
+									>
+										{proposal.created_by}
+									</span>
+								{/if}
 								<!-- Date -->
 								<span class="ml-auto text-[10px] text-gray-400 dark:text-gray-500 shrink-0">
 									{formatCaseDateTime(proposal.created_at)}
@@ -1514,7 +1680,7 @@
 							</div>
 
 							<!-- Content preview: document ingest shows full paragraph (P41-38); others stay short list preview -->
-							{#if isDocumentTimelineIntakePayload(payload)}
+							{#if !p128Presentation && isDocumentTimelineIntakePayload(payload)}
 								<div
 									class="text-[11px] text-gray-700 dark:text-gray-300 font-mono leading-relaxed
 									       bg-gray-50 dark:bg-gray-900/70 rounded px-2 py-1.5 mb-2 whitespace-pre-wrap
@@ -1527,10 +1693,16 @@
 							{:else}
 								<div
 									class="text-[11px] text-gray-600 dark:text-gray-400 font-mono leading-relaxed
-									       bg-gray-50 dark:bg-gray-900/70 rounded px-2 py-1.5 mb-2 line-clamp-2"
+									       bg-gray-50 dark:bg-gray-900/70 rounded px-2 py-1.5 mb-2 {!p128Presentation
+										? 'line-clamp-2'
+										: 'line-clamp-3'}"
 									data-testid="proposal-preview"
 								>
-									{payloadPreview(proposal.proposed_payload, proposal.proposal_type)}
+									{#if !p128Presentation}
+										{payloadPreview(proposal.proposed_payload, proposal.proposal_type)}
+									{:else}
+										{p128TruncatedPreview(p128ProposalListPreviewBody(proposal))}
+									{/if}
 								</div>
 							{/if}
 
@@ -1565,7 +1737,7 @@
 								</div>
 							{/if}
 
-							{#if timelineProposalCommitBlockedByLowChronology(proposal)}
+							{#if !p128Presentation && timelineProposalCommitBlockedByLowChronology(proposal)}
 								<p
 									class="text-[10px] text-amber-800 dark:text-amber-200 mb-1 px-1 rounded bg-amber-50/90 dark:bg-amber-950/40 py-1 border border-amber-200 dark:border-amber-800"
 									data-testid="timeline-commit-blocked-chronology"
@@ -1585,105 +1757,185 @@
 									       dark:hover:text-gray-300 transition underline"
 									on:click={() => toggleExpand(proposal.id)}
 									data-testid="expand-toggle"
-									title="Show or hide full payload, editors, and technical details"
+									title={!p128Presentation
+										? 'Show or hide full payload, editors, and technical details'
+										: 'Show or hide stored proposal content'}
 								>
-									{isExpanded ? '▲ Collapse' : '▼ Details'}
+									{#if !p128Presentation}
+										{isExpanded ? '▲ Collapse' : '▼ Details'}
+									{:else}
+										{isExpanded ? P128_LIST_DETAIL_TOGGLE_COLLAPSE : `▼ ${P128_LIST_DETAIL_TOGGLE}`}
+									{/if}
 								</button>
 
-								<!-- Approve — only for pending -->
-								{#if canApprove(proposal.status)}
-									<button
-										type="button"
-										class="{DS_BTN_CLASSES.secondary} text-[10px] px-2 py-0.5
-										       disabled:opacity-50 disabled:cursor-not-allowed"
-										on:click={() => handleApprove(proposal.id)}
-										disabled={isInProgress}
-										data-testid="approve-btn"
-										title="Review workflow — moves to Approved (staging); does not write the official case record"
-									>
-										{isInProgress ? '…' : '✓ Approve'}
-									</button>
-								{/if}
-
-								<!-- Chat intake AI revision — pending only -->
-								{#if canApprove(proposal.status) && isChatIntakePayload(payload)}
-									<button
-										type="button"
-										class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 hover:bg-amber-200
-										       text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 transition
-										       disabled:opacity-50"
-										on:click={() =>
-											chatIntakeRevisingId === proposal.id
-												? cancelChatIntakeRevise()
-												: startChatIntakeRevise(proposal.id)}
-										disabled={isInProgress}
-										data-testid="chat-intake-revise-toggle"
-										title="Model-assisted revision for this chat-intake proposal (stays pending until you approve)"
-									>
-										{chatIntakeRevisingId === proposal.id ? 'Cancel revise' : 'AI revise'}
-									</button>
-								{/if}
-
-								<!-- Reject — only for pending -->
-								{#if canReject(proposal.status)}
-									{#if isRejectingThis}
-										<!-- Inline rejection reason -->
-										<input
-											type="text"
-											bind:value={rejectReason}
-											placeholder="Reason for rejection…"
-											class="text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600
-											       bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 flex-1 min-w-24"
-											data-testid="reject-reason-input"
-										/>
+								{#if reviewActionsEnabled && p128SingleReviewMode}
+									<!-- P128-04 — one proposal per action -->
+									{#if canApprove(proposal.status)}
 										<button
 											type="button"
-											class="px-2 py-0.5 rounded text-[10px] font-medium bg-red-600 hover:bg-red-700
-											       text-white transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
-											on:click={() => handleReject(proposal.id)}
-											disabled={!rejectReason.trim() || isInProgress}
-											data-testid="reject-confirm-btn"
-											title="Submit rejection with the reason above (workflow only; not committed to the official record)"
+											class="{DS_BTN_CLASSES.secondary} text-[10px] px-2 py-0.5
+											       disabled:opacity-50 disabled:cursor-not-allowed"
+											on:click={() => handleP128Accept(proposal.id)}
+											disabled={isInProgress || timelineProposalCommitBlockedByLowChronology(proposal)}
+											data-testid="p128-accept-btn"
+											title={timelineProposalCommitBlockedByLowChronology(proposal)
+												? 'Confirm date and time in details before accepting'
+												: P128_ACCEPT_BUTTON_TITLE}
 										>
-											{isInProgress ? '…' : 'Confirm'}
-										</button>
-										<button
-											type="button"
-											class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0"
-											on:click={cancelReject}
-											disabled={isInProgress}
-										>
-											Cancel
-										</button>
-									{:else}
-										<button
-											type="button"
-											class="px-2 py-0.5 rounded text-[10px] font-medium bg-red-100 hover:bg-red-200
-											       text-red-700 dark:bg-red-900/40 dark:text-red-300 transition"
-											on:click={() => startReject(proposal.id)}
-											data-testid="reject-btn"
-											title="Reject this pending proposal with a required reason (workflow only; not committed to the official record)"
-										>
-											✕ Reject
+											{isInProgress ? '…' : P128_ACCEPT_BUTTON}
 										</button>
 									{/if}
-								{/if}
+									{#if canReject(proposal.status)}
+										{#if isRejectingThis}
+											<input
+												type="text"
+												bind:value={rejectReason}
+												placeholder="Reason for rejection…"
+												class="text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600
+												       bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 flex-1 min-w-24"
+												data-testid="p128-reject-reason-input"
+											/>
+											<button
+												type="button"
+												class="px-2 py-0.5 rounded text-[10px] font-medium bg-red-600 hover:bg-red-700
+												       text-white transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+												on:click={() => handleReject(proposal.id)}
+												disabled={!rejectReason.trim() || isInProgress}
+												data-testid="p128-reject-confirm-btn"
+											>
+												{isInProgress ? '…' : 'Confirm'}
+											</button>
+											<button
+												type="button"
+												class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0"
+												on:click={cancelReject}
+												disabled={isInProgress}
+											>
+												Cancel
+											</button>
+										{:else}
+											<button
+												type="button"
+												class="px-2 py-0.5 rounded text-[10px] font-medium bg-red-100 hover:bg-red-200
+												       text-red-700 dark:bg-red-900/40 dark:text-red-300 transition"
+												on:click={() => startReject(proposal.id)}
+												data-testid="p128-reject-btn"
+											>
+												{P128_REJECT_BUTTON}
+											</button>
+										{/if}
+									{/if}
+									{#if canCommit(proposal.status)}
+										<button
+											type="button"
+											class="px-2 py-0.5 rounded text-[10px] font-medium bg-green-600 hover:bg-green-700
+											       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+											on:click={() => handleCommit(proposal.id)}
+											disabled={isInProgress || timelineProposalCommitBlockedByLowChronology(proposal)}
+											title={timelineProposalCommitBlockedByLowChronology(proposal)
+												? 'Confirm date and time in details first'
+												: 'Record this approved proposal on the case'}
+											data-testid="p128-finalize-commit-btn"
+										>
+											{isInProgress ? '…' : P128_FINALIZE_RECORD_BUTTON}
+										</button>
+									{/if}
+								{:else if reviewActionsEnabled}
+									<!-- Approve — only for pending -->
+									{#if canApprove(proposal.status)}
+										<button
+											type="button"
+											class="{DS_BTN_CLASSES.secondary} text-[10px] px-2 py-0.5
+											       disabled:opacity-50 disabled:cursor-not-allowed"
+											on:click={() => handleApprove(proposal.id)}
+											disabled={isInProgress}
+											data-testid="approve-btn"
+											title="Review workflow — moves to Approved (staging); does not write the official case record"
+										>
+											{isInProgress ? '…' : '✓ Approve'}
+										</button>
+									{/if}
 
-								<!-- Commit — only for approved -->
-								{#if canCommit(proposal.status)}
-									<button
-										type="button"
-										class="px-2 py-0.5 rounded text-[10px] font-medium bg-green-600 hover:bg-green-700
-										       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
-										on:click={() => handleCommit(proposal.id)}
-										disabled={isInProgress || timelineProposalCommitBlockedByLowChronology(proposal)}
-										title={timelineProposalCommitBlockedByLowChronology(proposal)
-											? 'Confirm chronology (low confidence) before commit'
-											: 'Commits this approved proposal into the official case record (Timeline or governed Note)'}
-										data-testid="commit-btn"
-									>
-										{isInProgress ? 'Committing…' : '→ Commit to Case'}
-									</button>
+									<!-- Chat intake AI revision — pending only -->
+									{#if canApprove(proposal.status) && isChatIntakePayload(payload)}
+										<button
+											type="button"
+											class="px-2 py-0.5 rounded text-[10px] font-medium bg-amber-100 hover:bg-amber-200
+											       text-amber-900 dark:bg-amber-900/40 dark:text-amber-200 transition
+											       disabled:opacity-50"
+											on:click={() =>
+												chatIntakeRevisingId === proposal.id
+													? cancelChatIntakeRevise()
+													: startChatIntakeRevise(proposal.id)}
+											disabled={isInProgress}
+											data-testid="chat-intake-revise-toggle"
+											title="Model-assisted revision for this chat-intake proposal (stays pending until you approve)"
+										>
+											{chatIntakeRevisingId === proposal.id ? 'Cancel revise' : 'AI revise'}
+										</button>
+									{/if}
+
+									<!-- Reject — only for pending -->
+									{#if canReject(proposal.status)}
+										{#if isRejectingThis}
+											<!-- Inline rejection reason -->
+											<input
+												type="text"
+												bind:value={rejectReason}
+												placeholder="Reason for rejection…"
+												class="text-[10px] px-2 py-0.5 rounded border border-gray-300 dark:border-gray-600
+												       bg-white dark:bg-gray-800 text-gray-900 dark:text-gray-100 flex-1 min-w-24"
+												data-testid="reject-reason-input"
+											/>
+											<button
+												type="button"
+												class="px-2 py-0.5 rounded text-[10px] font-medium bg-red-600 hover:bg-red-700
+												       text-white transition disabled:opacity-50 disabled:cursor-not-allowed shrink-0"
+												on:click={() => handleReject(proposal.id)}
+												disabled={!rejectReason.trim() || isInProgress}
+												data-testid="reject-confirm-btn"
+												title="Submit rejection with the reason above (workflow only; not committed to the official record)"
+											>
+												{isInProgress ? '…' : 'Confirm'}
+											</button>
+											<button
+												type="button"
+												class="text-[10px] text-gray-400 hover:text-gray-600 dark:hover:text-gray-300 shrink-0"
+												on:click={cancelReject}
+												disabled={isInProgress}
+											>
+												Cancel
+											</button>
+										{:else}
+											<button
+												type="button"
+												class="px-2 py-0.5 rounded text-[10px] font-medium bg-red-100 hover:bg-red-200
+												       text-red-700 dark:bg-red-900/40 dark:text-red-300 transition"
+												on:click={() => startReject(proposal.id)}
+												data-testid="reject-btn"
+												title="Reject this pending proposal with a required reason (workflow only; not committed to the official record)"
+											>
+												✕ Reject
+											</button>
+										{/if}
+									{/if}
+
+									<!-- Commit — only for approved -->
+									{#if canCommit(proposal.status)}
+										<button
+											type="button"
+											class="px-2 py-0.5 rounded text-[10px] font-medium bg-green-600 hover:bg-green-700
+											       text-white transition disabled:opacity-50 disabled:cursor-not-allowed"
+											on:click={() => handleCommit(proposal.id)}
+											disabled={isInProgress || timelineProposalCommitBlockedByLowChronology(proposal)}
+											title={timelineProposalCommitBlockedByLowChronology(proposal)
+												? 'Confirm chronology (low confidence) before commit'
+												: 'Commits this approved proposal into the official case record (Timeline or governed Note)'}
+											data-testid="commit-btn"
+										>
+											{isInProgress ? 'Committing…' : '→ Commit to Case'}
+										</button>
+									{/if}
 								{/if}
 							</div>
 						</div>
@@ -1696,6 +1948,7 @@
 						       bg-gray-50 dark:bg-gray-900 px-3 py-2"
 							data-testid="proposal-expanded"
 						>
+							{#if reviewActionsEnabled && !p128SingleReviewMode}
 							<p class="text-[9px] font-semibold uppercase tracking-wider text-gray-400
 							         dark:text-gray-500 mb-2">
 								Full Payload
@@ -2142,6 +2395,18 @@
 										</span>
 									{/if}
 								</div>
+							{/if}
+							{:else}
+								<CaseProposalDetailPanel
+									proposal={proposal}
+									showChronologyConfirm={p128SingleReviewMode &&
+										proposal.status === 'pending' &&
+										proposal.proposal_type === 'timeline' &&
+										timelineProposalCommitBlockedByLowChronology(proposal) &&
+										!isDocumentTimelineIntakePayload(payload)}
+									chronologyConfirmBusy={actionInProgress.has(proposal.id)}
+									onConfirmChronology={() => void confirmLowChronologyForProposal(proposal.id)}
+								/>
 							{/if}
 						</div>
 					{/if}

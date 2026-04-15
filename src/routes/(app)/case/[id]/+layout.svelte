@@ -2,10 +2,11 @@
 	/**
 	 * P19-06 — Case Workspace Shell
 	 * P82-02 — `CaseWorkspaceHeader` (identity + context strip + pending proposals link).
-	 * P123-02 — `CaseWorkspaceCaseSidebar` (list + Phase 123 surface links).
+	 * P123-02 — `CaseWorkspaceCaseSidebar` (list + Phase 123 surface links; P132.5-04 embedded in left stack).
 	 * P132.5-01 — `CaseWorkspaceLayoutShell` (left / center / right) + `CaseWorkspaceShellPanel` frames.
 	 * P132.5-02 — Timeline route: primary center panel (`case-workspace-shell-timeline-panel`, delegated scroll).
 	 * P132.5-03 — Right rail: `CaseWorkspaceRightPanelStack` (Activity / AI / Proposals; internal tabs only).
+	 * P132.5-04 — Left rail: `CaseWorkspaceLeftPanelStack` (context + entities + workflow + demoted nav).
 	 * P76-02 — Wave 3 `ds-case-shell*` frame + `data-region`.
 	 * P76-08 — `caseModeActive` for GNAV / case shell coordination.
 	 */
@@ -40,14 +41,14 @@
 	import CaseWorkspaceLayoutShell from '$lib/components/case/CaseWorkspaceLayoutShell.svelte';
 	import CaseWorkspaceShellPanel from '$lib/components/case/CaseWorkspaceShellPanel.svelte';
 	import CaseWorkspaceRightPanelStack from '$lib/components/case/CaseWorkspaceRightPanelStack.svelte';
-	import CaseWorkspaceCaseSidebar from '$lib/components/case/CaseWorkspaceCaseSidebar.svelte';
+	import CaseWorkspaceLeftPanelStack from '$lib/components/case/CaseWorkspaceLeftPanelStack.svelte';
 	import CaseWorkspaceHeader from '$lib/components/case/CaseWorkspaceHeader.svelte';
 	import CaseExportPanel from '$lib/components/case/CaseExportPanel.svelte';
 	import EditCaseModal from '$lib/components/case/EditCaseModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { DS_CASE_SHELL_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import {
-		P1325_SHELL_LEFT_ZONE_TITLE,
+		P1325_LEFT_STACK_PANEL_TITLE,
 		P1325_RIGHT_STACK_PANEL_TITLE,
 		P1325_SHELL_TIMELINE_PANEL_TITLE
 	} from '$lib/caseContext/p1325CaseWorkspaceShellCopy';
@@ -265,8 +266,13 @@
 
 	<CaseWorkspaceLayoutShell>
 		<svelte:fragment slot="left">
-			<CaseWorkspaceShellPanel testId="case-workspace-shell-left-panel" title={P1325_SHELL_LEFT_ZONE_TITLE}>
-				<CaseWorkspaceCaseSidebar />
+			<CaseWorkspaceShellPanel testId="case-workspace-shell-left-panel" title={P1325_LEFT_STACK_PANEL_TITLE}>
+				<CaseWorkspaceLeftPanelStack
+					caseId={routeCaseId ?? ''}
+					caseEngineToken={$caseEngineToken ?? ''}
+					meta={$activeCaseMeta}
+					shellLoading={loading && !$activeCaseMeta}
+				/>
 			</CaseWorkspaceShellPanel>
 		</svelte:fragment>
 

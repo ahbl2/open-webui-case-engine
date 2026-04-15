@@ -2,6 +2,7 @@
 	/**
 	 * P75-05 — Wave 2 app shell top utility: route context, global search affordance (opens existing SearchModal),
 	 * unit scope indicator, keyboard shortcuts entry. Gated by parent `DetectiveAppShellFrame` + layout flag only.
+	 * P131.9-06 — De-framed strip: surface chrome lives in `detectiveSurfaces.css` (`.ds-app-shell__top`); markup unchanged.
 	 * P75-08 — Search is modal-first; `/search` route also opens the same modal (see `routes/(app)/search/+page.svelte`).
 	 * P75-09 — `SearchModal` is the only global search/command surface (modes: Search, Jump, Command, Workspace).
 	 */
@@ -66,7 +67,7 @@
 			data-testid="detective-app-shell-search-trigger"
 			on:click={() => showSearch.set(true)}
 		>
-			<Search className="size-4 shrink-0 opacity-85" strokeWidth="2" />
+			<Search className="size-4 shrink-0 opacity-85" strokeWidth="1.5" />
 			<span class="min-w-0 flex-1 truncate text-[color:var(--ds-text-muted)]">
 				{$i18n.t('Search & Intel')}
 			</span>

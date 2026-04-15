@@ -16,10 +16,11 @@
  * - `home` — /home (desktop hub)
  * - `cases` — /cases or inside /case/* (contextual “in case” highlights Cases per spec)
  * - `command_center` — /command-center (P131 cross-case visibility; read-only)
+ * - `governance` — /governance (P132-05 read-only governance listing; server-gated)
  * - `search` — global search modal open (accelerator; takes precedence while open), or pathname /search
  * - `null` — /admin and other unified-shell routes where no Core item applies
  */
-export type DetectiveGnavPrimaryId = 'home' | 'cases' | 'command_center' | 'search' | null;
+export type DetectiveGnavPrimaryId = 'home' | 'cases' | 'command_center' | 'governance' | 'search' | null;
 
 export function resolveDetectiveGnavPrimaryActive(
 	pathname: string,
@@ -36,6 +37,8 @@ export function resolveDetectiveGnavPrimaryActive(
 	if (p === '/cases' || p.startsWith('/cases/')) return 'cases';
 
 	if (p === '/command-center' || p.startsWith('/command-center/')) return 'command_center';
+
+	if (p === '/governance' || p.startsWith('/governance/')) return 'governance';
 
 	if (p === '/home' || p.startsWith('/home/')) return 'home';
 

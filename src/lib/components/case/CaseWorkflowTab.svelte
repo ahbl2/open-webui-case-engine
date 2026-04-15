@@ -23,11 +23,30 @@ import CaseWorkflowCreateForm from '$lib/components/case/CaseWorkflowCreateForm.
 import {
 	P127_WORKFLOW_CREATE_ENTRY_BUTTON,
 	P127_WORKFLOW_CREATE_MODAL_TITLE,
-	P127_WORKFLOW_CREATE_SUCCESS_TOAST,
-	P127_WORKFLOW_P117_LIST_EMPTY,
-	P127_WORKFLOW_P117_LIST_LOADING,
-	P127_WORKFLOW_P117_LIST_SECTION_TITLE
+	P127_WORKFLOW_CREATE_SUCCESS_TOAST
 } from '$lib/caseContext/p127WorkflowCreateCopy';
+import {
+	P127_WORKFLOW_DETAIL_META_UPDATED,
+	P127_WORKFLOW_LIST_EMPTY,
+	P127_WORKFLOW_LIST_EMPTY_HINT,
+	P127_WORKFLOW_LIST_LOADING,
+	P127_WORKFLOW_LIST_SECTION_TITLE
+} from '$lib/caseContext/p127WorkflowListDetailCopy';
+import { p127LabelWorkflowStatus, p127LabelWorkflowType } from '$lib/case/p127WorkflowDisplay';
+import {
+	P127_WORKFLOW_LEGACY_ORIGIN_TH_TITLE,
+	P127_WORKFLOW_LEGACY_RANK_CELL_PREFIX,
+	P127_WORKFLOW_LEGACY_RANK_EDIT_LABEL,
+	P127_WORKFLOW_LEGACY_RANK_TH,
+	P127_WORKFLOW_LEGACY_RANK_TH_TITLE,
+	P127_WORKFLOW_LEGACY_TOOLBAR_HELP,
+	P127_WORKFLOW_LEGACY_TOOLBAR_TITLE,
+	P127_WORKFLOW_PROPOSAL_PREVIEW_HEADING,
+	P127_WORKFLOW_PROPOSAL_QUEUE_ARIA,
+	P127_WORKFLOW_PROPOSAL_QUEUE_HEADING,
+	P127_WORKFLOW_PROPOSAL_QUEUE_INTRO,
+	P127_WORKFLOW_PROPOSAL_RANK_LABEL
+} from '$lib/caseContext/p127WorkflowBoundaryCopy';
 import {
 	hrefForSupportLinkTarget,
 	isWorkflowSupportLinkStale,
@@ -42,7 +61,6 @@ import {
 		getStatusesForType,
 		getStatusBadgeClasses,
 		getOriginBadgeClasses,
-		getPriorityEmoji,
 		formatWorkflowItemTypeForDisplay,
 		formatWorkflowStatusForDisplay,
 		formatWorkflowOriginForDisplay,
@@ -745,9 +763,11 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		aria-label="Workflow item list filters"
 	>
 		<div>
-			<p class="text-xs font-semibold uppercase tracking-wide {DS_TYPE_CLASSES.meta}">Workflow items</p>
+			<p class="text-xs font-semibold uppercase tracking-wide {DS_TYPE_CLASSES.meta}">
+				{P127_WORKFLOW_LEGACY_TOOLBAR_TITLE}
+			</p>
 			<p class="mt-0.5 max-w-prose text-[11px] leading-snug {DS_TYPE_CLASSES.meta}">
-				Persisted hypotheses and gaps on this tab—planning only, not committed Timeline rows.
+				{P127_WORKFLOW_LEGACY_TOOLBAR_HELP}
 			</p>
 		</div>
 		<div
@@ -815,18 +835,21 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	<section
 		class="min-w-0 shrink-0 border-b border-[color:var(--ce-l-border-subtle)] px-3 py-3 sm:px-4 {embedded ? 'p-2' : ''}"
 		data-testid="workflow-p127-operational-items-section"
-		aria-label={P127_WORKFLOW_P117_LIST_SECTION_TITLE}
+		aria-label={P127_WORKFLOW_LIST_SECTION_TITLE}
 	>
 		<h3 class="text-sm font-medium text-[color:var(--ce-l-text-primary)] m-0 mb-2">
-			{P127_WORKFLOW_P117_LIST_SECTION_TITLE}
+			{P127_WORKFLOW_LIST_SECTION_TITLE}
 		</h3>
 		{#if p117WorkflowLoading}
 			<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="workflow-p117-items-loading">
-				{P127_WORKFLOW_P117_LIST_LOADING}
+				{P127_WORKFLOW_LIST_LOADING}
 			</p>
 		{:else if p117WorkflowItems.length === 0}
 			<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="workflow-p117-items-empty">
-				{P127_WORKFLOW_P117_LIST_EMPTY}
+				{P127_WORKFLOW_LIST_EMPTY}
+			</p>
+			<p class="text-xs text-[color:var(--ce-l-text-muted)] m-0 mt-1" data-testid="workflow-p117-items-empty-hint">
+				{P127_WORKFLOW_LIST_EMPTY_HINT}
 			</p>
 		{:else}
 			<ul class="flex flex-col gap-2 list-none p-0 m-0" data-testid="workflow-p117-items-list">
@@ -836,10 +859,28 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 						data-testid="workflow-p117-items-row"
 						data-workflow-p117-id={w.workflow_item_id}
 					>
-						<span class="font-medium">{w.title}</span>
-						<span class="text-xs text-[color:var(--ce-l-text-muted)] ml-2"
-							>{w.workflow_type} · {w.status}</span
-						>
+						<div class="flex flex-col gap-1">
+							<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+								<span
+									class="text-xs text-[color:var(--ce-l-text-muted)]"
+									data-testid="workflow-p117-items-row-type"
+									>{p127LabelWorkflowType(w.workflow_type)}</span>
+								<a
+									class="font-medium text-[color:var(--ce-l-text-primary)] hover:underline"
+									href={`/case/${encodeURIComponent(caseId)}/workflow/witem/${encodeURIComponent(w.workflow_item_id)}`}
+									data-testid="workflow-p117-items-row-title-link"
+									>{w.title}</a>
+								<span
+									class="text-xs text-[color:var(--ce-l-text-muted)]"
+									data-testid="workflow-p117-items-row-status"
+									>{p127LabelWorkflowStatus(w.status)}</span>
+							</div>
+							{#if w.updated_at}
+								<p class="text-xs text-[color:var(--ce-l-text-muted)] m-0" data-testid="workflow-p117-items-row-updated">
+									{P127_WORKFLOW_DETAIL_META_UPDATED}{' '}{w.updated_at}
+								</p>
+							{/if}
+						</div>
 					</li>
 				{/each}
 			</ul>
@@ -949,12 +990,12 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 						<th class="{DS_WORKFLOW_CLASSES.th}">Type</th>
 						<th class="{DS_WORKFLOW_CLASSES.th}">Title</th>
 						<th class="{DS_WORKFLOW_CLASSES.th}">Status</th>
-						<th class="{DS_WORKFLOW_CLASSES.th}" title="Urgency 0–3; higher numbers mean higher priority.">
-							Priority
+						<th class="{DS_WORKFLOW_CLASSES.th}" title={P127_WORKFLOW_LEGACY_RANK_TH_TITLE}>
+							{P127_WORKFLOW_LEGACY_RANK_TH}
 						</th>
 						<th
 							class="{DS_WORKFLOW_CLASSES.th}"
-							title="Investigator: you added this row on the Workflow tab. System: created when you accepted a workflow suggestion from the workflow proposal queue below (not the case Proposals tab)."
+							title={P127_WORKFLOW_LEGACY_ORIGIN_TH_TITLE}
 						>
 							Origin
 						</th>
@@ -1011,10 +1052,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 							<td class="px-2 py-1.5">
 								{#if item.priority != null}
 									<span class="inline-flex items-center gap-1 text-xs {DS_TYPE_CLASSES.meta}">
-										{#if getPriorityEmoji(item.priority)}
-											<span aria-hidden="true">{getPriorityEmoji(item.priority)}</span>
-										{/if}
-										<span>Priority {item.priority}</span>
+										<span>{P127_WORKFLOW_LEGACY_RANK_CELL_PREFIX} {item.priority}</span>
 									</span>
 								{:else}
 									<span class="text-xs {DS_TYPE_CLASSES.meta}">—</span>
@@ -1139,17 +1177,14 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		class="{DS_WORKFLOW_CLASSES.proposalsPanel} min-w-0 shrink-0 {embedded
 			? 'mt-3 p-2.5 pb-2.5'
 			: 'mt-5 p-4 pb-4'}"
-		aria-label="Workflow proposal queue — suggestions for workflow items, separate from case Proposals drafts"
+		aria-label={P127_WORKFLOW_PROPOSAL_QUEUE_ARIA}
 	>
 			<div
 				class="space-y-0.5 border-b border-[var(--ds-border-default)] pb-3 {embedded ? 'mb-1.5' : 'mb-2.5'}"
 			>
-				<h3 class="text-sm font-semibold {DS_TYPE_CLASSES.section}">Workflow proposal queue</h3>
+				<h3 class="text-sm font-semibold {DS_TYPE_CLASSES.section}">{P127_WORKFLOW_PROPOSAL_QUEUE_HEADING}</h3>
 				<p class="max-w-prose text-xs leading-relaxed {DS_TYPE_CLASSES.meta}">
-					Primary list shows pending triage only (same count as Attention). This is the
-					<span class="font-medium">workflow proposal queue</span> on the Workflow tab; this queue is not the case Proposals tab.
-					Timeline and note drafts awaiting review and commit live on the case Proposals tab. Accepted or rejected
-					workflow-queue items stay under Resolved history.
+					{P127_WORKFLOW_PROPOSAL_QUEUE_INTRO}
 				</p>
 			</div>
 			{#snippet workflowProposalRow(p)}
@@ -1178,7 +1213,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 					<div class="mt-1 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs {DS_TYPE_CLASSES.meta}">
 						<span class="break-words">Type: {proposedItemTypeDisplay(p)}</span>
 						{#if p.suggested_payload?.priority != null}
-							<span class="shrink-0">Priority: {p.suggested_payload.priority}</span>
+							<span class="shrink-0">{P127_WORKFLOW_PROPOSAL_RANK_LABEL}: {p.suggested_payload.priority}</span>
 						{/if}
 						{#if p.citations?.length}
 							<span class="shrink-0">{p.citations.length} citation(s)</span>
@@ -1202,7 +1237,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 						<div class="mt-2 space-y-2 border-t border-[var(--ds-border-default)] pt-2 text-xs">
 							{#if p.suggested_payload}
 								<div>
-									<div class="font-medium mb-1">Suggested workflow item</div>
+									<div class="font-medium mb-1">{P127_WORKFLOW_PROPOSAL_PREVIEW_HEADING}</div>
 									<div>
 										Type: {p.suggested_payload.type != null && String(p.suggested_payload.type).trim() !== ''
 											? formatWorkflowItemTypeForDisplay(String(p.suggested_payload.type))
@@ -1212,7 +1247,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 										<div>Status: {formatWorkflowStatusForDisplay(p.suggested_payload.status)}</div>
 									{/if}
 									{#if p.suggested_payload.priority != null}
-										<div>Priority: {p.suggested_payload.priority}</div>
+										<div>{P127_WORKFLOW_PROPOSAL_RANK_LABEL}: {p.suggested_payload.priority}</div>
 									{/if}
 									{#if p.suggested_payload.description}
 										<div class="mt-1">
@@ -1593,7 +1628,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	</section>
 </div>
 
-<!-- P127-02 — Create modal (Phase 117 case_workflow_items only; no legacy priority). -->
+<!-- P127-02 — Create modal (Phase 117 case_workflow_items only). -->
 {#if createOpen}
 	<div
 		class="{DS_OVERLAY_CLASSES.backdrop} z-50 flex min-h-full items-center justify-center p-4"
@@ -1671,7 +1706,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 					</select>
 				</div>
 				<div>
-					<label class="{DS_WORKFLOW_TEXT_CLASSES.modalLabel}">Priority (number)</label>
+					<label class="{DS_WORKFLOW_TEXT_CLASSES.modalLabel}">{P127_WORKFLOW_LEGACY_RANK_EDIT_LABEL}</label>
 					<input
 						type="number"
 						bind:value={editPriority}

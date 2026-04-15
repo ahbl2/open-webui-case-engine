@@ -10,12 +10,15 @@ import { describe, expect, it } from 'vitest';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const layoutPath = join(__dirname, '../../routes/(app)/case/[id]/+layout.svelte');
 const navPath = join(__dirname, '../components/case/CaseWorkspaceCaseSidebar.svelte');
+const leftStackPath = join(__dirname, '../components/case/CaseWorkspaceLeftPanelStack.svelte');
 const layoutSource = readFileSync(layoutPath, 'utf8');
 const navSource = readFileSync(navPath, 'utf8');
+const leftStackSource = readFileSync(leftStackPath, 'utf8');
 
 describe('case primary navigation (P71-04 / P70-05) — P123-02 left rail', () => {
-	it('embeds CaseWorkspaceCaseSidebar and CaseWorkspaceLayoutShell from the case layout (P132.5-01)', () => {
-		expect(layoutSource).toContain('CaseWorkspaceCaseSidebar');
+	it('embeds CaseWorkspaceLeftPanelStack (with CaseWorkspaceCaseSidebar) and CaseWorkspaceLayoutShell from the case layout (P132.5-01 / P132.5-04)', () => {
+		expect(layoutSource).toContain('CaseWorkspaceLeftPanelStack');
+		expect(leftStackSource).toContain('CaseWorkspaceCaseSidebar');
 		expect(layoutSource).toContain('CaseWorkspaceLayoutShell');
 	});
 
@@ -42,9 +45,9 @@ describe('case primary navigation (P71-04 / P70-05) — P123-02 left rail', () =
 		expect(navSource).toContain("return `/case/${caseId}/${section}`");
 	});
 
-	it('keeps CaseWorkspaceHeader (identity surface) before CaseWorkspaceCaseSidebar in template', () => {
+	it('keeps CaseWorkspaceHeader (identity surface) before CaseWorkspaceLeftPanelStack in template', () => {
 		const afterScript = layoutSource.indexOf('</script>');
 		const tmpl = layoutSource.slice(afterScript + 1);
-		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceCaseSidebar'));
+		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceLeftPanelStack'));
 	});
 });

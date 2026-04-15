@@ -24,9 +24,18 @@
 	import { onMount, getContext } from 'svelte';
 	import OperatorCommandCenterFrame from '$lib/components/operator/OperatorCommandCenterFrame.svelte';
 	import OccSummaryKpiTiles from '$lib/components/operator/OccSummaryKpiTiles.svelte';
-	import OccRightRailModules from '$lib/components/operator/OccRightRailModules.svelte';
+	import OccSkeletonTileRow from '$lib/components/operator/OccSkeletonTileRow.svelte';
+	import OccStateContainer from '$lib/components/operator/OccStateContainer.svelte';
 	import HomeDesktopPanels from './HomeDesktopPanels.svelte';
-	import OccMainColumnHome from './OccMainColumnHome.svelte';
+	import OccHomeLeftColumn from './OccHomeLeftColumn.svelte';
+	import OccHomeCenterColumn from './OccHomeCenterColumn.svelte';
+	import OccHomeRightColumn from './OccHomeRightColumn.svelte';
+	import OccHomeBoardCases from './OccHomeBoardCases.svelte';
+	import OccHomeBoardActivity from './OccHomeBoardActivity.svelte';
+	import OccHomeWorkflowQueueZone from './OccHomeWorkflowQueueZone.svelte';
+	import OccRailIntel from '$lib/components/operator/OccRailIntel.svelte';
+	import OccRailAssistant from '$lib/components/operator/OccRailAssistant.svelte';
+	import OccRailProposals from '$lib/components/operator/OccRailProposals.svelte';
 	import { isDetectiveWave2AppShellEnabled } from '$lib/case/detectiveWave2Shell';
 	import { goto } from '$app/navigation';
 	import { v4 as uuidv4 } from 'uuid';
@@ -42,7 +51,7 @@
 		caseContext,
 		aiCaseContext
 	} from '$lib/stores';
-	import { DS_BADGE_CLASSES, DS_OCC_CLASSES, DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+	import { DS_BADGE_CLASSES, DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import {
 		listPersonalThreadAssociations,
 		upsertPersonalThreadAssociation,
@@ -92,7 +101,18 @@
 		}
 	}
 
-	onMount(() => { loadThreads(); loadCases(); });
+	/** P131.9-05B — Desktop OCC bottom board uses 3×2 grid; <1200px keeps three column stacks. */
+	let occDesktopBoard = false;
+
+	onMount(() => {
+		void loadThreads();
+		void loadCases();
+		const mq = window.matchMedia('(min-width: 1200px)');
+		const sync = () => (occDesktopBoard = mq.matches);
+		sync();
+		mq.addEventListener('change', sync);
+		return () => mq.removeEventListener('change', sync);
+	});
 
 	// ── Thread binding ───────────────────────────────────────────────────────
 	let bindingInProgress = false;
@@ -218,29 +238,29 @@
 	function goToCases() {
 		goto('/cases');
 	}
+
+	$: summaryToken = Boolean($caseEngineToken && String($caseEngineToken).trim() !== '');
+	$: hasSummaryError =
+		summaryToken &&
+		(Boolean(String(casesError ?? '').trim()) || Boolean(String(threadsLoadError ?? '').trim()));
+
+	function retrySummaryLoads() {
+		void loadCases();
+		void loadThreads();
+	}
+
+	function retryAssistantBinding() {
+		localBindError = null;
+		void newChat();
+	}
+
+	$: intelRetryAriaLabel = $i18n.t('Retry loading intelligence feed');
 </script>
 
 {#if wave2ShellChrome}
-	<OperatorCommandCenterFrame>
-		<div class="contents" slot="summary">
-			<OccSummaryKpiTiles
-				hasToken={Boolean($caseEngineToken && String($caseEngineToken).trim() !== '')}
-				{casesLoading}
-				{casesError}
-				totalCasesInScope={allCasesForMetrics.length}
-				activeOpenCount={activeOpenCaseCount}
-				{threadsLoading}
-				threadCount={threads.length}
-			/>
-		</div>
-		<div class="contents" slot="rail">
-			<OccRightRailModules {newChat} {bindingInProgress} hasToken={Boolean($caseEngineToken)} {goToCases} />
-		</div>
-		<div class={DS_OCC_CLASSES.mainCanvas}>
-			<!-- Header — OCC landing (P75-06); P77-02 — DS hierarchy -->
-			<div
-				class="flex items-start gap-3 mb-6 pb-4 border-b border-[color:var(--ds-border-default)]"
-			>
+	<OperatorCommandCenterFrame occDesktopBoard={occDesktopBoard}>
+		<div class="ds-occ-hero-band__inner w-full" slot="hero">
+			<div class="flex items-start gap-3 min-w-0 flex-1">
 				<svg
 					xmlns="http://www.w3.org/2000/svg"
 					fill="none"
@@ -257,27 +277,45 @@
 					/>
 				</svg>
 				<div class="min-w-0">
-					<h1 class={DS_TYPE_CLASSES.display}>{$i18n.t('Operator Command Center')}</h1>
+					<h1 id="occ-home-hero-heading" class={DS_TYPE_CLASSES.display}>
+						{$i18n.t('Operator Command Center')}
+					</h1>
 					<p class="{DS_TYPE_CLASSES.meta} mt-1 max-w-2xl">
 						{$i18n.t('Personal workspace and case shortcuts')}
 					</p>
 				</div>
 			</div>
-
-			<OccMainColumnHome
-				{newChat}
-				{bindingInProgress}
-				localBindError={localBindError}
-				onDismissBindError={() => {
-					localBindError = null;
-				}}
-				{threadsLoading}
-				{threadsLoadError}
-				{loadThreads}
-				threads={threads}
-				{normalizedThreads}
-				{activePersonalThreadId}
-				openPersonalThread={openPersonalThread}
+			<div class="ds-occ-hero-actions" data-testid="occ-hero-actions">
+				<span class="ds-occ-hero-actions__placeholder" aria-hidden="true">
+					{$i18n.t('Reserved')}
+				</span>
+			</div>
+		</div>
+		<div class="contents" slot="summary">
+			{#if hasSummaryError}
+				<OccStateContainer
+					hasError={true}
+					onRetry={retrySummaryLoads}
+					retryDisabled={casesLoading || threadsLoading}
+					retryAriaLabel={$i18n.t('Retry loading summary metrics')}
+					regionMinClass="min-h-[5.5rem]"
+				/>
+			{:else if summaryToken && (casesLoading || threadsLoading)}
+				<OccSkeletonTileRow />
+			{:else}
+				<OccSummaryKpiTiles
+					hasToken={summaryToken}
+					{casesLoading}
+					{casesError}
+					totalCasesInScope={allCasesForMetrics.length}
+					activeOpenCount={activeOpenCaseCount}
+					{threadsLoading}
+					threadCount={threads.length}
+				/>
+			{/if}
+		</div>
+		<div class="contents" slot="colLeft">
+			<OccHomeLeftColumn
 				{casesLoading}
 				{casesError}
 				{loadCases}
@@ -286,6 +324,41 @@
 				{statusBadgeClass}
 			/>
 		</div>
+		<div class="contents" slot="colCenter">
+			<OccHomeCenterColumn />
+		</div>
+		<div class="contents" slot="colRight">
+			<OccHomeRightColumn
+				{newChat}
+				{bindingInProgress}
+				hasToken={summaryToken}
+				bindingErrorActive={Boolean(localBindError) && summaryToken}
+				onRetryBinding={retryAssistantBinding}
+				{goToCases}
+			/>
+		</div>
+
+		<OccHomeBoardCases
+			slot="boardCases"
+			casesLoading={casesLoading}
+			casesError={casesError}
+			loadCases={loadCases}
+			recentCases={recentCases}
+			{goToCases}
+			statusBadgeClass={statusBadgeClass}
+		/>
+		<OccHomeBoardActivity slot="boardActivity" />
+		<OccRailAssistant
+			slot="boardAssistant"
+			{newChat}
+			bindingInProgress={bindingInProgress}
+			hasToken={summaryToken}
+			bindingErrorActive={Boolean(localBindError) && summaryToken}
+			onRetryBinding={retryAssistantBinding}
+		/>
+		<OccHomeWorkflowQueueZone slot="boardWorkflow" />
+		<OccRailIntel slot="boardIntel" retryAriaLabel={intelRetryAriaLabel} />
+		<OccRailProposals slot="boardProposals" {goToCases} />
 	</OperatorCommandCenterFrame>
 {:else}
 	<!-- P75-06-FU: legacy pre–Wave-2 / pre-OCC home shell (no OCC summary band / right rail). -->

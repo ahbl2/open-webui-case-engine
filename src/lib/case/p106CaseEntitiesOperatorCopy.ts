@@ -1,5 +1,5 @@
 /**
- * P106-02 / P106-05 — Operator copy for case entities surfaces (supporting-only; Timeline authoritative).
+ * P106-02 / P106-05 — Operator copy for case entities surfaces (supporting-only; Timeline is the committed record).
  */
 
 /** List panel `<h1>` — non-authoritative framing (see also nav label). */

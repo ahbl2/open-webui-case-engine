@@ -44,6 +44,8 @@
 
 	export let caseId: string;
 	export let caseEngineToken: string;
+	/** P132.5-04 — Left rail: list + links only (no create/org chrome). */
+	export let compactRail = false;
 
 	let loading = false;
 	let clientError = '';
@@ -141,28 +143,38 @@
 	class="flex flex-col gap-3 min-h-0"
 	data-testid="case-entities-panel"
 	data-case-entities-panel-case-id={caseId}
+	data-case-entities-compact-rail={compactRail ? 'true' : undefined}
 >
-	<header class="flex flex-col gap-1 shrink-0">
-		<h1 class="text-lg font-semibold text-[color:var(--ce-l-text-primary)]">{P106_CASE_ENTITIES_LIST_HEADING}</h1>
-		<p class="text-sm text-[color:var(--ce-l-text-secondary)]">{P106_CASE_ENTITIES_SUPPORTING_COPY}</p>
-		{#if caseEngineToken}
-			<div class="pt-1">
-				<button
-					type="button"
-					class="rounded px-3 py-1.5 text-sm font-medium border border-[color:var(--ce-l-border-subtle)] text-[color:var(--ce-l-text-primary)] hover:opacity-90"
-					data-testid="case-entities-panel--create-open"
-					disabled={loading}
-					on:click={() => {
-						showCreateForm = !showCreateForm;
-					}}
-				>
-					{P126_ENTITY_CREATE_ENTRY_BUTTON}
-				</button>
-			</div>
-		{/if}
-	</header>
+	{#if compactRail}
+		<div
+			class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-muted)]"
+			data-testid="case-entities-panel--rail-heading"
+		>
+			{P106_CASE_ENTITIES_LIST_HEADING}
+		</div>
+	{:else}
+		<header class="flex flex-col gap-1 shrink-0">
+			<h1 class="text-lg font-medium text-[color:var(--ce-l-text-primary)]">{P106_CASE_ENTITIES_LIST_HEADING}</h1>
+			<p class="text-sm text-[color:var(--ce-l-text-secondary)]">{P106_CASE_ENTITIES_SUPPORTING_COPY}</p>
+			{#if caseEngineToken}
+				<div class="pt-1">
+					<button
+						type="button"
+						class="rounded px-3 py-1.5 text-sm font-medium border border-[color:var(--ce-l-border-subtle)] text-[color:var(--ce-l-text-primary)] hover:opacity-90"
+						data-testid="case-entities-panel--create-open"
+						disabled={loading}
+						on:click={() => {
+							showCreateForm = !showCreateForm;
+						}}
+					>
+						{P126_ENTITY_CREATE_ENTRY_BUTTON}
+					</button>
+				</div>
+			{/if}
+		</header>
+	{/if}
 
-	{#if showCreateForm && caseEngineToken}
+	{#if !compactRail && showCreateForm && caseEngineToken}
 		<CaseEntityCreateForm
 			caseId={caseId}
 			caseEngineToken={caseEngineToken}
@@ -173,7 +185,7 @@
 		/>
 	{/if}
 
-	{#if caseEngineToken}
+	{#if caseEngineToken && !compactRail}
 		<section
 			class="flex flex-col gap-2 rounded-md border border-[color:var(--ce-l-border-subtle)] p-3 bg-[color:var(--ce-l-surface-raised)]"
 			data-testid="case-entities-panel--organization"
@@ -252,7 +264,9 @@
 		</p>
 	{:else}
 		<ul
-			class="flex flex-col gap-2 min-h-0 overflow-auto list-none p-0 m-0"
+			class="flex flex-col gap-2 min-h-0 list-none p-0 m-0 {compactRail
+				? 'max-h-44 overflow-y-auto'
+				: 'overflow-auto'}"
 			data-testid="case-entities-panel--list"
 		>
 			{#each filteredEntities as ent (ent.id)}

@@ -4,11 +4,15 @@
 	import {
 		getStatusBadgeClasses,
 		getOriginBadgeClasses,
-		getPriorityEmoji,
 		formatWorkflowItemTypeForDisplay,
 		formatWorkflowStatusForDisplay,
 		formatWorkflowOriginForDisplay
 	} from '$lib/components/case/workflowStatus';
+	import {
+		P127_WORKFLOW_ENTITY_WORKSPACE_BLURB,
+		P127_WORKFLOW_LEGACY_RANK_CELL_PREFIX,
+		P127_WORKFLOW_LEGACY_RANK_TH
+	} from '$lib/caseContext/p127WorkflowBoundaryCopy';
 
 	export let caseId: string;
 	export let token: string;
@@ -81,7 +85,7 @@
 				{displayLabel(entityType, normalizedId)}
 			</div>
 			<div class="mt-1 text-xs text-gray-500 dark:text-gray-400">
-				Case-scoped view of workflow items related to this entity. Workflow items remain part of the case workflow system.
+				{P127_WORKFLOW_ENTITY_WORKSPACE_BLURB}
 			</div>
 		</div>
 		<button
@@ -119,7 +123,7 @@
 						<th class="text-left px-2 py-1.5">Type</th>
 						<th class="text-left px-2 py-1.5">Title</th>
 						<th class="text-left px-2 py-1.5">Status</th>
-						<th class="text-left px-2 py-1.5">Priority</th>
+						<th class="text-left px-2 py-1.5">{P127_WORKFLOW_LEGACY_RANK_TH}</th>
 						<th class="text-left px-2 py-1.5">Origin</th>
 						<th class="text-left px-2 py-1.5">Citations</th>
 					</tr>
@@ -155,10 +159,7 @@
 							<td class="px-2 py-1.5">
 								{#if item.priority != null}
 									<span class="inline-flex items-center gap-1 text-xs">
-										{#if getPriorityEmoji(item.priority)}
-											<span aria-hidden="true">{getPriorityEmoji(item.priority)}</span>
-										{/if}
-										<span>Priority {item.priority}</span>
+										<span>{P127_WORKFLOW_LEGACY_RANK_CELL_PREFIX} {item.priority}</span>
 									</span>
 								{:else}
 									<span class="text-xs text-gray-400">—</span>

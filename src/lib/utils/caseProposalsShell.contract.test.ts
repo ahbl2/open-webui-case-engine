@@ -11,13 +11,11 @@ const pagePath = join(__dirname, '../../routes/(app)/case/[id]/proposals/+page.s
 const pageSource = readFileSync(pagePath, 'utf8');
 
 describe('case proposals shell (P71-07 / P70-06)', () => {
-	it('uses CaseWorkspaceContentRegion and Tier L Proposals shell classes', () => {
+	it('uses CaseWorkspaceContentRegion, P128 intake framing, and Tier L Proposals shell classes', () => {
 		expect(pageSource).toContain('CaseWorkspaceContentRegion');
 		expect(pageSource).toContain('testId="case-proposals-page"');
+		expect(pageSource).toContain('CaseProposalFraming');
 		expect(pageSource).toContain('ce-l-proposals-shell');
-		expect(pageSource).toContain('ce-l-proposals-hero');
-		expect(pageSource).toContain('ce-l-proposals-hero-title');
-		expect(pageSource).toContain('ce-l-proposals-hero-intro');
 		expect(pageSource).toContain('ce-l-proposals-workspace');
 	});
 

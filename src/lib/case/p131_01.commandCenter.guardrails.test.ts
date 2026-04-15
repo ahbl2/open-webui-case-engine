@@ -13,13 +13,16 @@ const copyPath = join(here, 'p131CommandCenterCopy.ts');
 const gnavPath = join(here, '../components/layout/DetectiveGnavPrimaryNav.svelte');
 
 describe('P131-01 Command Center guardrails (source)', () => {
-	it('CommandCenterPanel and route page do not touch Case Engine or fetch', () => {
-		for (const p of [panelPath, pagePath]) {
-			const src = readFileSync(p, 'utf8');
-			expect(src).not.toMatch(/\$lib\/apis\/caseEngine/);
-			expect(src).not.toMatch(/\bfetch\s*\(/);
-			expect(src).not.toMatch(/\$app\/environment/);
-		}
+	it('route page does not touch Case Engine, fetch, or browser guards', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).not.toMatch(/\$lib\/apis\/caseEngine/);
+		expect(src).not.toMatch(/\bfetch\s*\(/);
+		expect(src).not.toMatch(/\$app\/environment/);
+	});
+
+	it('CommandCenterPanel does not import Case Engine APIs directly (uses Command Center modules)', () => {
+		const src = readFileSync(panelPath, 'utf8');
+		expect(src).not.toMatch(/\$lib\/apis\/caseEngine/);
 	});
 
 	it('copy module is strings only', () => {

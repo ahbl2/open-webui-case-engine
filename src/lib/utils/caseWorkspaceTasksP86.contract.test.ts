@@ -1,6 +1,7 @@
 /**
- * P86-05 — Cross-surface visibility: Tasks in Case Workspace nav + routing (source contract).
+ * P86-05 — Cross-surface visibility: Tasks route + resolution (source contract).
  * P91-06 — Nav guardrail comment: Tasks operational-only vs Timeline.
+ * P123-02 — Phase 123 left rail is minimal; Tasks is not in the primary rail (route remains canonical).
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -9,23 +10,20 @@ import { describe, it, expect } from 'vitest';
 import { resolveActiveCaseSection } from './caseNavSection';
 
 const here = dirname(fileURLToPath(import.meta.url));
-const navPath = join(here, '../components/case/CaseWorkspaceNav.svelte');
+const layoutPath = join(here, '../../routes/(app)/case/[id]/+layout.svelte');
 const tasksPagePath = join(here, '../../routes/(app)/case/[id]/tasks/+page.svelte');
 
 describe('P86-05 Case Workspace Tasks visibility', () => {
-	it('includes Tasks in left rail with stable label (no count — avoids cross-component state)', () => {
-		const nav = readFileSync(navPath, 'utf8');
-		expect(nav).toContain("{ id: 'tasks', label: 'Tasks (Operational)' }");
-		expect(nav).toContain('P86-05 / P87-05: Tasks — operational-only and non-authoritative');
-		expect(nav).toContain('P87-05');
-		expect(nav).toContain('P91-06');
-		expect(nav).toContain('P86-05: Order is intentional');
-		expect(nav).toContain('primaryHref(caseId, item.id)');
-		expect(nav).toContain('data-case-tab={item.id}');
-		expect(nav).not.toMatch(/label:\s*'Tasks\s*\(\d+\)'/);
+	it('P123-02: case layout uses CaseWorkspaceLeftPanelStack embedding CaseWorkspaceCaseSidebar; Tasks route remains available', () => {
+		const layout = readFileSync(layoutPath, 'utf8');
+		const stackPath = join(here, '../components/case/CaseWorkspaceLeftPanelStack.svelte');
+		const stack = readFileSync(stackPath, 'utf8');
+		expect(layout).toContain('CaseWorkspaceLeftPanelStack');
+		expect(stack).toContain('CaseWorkspaceCaseSidebar');
+		expect(layout).not.toContain('CaseWorkspaceNav');
 	});
 
-	it('resolves /case/:id/tasks to active section tasks for nav highlighting', () => {
+	it('resolves /case/:id/tasks to active section tasks for nav highlighting when that route is used', () => {
 		expect(resolveActiveCaseSection('/case/abc123/tasks')).toBe('tasks');
 	});
 

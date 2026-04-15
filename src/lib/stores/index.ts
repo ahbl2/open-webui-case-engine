@@ -78,8 +78,8 @@ export const settings: Writable<Settings> = writable({});
 
 export const audioQueue = writable<AudioQueue | null>(null);
 
-/** Default must match app.css :root --sidebar-width. Sidebar.svelte is the only updater at runtime. */
-export const sidebarWidth = writable(260);
+/** Default must match app.css :root --sidebar-width. Sidebar.svelte / DetectiveWorkspaceSidebar update at runtime. */
+export const sidebarWidth = writable(200);
 
 export const showSidebar = writable(false);
 export const showSearch = writable(false);
@@ -125,7 +125,8 @@ export {
 	caseModeActive,
 	activeCaseMeta,
 	activeThreadScope,
-	threadScopeError
+	threadScopeError,
+	governanceNavEligible
 } from './caseEngine';
 export type {
 	CaseEngineAuthState,

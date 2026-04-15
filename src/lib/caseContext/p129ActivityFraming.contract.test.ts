@@ -14,16 +14,26 @@ const activityPagePath = join(__dirname, '../../routes/(app)/case/[id]/activity/
 function assertNoTaboo(lower: string): void {
 	expect(lower).not.toMatch(/\bimportant\b/);
 	expect(lower).not.toMatch(/\bkey\b/);
+	expect(lower).not.toMatch(/\bcritical\b/);
+	expect(lower).not.toMatch(/\bpriority\b/);
 	expect(lower).not.toMatch(/\binsight\b/);
 	expect(lower).not.toMatch(/\banalysis\b/);
+	expect(lower).not.toMatch(/\bmeaning\b/);
 	expect(lower).not.toMatch(/\brecommended\b/);
+	expect(lower).not.toMatch(/\bsuggested\b/);
+	expect(lower).not.toMatch(/\blikely\b/);
+	expect(lower).not.toMatch(/\bdetected\b/);
+	expect(lower).not.toMatch(/\bmatched\b/);
+	expect(lower).not.toMatch(/\bderived\b/);
+	expect(lower).not.toMatch(/\binferred\b/);
 }
 
-describe('p129ActivityFramingCopy (P129-01)', () => {
+describe('p129ActivityFramingCopy (P129-01 / P129-05)', () => {
 	it('is static exports only; taboo-free', () => {
 		const src = readFileSync(copyPath, 'utf8');
 		expect(src).toMatch(/P129_ACTIVITY_SURFACE_TITLE/);
 		expect(src).toMatch(/P129_NAV_TITLE_ACTIVITY/);
+		expect(src).toMatch(/P129_ACTIVITY_FRAMING_BODY_COVERAGE/);
 		assertNoTaboo(src.toLowerCase());
 		expect(src).not.toMatch(/localStorage|sessionStorage/);
 		expect(src).not.toMatch(/\$page/);

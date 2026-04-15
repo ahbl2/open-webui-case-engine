@@ -19,8 +19,9 @@
 	</title>
 </svelte:head>
 
+<!-- P131.8-09 — Fill app-shell main (flex chain); do not use 100vh here — it exceeds parent when top bar exists and clips scroll. -->
 <div
-	class="flex flex-col w-full h-screen max-h-[100dvh] transition-width duration-200 ease-in-out max-w-full"
+	class="flex flex-col w-full flex-1 min-h-0 min-w-0 transition-width duration-200 ease-in-out max-w-full"
 >
 	<!-- P19: My Desktop is detective-owned. No legacy OWUI tabs (Notes, Calendar, Completions). -->
 	<nav class="px-2.5 pt-1.5 backdrop-blur-xl w-full drag-region">
@@ -48,7 +49,9 @@
 		</div>
 	</nav>
 
-	<div class=" flex-1 max-h-full overflow-y-auto">
+	<div
+		class="flex-1 min-h-0 overflow-y-auto [padding-bottom:max(2.25rem,env(safe-area-inset-bottom))]"
+	>
 		<slot />
 	</div>
 </div>

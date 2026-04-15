@@ -12,8 +12,10 @@
 	import {
 		DS_BANNER_CLASSES,
 		DS_STATUS_SURFACE_CLASSES,
-		DS_STATUS_TEXT_CLASSES
+		DS_STATUS_TEXT_CLASSES,
+		DS_WORKSPACE_SHELL_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
+	import P1325RightStackTabIcon from '$lib/components/case/P1325RightStackTabIcon.svelte';
 	import { P129_ACTIVITY_LIST_NO_TOKEN } from '$lib/caseContext/p129ActivityListCopy';
 	import {
 		P1325_RIGHT_STACK_TABLIST_LABEL,
@@ -49,7 +51,7 @@
 	data-p1325-right-stack-selected={selected}
 >
 	<div
-		class="flex shrink-0 flex-wrap gap-1 border-b border-[color:var(--ce-l-border-subtle)] px-1 pb-1"
+		class="{DS_WORKSPACE_SHELL_CLASSES.rightStackTablist} shrink-0 flex-wrap"
 		role="tablist"
 		aria-label={P1325_RIGHT_STACK_TABLIST_LABEL}
 		data-testid="case-workspace-right-stack-tablist"
@@ -59,14 +61,15 @@
 				type="button"
 				role="tab"
 				aria-selected={selected === t.id}
-				class="ce-l-tab-link ce-l-case-nav-link max-w-full truncate px-1.5 py-1 text-xs {selected === t.id
+				class="ce-l-tab-link ce-l-case-nav-link inline-flex max-w-full min-w-0 items-center gap-1.5 truncate px-1.5 py-1 text-xs {selected === t.id
 					? 'ce-l-tab-link--active'
 					: ''}"
 				title={t.title}
 				data-testid="case-workspace-right-stack-tab-{t.id}"
 				on:click={() => (selected = t.id)}
 			>
-				{t.label}
+				<P1325RightStackTabIcon variant={t.id} />
+				<span class="truncate">{t.label}</span>
 			</button>
 		{/each}
 	</div>

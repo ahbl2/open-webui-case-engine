@@ -2,9 +2,11 @@
 	/**
 	 * P75-04 — Core + operational primary app navigation (GNAV).
 	 * Ordering: Home → Cases → Search & intel — GLOBAL_NAVIGATION_AND_COMMAND_SPEC.md (DetectiveCaseEngine docs).
+	 * P131.8-02 — Tighter outer padding + Operational group spacing; row density in `detectiveSurfaces.css` (`.ds-gnav-*`).
+	 * P131.8-07 — Slight nav wrapper + Operational label spacing rebalance (CSS carries link row rhythm).
 	 */
 	import { page } from '$app/stores';
-	import { showSearch } from '$lib/stores';
+	import { showSearch, governanceNavEligible } from '$lib/stores';
 	import { resolveDetectiveGnavPrimaryActive } from '$lib/utils/detectiveGnav';
 	import type { DetectiveGnavPrimaryId } from '$lib/utils/detectiveGnav';
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
@@ -21,7 +23,7 @@
 	}
 </script>
 
-<div class="px-[0.4375rem] mt-1 mb-0.5" data-testid="detective-gnav-primary">
+<div class="px-1 pt-0.5 pb-0.5" data-testid="detective-gnav-primary">
 	<div class="ds-gnav-group-label">Core</div>
 	<Tooltip
 		className="block w-full"
@@ -41,7 +43,7 @@
 				xmlns="http://www.w3.org/2000/svg"
 				fill="none"
 				viewBox="0 0 24 24"
-				stroke-width="2"
+				stroke-width="1.5"
 				stroke="currentColor"
 				aria-hidden="true"
 			>
@@ -72,21 +74,21 @@
 				xmlns="http://www.w3.org/2000/svg"
 				fill="none"
 				viewBox="0 0 24 24"
-				stroke-width="2"
+				stroke-width="1.5"
 				stroke="currentColor"
 				aria-hidden="true"
 			>
 				<path
 					stroke-linecap="round"
 					stroke-linejoin="round"
-					d="M2.25 12.75V12A2.25 2.25 0 0 1 4.5 9.75h15A2.25 2.25 0 0 1 21.75 12v.75m-8.69-6.44-2.12-2.12a1.5 1.5 0 0 0-1.061-.44H4.5A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-5.379a1.5 1.5 0 0 1-1.06-.44Z"
+					d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5m-13.5 0h1.5m-1.5 0A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-1.5m-13.5 0v-8.25c0-.621.504-1.125 1.125-1.125h4.875c.621 0 1.125.504 1.125 1.125v1.875c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125.504 1.125 1.125V9.75"
 				/>
 			</svg>
 			<span class="font-primary">{$i18n.t('Cases')}</span>
 		</a>
 	</Tooltip>
 
-	<div class="ds-gnav-group-label mt-3">Operational</div>
+	<div class="ds-gnav-group-label mt-1.5">Operational</div>
 	<Tooltip
 		className="block w-full"
 		content={$i18n.t('Cross-case visibility (read-only; Phase 131)')}
@@ -106,7 +108,7 @@
 				xmlns="http://www.w3.org/2000/svg"
 				fill="none"
 				viewBox="0 0 24 24"
-				stroke-width="2"
+				stroke-width="1.5"
 				stroke="currentColor"
 				aria-hidden="true"
 			>
@@ -119,6 +121,40 @@
 			<span class="font-primary">Command Center</span>
 		</a>
 	</Tooltip>
+	{#if $governanceNavEligible === true}
+		<Tooltip
+			className="block w-full"
+			content={$i18n.t('Read-only access configuration visibility (Phase 132)')}
+			placement="right"
+		>
+			<a
+				href="/governance"
+				draggable="false"
+				class={linkClass('governance')}
+				data-gnav-id="governance"
+				data-testid="detective-gnav-governance"
+				aria-current={activeId === 'governance' ? 'page' : undefined}
+				on:click={onItemActivate}
+			>
+				<svg
+					class="ds-gnav-link__icon"
+					xmlns="http://www.w3.org/2000/svg"
+					fill="none"
+					viewBox="0 0 24 24"
+					stroke-width="1.5"
+					stroke="currentColor"
+					aria-hidden="true"
+				>
+					<path
+						stroke-linecap="round"
+						stroke-linejoin="round"
+						d="M9 12.75 11.25 15 15 9.75m-3-7.036A11.959 11.959 0 0 1 3.598 6 11.99 11.99 0 0 0 3 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.285Z"
+					/>
+				</svg>
+				<span class="font-primary">Governance</span>
+			</a>
+		</Tooltip>
+	{/if}
 	<Tooltip
 		className="block w-full"
 		content={$i18n.t('Global search and intel (cross-case where permitted)')}
@@ -139,7 +175,7 @@
 				xmlns="http://www.w3.org/2000/svg"
 				fill="none"
 				viewBox="0 0 24 24"
-				stroke-width="2"
+				stroke-width="1.5"
 				stroke="currentColor"
 				aria-hidden="true"
 			>

@@ -2,11 +2,24 @@
  * P132.5-01 — Structural labels only for the workspace layout shell placeholders (no investigative copy).
  * P132.5-02 — Short shell chrome label for the Timeline primary panel (P124 doctrine copy stays inside the Timeline surface).
  * P132.5-03 — Right panel stack title + tab labels (aligned with existing nav short names).
+ * P132.5-04 — Left support rail title + compact meta labels (no investigative copy).
  */
 
 export const P1325_SHELL_TIMELINE_PANEL_TITLE = 'Timeline';
 
-export const P1325_SHELL_LEFT_ZONE_TITLE = 'Left panel zone';
+/** P132.5-04 — Left rail: context + entities + workflow + demoted nav. */
+export const P1325_LEFT_STACK_PANEL_TITLE = 'Case context & support';
+
+/** @deprecated Use P1325_LEFT_STACK_PANEL_TITLE */
+export const P1325_SHELL_LEFT_ZONE_TITLE = P1325_LEFT_STACK_PANEL_TITLE;
+
+/** P132.5-04 — Compact case meta block heading. */
+export const P1325_LEFT_STACK_SECTION_CASE_CONTEXT = 'Case context';
+
+export const P1325_LEFT_STACK_META_LABEL_NUMBER = 'Number';
+export const P1325_LEFT_STACK_META_LABEL_TITLE = 'Title';
+export const P1325_LEFT_STACK_META_LABEL_UNIT = 'Unit';
+export const P1325_LEFT_STACK_META_LABEL_STATUS = 'Status';
 
 /** Right rail: Activity + AI Workspace + Proposals (internal tabs; no route navigation). */
 export const P1325_RIGHT_STACK_PANEL_TITLE = 'Case Activity & Tools';

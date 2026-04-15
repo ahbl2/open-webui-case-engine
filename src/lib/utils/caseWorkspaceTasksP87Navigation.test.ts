@@ -11,7 +11,6 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 const headerPath = join(here, '../components/case/CaseWorkspaceHeader.svelte');
 const timelinePath = join(here, '../../routes/(app)/case/[id]/timeline/+page.svelte');
-const navPath = join(here, '../components/case/CaseWorkspaceNav.svelte');
 const panelPath = join(here, '../components/case/CaseTasksPanel.svelte');
 
 const CANONICAL_TASKS_TOOLTIP = 'Operational tasks — not part of the official Timeline';
@@ -81,13 +80,10 @@ describe('P87-05 Cross-surface Tasks read-layer consistency', () => {
 		expect(panel).toContain(`title="${CANONICAL_TASKS_TOOLTIP}"`);
 	});
 
-	it('uses Tasks (Operational) for global header link and left-rail nav label', () => {
+	it('uses Tasks (Operational) on global header link (P123-02 rail excludes Tasks; entry remains header + Timeline)', () => {
 		const header = readFileSync(headerPath, 'utf8');
-		const nav = readFileSync(navPath, 'utf8');
 		expect(header).toContain('P87-05');
-		expect(nav).toContain('P87-05');
 		expect(header).toContain('Tasks (Operational)');
-		expect(nav).toContain("{ id: 'tasks', label: 'Tasks (Operational)' }");
 	});
 
 	it('uses Open Tasks (Operational) for Timeline contextual entry (distinct from global label)', () => {
@@ -103,14 +99,12 @@ describe('P87-05 Cross-surface Tasks read-layer consistency', () => {
 		expect(panel).not.toMatch(/\b(saved|recorded|logged|stored)\b/i);
 	});
 
-	it('header and nav sources remain free of fetch, storage, and store barrel imports', () => {
-		for (const p of [headerPath, navPath]) {
-			const src = readFileSync(p, 'utf8');
-			expect(src).not.toMatch(/\bfetch\s*\(/);
-			expect(src).not.toMatch(/localStorage/);
-			expect(src).not.toMatch(/sessionStorage/);
-			expect(src).not.toMatch(/from ['"]\$lib\/stores['"]/);
-		}
+	it('header source remains free of fetch, storage, and store barrel imports (sidebar lists cases via token — separate contract)', () => {
+		const src = readFileSync(headerPath, 'utf8');
+		expect(src).not.toMatch(/\bfetch\s*\(/);
+		expect(src).not.toMatch(/localStorage/);
+		expect(src).not.toMatch(/sessionStorage/);
+		expect(src).not.toMatch(/from ['"]\$lib\/stores['"]/);
 	});
 });
 

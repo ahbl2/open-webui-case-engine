@@ -31,7 +31,42 @@ export const P130_AI_WORKSPACE_BOUNDARY_AI =
 	'AI output: non-authoritative. It is not a system record until you use a separate, explicit step.';
 
 export const P130_AI_WORKSPACE_BOUNDARY_PROPOSALS =
-	'Proposals: the only governed path for new official content later; not wired on this screen yet.';
+	'Proposals: the governed path for new official content. You may send a draft from here only via explicit steps — nothing is created automatically.';
+
+export const P130_AI_WORKSPACE_PROPOSAL_SELECT_FACTS_HELP =
+	'Select which source-backed facts to include (verbatim). Nothing is pre-selected.';
+
+export const P130_AI_WORKSPACE_PROPOSAL_INCLUDE_GENERATED_LABEL =
+	'Include AI-generated content block (optional, verbatim; non-authoritative)';
+
+export const P130_AI_WORKSPACE_PROPOSAL_CREATE_BUTTON = 'Create Proposal Draft';
+
+export const P130_AI_WORKSPACE_PROPOSAL_CREATE_TITLE =
+	'Build a timeline-entry proposal draft from your selection. Does not write the Timeline.';
+
+export const P130_AI_WORKSPACE_PROPOSAL_REVIEW_HEADING = 'Proposal draft review';
+
+export const P130_AI_WORKSPACE_PROPOSAL_NOT_TIMELINE =
+	'This is not yet part of the Timeline. It becomes a staged proposal only after you confirm.';
+
+export const P130_AI_WORKSPACE_PROPOSAL_REVIEW_OCCURRED_AT = 'occurred_at (ISO 8601, timezone)';
+
+export const P130_AI_WORKSPACE_PROPOSAL_REVIEW_TYPE = 'type';
+
+export const P130_AI_WORKSPACE_PROPOSAL_REVIEW_TEXT = 'Proposed text (you may edit before submit)';
+
+export const P130_AI_WORKSPACE_PROPOSAL_SOURCE_REFS_PREVIEW = 'Source references (from selected facts)';
+
+export const P130_AI_WORKSPACE_PROPOSAL_CONFIRM = 'Submit proposal draft';
+
+export const P130_AI_WORKSPACE_PROPOSAL_CANCEL = 'Cancel';
+
+export const P130_AI_WORKSPACE_PROPOSAL_SUCCESS =
+	'Proposal draft created — review in the Proposals tab.';
+
+export const P130_AI_WORKSPACE_PROPOSAL_SUBMITTING = 'Submitting proposal draft…';
+
+export const P130_AI_WORKSPACE_PROPOSAL_ERR_CASE_CHANGED = 'Case changed before submit; try again.';
 
 export const P130_AI_WORKSPACE_SESSION_LINE_1 = 'AI actions are session-based.';
 
@@ -88,6 +123,10 @@ export const P130_AI_WORKSPACE_SECTION_SOURCES_USED = 'Sources Used';
 export const P130_AI_WORKSPACE_PARSE_ERROR = 'Unstructured response';
 
 export const P130_AI_WORKSPACE_TRACEABILITY_WARNINGS = 'Traceability warnings';
+
+/** Shown when proposal draft is blocked by traceability validation (in addition to server message). */
+export const P130_AI_WORKSPACE_TRACEABILITY_BLOCK =
+	'Proposal draft requires a full trace (prompt, model response, and valid source refs).';
 
 export const P130_AI_WORKSPACE_DATA_USED_SECTION_TITLE = 'Data Used (This Session)';
 

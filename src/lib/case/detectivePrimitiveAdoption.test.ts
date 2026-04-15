@@ -16,7 +16,7 @@ const tailwindCss = readFileSync(tailwindCssPath, 'utf8');
 
 describe('detectivePrimitiveAdoption (P74-10)', () => {
 	it('exports a stable primitive layer version', () => {
-		expect(DETECTIVE_PRIMITIVE_LAYER_VERSION).toBe(20);
+		expect(DETECTIVE_PRIMITIVE_LAYER_VERSION).toBe(22);
 	});
 
 	it('tailwind.css imports DS style layers in DETECTIVE_DS_STYLE_IMPORT_ORDER', () => {

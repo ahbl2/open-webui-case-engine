@@ -29,6 +29,12 @@ describe('CaseWorkspaceRightPanelStack P132.5-03', () => {
 		expect(src).toMatch(/<ProposalReviewPanel/);
 	});
 
+	it('P132.5-05 — tab list uses DS rail chrome + optional tab icons (no routing)', () => {
+		const src = readFileSync(stackPath, 'utf8');
+		expect(src).toMatch(/DS_WORKSPACE_SHELL_CLASSES\.rightStackTablist/);
+		expect(src).toMatch(/P1325RightStackTabIcon/);
+	});
+
 	it('uses compact proposals layout for the constrained rail', () => {
 		const src = readFileSync(stackPath, 'utf8');
 		expect(src).toMatch(/layout="compact"/);

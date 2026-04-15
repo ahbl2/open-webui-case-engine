@@ -47,6 +47,7 @@
 	} from '$lib/apis/caseEngine';
 	import { resolveAuthStateDecision, blockedRedirectPath } from '$lib/utils/authStateDecision';
 	import type { CaseEngineAuthState } from '$lib/stores/caseEngine';
+	import { initGovernanceNavProbe } from '$lib/case/governanceNavProbe';
 
 	/** P19.75-02: Map classified browser-resolve failures to Case Engine auth store (not all imply “unavailable”). */
 	function mapBrowserResolveFailureToAuthState(err: BrowserResolveFailure): CaseEngineAuthState {
@@ -102,6 +103,8 @@
 		$page.url.pathname === '/cases' ||
 		$page.url.pathname === '/command-center' ||
 		$page.url.pathname.startsWith('/command-center/') ||
+		$page.url.pathname === '/governance' ||
+		$page.url.pathname.startsWith('/governance/') ||
 		$page.url.pathname === '/search' ||
 		$page.url.pathname.startsWith('/search/') ||
 		$page.url.pathname.startsWith('/case/');
@@ -463,6 +466,8 @@
 		// Only reached when the user is confirmed active. Mark auth as checked so the
 		// app shell renders. ceAuthChecked=false keeps the shell hidden during the check.
 		ceAuthChecked = true;
+
+		initGovernanceNavProbe();
 
 		clearChatInputStorage();
 		await Promise.all([

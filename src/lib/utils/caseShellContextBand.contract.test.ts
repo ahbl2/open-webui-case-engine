@@ -17,7 +17,7 @@ describe('case shell context band (P76-06)', () => {
 	it('declares optional context band in CaseWorkspaceHeader before main workspace body in layout', () => {
 		const bandIdx = headerSource.indexOf('data-testid="case-shell-context-band"');
 		const bodyIdx = layoutSource.indexOf("'case-shell-body'");
-		const navIdx = layoutSource.indexOf('<CaseWorkspaceNav');
+		const navIdx = layoutSource.indexOf('<CaseWorkspaceLeftPanelStack');
 		expect(bandIdx).toBeGreaterThan(-1);
 		expect(bodyIdx).toBeGreaterThan(-1);
 		expect(navIdx).toBeGreaterThan(-1);

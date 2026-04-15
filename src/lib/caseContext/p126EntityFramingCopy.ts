@@ -10,4 +10,4 @@ export const P126_ENTITIES_FRAMING_BODY_PRIMARY =
 
 /** Secondary doctrine: no extraction pipeline; links only when declared. */
 export const P126_ENTITIES_FRAMING_BODY_SECONDARY =
-	'Nothing is added from Timeline, Notes, or Files without your action. Links exist only when you declare them—no undeclared relationships.';
+	'Nothing is added from Timeline, Notes, or Files without your action. Links exist only when you declare them—no undeclared links.';

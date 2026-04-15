@@ -8,6 +8,7 @@
 	 */
 	import { goto } from '$app/navigation';
 	import ChevronLeft from '$lib/components/icons/ChevronLeft.svelte';
+	import { P128_HEADER_PENDING_PROPOSALS_LINK_TITLE } from '$lib/caseContext/p128ProposalFramingCopy';
 	import {
 		DS_BADGE_CLASSES,
 		DS_BTN_CLASSES,
@@ -172,6 +173,7 @@
 					href={`/case/${caseId}/proposals`}
 					class="inline-flex max-w-full min-w-0 shrink-0 items-center gap-2 rounded-md px-1 py-0.5 text-[color:var(--ce-l-text-primary)] outline-none ring-offset-2 transition-colors hover:bg-[color:var(--ce-l-surface-muted)] focus-visible:ring-2 focus-visible:ring-[color:var(--ce-l-tab-active-border)]"
 					data-testid="case-shell-context-band-pending-proposals"
+					title={P128_HEADER_PENDING_PROPOSALS_LINK_TITLE}
 				>
 					<span class="{DS_BADGE_CLASSES.warning} tabular-nums">{pendingProposalsShellCount}</span>
 					<span class="{DS_TYPE_CLASSES.meta} text-[color:var(--ce-l-text-secondary)]">Pending proposals</span>

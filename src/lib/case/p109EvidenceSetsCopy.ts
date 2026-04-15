@@ -4,7 +4,7 @@
  * P109-05 — Centralized audit attribution + nav label; constraint phrasing.
  */
 
-/** Must match left-rail label in `CaseWorkspaceNav.svelte` (import this constant there). */
+/** Evidence sets surface label; use where the route is linked (P109 panels / future nav). P123-02 rail is Timeline/Notes/Files only. */
 export const P109_EVIDENCE_SETS_NAV_LABEL = 'Evidence sets (grouping)';
 
 export const P109_EVIDENCE_SETS_PAGE_TITLE = P109_EVIDENCE_SETS_NAV_LABEL;

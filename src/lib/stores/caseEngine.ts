@@ -87,6 +87,12 @@ export type CaseEngineAuthState = {
 export const caseEngineAuthState = writable<CaseEngineAuthState | null>(null);
 
 /**
+ * P132-05: Set by server-driven probe of GET /admin/governance/users (never by parsing roles in UI).
+ * `null` = not yet known; `true` = last probe succeeded; `false` = not eligible or probe failed closed.
+ */
+export const governanceNavEligible = writable<boolean | null>(null);
+
+/**
  * P19-06: True while the user is inside the case workspace shell.
  * Used by (app)/+layout.svelte to suppress the global Open WebUI sidebar.
  * Set to true synchronously when the case layout mounts; false on destroy.

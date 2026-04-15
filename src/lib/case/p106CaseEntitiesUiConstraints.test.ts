@@ -12,7 +12,6 @@ const listPanelPath = join(here, '../components/case/CaseEntitiesPanel.svelte');
 const detailPanelPath = join(here, '../components/case/CaseEntityDetailPanel.svelte');
 const entitiesPagePath = join(here, '../../routes/(app)/case/[id]/entities/+page.svelte');
 const entityDetailPagePath = join(here, '../../routes/(app)/case/[id]/entities/[entityId]/+page.svelte');
-const navPath = join(here, '../components/case/CaseWorkspaceNav.svelte');
 
 /** User-visible export strings only (file text), for forbidden scans. */
 function exportedStringLiterals(src: string): string {
@@ -69,9 +68,10 @@ describe('P106-05 Phase 106 entity surfaces (static)', () => {
 		expect(lit).toMatch(/explicit/i);
 	});
 
-	it('CaseWorkspaceNav labels entities as supporting (not authoritative)', () => {
-		const nav = readFileSync(navPath, 'utf8');
-		expect(nav).toContain("'Entities (supporting)'");
+	it('operator copy retains supporting-only framing for entities surfaces (P106-05)', () => {
+		const copy = readFileSync(copyPath, 'utf8');
+		expect(copy).toContain('P106_CASE_ENTITIES_LIST_HEADING');
+		expect(copy).toMatch(/supporting/i);
 	});
 
 	it('list and detail panels have no lifecycle or mutation API paths', () => {

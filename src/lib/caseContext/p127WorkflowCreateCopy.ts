@@ -4,13 +4,6 @@
 
 export const P127_WORKFLOW_CREATE_ENTRY_BUTTON = 'Create workflow item';
 
-/** Shown on the main Workflow tab next to the Phase 117 list (distinct from legacy planning items). */
-export const P127_WORKFLOW_P117_LIST_SECTION_TITLE = 'Operational workflow items';
-
-export const P127_WORKFLOW_P117_LIST_EMPTY = 'No operational workflow items yet.';
-
-export const P127_WORKFLOW_P117_LIST_LOADING = 'Loading operational workflow items…';
-
 export const P127_WORKFLOW_CREATE_MODAL_TITLE = 'Create workflow item';
 
 export const P127_WORKFLOW_CREATE_SECTION_LABEL = 'New workflow item';

@@ -9,8 +9,11 @@ export default defineConfig(({ mode }) => {
 	// HTTP/WS proxy target for dev: where Vite forwards /api, /ollama, /ws, etc. (Python uvicorn, typically 8080).
 	// Browser Socket.IO uses the Vite origin (3001) by default; Vite proxies /ws here. Not the browser resolver.
 	const owuiBackendPort = env.PUBLIC_WEBUI_BACKEND_PORT || env.WEBUI_BACKEND_PORT || '8080';
-	const owuiBackendTarget = `http://127.0.0.1:${owuiBackendPort}`;
-	const caseEngineTarget = 'http://127.0.0.1:3010';
+	const owuiUseHttps = env.OWUI_BACKEND_HTTPS === '1' || env.OWUI_BACKEND_HTTPS === 'true';
+	const owuiBackendTarget = `${owuiUseHttps ? 'https' : 'http'}://127.0.0.1:${owuiBackendPort}`;
+	// Must match how Case Engine is actually listening (set CASE_ENGINE_HTTPS=1 when CE uses TLS PEMs).
+	const caseEngineUseHttps = env.CASE_ENGINE_HTTPS === '1' || env.CASE_ENGINE_HTTPS === 'true';
+	const caseEngineTarget = `${caseEngineUseHttps ? 'https' : 'http'}://127.0.0.1:3010`;
 	const devHttpsKeyPath = env.DEV_HTTPS_KEY_FILE?.trim();
 	const devHttpsCertPath = env.DEV_HTTPS_CERT_FILE?.trim();
 
@@ -34,8 +37,8 @@ export default defineConfig(({ mode }) => {
 					server.httpServer?.once('listening', () => {
 						console.log('');
 						console.log('  [Detective Stack] Proxy targets:');
-						console.log('    Case Engine:     ', caseEngineTarget);
-						console.log('    WebUI backend:   ', owuiBackendTarget);
+						console.log('    Case Engine:     ', caseEngineTarget, caseEngineUseHttps ? '(CASE_ENGINE_HTTPS)' : '');
+						console.log('    WebUI backend:   ', owuiBackendTarget, owuiUseHttps ? '(OWUI_BACKEND_HTTPS)' : '');
 						console.log('    WebSocket /ws:   ', owuiBackendTarget);
 						console.log(
 							'    Frontend scheme: ',
@@ -65,17 +68,20 @@ export default defineConfig(({ mode }) => {
 			strictPort: true,
 			https: devHttps,
 			proxy: {
+				// secure: false — local dev only: allow Vite → mkcert/self-signed HTTPS upstreams
+				// (Case Engine / Python on loopback). Do not treat as a production TLS bypass pattern.
 				'/case-api': {
 					target: caseEngineTarget,
 					changeOrigin: true,
+					secure: false,
 					rewrite: (path) => path.replace(/^\/case-api/, ''),
 					// P47-04: Summary AI can exceed default proxy/socket timeouts (timeline may use 2× server Ollama budget).
 					timeout: 1_260_000,
 					proxyTimeout: 1_260_000
 				},
-				'/api': { target: owuiBackendTarget, changeOrigin: true },
-				'/ollama': { target: owuiBackendTarget, changeOrigin: true },
-				'/openai': { target: owuiBackendTarget, changeOrigin: true },
+				'/api': { target: owuiBackendTarget, changeOrigin: true, secure: false },
+				'/ollama': { target: owuiBackendTarget, changeOrigin: true, secure: false },
+				'/openai': { target: owuiBackendTarget, changeOrigin: true, secure: false },
 				// IMPORTANT:
 				// Socket.IO (Engine.IO) requires:
 				// - sticky session behavior via cookies
@@ -84,7 +90,7 @@ export default defineConfig(({ mode }) => {
 				// Any rewrite or header loss will cause 400 polling errors
 				'/ws': {
 					target:
-						'http://127.0.0.1:' +
+						`${owuiUseHttps ? 'https' : 'http'}://127.0.0.1:` +
 						(process.env.WEBUI_BACKEND_PORT ||
 							env.WEBUI_BACKEND_PORT ||
 							env.PUBLIC_WEBUI_BACKEND_PORT ||
@@ -109,7 +115,7 @@ export default defineConfig(({ mode }) => {
 						});
 					}
 				},
-				'/static': { target: owuiBackendTarget, changeOrigin: true }
+				'/static': { target: owuiBackendTarget, changeOrigin: true, secure: false }
 			},
 			watch: {
 				ignored: ['**/.venv/**', '**/node_modules/.pnpm/**']

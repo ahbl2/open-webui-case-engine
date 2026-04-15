@@ -10,6 +10,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const listCopyPath = join(__dirname, 'p129ActivityListCopy.ts');
 const displayPath = join(__dirname, '../case/p129ActivityDisplay.ts');
 const listPath = join(__dirname, '../components/case/CaseActivityList.svelte');
+const detailPath = join(__dirname, '../components/case/CaseActivityEventDetail.svelte');
+const sourceHrefPath = join(__dirname, '../case/p129ActivitySourceHref.ts');
+const detailCopyPath = join(__dirname, 'p129ActivityDetailCopy.ts');
 const activityPagePath = join(__dirname, '../../routes/(app)/case/[id]/activity/+page.svelte');
 
 function assertNoRankingTaboo(lower: string): void {
@@ -26,6 +29,10 @@ function assertNoInferenceTaboo(lower: string): void {
 	expect(lower).not.toMatch(/\bmatched\b/);
 	expect(lower).not.toMatch(/\bderived\b/);
 	expect(lower).not.toMatch(/\binferred\b/);
+	expect(lower).not.toMatch(/\binsight\b/);
+	expect(lower).not.toMatch(/\banalysis\b/);
+	expect(lower).not.toMatch(/\bmeaning\b/);
+	expect(lower).not.toMatch(/\bsuggested\b/);
 }
 
 describe('p129ActivityListCopy (P129-03)', () => {
@@ -54,7 +61,7 @@ describe('p129ActivityDisplay (P129-03)', () => {
 	});
 });
 
-describe('CaseActivityList (P129-03)', () => {
+describe('CaseActivityList (P129-03 / P129-04)', () => {
 	const src = readFileSync(listPath, 'utf8');
 
 	it('uses listCaseActivityEvents and does not reorder the events array', () => {
@@ -62,8 +69,43 @@ describe('CaseActivityList (P129-03)', () => {
 		expect(src).not.toMatch(/\bevents\s*\.\s*sort\s*\(/);
 	});
 
+	it('wires source links and detail panel (P129-04)', () => {
+		expect(src).toContain('p129ActivitySourceHref');
+		expect(src).toContain('CaseActivityEventDetail');
+	});
+
 	it('does not read route params directly', () => {
 		expect(src).not.toMatch(/\$page\.params\.id/);
+		expect(src).not.toMatch(/localStorage|sessionStorage/);
+	});
+});
+
+describe('CaseActivityEventDetail (P129-04)', () => {
+	const src = readFileSync(detailPath, 'utf8');
+
+	it('is presentational only', () => {
+		expect(src).toMatch(/data-testid="case-activity-event-detail"/);
+		expect(src).not.toMatch(/\$page/);
+		expect(src).not.toMatch(/\bfetch\s*\(/);
+		expect(src).not.toMatch(/\$lib\/stores/);
+	});
+});
+
+describe('p129ActivitySourceHref (P129-04)', () => {
+	const src = readFileSync(sourceHrefPath, 'utf8');
+
+	it('does not import client stores or routing', () => {
+		expect(src).not.toMatch(/\$page/);
+		expect(src).not.toMatch(/\$lib\/stores/);
+	});
+});
+
+describe('p129ActivityDetailCopy (P129-04)', () => {
+	it('is taboo-free static copy', () => {
+		const src = readFileSync(detailCopyPath, 'utf8');
+		const lower = src.toLowerCase();
+		assertNoRankingTaboo(lower);
+		assertNoInferenceTaboo(lower);
 		expect(src).not.toMatch(/localStorage|sessionStorage/);
 	});
 });

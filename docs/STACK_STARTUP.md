@@ -1,5 +1,7 @@
 # Stack startup (dev)
 
+**Canonical startup (Mode A HTTP / Mode B HTTPS / Mode C + Ollama):** see the Detective Case Engine doc [LOCAL_STACK_STARTUP_MODES.md](../../DetectiveCaseEngine/docs/operations/LOCAL_STACK_STARTUP_MODES.md) (adjust path if your checkout layout differs).
+
 Port layout for the Case Engine + Open WebUI dev stack:
 
 | Service | Port | Notes |
@@ -50,7 +52,22 @@ Browser speech recognition for the Notes `Dictate` action requires a secure cont
 
 **Self-signed (browser shows `ERR_CERT_AUTHORITY_INVALID` until you proceed):** `./scripts/dev-tls-cert.sh` → `certs/dev-*.pem`.
 
-See [DetectiveCaseEngine LOCAL_STACK_RUNBOOK — HTTPS in local dev](../../DetectiveCaseEngine/docs/operations/LOCAL_STACK_RUNBOOK.md#https-in-local-dev-vite) (adjust path if your checkout layout differs).
+See [DetectiveCaseEngine LOCAL_STACK_RUNBOOK](../../DetectiveCaseEngine/docs/operations/LOCAL_STACK_RUNBOOK.md#local-dev-transport-two-modes) and [Case Engine LOCAL_HTTPS_DEV.md](../../DetectiveCaseEngine/docs/operations/LOCAL_HTTPS_DEV.md) (adjust paths if your checkout layout differs).
+
+### Full local HTTPS (optional; transport only)
+
+**Baseline remains HTTP** (Mode A in the runbook). This section is **Mode B**: same PEM can secure Vite (3001), Case Engine (3010), and uvicorn (8080) on loopback. It does **not** change service ownership or APIs.
+
+1. Generate certs (once) in **this** repo: `./scripts/dev-tls-mkcert.sh` (optional LAN IP).
+2. **Case Engine:** In your **DetectiveCaseEngine** clone, export **`CASE_ENGINE_TLS_KEY_FILE`** / **`CASE_ENGINE_TLS_CERT_FILE`** (or legacy `DEV_HTTPS_*`) to the same PEM paths, then `npm run dev` or `npm run dev:https` — **no script from this repo is required to start Case Engine**.
+3. **Python:** `./backend/dev-https.sh` with `DEV_HTTPS_*` set.
+4. **Vite:** Set `DEV_HTTPS_*`, `CASE_ENGINE_HTTPS=1`, and `OWUI_BACKEND_HTTPS=1` when upstreams use HTTPS. Optional: `source scripts/export-dev-tls-env.sh` (this repo only), then `npm run dev:https` or `npm run dev -- --host 0.0.0.0`.
+
+Printed checklist: `./scripts/stack-https.sh` (documentation only).
+
+**Ollama (11434)** is not covered here. **Vite `secure: false`** on dev proxies is **local development only** — see `vite.config.ts` comments — to accept mkcert/self-signed upstreams.
+
+**Unified meta-repo launcher:** Out of scope; future tooling may wrap the three terminals. **Not** required now.
 
 ### 1) Create a local certificate (mkcert recommended for trust)
 

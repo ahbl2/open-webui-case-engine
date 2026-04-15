@@ -8,6 +8,7 @@ import { describe, expect, it } from 'vitest';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const copyPath = join(__dirname, 'p126EntityFramingCopy.ts');
+const boundaryDisciplineCopyPath = join(__dirname, 'p126EntitiesBoundaryCopy.ts');
 const framingPath = join(__dirname, '../components/case/CaseEntitiesFraming.svelte');
 const entitiesListPage = join(__dirname, '../../routes/(app)/case/[id]/entities/+page.svelte');
 const entitiesDetailPage = join(__dirname, '../../routes/(app)/case/[id]/entities/[entityId]/+page.svelte');
@@ -28,6 +29,14 @@ describe('P126-01 Entity surface framing', () => {
 		expect(src).toMatch(/data-testid="case-entities-p126-structured-framing"/);
 		expect(src).not.toMatch(/\$page/);
 		expect(src).not.toMatch(/localStorage|sessionStorage/);
+	});
+
+	it('P126-05: boundary discipline copy is mounted on framing (always visible on list + detail)', () => {
+		const src = readFileSync(framingPath, 'utf8');
+		expect(src).toMatch(/data-testid="case-entities-boundary-discipline"/);
+		expect(src).toMatch(/P126_ENTITIES_BOUNDARY_DISCIPLINE_LINE/);
+		const boundary = readFileSync(boundaryDisciplineCopyPath, 'utf8');
+		expect(boundary).toMatch(/export const P126_ENTITIES_BOUNDARY_DISCIPLINE_LINE/);
 	});
 
 	it('Entities framing uses warning; Timeline neutral; Notes info; Files success (distinct tones)', () => {

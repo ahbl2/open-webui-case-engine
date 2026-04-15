@@ -12,6 +12,11 @@ describe('detectiveGnav (P75-04 / P75-08)', () => {
 		expect(resolveDetectiveGnavPrimaryActive('/home?x=1', false)).toBe('home');
 	});
 
+	it('resolves governance', () => {
+		expect(resolveDetectiveGnavPrimaryActive('/governance', false)).toBe('governance');
+		expect(resolveDetectiveGnavPrimaryActive('/governance/', false)).toBe('governance');
+	});
+
 	it('resolves cases list and case workspace', () => {
 		expect(resolveDetectiveGnavPrimaryActive('/cases', false)).toBe('cases');
 		expect(resolveDetectiveGnavPrimaryActive('/command-center', false)).toBe('command_center');

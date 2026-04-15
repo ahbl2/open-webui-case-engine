@@ -1,5 +1,5 @@
 /**
- * P124-05 — Navigation and surface boundary copy (Timeline vs Notes vs Files — separate tabs).
+ * P124-05 — Navigation and surface boundary copy (Timeline vs Notes vs Files vs Entities — separate tabs).
  * Static strings only.
  */
 
@@ -19,4 +19,4 @@ export const P124_NAV_TITLE_FILES =
  * Visible hint under surface links: reinforces separate pages and roles (presentation only).
  */
 export const P124_SIDEBAR_SURFACE_BOUNDARY_HINT =
-	'Separate pages — Timeline is the committed record; Notes are drafts; Files are supporting attachments only.';
+	'Separate pages — Timeline is the committed record; Notes are drafts; Files are supporting attachments; the Entities surface is for structured references you create (explicit only, not pulled from other tabs).';

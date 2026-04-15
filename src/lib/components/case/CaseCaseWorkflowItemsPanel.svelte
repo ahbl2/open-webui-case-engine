@@ -17,9 +17,17 @@
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import * as P117 from '$lib/case/p117CaseWorkflowItemsCopy';
 	import { P127_WORKFLOW_CREATE_SUCCESS_TOAST } from '$lib/caseContext/p127WorkflowCreateCopy';
+	import {
+		P127_WORKFLOW_LIST_EMPTY,
+		P127_WORKFLOW_LIST_EMPTY_HINT,
+		P127_WORKFLOW_LIST_FILTER_NO_MATCH
+	} from '$lib/caseContext/p127WorkflowListDetailCopy';
+	import { p127LabelWorkflowStatus, p127LabelWorkflowType } from '$lib/case/p127WorkflowDisplay';
 
 	export let caseId: string;
 	export let caseEngineToken: string;
+	/** P132.5-04 — Left rail: read-only list + detail links (no create/filters/edit). */
+	export let railCompact = false;
 
 	let loading = false;
 	let clientError = '';
@@ -148,23 +156,6 @@
 		}
 	}
 
-	function typeLabel(t: CaseWorkflowItemType): string {
-		return t === 'LEAD' ? P117.P117_CASE_WORKFLOW_TYPE_LEAD : P117.P117_CASE_WORKFLOW_TYPE_TASK;
-	}
-
-	function statusLabel(s: CaseWorkflowItemStatus): string {
-		switch (s) {
-			case 'OPEN':
-				return P117.P117_CASE_WORKFLOW_STATUS_OPEN;
-			case 'IN_PROGRESS':
-				return P117.P117_CASE_WORKFLOW_STATUS_IN_PROGRESS;
-			case 'CLOSED':
-				return P117.P117_CASE_WORKFLOW_STATUS_CLOSED;
-			default:
-				return s;
-		}
-	}
-
 	$: filterNeedle = filterText.trim().toLowerCase();
 	$: filteredItems = items.filter((it) => {
 		if (filterStatus !== 'all' && it.status !== filterStatus) return false;
@@ -192,29 +183,39 @@
 	class="flex flex-col gap-3 min-h-0"
 	data-testid="case-case-workflow-items-panel"
 	data-case-workflow-panel-case-id={caseId}
+	data-case-workflow-rail-compact={railCompact ? 'true' : undefined}
 >
-	<header class="flex flex-col gap-1 shrink-0">
-		<h1 class="text-lg font-semibold text-[color:var(--ce-l-text-primary)]">{P117.P117_CASE_WORKFLOW_PAGE_TITLE}</h1>
-		<p class="text-sm text-[color:var(--ce-l-text-secondary)]">{P117.P117_CASE_WORKFLOW_INTRO}</p>
-		{#if caseEngineToken}
-			<div class="pt-1">
-				<button
-					type="button"
-					class="rounded px-3 py-1.5 text-sm font-medium border border-[color:var(--ce-l-border-subtle)] text-[color:var(--ce-l-text-primary)] hover:opacity-90"
-					data-testid="case-workflow-panel--create-open"
-					disabled={loading}
-					on:click={() => {
-						showCreateForm = !showCreateForm;
-						if (showCreateForm) createFormKey += 1;
-					}}
-				>
-					{P117.P117_CASE_WORKFLOW_CREATE_OPEN}
-				</button>
-			</div>
-		{/if}
-	</header>
+	{#if railCompact}
+		<div
+			class="shrink-0 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-muted)]"
+			data-testid="case-workflow-panel--rail-heading"
+		>
+			{P117.P117_CASE_WORKFLOW_PAGE_TITLE}
+		</div>
+	{:else}
+		<header class="flex flex-col gap-1 shrink-0">
+			<h1 class="text-lg font-semibold text-[color:var(--ce-l-text-primary)]">{P117.P117_CASE_WORKFLOW_PAGE_TITLE}</h1>
+			<p class="text-sm text-[color:var(--ce-l-text-secondary)]">{P117.P117_CASE_WORKFLOW_INTRO}</p>
+			{#if caseEngineToken}
+				<div class="pt-1">
+					<button
+						type="button"
+						class="rounded px-3 py-1.5 text-sm font-medium border border-[color:var(--ce-l-border-subtle)] text-[color:var(--ce-l-text-primary)] hover:opacity-90"
+						data-testid="case-workflow-panel--create-open"
+						disabled={loading}
+						on:click={() => {
+							showCreateForm = !showCreateForm;
+							if (showCreateForm) createFormKey += 1;
+						}}
+					>
+						{P117.P117_CASE_WORKFLOW_CREATE_OPEN}
+					</button>
+				</div>
+			{/if}
+		</header>
+	{/if}
 
-	{#if showCreateForm && caseEngineToken}
+	{#if !railCompact && showCreateForm && caseEngineToken}
 		<section
 			class="rounded border border-[color:var(--ce-l-border-subtle)] p-3 flex flex-col gap-2"
 			data-testid="case-workflow-panel--create-form"
@@ -233,7 +234,7 @@
 		</section>
 	{/if}
 
-	{#if caseEngineToken}
+	{#if caseEngineToken && !railCompact}
 		<section class="flex flex-col gap-2 text-sm" data-testid="case-workflow-panel--local-filters" aria-label={P117.P117_CASE_WORKFLOW_FILTERS_LABEL}>
 			<div class="font-medium text-[color:var(--ce-l-text-primary)]">{P117.P117_CASE_WORKFLOW_FILTERS_LABEL}</div>
 			<div class="flex flex-wrap gap-2 items-center">
@@ -283,29 +284,50 @@
 	{:else if clientError}
 		<p class="text-sm text-red-600 dark:text-red-400" data-testid="case-workflow-panel--error">{clientError}</p>
 	{:else if filteredItems.length === 0}
-		<p class="text-sm text-[color:var(--ce-l-text-secondary)]" data-testid="case-workflow-panel--empty">{P117.P117_CASE_WORKFLOW_EMPTY}</p>
+		<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="case-workflow-panel--empty">
+			{#if items.length === 0}
+				{P127_WORKFLOW_LIST_EMPTY}
+			{:else}
+				{P127_WORKFLOW_LIST_FILTER_NO_MATCH}
+			{/if}
+		</p>
+		{#if items.length === 0}
+			<p class="text-xs text-[color:var(--ce-l-text-muted)] m-0 mt-1" data-testid="case-workflow-panel--empty-hint">
+				{P127_WORKFLOW_LIST_EMPTY_HINT}
+			</p>
+		{/if}
 	{:else}
-		<ul class="flex flex-col gap-2" data-testid="case-workflow-panel--list">
+		<ul
+			class="flex flex-col gap-2 {railCompact ? 'max-h-52 overflow-y-auto' : ''}"
+			data-testid="case-workflow-panel--list"
+		>
 			{#each filteredItems as it (it.workflow_item_id)}
 				<li
-					class="rounded border border-[color:var(--ce-l-border-subtle)] p-3 flex flex-col gap-2"
+					class="rounded border border-[color:var(--ce-l-border-subtle)] {railCompact ? 'p-2' : 'p-3'} flex flex-col gap-2"
 					data-testid="case-workflow-panel--row"
 					data-workflow-item-id={it.workflow_item_id}
 				>
-					<div class="flex flex-wrap justify-between gap-2">
-						<div class="font-medium text-[color:var(--ce-l-text-primary)]">{it.title}</div>
-						<div class="text-xs font-mono text-[color:var(--ce-l-text-secondary)]">
-							{P117.P117_CASE_WORKFLOW_LABEL_ITEM} · {typeLabel(it.workflow_type)} · {statusLabel(it.status)}
+					<div class="flex flex-wrap justify-between gap-2 items-baseline">
+						<a
+							class="font-medium text-[color:var(--ce-l-text-primary)] hover:underline {railCompact
+								? 'text-xs leading-snug'
+								: ''}"
+							href={`/case/${encodeURIComponent(caseId)}/workflow/witem/${encodeURIComponent(it.workflow_item_id)}`}
+							data-testid="case-workflow-panel--detail-link"
+							>{it.title}</a>
+						<div class="text-xs text-[color:var(--ce-l-text-secondary)] flex flex-wrap gap-x-1 items-baseline">
+							<span data-testid="case-workflow-panel--type">{p127LabelWorkflowType(it.workflow_type)}</span>
+							<span class="text-[color:var(--ce-l-text-muted)]" aria-hidden="true">·</span>
+							<span data-testid="case-workflow-panel--status">{p127LabelWorkflowStatus(it.status)}</span>
 						</div>
 					</div>
-					{#if it.description}
-						<p class="text-sm text-[color:var(--ce-l-text-secondary)] whitespace-pre-wrap">{it.description}</p>
+					{#if !railCompact}
+						<p class="text-xs text-[color:var(--ce-l-text-secondary)]">
+							{P117.P117_CASE_WORKFLOW_UPDATED_LINE} — {P117.P117_CASE_WORKFLOW_META_UPDATED}{' '}{it.updated_at} ({it.updated_by})
+							· {P117.P117_CASE_WORKFLOW_META_CREATED}{' '}{it.created_at} ({it.created_by})
+						</p>
 					{/if}
-					<p class="text-xs text-[color:var(--ce-l-text-secondary)]">
-						{P117.P117_CASE_WORKFLOW_UPDATED_LINE} — {P117.P117_CASE_WORKFLOW_META_UPDATED}{' '}{it.updated_at} ({it.updated_by})
-						· {P117.P117_CASE_WORKFLOW_META_CREATED}{' '}{it.created_at} ({it.created_by})
-					</p>
-					{#if caseEngineToken && editingId !== it.workflow_item_id}
+					{#if caseEngineToken && editingId !== it.workflow_item_id && !railCompact}
 						<button
 							type="button"
 							class="self-start rounded px-2 py-1 text-xs border border-[color:var(--ce-l-border-subtle)]"
@@ -315,7 +337,7 @@
 							{P117.P117_CASE_WORKFLOW_ROW_EDIT}
 						</button>
 					{/if}
-					{#if editingId === it.workflow_item_id}
+					{#if !railCompact && editingId === it.workflow_item_id}
 						<div class="flex flex-col gap-2 border-t border-[color:var(--ce-l-border-subtle)] pt-2" data-testid="case-workflow-panel--edit-form">
 							<label class="flex flex-col gap-1 text-sm">
 								<span>{P117.P117_CASE_WORKFLOW_FIELD_TITLE}</span>

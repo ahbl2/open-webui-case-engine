@@ -289,7 +289,7 @@
 			/>
 		{:else}
 			<header class="flex flex-col gap-2 shrink-0" data-testid="case-entity-detail--identity">
-				<h2 class="{DS_TYPE_CLASSES.section} text-sm font-semibold text-[color:var(--ce-l-text-primary)] m-0">
+				<h2 class="{DS_TYPE_CLASSES.section} text-sm font-medium text-[color:var(--ce-l-text-primary)] m-0">
 					{P126_ENTITY_DETAIL_SECTION_IDENTITY}
 				</h2>
 				<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0">{P106_CASE_ENTITY_DETAIL_SUPPORTING_COPY}</p>
@@ -414,7 +414,7 @@
 				data-testid="case-entity-detail--attributes"
 				class="flex flex-col gap-2 rounded-md border border-[color:var(--ce-l-border-subtle)] p-3 bg-[color:var(--ce-l-surface-raised)]"
 			>
-				<h2 class="{DS_TYPE_CLASSES.section} text-sm font-semibold text-[color:var(--ce-l-text-primary)] m-0">
+				<h2 class="{DS_TYPE_CLASSES.section} text-sm font-medium text-[color:var(--ce-l-text-primary)] m-0">
 					{P106_CASE_ENTITY_DETAIL_ATTRIBUTES_HEADING}
 				</h2>
 				{#if p106LiteralAttributeRows(detail.case_entity.attributes).length > 0}
@@ -437,7 +437,7 @@
 			class="flex flex-col gap-3 min-h-0 rounded-md border border-[color:var(--ce-l-border-subtle)] p-3 bg-[color:var(--ce-l-surface-raised)]"
 		>
 			<div>
-				<h2 class="{DS_TYPE_CLASSES.section} text-sm font-semibold text-[color:var(--ce-l-text-primary)] m-0">
+				<h2 class="{DS_TYPE_CLASSES.section} text-sm font-medium text-[color:var(--ce-l-text-primary)] m-0">
 					{P126_LINKED_REFERENCES_HEADING}
 				</h2>
 				<p class="text-xs text-[color:var(--ce-l-text-secondary)] m-0 mt-1 max-w-prose">{P126_LINKED_REFERENCES_INTRO}</p>

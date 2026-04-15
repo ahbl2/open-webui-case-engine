@@ -14,7 +14,12 @@
 	import { resolveActiveCaseSection } from '$lib/utils/caseNavSection';
 	import { isDetectiveWave3CaseShellEnabled } from '$lib/case/detectiveWave3CaseShell';
 	import ConnectCaseEngineModal from '$lib/components/layout/Sidebar/ConnectCaseEngineModal.svelte';
-	import { DS_EMPTY_CLASSES, DS_LOADING_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+	import {
+		DS_EMPTY_CLASSES,
+		DS_LOADING_CLASSES,
+		DS_STATUS_TEXT_CLASSES,
+		DS_WORKSPACE_SHELL_CLASSES
+	} from '$lib/case/detectivePrimitiveFoundation';
 	import {
 		P123_CASE_LIST_EMPTY,
 		P123_CASE_LIST_LOADING,
@@ -35,6 +40,11 @@
 	let casesError = '';
 	let searchQuery = '';
 	let showConnectModal = false;
+
+	/** P132.5-04 — Hide case picker; keep section nav (embed in left stack). */
+	export let showCaseList = true;
+	/** P132.5-04 — Full-width when embedded in left rail (no fixed 15rem column). */
+	export let layoutVariant: 'default' | 'embedded' = 'default';
 
 	$: routeCaseId = getRouteCaseId($page.params) ?? '';
 	$: activeSection = resolveActiveCaseSection($page.url.pathname);
@@ -126,14 +136,18 @@
 </script>
 
 <div
-	class="flex h-full min-h-0 w-[15rem] max-w-[18rem] shrink-0 flex-col gap-2 overflow-hidden p-2"
+	class={layoutVariant === 'embedded'
+		? 'flex h-full min-h-0 w-full min-w-0 shrink-0 flex-col gap-2 overflow-hidden p-1'
+		: 'flex h-full min-h-0 w-[15rem] max-w-[18rem] shrink-0 flex-col gap-2 overflow-hidden p-2'}
 	data-testid="case-workspace-case-sidebar"
 	data-region="case-workspace-case-sidebar"
+	data-case-sidebar-layout={layoutVariant}
+	data-case-sidebar-show-case-list={showCaseList ? 'true' : 'false'}
 >
 	{#if !$caseEngineToken}
 		<button
 			type="button"
-			class="rounded-lg border border-gray-300 px-3 py-2 text-sm transition hover:bg-gray-50 dark:border-gray-600 dark:hover:bg-gray-800"
+			class="{DS_WORKSPACE_SHELL_CLASSES.caseSidebarConnect} transition-colors"
 			data-testid="case-workspace-sidebar-connect"
 			on:click={() => (showConnectModal = true)}
 		>
@@ -147,19 +161,19 @@
 				Connect to load the case list. No case is selected until you open a case from the list.
 			</p>
 		</div>
-	{:else}
+	{:else if showCaseList}
 		<div class="flex min-h-0 flex-1 flex-col gap-2" data-testid="case-workspace-case-list">
 			<input
 				type="text"
 				placeholder="Search cases…"
 				bind:value={searchQuery}
-				class="w-full rounded border border-gray-200 bg-transparent px-2 py-1.5 text-xs placeholder-gray-500 dark:border-gray-700"
+				class="{DS_WORKSPACE_SHELL_CLASSES.caseSidebarSearch} w-full transition-colors"
 				data-testid="case-workspace-case-search"
 				autocomplete="off"
 			/>
 			{#if casesError}
 				<div
-					class="text-xs text-red-600 dark:text-red-400"
+					class="text-xs {DS_STATUS_TEXT_CLASSES.danger}"
 					data-testid="case-workspace-case-list-error"
 					role="alert"
 				>
@@ -189,8 +203,8 @@
 				>
 					{#each filteredCases as c (c.id)}
 						<div
-							class="flex items-center gap-1 rounded px-2 py-1.5 text-xs {c.id === routeCaseId
-								? 'bg-gray-100 dark:bg-gray-800'
+							class="flex items-center gap-1 rounded px-2 py-1.5 text-xs transition-colors {c.id === routeCaseId
+								? DS_WORKSPACE_SHELL_CLASSES.caseSidebarRowActive
 								: ''}"
 							data-testid="case-workspace-case-row"
 							data-case-row-id={c.id}
@@ -198,14 +212,14 @@
 						>
 							<button
 								type="button"
-								class="min-w-0 flex-1 rounded text-left transition hover:bg-gray-100 dark:hover:bg-gray-800"
+								class="min-w-0 flex-1 rounded text-left text-[color:var(--ce-l-text-primary)] transition-colors hover:bg-[color:var(--ce-l-surface-muted)]"
 								title="Open case {c.case_number ?? c.id}"
 								on:click={() => selectCase(c)}
 							>
 								<span class="font-medium tabular-nums">{c.case_number ?? c.id}</span>
-								<span class="block truncate text-gray-600 dark:text-gray-400">{c.title ?? ''}</span>
+								<span class="block truncate text-[color:var(--ce-l-text-secondary)]">{c.title ?? ''}</span>
 								{#if c.unit}
-									<span class="block truncate text-[10px] text-gray-500 dark:text-gray-500">{c.unit}</span>
+									<span class="block truncate text-[10px] text-[color:var(--ce-l-text-muted)]">{c.unit}</span>
 								{/if}
 							</button>
 						</div>
@@ -217,7 +231,11 @@
 
 	{#if routeCaseId}
 		<nav
-			class="ce-l-case-nav-rail flex shrink-0 flex-col gap-1 border-t border-[color:var(--ce-l-chrome-border)] pt-2"
+			class="ce-l-case-nav-rail flex shrink-0 flex-col gap-1 border-t border-[color:var(--ce-l-chrome-border)] pt-2 {layoutVariant ===
+			'embedded'
+				? 'border-[color:var(--ce-l-border-subtle)] opacity-95'
+				: ''}"
+			data-p1325-nav-demoted={layoutVariant === 'embedded' ? 'true' : undefined}
 			data-testid="case-workspace-nav"
 			aria-label="Case workspace sections"
 			aria-describedby="case-workspace-p124-boundary-hint"
