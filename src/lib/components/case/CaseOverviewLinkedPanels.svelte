@@ -184,7 +184,7 @@
 >
 	<div class={DS_STACK_CLASSES.tight}>
 		<h2 id="case-overview-linked-panels-heading" class={DS_TYPE_CLASSES.panel}>
-			Files, entities, and notes
+			Files, Entities, and Notes
 		</h2>
 		<p class="{DS_TYPE_CLASSES.meta} max-w-3xl text-[var(--ds-text-secondary)]">
 			Compact previews from Case Engine. Files and entities are case-wide; notebook previews are your drafts only

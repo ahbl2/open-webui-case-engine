@@ -70,7 +70,7 @@
 >
 	<header class={DS_STACK_CLASSES.tight}>
 		<h2 id="summary-module-case-understanding-heading" class={DS_TYPE_CLASSES.panel}>
-			Case understanding (read-only)
+			Case Understanding (Read-Only)
 		</h2>
 		<p class="{DS_TYPE_CLASSES.meta} max-w-2xl" data-testid="case-understanding-overview-deck">
 			{P100_OVERVIEW_SECTION_DECK}

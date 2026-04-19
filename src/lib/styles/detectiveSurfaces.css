@@ -1619,6 +1619,38 @@
 		min-height: 0;
 	}
 
+	/*
+	 * Case overview (`/case/:id/summary`): three dashboard columns equal width + equal row height (≥1200px).
+	 * Default `ds-occ-dashboard-grid` uses weighted tracks; Overview overrides here only.
+	 */
+	@media (min-width: 1200px) {
+		[data-testid='case-workspace-main'] [data-testid='occ-root'].case-summary-occ-root [data-testid='occ-dashboard-grid'] {
+			grid-template-columns: repeat(3, minmax(0, 1fr));
+			align-items: stretch;
+		}
+
+		[data-testid='case-workspace-main']
+			[data-testid='occ-root'].case-summary-occ-root
+			.ds-occ-dashboard-col
+			.case-summary-dashboard-col {
+			height: 100%;
+			min-height: 0;
+		}
+
+		/*
+		 * Overview dashboard: three cells share one height (~5 visible list rows + chrome; lists load 20, scroll inside).
+		 * Tuned down from 42rem so the feed viewport shows ~5 rows, not ~6.
+		 */
+		[data-testid='case-workspace-main'] [data-testid='occ-root'].case-summary-occ-root .case-overview-equal-cell {
+			display: flex;
+			flex-direction: column;
+			min-height: 0;
+			overflow: hidden;
+			height: min(35rem, calc(100vh - 12rem));
+			max-height: min(35rem, calc(100vh - 12rem));
+		}
+	}
+
 	[data-testid='case-workspace-main'] [data-testid='occ-dashboard-surface'] {
 		flex: 0 0 auto !important;
 		min-height: 0;

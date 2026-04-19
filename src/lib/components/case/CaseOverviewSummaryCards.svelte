@@ -184,7 +184,7 @@
 			<!-- Timeline — blue (home OCC blue) -->
 			<div class="{tileBase} ds-occ-kpi-card--blue">
 				<div class="ds-case-overview-kpi-tile__head">
-					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Timeline entries</div>
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Timeline Entries</div>
 					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
 						<CalendarDaysIcon />
 					</div>
@@ -216,7 +216,7 @@
 			<!-- Notes — cyan (between timeline blue and files green) -->
 			<div class="{tileBase} ds-occ-kpi-card--cyan">
 				<div class="ds-case-overview-kpi-tile__head">
-					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Notebook notes</div>
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Notebook Notes</div>
 					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
 						<BookOpenIcon />
 					</div>
@@ -248,7 +248,7 @@
 			<!-- Files — green (home OCC green / teal family) -->
 			<div class="{tileBase} ds-occ-kpi-card--green">
 				<div class="ds-case-overview-kpi-tile__head">
-					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Files / evidence</div>
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Files / Evidence</div>
 					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
 						<FolderIcon />
 					</div>
@@ -312,7 +312,7 @@
 			<!-- Workflow — yellow -->
 			<div class="{tileBase} ds-occ-kpi-card--yellow">
 				<div class="ds-case-overview-kpi-tile__head">
-					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Workflow tasks</div>
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Workflow Tasks</div>
 					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
 						<ClipboardDocumentListIcon />
 					</div>
@@ -344,7 +344,7 @@
 			<!-- Proposals — rose (distinct from workflow yellow + warrants orange) -->
 			<div class="{tileBase} ds-occ-kpi-card--rose">
 				<div class="ds-case-overview-kpi-tile__head">
-					<div class="ds-occ-kpi-card__label min-w-0 flex-1" title={P128_OVERVIEW_PENDING_PROPOSALS_HINT}>Pending proposals</div>
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1" title={P128_OVERVIEW_PENDING_PROPOSALS_HINT}>Pending Proposals</div>
 					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
 						<DocumentTextIcon />
 					</div>
@@ -376,7 +376,7 @@
 			<!-- Warrants — orange (authority; distinct from workflow yellow + proposals rose) -->
 			<div class="{tileBase} ds-occ-kpi-card--orange">
 				<div class="ds-case-overview-kpi-tile__head">
-					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Warrants / drafts</div>
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Warrants / Drafts</div>
 					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
 						<ShieldCheckIcon />
 					</div>

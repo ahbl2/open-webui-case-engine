@@ -196,6 +196,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	import CaseWorkspaceRouteSurfacePlaceholder from '$lib/components/case/CaseWorkspaceRouteSurfacePlaceholder.svelte';
 	import CaseTimelineAuthorityFraming from '$lib/components/case/CaseTimelineAuthorityFraming.svelte';
 	import { getRouteCaseId } from '$lib/caseContext/routeCaseContext';
+	import { P101_PANEL_EYEBROW } from '$lib/case/p101ProposalUiCopy';
 
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
 	// $: caseId (reactive) instead of const so it updates when SvelteKit reuses
@@ -897,13 +898,19 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 
 	/** Timeline-only shortcuts: `/` search, `n` new entry, `Escape` composer cancel (guarded). */
 	function handleTimelinePageKeydown(event: KeyboardEvent): void {
+		if (showP101ProposalModal && event.key === 'Escape') {
+			event.preventDefault();
+			showP101ProposalModal = false;
+			return;
+		}
 		const intent = resolveTimelinePageKeydownIntent({
 			key: event.key,
 			ctrlKey: event.ctrlKey,
 			metaKey: event.metaKey,
 			altKey: event.altKey,
 			targetEditable: isTimelinePageShortcutTargetEditable(event.target),
-			overlayOpen: showDiscardConfirm || showDeleteConfirm || showRestoreConfirm,
+			overlayOpen:
+				showDiscardConfirm || showDeleteConfirm || showRestoreConfirm || showP101ProposalModal,
 			composerOpen
 		});
 		switch (intent.kind) {
@@ -1414,6 +1421,8 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	// ── Dirty-switch confirm dialog (P28-36) ────────────────────────────────────
 	// Replaces window.confirm from P28-34. Same deferred-action pattern as Notes.
 	let showDiscardConfirm = false;
+	/** P101 — Phase 101 AI proposal draft panel (opens next to + Log entry). */
+	let showP101ProposalModal = false;
 	let pendingDiscardAction: (() => void) | null = null;
 
 	function doStartEdit(entry: TimelineEntry): void {
@@ -1685,7 +1694,22 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				+ Log entry
 			</button>
 
-			<!-- Thin divider between the two entry actions -->
+			<button
+				type="button"
+				on:click={() => (showP101ProposalModal = true)}
+				disabled={loading}
+				class="text-xs font-medium px-2.5 py-1 rounded
+				       text-blue-600 dark:text-blue-400
+				       hover:text-blue-800 dark:hover:text-blue-200
+				       hover:bg-blue-50 dark:hover:bg-blue-900/20
+				       disabled:opacity-40 transition"
+				data-testid="case-timeline-p101-proposal-open"
+				title="Open AI-assisted Phase 101 proposal draft (Timeline surface)"
+			>
+				{P101_PANEL_EYEBROW}
+			</button>
+
+			<!-- Thin divider between entry actions and the rest -->
 			<span class="w-px h-3.5 shrink-0 bg-[color:var(--ce-l-border-strong)]" aria-hidden="true"></span>
 
 			<!-- P87-03 / P87-05: navigation-only; no task counts; same title string as header Tasks link -->
@@ -1748,15 +1772,6 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				{loading ? '…' : '↻ Refresh'}
 			</button>
 		</div>
-	</div>
-
-	<div class="px-3 sm:px-4 max-w-[1200px] mx-auto w-full">
-		<CaseAiProposalDraftPanel
-			caseId={caseId}
-			caseEngineToken={$caseEngineToken ?? ''}
-			defaultProposalType="timeline_entry"
-			surfaceLabel="Timeline"
-		/>
 	</div>
 
 	<CaseArrivalOrientationBlock context={p99ArrivalSnapshot} testId="case-timeline-p99-arrival" />
@@ -2865,6 +2880,50 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				</div>
 			</div>
 		</section>
+	{/if}
+
+	{#if showP101ProposalModal}
+		<div
+			class="fixed inset-0 z-[200] flex items-center justify-center bg-black/50 p-3 sm:p-6"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="case-timeline-p101-modal-title"
+			data-testid="case-timeline-p101-proposal-modal"
+			on:click={() => (showP101ProposalModal = false)}
+		>
+			<div
+				class="max-h-[min(90vh,52rem)] w-full max-w-3xl overflow-y-auto overflow-x-hidden rounded-xl border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-chrome)] shadow-xl"
+				on:click|stopPropagation
+			>
+				<div
+					class="sticky top-0 z-[1] flex items-center justify-between gap-3 border-b border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-chrome)] px-4 py-3"
+				>
+					<h2
+						id="case-timeline-p101-modal-title"
+						class="m-0 text-sm font-semibold text-[color:var(--ce-l-text-primary)]"
+					>
+						{P101_PANEL_EYEBROW} · Timeline
+					</h2>
+					<button
+						type="button"
+						class="shrink-0 rounded-md px-2 py-1 text-xs font-medium text-[color:var(--ce-l-text-secondary)] hover:bg-[color:var(--ce-l-surface-muted)]"
+						on:click={() => (showP101ProposalModal = false)}
+						data-testid="case-timeline-p101-proposal-modal-close"
+						aria-label="Close proposal draft"
+					>
+						Close
+					</button>
+				</div>
+				<div class="px-3 pb-4 pt-2 sm:px-4">
+					<CaseAiProposalDraftPanel
+						caseId={caseId}
+						caseEngineToken={$caseEngineToken ?? ''}
+						defaultProposalType="timeline_entry"
+						surfaceLabel="Timeline"
+					/>
+				</div>
+			</div>
+		</div>
 	{/if}
 </div>
 </CaseWorkspaceContentRegion>

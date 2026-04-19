@@ -1,148 +1,138 @@
 <script lang="ts">
 	/**
-	 * P82-04 — Bounded recent timeline entries on Overview (read-only; same GET /cases/:id/entries paginated path as Timeline).
-	 * Ordering: server returns occurred_at ASC; we take the last N rows (most recent by occurred_at) and reverse for display (newest first).
+	 * P82-04 — Bounded recent case activity on Overview (read-only).
+	 * P129 — Uses GET /cases/:id/activity-events (same source as Activity tab); rows match
+	 * `CaseActivityList` card styling (`ds-case-activity-feed-card`).
 	 */
 	import { onDestroy } from 'svelte';
 	import { caseEngineToken } from '$lib/stores';
-	import { listCaseTimelineEntriesPage, type TimelineEntry } from '$lib/apis/caseEngine';
-	import { TIMELINE_TYPE_NOTE_DISPLAY_LABEL } from '$lib/caseTimeline/timelineTypeNoteClarity';
-	import { formatOperationalCaseDateTimeWithSeconds } from '$lib/utils/formatDateTime';
-	import { stripLeadingDateTimePrefix } from '$lib/utils/timelineEntryText';
-	import Spinner from '$lib/components/common/Spinner.svelte';
+	import { listCaseActivityEvents, type CaseActivityEvent } from '$lib/apis/caseEngine/caseP129ActivityEventsApi';
+	import { p129ActivitySourceHref } from '$lib/case/p129ActivitySourceHref';
+	import { p129ActivityEventTypeLabel } from '$lib/case/p129ActivityDisplay';
+	import { p129ActivityDomainTheme } from '$lib/case/p129ActivityDomainTheme';
+	import { p129ActivityActorDisplay, p129ActivityShortId } from '$lib/case/p129ActivityHumanTarget';
+	import { p129ActivityEventSummary } from '$lib/case/p129ActivityEventSummary';
+	import { p129ActivityOpenRecordCtaLabel } from '$lib/case/p129ActivityOpenRecordCta';
+	import CaseActivityDomainIcon from '$lib/components/case/CaseActivityDomainIcon.svelte';
+	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import {
-		DS_BADGE_CLASSES,
-		DS_SUMMARY_CLASSES,
+		P129_ACTIVITY_DETAIL_LINK_NOTE,
+		P129_ACTIVITY_DETAIL_NO_LINK
+	} from '$lib/caseContext/p129ActivityDetailCopy';
+	import {
+		P129_ACTIVITY_FEED_BY_PREFIX,
+		P129_ACTIVITY_FEED_REFERENCE,
+		P129_ACTIVITY_FEED_TIME_LABEL,
+		P129_ACTIVITY_LIST_EMPTY_BODY,
+		P129_ACTIVITY_LIST_EMPTY_TITLE,
+		P129_ACTIVITY_LIST_ERROR_GENERIC,
+		P129_ACTIVITY_LIST_LOADING,
+		P129_ACTIVITY_LIST_LOAD_MORE,
+		P129_ACTIVITY_LIST_NO_TOKEN
+	} from '$lib/caseContext/p129ActivityListCopy';
+	import {
+		DS_BTN_CLASSES,
+		DS_EMPTY_CLASSES,
 		DS_STACK_CLASSES,
-		DS_TYPE_CLASSES,
-		DS_STATUS_TEXT_CLASSES,
-		DS_STATUS_SURFACE_CLASSES
+		DS_STATUS_SURFACE_CLASSES,
+		DS_SUMMARY_CLASSES,
+		DS_TYPE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
+	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 
 	export let caseId: string;
-	/** Section heading (e.g. “Recent case activity” vs “Timeline snapshot”). */
-	export let heading = 'Recent activity';
-	/** Optional description; defaults by variant. */
+	/** Section heading (e.g. “Recent Case Activity”). */
+	export let heading = 'Recent Case Activity';
+	/** Optional description below the heading. */
 	export let description: string | undefined = undefined;
-	/** Max entries to fetch and show (newest first). */
-	export let entryLimit = 5;
-	/** `snapshot` uses a denser vertical layout for the dashboard center column. */
-	export let variant: 'default' | 'snapshot' = 'default';
+	/** Max activity events to fetch (newest-first from Case Engine). Overview uses 20 with an inner scroll. */
+	export let entryLimit = 20;
 	/** Anchor id for in-page links (`#summary-module-recent-activity`). */
 	export let sectionId = 'summary-module-recent-activity';
 	export let headingElementId = 'case-overview-recent-activity-heading';
-	/** `data-testid` for integration tests (distinct when two instances mount on Overview). */
 	export let testId = 'case-overview-recent-activity';
+	/**
+	 * When true (Overview dashboard ≥1200px), column stretches to match siblings and the feed scrolls inside the panel.
+	 */
+	export let balanceColumnHeight = false;
 
 	type LoadState =
 		| { kind: 'loading' }
-		| { kind: 'ready'; entries: TimelineEntry[] }
+		| { kind: 'ready'; events: CaseActivityEvent[]; totalCount: number }
 		| { kind: 'empty' }
 		| { kind: 'error'; message: string };
 
 	let loadGeneration = 0;
 	let state: LoadState = { kind: 'loading' };
+	let loadingMoreActivity = false;
 
-	function typeLabel(t: string): string {
-		const s = (t ?? '').trim();
-		if (s === 'note') return TIMELINE_TYPE_NOTE_DISPLAY_LABEL;
-		if (!s) return '—';
-		return s;
-	}
-
-	function snapshotDateUpper(iso: string): string {
-		const d = new Date(iso);
-		if (Number.isNaN(d.getTime())) return '—';
-		return d
-			.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
-			.replace(/,/g, '')
-			.toUpperCase();
-	}
-
-	function snapshotTimeHm(iso: string): string {
-		const d = new Date(iso);
-		if (Number.isNaN(d.getTime())) return '';
-		return d.toLocaleTimeString(undefined, { hour: '2-digit', minute: '2-digit', hour12: false });
-	}
-
-	function formatRelativeShort(iso: string): string {
-		const t = Date.parse(iso);
-		if (Number.isNaN(t)) return '—';
-		const diff = Date.now() - t;
-		const sec = Math.floor(diff / 1000);
-		if (sec < 45) return 'Just now';
-		const min = Math.floor(sec / 60);
-		if (min < 60) return `${min}m ago`;
-		const hr = Math.floor(min / 60);
-		if (hr < 24) return `${hr}h ago`;
-		const day = Math.floor(hr / 24);
-		if (day < 7) return `${day}d ago`;
-		return new Date(t).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
-	}
-
-	function displayActorName(createdBy: string | undefined): string {
-		const s = (createdBy ?? '').trim();
-		if (!s) return 'Timeline';
-		if (s.includes('@')) {
-			const local = s.split('@')[0]?.replace(/\./g, ' ').trim();
-			return local?.length ? local : s;
+	function dedupeActivityEvents(rows: CaseActivityEvent[]): CaseActivityEvent[] {
+		const seen = new Set<string>();
+		const out: CaseActivityEvent[] = [];
+		for (const ev of rows) {
+			if (seen.has(ev.event_id)) continue;
+			seen.add(ev.event_id);
+			out.push(ev);
 		}
-		return s;
+		return out;
 	}
-
-	function initialsFromActor(createdBy: string | undefined): string {
-		const name = displayActorName(createdBy);
-		if (name === 'Timeline') return 'CE';
-		const parts = name.split(/\s+/).filter(Boolean);
-		if (parts.length >= 2) return `${parts[0]![0] ?? ''}${parts[1]![0] ?? ''}`.toUpperCase();
-		if (parts.length === 1 && parts[0]!.length >= 2) return parts[0]!.slice(0, 2).toUpperCase();
-		return (parts[0]?.[0] ?? '?').toUpperCase();
-	}
-
-	function previewText(entry: TimelineEntry): string {
-		const raw = (entry.text_cleaned ?? entry.text_original ?? '').trim();
-		const collapsed = stripLeadingDateTimePrefix(raw.replace(/\s+/g, ' '));
-		const max = variant === 'snapshot' ? 120 : 200;
-		if (collapsed.length <= max) return collapsed;
-		return `${collapsed.slice(0, max - 1)}…`;
-	}
-
-	const panelShell =
-		'rounded-xl border border-[color:var(--ds-border-default)] bg-[color:color-mix(in_oklab,var(--ds-bg-elevated)_94%,var(--ds-bg-muted))] p-4 shadow-sm';
 
 	async function loadRecent(id: string, token: string, gen: number): Promise<void> {
+		loadingMoreActivity = false;
 		state = { kind: 'loading' };
 		try {
-			const first = await listCaseTimelineEntriesPage(id, token, { limit: 1, offset: 0 });
-			if (gen !== loadGeneration) return;
-			const total = first.total;
-			if (typeof total !== 'number' || !Number.isFinite(total) || total < 0) {
-				state = { kind: 'error', message: 'Invalid timeline total from Case Engine.' };
-				return;
-			}
-			if (total === 0) {
-				state = { kind: 'empty' };
-				return;
-			}
-			const offset = Math.max(0, total - entryLimit);
-			const take = Math.min(entryLimit, total);
-			const page = await listCaseTimelineEntriesPage(id, token, {
-				limit: take,
-				offset
+			const res = await listCaseActivityEvents(id, token, {
+				limit: entryLimit,
+				offset: 0
 			});
 			if (gen !== loadGeneration) return;
-			const rows = page.entries ?? [];
-			// Newest occurred_at first: within the slice returned in ASC order, reverse for display only.
-			const reversed = rows.slice().reverse();
-			state = { kind: 'ready', entries: reversed };
+			const rows = res.activity_events ?? [];
+			const totalCount = res.pagination?.total_count ?? rows.length;
+			if (rows.length === 0) {
+				state = { kind: 'empty' };
+			} else {
+				state = { kind: 'ready', events: rows, totalCount };
+			}
 		} catch (e: unknown) {
 			if (gen !== loadGeneration) return;
 			state = {
 				kind: 'error',
-				message: e instanceof Error ? e.message : 'Could not load recent timeline activity.'
+				message: e instanceof Error ? e.message : P129_ACTIVITY_LIST_ERROR_GENERIC
 			};
 		}
 	}
+
+	async function loadMoreActivity(): Promise<void> {
+		if (state.kind !== 'ready' || !$caseEngineToken || loadingMoreActivity) return;
+		const { events, totalCount } = state;
+		if (events.length >= totalCount) return;
+		loadingMoreActivity = true;
+		const gen = loadGeneration;
+		try {
+			const res = await listCaseActivityEvents(caseId, $caseEngineToken, {
+				limit: entryLimit,
+				offset: events.length
+			});
+			if (gen !== loadGeneration) return;
+			const more = res.activity_events ?? [];
+			const merged = dedupeActivityEvents([...events, ...more]);
+			state = {
+				kind: 'ready',
+				events: merged,
+				totalCount: res.pagination?.total_count ?? totalCount
+			};
+		} catch (e: unknown) {
+			if (gen !== loadGeneration) return;
+			state = {
+				kind: 'error',
+				message: e instanceof Error ? e.message : P129_ACTIVITY_LIST_ERROR_GENERIC
+			};
+		} finally {
+			if (gen === loadGeneration) loadingMoreActivity = false;
+		}
+	}
+
+	$: activityHasMore = state.kind === 'ready' && state.events.length < state.totalCount;
 
 	$: token = $caseEngineToken;
 
@@ -163,48 +153,50 @@
 
 <section
 	id={sectionId}
-	class="{DS_STACK_CLASSES.stack} pb-6"
+	class="{balanceColumnHeight
+		? `${DS_STACK_CLASSES.stack} min-[1200px]:flex-1 min-[1200px]:min-h-0 min-[1200px]:pb-0 pb-6`
+		: `${DS_STACK_CLASSES.stack} pb-6`}"
 	data-testid={testId}
 	aria-labelledby={headingElementId}
 >
-	<div class="{panelShell} flex min-h-0 flex-col">
-		<div class="flex flex-wrap items-center justify-between gap-x-3 gap-y-2">
+	<div
+		class="{DS_SUMMARY_CLASSES.modulePrimary} flex min-h-0 flex-col {balanceColumnHeight
+			? 'case-overview-equal-cell min-[1200px]:min-h-0 min-[1200px]:flex-1'
+			: ''}"
+	>
+		<div class="flex shrink-0 flex-wrap items-center justify-between gap-x-3 gap-y-2">
 			<h2 id={headingElementId} class="{DS_TYPE_CLASSES.panel} min-w-0 flex-1">
 				{heading}
 			</h2>
 			<a
 				href="/case/{caseId}/activity"
-				class="{DS_SUMMARY_CLASSES.navLink} shrink-0 whitespace-nowrap"
+				class="shrink-0 whitespace-nowrap text-sm font-medium text-[color:var(--ce-l-text-primary)] underline-offset-2 hover:underline"
 				data-testid="case-overview-recent-activity-view-all"
-				>View all activity -></a
+				>View all activity →</a
 			>
 		</div>
 		{#if description}
-			<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-2xl text-[var(--ds-text-secondary)]">
+			<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-2xl text-[color:var(--ce-l-text-secondary)]">
 				{description}
 			</p>
 		{/if}
 
+		<div
+			class="{balanceColumnHeight
+				? 'mt-4 flex min-h-0 min-[1200px]:flex-1 min-[1200px]:flex-col min-[1200px]:overflow-hidden min-[1200px]:overflow-x-hidden'
+				: 'contents'}"
+		>
 		{#if !token}
-			<p class="{DS_TYPE_CLASSES.meta} mt-4" data-testid="case-overview-recent-activity-no-token">
-				Case Engine sign-in required to load timeline activity.
+			<p class="{DS_TYPE_CLASSES.meta} {balanceColumnHeight ? '' : 'mt-4'}" data-testid="case-overview-recent-activity-no-token">
+				{P129_ACTIVITY_LIST_NO_TOKEN}
 			</p>
 		{:else if state.kind === 'loading'}
-			<div
-				class="{DS_SUMMARY_CLASSES.loadingPanel} mt-4"
-				role="status"
-				aria-live="polite"
-				data-testid="case-overview-recent-activity-loading"
-			>
-				<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-5" /></span>
-				<div class="min-w-0">
-					<p class="{DS_TYPE_CLASSES.body} font-semibold">Loading recent timeline…</p>
-					<p class="{DS_TYPE_CLASSES.meta} mt-1">Reading committed entries from Case Engine.</p>
-				</div>
+			<div class="{balanceColumnHeight ? '' : 'mt-4'}" data-testid="case-overview-recent-activity-loading">
+				<CaseLoadingState label={P129_ACTIVITY_LIST_LOADING} testId="case-overview-recent-activity-spinner" />
 			</div>
 		{:else if state.kind === 'error'}
 			<div
-				class="mt-4 rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}"
+				class="{balanceColumnHeight ? '' : 'mt-4'} rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}"
 				role="alert"
 				data-testid="case-overview-recent-activity-error"
 			>
@@ -212,116 +204,116 @@
 			</div>
 		{:else if state.kind === 'empty'}
 			<div
-				class="{DS_SUMMARY_CLASSES.emptyDashed} mt-4"
+				class="{DS_EMPTY_CLASSES.root} {DS_EMPTY_CLASSES.compact} ce-l-empty-framed {balanceColumnHeight ? '' : 'mt-4'} px-2 py-4"
 				role="region"
-				aria-label="No timeline entries"
+				aria-label="No activity events"
 				data-testid="case-overview-recent-activity-empty"
 			>
-				<p class="{DS_TYPE_CLASSES.body} font-semibold">No committed timeline entries yet</p>
-				<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-md mx-auto">
-					When entries are logged on the Timeline tab, the most recent ones will appear here.
+				<p class="{DS_EMPTY_CLASSES.title} m-0 text-sm text-[color:var(--ce-l-text-secondary)]">
+					{P129_ACTIVITY_LIST_EMPTY_TITLE}
+				</p>
+				<p class="{DS_TYPE_CLASSES.meta} m-0 mt-2 max-w-md text-[color:var(--ce-l-text-muted)]">
+					{P129_ACTIVITY_LIST_EMPTY_BODY}
 				</p>
 			</div>
 		{:else}
-			{#if variant === 'snapshot'}
-				<ul
-					class="mt-4 list-none space-y-0 p-0"
-					data-testid="case-overview-recent-activity-list"
+			<div
+				class="{balanceColumnHeight
+					? 'flex min-h-0 min-[1200px]:flex-1 min-[1200px]:flex-col min-[1200px]:overflow-hidden min-[1200px]:overflow-x-hidden'
+					: ''} {balanceColumnHeight ? '' : 'mt-4'}"
+			>
+				<div
+					class="{balanceColumnHeight
+						? 'min-h-0 min-[1200px]:flex-1 min-[1200px]:overflow-y-auto min-[1200px]:overflow-x-hidden'
+						: ''}"
 				>
-					{#each state.entries as entry (entry.id)}
-						<li
-							class="flex flex-wrap items-start gap-3 border-b border-[color:var(--ds-border-subtle)] py-3 last:border-b-0"
-							data-timeline-entry-id={entry.id}
-						>
-							<div class="flex w-[4.5rem] shrink-0 flex-col items-end text-right">
-								<time
-									class="text-[0.65rem] font-bold uppercase leading-tight tracking-wide text-[var(--ds-text-muted)]"
-									datetime={entry.occurred_at}
-								>
-									{snapshotDateUpper(entry.occurred_at)}
-								</time>
-								<time
-									class="mt-0.5 text-xs tabular-nums text-[var(--ds-text-secondary)]"
-									datetime={entry.occurred_at}
-								>
-									{snapshotTimeHm(entry.occurred_at)}
-								</time>
-							</div>
-							<div class="relative min-w-0 flex-1 border-l border-[color:var(--ds-border-default)] pl-4">
-								<span
-									class="absolute -left-[5px] top-2 z-10 size-2 rounded-full bg-sky-500 ring-2 ring-[color:color-mix(in_oklab,var(--ds-bg-elevated)_96%,var(--ds-bg-muted))]"
-									aria-hidden="true"
-								></span>
-								<div class="flex flex-wrap items-start justify-between gap-2">
-									<p class="{DS_TYPE_CLASSES.body} min-w-0 flex-1 line-clamp-3 break-words text-[var(--ds-text-primary)]">
-										{previewText(entry)}
-									</p>
-									<span
-										class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.info} max-w-[7rem] shrink-0 truncate text-[0.65rem] uppercase"
-									>
-										{typeLabel(entry.type)}
-									</span>
-								</div>
-								{#if entry.location_text?.trim()}
-									<p class="{DS_TYPE_CLASSES.meta} mt-1 text-[var(--ds-text-secondary)]">
-										{entry.location_text.trim()}
-									</p>
-								{/if}
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{:else}
-				<ul
-					class="mt-4 list-none divide-y divide-[color:var(--ds-border-default)] space-y-0 p-0"
-					data-testid="case-overview-recent-activity-list"
-				>
-					{#each state.entries as entry (entry.id)}
-						<li
-							class="flex gap-3 py-3 first:pt-0"
-							data-timeline-entry-id={entry.id}
-						>
-							<div
-								class="flex size-9 shrink-0 items-center justify-center rounded-full bg-[color:color-mix(in_oklab,var(--ds-bg-muted)_92%,transparent)] text-[0.7rem] font-semibold uppercase tracking-tight text-[var(--ds-text-secondary)]"
-								aria-hidden="true"
-								title={displayActorName(entry.created_by)}
+					<ol
+						class="m-0 flex list-none flex-col gap-2 p-0"
+						data-testid="case-overview-recent-activity-list"
+						aria-label="Recent case activity events"
+					>
+						{#each state.events as ev (ev.event_id)}
+							{@const sourceHref = p129ActivitySourceHref(caseId, ev)}
+							{@const theme = p129ActivityDomainTheme(ev)}
+							<li
+								data-testid="case-overview-recent-activity-row"
+								data-activity-event-id={ev.event_id}
+								data-activity-domain={theme.domainLabel}
 							>
-								{initialsFromActor(entry.created_by)}
-							</div>
-							<div class="min-w-0 flex-1">
-								<div class="flex flex-wrap items-center gap-x-2 gap-y-0.5">
-									<span class="text-sm font-semibold text-[var(--ds-text-primary)]">
-										{displayActorName(entry.created_by)}
-									</span>
-									<span
-										class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral} max-w-[10rem] truncate text-[0.65rem] uppercase"
-									>
-										{typeLabel(entry.type)}
-									</span>
+								<div class="ds-case-activity-feed-card {theme.kpiModifierClass}">
+									<div class="ds-case-activity-feed-card__inner">
+										<div class="ds-case-activity-feed-card__icon-well" aria-hidden="true">
+											<CaseActivityDomainIcon variant={theme.variant} />
+										</div>
+										<div class="ds-case-activity-feed-card__body">
+											<div class="ds-case-activity-feed-card__title-row">
+												<div class="ds-case-activity-feed-card__title-main">
+													<span class="ds-case-activity-feed-domain-chip">{theme.domainLabel}</span>
+													<span class="text-sm font-semibold leading-tight text-[color:var(--ce-l-text-primary)]">
+														{p129ActivityEventTypeLabel(ev.event_type)}
+													</span>
+												</div>
+												<span
+													class="ds-case-activity-feed-card__by"
+													title={String(ev.actor_user_id ?? '').trim() || undefined}
+												>
+													{P129_ACTIVITY_FEED_BY_PREFIX}
+													{p129ActivityActorDisplay(ev.actor_user_id)}
+												</span>
+												<span
+													class="ds-case-activity-feed-card__when"
+													title="{P129_ACTIVITY_FEED_TIME_LABEL}: {formatCaseDateTime(ev.occurred_at)}"
+												>
+													{formatCaseDateTime(ev.occurred_at)}
+												</span>
+											</div>
+											<p class="ds-case-activity-feed-card__summary">{p129ActivityEventSummary(ev)}</p>
+											{#if ev.target_id?.trim()}
+												<p class="ds-case-activity-feed-card__meta-line">
+													<span class="{DS_TYPE_CLASSES.mono}">
+														{P129_ACTIVITY_FEED_REFERENCE}: {p129ActivityShortId(ev.target_id)}
+													</span>
+												</p>
+											{/if}
+										</div>
+										<div class="ds-case-activity-feed-card__actions" data-testid="case-overview-recent-activity-actions">
+											{#if sourceHref}
+												<a
+													class="inline-flex max-w-[10.5rem] truncate rounded border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface)] px-1.5 py-0.5 text-center text-[0.6875rem] font-medium leading-tight text-[color:var(--ce-l-text-primary)] no-underline transition hover:bg-[color:var(--ce-l-surface-muted)]"
+													href={sourceHref}
+													title={P129_ACTIVITY_DETAIL_LINK_NOTE}
+													data-testid="case-overview-recent-activity-open-source"
+													data-activity-source-href={sourceHref}
+												>
+													{p129ActivityOpenRecordCtaLabel(ev)}
+												</a>
+											{:else}
+												<span class="max-w-[9rem] text-right text-[0.6875rem] text-[color:var(--ce-l-text-muted)]">
+													{P129_ACTIVITY_DETAIL_NO_LINK}
+												</span>
+											{/if}
+										</div>
+									</div>
 								</div>
-								<p class="mt-1 line-clamp-3 break-words text-sm leading-snug text-[var(--ds-text-secondary)]">
-									{previewText(entry)}
-								</p>
-								{#if entry.location_text?.trim()}
-									<p class="{DS_TYPE_CLASSES.meta} mt-1 text-[var(--ds-text-muted)]">
-										<span class="font-medium text-[var(--ds-text-secondary)]">Location:</span>
-										{entry.location_text.trim()}
-									</p>
-								{/if}
-							</div>
-							<div class="shrink-0 text-right">
-								<time
-									class="text-xs font-medium tabular-nums text-[var(--ds-text-muted)]"
-									datetime={entry.occurred_at}
-									title={formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
-								>
-									{formatRelativeShort(entry.occurred_at)}
-								</time>
-							</div>
-						</li>
-					{/each}
-				</ul>
-			{/if}
+							</li>
+						{/each}
+					</ol>
+					{#if activityHasMore}
+						<div class="mt-3 border-t border-[color:var(--ce-l-border-subtle)] pt-3">
+							<button
+								type="button"
+								class="{DS_BTN_CLASSES.secondary} w-full"
+								data-testid="case-overview-recent-activity-load-more"
+								disabled={loadingMoreActivity}
+								on:click={loadMoreActivity}
+							>
+								{loadingMoreActivity ? 'Loading…' : P129_ACTIVITY_LIST_LOAD_MORE}
+							</button>
+						</div>
+					{/if}
+				</div>
+			</div>
 		{/if}
+		</div>
 	</div>
 </section>

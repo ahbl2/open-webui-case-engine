@@ -14,10 +14,10 @@ const timelineCopy = join(__dirname, 'p124TimelineAuthorityCopy.ts');
 const separationCopy = join(__dirname, 'p124SurfaceSeparationCopy.ts');
 
 describe('P124-05 Timeline vs Notes separation', () => {
-	it('Timeline framing uses neutral DS surface; Notes framing uses info (not neutral authority)', () => {
+	it('Timeline framing uses elevated case shell surface (Activity parity); Notes framing uses info', () => {
 		const tl = readFileSync(timelineFraming, 'utf8');
 		const nt = readFileSync(notesFraming, 'utf8');
-		expect(tl).toMatch(/DS_STATUS_SURFACE_CLASSES\.neutral/);
+		expect(tl).toMatch(/ce-l-surface-elevated/);
 		expect(tl).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);
 		expect(nt).toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);
 		expect(nt).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.neutral/);

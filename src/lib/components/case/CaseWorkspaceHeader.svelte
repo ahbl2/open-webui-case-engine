@@ -105,24 +105,25 @@
 						class="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1"
 						data-testid="case-identity-primary"
 					>
-						<span
-							class="{DS_TYPE_CLASSES.mono} shrink-0 select-all text-base font-bold uppercase tracking-wide text-[color:var(--ce-l-text-primary)] sm:text-lg"
+						<h1
+							class="{DS_TYPE_CLASSES.mono} min-w-0 max-w-full shrink-0 select-all text-base font-bold uppercase tracking-wide text-[color:var(--ce-l-text-primary)] sm:text-lg md:text-xl"
+							title={meta.case_number}
 						>
 							{meta.case_number}
-						</span>
-						{#if meta.unit?.trim()}
-							<span class="{unitBadgeClass(meta.unit)} max-w-[14rem] truncate" title={meta.unit}>
-								{meta.unit.trim()}
-							</span>
-						{/if}
-						<h1
-							class="{DS_TYPE_CLASSES.body} min-w-0 max-w-full flex-1 basis-[min(100%,12rem)] font-semibold leading-snug text-[color:var(--ce-l-text-primary)] sm:max-w-xl md:max-w-2xl {identityStripExpanded
-								? 'text-lg sm:text-xl'
-								: 'text-base sm:text-lg'}"
+						</h1>
+						<span
+							class="{DS_TYPE_CLASSES.body} min-w-0 max-w-full flex-1 basis-[min(100%,12rem)] font-medium leading-snug text-[color:var(--ce-l-text-secondary)] sm:max-w-xl md:max-w-2xl {identityStripExpanded
+								? 'text-base sm:text-lg'
+								: 'text-sm sm:text-base'}"
 							title={displayCaseTitle(meta.title)}
 						>
 							{displayCaseTitle(meta.title)}
-						</h1>
+						</span>
+						{#if meta.unit?.trim()}
+							<span class="{unitBadgeClass(meta.unit)} max-w-[14rem] shrink-0 truncate" title={meta.unit}>
+								{meta.unit.trim()}
+							</span>
+						{/if}
 						{#if meta.status?.trim()}
 							<span class={caseStatusDsBadgeCompound(meta.status)}>
 								{statusDisplay(meta.status)}
@@ -348,25 +349,25 @@
 										aria-hidden="true"
 									/>
 									<div class="min-w-0">
-										<h1
-											id="case-shell-hero-heading"
-											class="{DS_TYPE_CLASSES.display}"
-											data-testid="case-shell-hero-heading"
+										<div
+											class="flex min-w-0 flex-col gap-2 sm:flex-row sm:flex-wrap sm:items-baseline sm:gap-x-3"
 										>
-											{displayCaseTitle(meta.title)}
-										</h1>
-										<p class="{DS_TYPE_CLASSES.meta} mt-1 max-w-2xl">
-											<span class="{DS_TYPE_CLASSES.mono}">{meta.case_number}</span>
-											{#if meta.unit?.trim()}
-												<span> · {meta.unit.trim()}</span>
-											{/if}
-											<span>
-												{' · '}
+											<h1
+												id="case-shell-hero-heading"
+												class="{DS_TYPE_CLASSES.display} shrink-0 font-mono uppercase tracking-wide"
+												data-testid="case-shell-hero-heading"
+											>
+												{meta.case_number}
+											</h1>
+											<span class="{DS_TYPE_CLASSES.meta} min-w-0">
 												<span class="text-[color:var(--ds-text-muted)]">Lead Detective</span>
 												{$caseEngineUser?.name?.trim()
 													? ` ${$caseEngineUser.name}`
 													: ' —'}
 											</span>
+										</div>
+										<p class="{DS_TYPE_CLASSES.meta} mt-1 max-w-2xl">
+											<span class="font-medium text-[color:var(--ds-text-primary)]">{displayCaseTitle(meta.title)}</span>
 											{#if meta.incident_date}
 												<span> · Incident {meta.incident_date}</span>
 											{:else}
@@ -377,6 +378,11 @@
 									</div>
 								</div>
 								<div class="ds-occ-hero-actions">
+									{#if meta.unit?.trim()}
+										<span class="{unitBadgeClass(meta.unit)} max-w-[12rem] truncate" title={meta.unit.trim()}>
+											{meta.unit.trim()}
+										</span>
+									{/if}
 									{#if meta.status?.trim()}
 										<span class={caseStatusDsBadgeCompound(meta.status)}>
 											{statusDisplay(meta.status)}

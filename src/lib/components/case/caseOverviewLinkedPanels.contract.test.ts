@@ -13,11 +13,8 @@ const componentSource = readFileSync(componentPath, 'utf8');
 const summaryPageSource = readFileSync(summaryPagePath, 'utf8');
 
 describe('CaseOverviewLinkedPanels (P82-05)', () => {
-	it('is mounted on Overview after Recent activity', () => {
-		expect(summaryPageSource).toContain('CaseOverviewLinkedPanels');
-		expect(summaryPageSource.indexOf('CaseOverviewRecentActivity')).toBeLessThan(
-			summaryPageSource.indexOf('CaseOverviewLinkedPanels')
-		);
+	it('is not mounted on the trimmed Overview (summary) route — use Files / Entities / Notes tabs', () => {
+		expect(summaryPageSource).not.toContain('CaseOverviewLinkedPanels');
 	});
 
 	it('uses existing list endpoints only (no new aggregation APIs)', () => {
@@ -34,11 +31,6 @@ describe('CaseOverviewLinkedPanels (P82-05)', () => {
 		expect(componentSource).toContain('href="/case/{caseId}/entities"');
 		expect(componentSource).toContain('href="/case/{caseId}/notes"');
 		expect(componentSource).toContain('id="summary-module-linked-panels"');
-	});
-
-	it('in-page nav links to the linked panels section', () => {
-		expect(summaryPageSource).toContain('href="#summary-module-linked-panels"');
-		expect(summaryPageSource).toContain('Linked panels');
 	});
 
 	it('labels notebook scope honestly', () => {

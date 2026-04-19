@@ -1,5 +1,5 @@
 /**
- * P82-04 — Recent Activity on Overview: timeline-backed list only; bounded count; no mock rows.
+ * P82-04 / P129 — Recent Activity on Overview: P129 activity-events list; bounded count; no mock rows.
  */
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -20,15 +20,19 @@ describe('CaseOverviewRecentActivity (P82-04)', () => {
 		);
 	});
 
-	it('uses listCaseTimelineEntriesPage only (timeline-backed reads)', () => {
-		expect(componentSource).toContain('listCaseTimelineEntriesPage');
+	it('uses listCaseActivityEvents only (same audit stream as Activity tab)', () => {
+		expect(componentSource).toContain('listCaseActivityEvents');
+		expect(componentSource).toContain('caseP129ActivityEventsApi');
+		expect(componentSource).not.toContain('listCaseTimelineEntriesPage');
 		expect(componentSource).not.toContain('listCaseFiles');
 		expect(componentSource).not.toContain('listProposals');
 	});
 
-	it('enforces a bounded recent window (no pagination UI)', () => {
-		expect(componentSource).toContain('entryLimit = 5');
-		expect(componentSource).toContain('Math.max(0, total - entryLimit)');
+	it('uses paged activity API (limit + offset) with overview Load more', () => {
+		expect(componentSource).toContain('entryLimit = 20');
+		expect(componentSource).toMatch(/limit:\s*entryLimit/);
+		expect(componentSource).toContain('P129_ACTIVITY_LIST_LOAD_MORE');
+		expect(componentSource).toContain('data-testid="case-overview-recent-activity-load-more"');
 	});
 
 	it('exposes stable test ids and View all activity route', () => {
@@ -36,12 +40,16 @@ describe('CaseOverviewRecentActivity (P82-04)', () => {
 		expect(componentSource).toContain('data-testid={testId}');
 		expect(componentSource).toContain('data-testid="case-overview-recent-activity-view-all"');
 		expect(componentSource).toContain('href="/case/{caseId}/activity"');
-		expect(componentSource).toContain('View all activity ->');
+		expect(componentSource).toContain('View all activity →');
 		expect(componentSource).toContain("sectionId = 'summary-module-recent-activity'");
 	});
 
-	it('in-page nav links to the Recent activity section', () => {
-		expect(summaryPageSource).toContain('href="#summary-module-recent-activity"');
-		expect(summaryPageSource).toContain('Recent activity');
+	it('uses Activity tab card styling (ds-case-activity-feed-card)', () => {
+		expect(componentSource).toContain('ds-case-activity-feed-card');
+		expect(componentSource).toContain('CaseActivityDomainIcon');
+	});
+
+	it('uses default anchor id summary-module-recent-activity (no in-page nav on trimmed overview)', () => {
+		expect(componentSource).toContain("sectionId = 'summary-module-recent-activity'");
 	});
 });

@@ -65,7 +65,7 @@
 >
 	<header class={DS_STACK_CLASSES.tight}>
 		<h2 id="summary-module-synthesis-read-heading" class={DS_TYPE_CLASSES.panel}>
-			What we know so far (read-only)
+			What We Know So Far (Read-Only)
 		</h2>
 		<p class="{DS_TYPE_CLASSES.meta} max-w-2xl">
 			Read-only layout from Case Engine—Timeline tab holds the official chronology. Does not save, export, or change
