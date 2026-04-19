@@ -14,11 +14,11 @@ export const P129_ACTIVITY_DETAIL_LABEL_TARGET_ID = 'Target id';
 
 export const P129_ACTIVITY_DETAIL_METADATA_HEADING = 'Metadata';
 
-/** Navigates within this case; does not guarantee scroll/focus on the target. */
-export const P129_ACTIVITY_DETAIL_LINK_NOTE =
-	'Opens the same case. The target may not scroll into view.';
+/** Factual: user is already in this case; navigation does not scroll or focus the row. */
+export const P129_ACTIVITY_DETAIL_LINK_NOTE = 'May not scroll to or highlight this item.';
 
-export const P129_ACTIVITY_DETAIL_OPEN_SOURCE = 'Open target in its surface';
+/** Fallback only when `p129ActivityOpenRecordCtaLabel` is not used. */
+export const P129_ACTIVITY_DETAIL_OPEN_SOURCE = 'Open related tab';
 export const P129_ACTIVITY_DETAIL_SHOW_EVENT_FIELDS = 'Show event fields';
 export const P129_ACTIVITY_DETAIL_HIDE_EVENT_FIELDS = 'Hide event fields';
 export const P129_ACTIVITY_DETAIL_NO_LINK = 'No direct link for this target';

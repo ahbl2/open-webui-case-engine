@@ -86,6 +86,8 @@
 	import Sidebar from '$lib/components/layout/Sidebar.svelte';
 	import DetectiveWorkspaceSidebar from '$lib/components/layout/DetectiveWorkspaceSidebar.svelte';
 	import DetectiveAppShellFrame from '$lib/components/layout/DetectiveAppShellFrame.svelte';
+	import DetectiveAppShellTopBar from '$lib/components/layout/DetectiveAppShellTopBar.svelte';
+	import { DS_APP_SHELL_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import { isDetectiveWave2AppShellEnabled } from '$lib/case/detectiveWave2Shell';
 	import SettingsModal from '$lib/components/chat/SettingsModal.svelte';
 	import AccountPending from '$lib/components/layout/Overlay/AccountPending.svelte';
@@ -113,6 +115,8 @@
 		isDetectiveWorkspace || $page.url.pathname.startsWith('/admin');
 	/** P75-03 / P75-04-FU: `PUBLIC_DETECTIVE_WAVE2_APP_SHELL=0` disables Wave 2 app shell frame + GNAV sidebar chrome (rollback). */
 	$: wave2AppShellEnabled = isDetectiveWave2AppShellEnabled();
+	/** Top utility strip is suppressed on `/case/*` (case workspace owns chrome). */
+	$: isCaseWorkspaceAppRoute = $page.url.pathname.startsWith('/case/');
 
 	const i18n = getContext('i18n');
 
@@ -684,11 +688,24 @@
 					<div
 						class="flex-1 min-w-0 min-h-0 h-full flex flex-col overflow-hidden {isUnifiedSidebar
 							? ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : 'md:ml-[var(--sidebar-rail-width)]')
-							: ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : '')}"
+							: ($showSidebar ? 'md:ml-[var(--sidebar-width)]' : '')} {isUnifiedSidebar && wave2AppShellEnabled
+							? 'ds-app-shell'
+							: ''}"
 						data-testid="app-main-content-pane"
 					>
 						{#if isUnifiedSidebar && wave2AppShellEnabled}
-							<!-- P75-02 / P75-03: DS app shell regions (top strip + main); sidebar is sibling. -->
+							<!-- P75-02 / P75-03: Top bar sits on the app canvas; `DetectiveAppShellFrame` is main body only. -->
+							{#if !isCaseWorkspaceAppRoute}
+								<header
+									class="{DS_APP_SHELL_CLASSES.top} shrink-0"
+									aria-label="Workspace top bar"
+									data-region="app-shell-top"
+								>
+									<div class="{DS_APP_SHELL_CLASSES.topRow}">
+										<DetectiveAppShellTopBar />
+									</div>
+								</header>
+							{/if}
 							<DetectiveAppShellFrame>
 								<slot />
 							</DetectiveAppShellFrame>

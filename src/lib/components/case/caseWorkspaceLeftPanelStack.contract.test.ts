@@ -47,10 +47,10 @@ describe('CaseWorkspaceLeftPanelStack P132.5-04', () => {
 		expect(src).not.toMatch(/\$lib\/.*\b(ai|governance)\b/i);
 	});
 
-	it('case layout wires the stack with title constant (no direct sidebar in layout)', () => {
+	it('case layout does not mount the left stack (component remains for embedded use only)', () => {
 		const src = readFileSync(layoutPath, 'utf8');
-		expect(src).toContain('CaseWorkspaceLeftPanelStack');
-		expect(src).toContain('P1325_LEFT_STACK_PANEL_TITLE');
+		expect(src).not.toContain('CaseWorkspaceLeftPanelStack');
+		expect(src).not.toContain('P1325_LEFT_STACK_PANEL_TITLE');
 		expect(src).not.toContain('<CaseWorkspaceCaseSidebar');
 	});
 });

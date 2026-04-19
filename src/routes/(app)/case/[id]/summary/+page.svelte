@@ -18,10 +18,12 @@
 	import CaseOverviewSummaryCards from '$lib/components/case/CaseOverviewSummaryCards.svelte';
 	import CaseOverviewRecentActivity from '$lib/components/case/CaseOverviewRecentActivity.svelte';
 	import CaseOverviewLinkedPanels from '$lib/components/case/CaseOverviewLinkedPanels.svelte';
+	import CaseCaseWorkflowItemsPanel from '$lib/components/case/CaseCaseWorkflowItemsPanel.svelte';
 	import CaseSynthesisReadModelOverviewSection from '$lib/components/case/CaseSynthesisReadModelOverviewSection.svelte';
 	import CaseUnderstandingOverviewSection from '$lib/components/case/CaseUnderstandingOverviewSection.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
+	import OperatorCommandCenterFrame from '$lib/components/operator/OperatorCommandCenterFrame.svelte';
 	import { applyStatusOntoPostSnapshot } from '$lib/case/summaryTabSnapshotMerge';
 	import {
 		mapTimelineSummaryKeyEvents,
@@ -322,26 +324,192 @@
 	});
 </script>
 
-<CaseWorkspaceContentRegion testId="case-summary-page">
-<div class={DS_SUMMARY_CLASSES.pageScroll}>
-	<div class="{DS_SUMMARY_CLASSES.pageInner} {DS_STACK_CLASSES.stack}">
-		<header class={DS_SUMMARY_CLASSES.identityBand}>
-			<p class={DS_SUMMARY_CLASSES.pageEyebrow}>Case workspace · orientation</p>
-			<div class={DS_SUMMARY_CLASSES.identityTitleRow}>
-				<h1 class={DS_TYPE_CLASSES.display}>Overview</h1>
-			</div>
-			<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-2xl">
-				Derived views from case data—not the committed record. Use <span class="font-semibold">Timeline</span> for
-				the committed chronology and <span class="font-semibold">Notes</span> for drafts. Nothing here alters stored
-				case records.
-			</p>
-		</header>
+<CaseWorkspaceContentRegion testId="case-summary-page" delegatePageScroll={true}>
+	<OperatorCommandCenterFrame
+		showHeroBand={false}
+		occDesktopBoard={false}
+		occRootExtraClass="case-summary-occ-root flex w-full min-h-0 min-w-0 flex-col"
+		mainId="case-occ-command-center-main"
+		mainAriaLabel="Case overview"
+	>
+		<svelte:fragment slot="summary">
+			{#if caseId}
+				<CaseOverviewSummaryCards caseId={caseId} />
+			{/if}
+		</svelte:fragment>
+		<div class="contents" slot="colLeft">
+			{#if caseId}
+				<div class="flex min-w-0 flex-col gap-6">
+					<CaseOverviewRecentActivity caseId={caseId} heading="Recent case activity" />
+				</div>
+			{/if}
+		</div>
+		<div class="contents" slot="colCenter">
+			{#if caseId}
+				<div class="min-w-0">
+					<CaseOverviewRecentActivity
+						caseId={caseId}
+						heading="Timeline snapshot"
+						variant="snapshot"
+						sectionId="summary-module-timeline-snapshot"
+						headingElementId="case-overview-timeline-snapshot-heading"
+						testId="case-overview-timeline-snapshot"
+					/>
+				</div>
+			{/if}
+		</div>
+		<div class="contents" slot="colRight">
+			{#if caseId}
+				<div class="flex min-w-0 flex-col gap-6">
+					<!-- Primary: Case Summary (AI-derived) — dashboard column -->
+					<section
+						id="summary-module-case-summary"
+						class="{DS_SUMMARY_CLASSES.modulePrimary} {DS_STACK_CLASSES.stack} min-w-0"
+						aria-labelledby="summary-module-case-summary-heading"
+					>
+						<div class={DS_STACK_CLASSES.tight}>
+							<div class="flex flex-wrap items-center gap-2">
+								<h2 id="summary-module-case-summary-heading" class={DS_TYPE_CLASSES.panel}>
+									Case Summary (AI-derived)
+								</h2>
+								{#if loading}
+									<span
+										title="Loading saved Case Summary status from Case Engine."
+										class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
+										>Fetching</span
+									>
+								{:else if updatingSummary}
+									<span
+										title="AI Case Summary run in progress. Snapshot updates when this completes."
+										class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.info}"
+										>Regenerating</span
+									>
+								{:else if summary && stale}
+									<span
+										title="Saved snapshot may predate recent case activity (time-based hint only—not a full diff)."
+										class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.warning}"
+										>Stale</span
+									>
+								{:else if summary}
+									<span
+										title="A saved Case Summary snapshot is loaded."
+										class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
+										>Generated</span
+									>
+								{:else if !error}
+									<span
+										title="No saved Case Summary snapshot for this case yet."
+										class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
+										>No snapshot</span
+									>
+								{/if}
+							</div>
+							{#if lastUpdatedAt}
+								<p class={DS_TYPE_CLASSES.meta}>Last snapshot: {lastUpdatedAt}</p>
+							{:else}
+								<p class={DS_TYPE_CLASSES.meta}>No summary snapshot saved yet.</p>
+							{/if}
+							{#if !updatingSummary && stale}
+								<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.warning}">
+									May be out of date with recent Timeline, file, or Notes changes. <span class="font-semibold"
+										>Stale</span
+									>
+									uses latest case activity time only—not a full diff against this snapshot.
+								</p>
+								{#if latestActivityAt && latestActivityAt.trim()}
+									<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.warning}">
+										Latest case activity: {latestActivityAt}
+									</p>
+								{/if}
+							{/if}
+							{#if summaryError && !summary}
+								<div class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+									<p class="ds-status-copy">{summaryError}</p>
+								</div>
+							{/if}
+							{#if error}
+								<div class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+									<p class="ds-status-copy">{error}</p>
+								</div>
+							{/if}
+							<p class="{DS_TYPE_CLASSES.meta} max-w-2xl">
+								Regenerates this AI-derived view only. Does not change Timeline entries or Notes.
+							</p>
+							<div class="flex flex-wrap gap-2 pt-1">
+								<button
+									type="button"
+									class="{DS_BTN_CLASSES.primary} disabled:opacity-60"
+									on:click={updateSummary}
+									disabled={updatingSummary || !$caseEngineToken}
+									title={!$caseEngineToken
+										? 'Case Engine sign-in required.'
+										: summary
+											? 'Replace the on-screen snapshot with a fresh AI run. Saves to Case Engine; does not edit Timeline or Notes.'
+											: 'Request a new AI snapshot from Case Engine. Does not edit Timeline or Notes.'}
+								>
+									{updatingSummary ? 'Updating…' : (summary ? 'Update Case Summary' : 'Generate Case Summary')}
+								</button>
+								{#if updatingSummary}
+									<button
+										type="button"
+										class={DS_BTN_CLASSES.secondary}
+										on:click={cancelCaseSummaryRun}
+										title="Stop this run in the browser. Keeps the previous saved snapshot if you already had one; the server may still finish."
+									>
+										Cancel
+									</button>
+								{/if}
+							</div>
+						</div>
 
-		{#if caseId}
-			<CaseOverviewSummaryCards caseId={caseId} />
-			<CaseOverviewRecentActivity caseId={caseId} />
-			<CaseOverviewLinkedPanels caseId={caseId} />
-		{/if}
+						<div class={DS_SUMMARY_CLASSES.sectionDivider}>
+							{#if loading}
+								<div class={DS_SUMMARY_CLASSES.loadingPanel} role="status" aria-live="polite">
+									<div class="shrink-0 {DS_STATUS_TEXT_CLASSES.info}"><Spinner className="size-5" /></div>
+									<div class="min-w-0">
+										<p class="{DS_TYPE_CLASSES.body} font-semibold">Fetching summary status…</p>
+										<p class="{DS_TYPE_CLASSES.meta} mt-1">
+											Reading saved snapshot metadata from Case Engine.
+										</p>
+									</div>
+								</div>
+							{:else if summary}
+								<CaseSummaryPanel
+									loading={updatingSummary}
+									error={summaryError}
+									{summary}
+									onCancelRegenerate={cancelCaseSummaryRun}
+								/>
+							{:else}
+								<div
+									class={DS_SUMMARY_CLASSES.emptyDashed}
+									role="region"
+									aria-label="Case summary not generated"
+								>
+									<p class="{DS_TYPE_CLASSES.body} font-semibold">No AI-derived snapshot yet</p>
+									<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-md mx-auto">
+										Use <span class="font-semibold">Generate Case Summary</span> above for a structured,
+										evidence-linked preview.
+									</p>
+								</div>
+							{/if}
+						</div>
+					</section>
+
+					<CaseOverviewLinkedPanels caseId={caseId} embedded={true} />
+				</div>
+			{/if}
+		</div>
+		<div class="{DS_STACK_CLASSES.stack} min-w-0 gap-6" slot="afterColumns">
+			{#if caseId}
+				<div class="min-w-0" data-testid="case-overview-workflow-section">
+					<CaseCaseWorkflowItemsPanel
+						caseId={caseId}
+						caseEngineToken={$caseEngineToken ?? ''}
+						railCompact={false}
+					/>
+				</div>
+			{/if}
 
 		<nav class={DS_SUMMARY_CLASSES.inPageNav} aria-label="On this Summary page">
 			<span class="{DS_TYPE_CLASSES.label} shrink-0 text-[var(--ds-text-secondary)]">On this page</span>
@@ -409,141 +577,6 @@
 			<CaseSynthesisReadModelOverviewSection caseId={caseId} />
 			<CaseUnderstandingOverviewSection caseId={caseId} />
 		{/if}
-
-		<!-- Primary: Case Summary (AI-derived) -->
-		<section
-			id="summary-module-case-summary"
-			class="{DS_SUMMARY_CLASSES.modulePrimary} {DS_STACK_CLASSES.stack}"
-			aria-labelledby="summary-module-case-summary-heading"
-		>
-			<div class={DS_STACK_CLASSES.tight}>
-				<div class="flex flex-wrap items-center gap-2">
-					<h2 id="summary-module-case-summary-heading" class={DS_TYPE_CLASSES.panel}>
-						Case Summary (AI-derived)
-					</h2>
-					{#if loading}
-						<span
-							title="Loading saved Case Summary status from Case Engine."
-							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
-							>Fetching</span
-						>
-					{:else if updatingSummary}
-						<span
-							title="AI Case Summary run in progress. Snapshot updates when this completes."
-							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.info}"
-							>Regenerating</span
-						>
-					{:else if summary && stale}
-						<span
-							title="Saved snapshot may predate recent case activity (time-based hint only—not a full diff)."
-							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.warning}"
-							>Stale</span
-						>
-					{:else if summary}
-						<span
-							title="A saved Case Summary snapshot is loaded."
-							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
-							>Generated</span
-						>
-					{:else if !error}
-						<span
-							title="No saved Case Summary snapshot for this case yet."
-							class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}"
-							>No snapshot</span
-						>
-					{/if}
-				</div>
-				{#if lastUpdatedAt}
-					<p class={DS_TYPE_CLASSES.meta}>Last snapshot: {lastUpdatedAt}</p>
-				{:else}
-					<p class={DS_TYPE_CLASSES.meta}>No summary snapshot saved yet.</p>
-				{/if}
-				{#if !updatingSummary && stale}
-					<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.warning}">
-						May be out of date with recent Timeline, file, or Notes changes. <span class="font-semibold"
-							>Stale</span
-						>
-						uses latest case activity time only—not a full diff against this snapshot.
-					</p>
-					{#if latestActivityAt && latestActivityAt.trim()}
-						<p class="{DS_TYPE_CLASSES.meta} {DS_STATUS_TEXT_CLASSES.warning}">
-							Latest case activity: {latestActivityAt}
-						</p>
-					{/if}
-				{/if}
-				{#if summaryError && !summary}
-					<div class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
-						<p class="ds-status-copy">{summaryError}</p>
-					</div>
-				{/if}
-				{#if error}
-					<div class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
-						<p class="ds-status-copy">{error}</p>
-					</div>
-				{/if}
-				<p class="{DS_TYPE_CLASSES.meta} max-w-2xl">
-					Regenerates this AI-derived view only. Does not change Timeline entries or Notes.
-				</p>
-				<div class="flex flex-wrap gap-2 pt-1">
-					<button
-						type="button"
-						class="{DS_BTN_CLASSES.primary} disabled:opacity-60"
-						on:click={updateSummary}
-						disabled={updatingSummary || !$caseEngineToken}
-						title={!$caseEngineToken
-							? 'Case Engine sign-in required.'
-							: summary
-								? 'Replace the on-screen snapshot with a fresh AI run. Saves to Case Engine; does not edit Timeline or Notes.'
-								: 'Request a new AI snapshot from Case Engine. Does not edit Timeline or Notes.'}
-					>
-						{updatingSummary ? 'Updating…' : (summary ? 'Update Case Summary' : 'Generate Case Summary')}
-					</button>
-					{#if updatingSummary}
-						<button
-							type="button"
-							class={DS_BTN_CLASSES.secondary}
-							on:click={cancelCaseSummaryRun}
-							title="Stop this run in the browser. Keeps the previous saved snapshot if you already had one; the server may still finish."
-						>
-							Cancel
-						</button>
-					{/if}
-				</div>
-			</div>
-
-			<div class={DS_SUMMARY_CLASSES.sectionDivider}>
-				{#if loading}
-					<div class={DS_SUMMARY_CLASSES.loadingPanel} role="status" aria-live="polite">
-						<div class="shrink-0 {DS_STATUS_TEXT_CLASSES.info}"><Spinner className="size-5" /></div>
-						<div class="min-w-0">
-							<p class="{DS_TYPE_CLASSES.body} font-semibold">Fetching summary status…</p>
-							<p class="{DS_TYPE_CLASSES.meta} mt-1">
-								Reading saved snapshot metadata from Case Engine.
-							</p>
-						</div>
-					</div>
-				{:else if summary}
-					<CaseSummaryPanel
-						loading={updatingSummary}
-						error={summaryError}
-						{summary}
-						onCancelRegenerate={cancelCaseSummaryRun}
-					/>
-				{:else}
-					<div
-						class={DS_SUMMARY_CLASSES.emptyDashed}
-						role="region"
-						aria-label="Case summary not generated"
-					>
-						<p class="{DS_TYPE_CLASSES.body} font-semibold">No AI-derived snapshot yet</p>
-						<p class="{DS_TYPE_CLASSES.meta} mt-2 max-w-md mx-auto">
-							Use <span class="font-semibold">Generate Case Summary</span> above for a structured,
-							evidence-linked preview.
-						</p>
-					</div>
-				{/if}
-			</div>
-		</section>
 
 		<!-- Utility: Timeline Summary (session-derived) -->
 		<section
@@ -938,6 +971,6 @@
 				{/if}
 			</div>
 		</section>
-	</div>
-</div>
+		</div>
+	</OperatorCommandCenterFrame>
 </CaseWorkspaceContentRegion>

@@ -66,3 +66,23 @@ export function formatOperationalCaseTimeHm(iso: string): string {
 	if (i === -1) return full;
 	return full.slice(i + 1);
 }
+
+/**
+ * Compact relative hint for activity feed rows (browser-local calendar day).
+ */
+export function formatActivityFeedTimeContext(iso: string): string {
+	try {
+		const d = new Date(iso);
+		if (isNaN(d.getTime())) return iso;
+		const now = new Date();
+		const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+		const startThat = new Date(d.getFullYear(), d.getMonth(), d.getDate()).getTime();
+		const dayDiff = Math.round((startToday - startThat) / 86400000);
+		if (dayDiff === 0) return 'Today';
+		if (dayDiff === 1) return 'Yesterday';
+		if (dayDiff > 1 && dayDiff < 7) return `${dayDiff} days ago`;
+		return formatCaseDateTime(iso);
+	} catch {
+		return iso;
+	}
+}

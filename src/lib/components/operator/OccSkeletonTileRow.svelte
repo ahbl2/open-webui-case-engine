@@ -23,6 +23,9 @@
 			<div class="ds-occ-kpi-card__action-tile">
 				<div class="ds-skeleton ds-skeleton-shimmer h-4 w-4 rounded-[var(--ds-radius-sm)]"></div>
 			</div>
+			<div class="ds-occ-kpi-card__trend">
+				<div class="ds-skeleton ds-skeleton-shimmer h-3 w-2 rounded-[var(--ds-radius-sm)]"></div>
+			</div>
 		</div>
 	{/each}
 </div>

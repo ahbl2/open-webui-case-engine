@@ -2,11 +2,10 @@
 	/**
 	 * P19-06 — Case Workspace Shell
 	 * P82-02 — `CaseWorkspaceHeader` (identity + context strip + pending proposals link).
-	 * P123-02 — `CaseWorkspaceCaseSidebar` (list + Phase 123 surface links; P132.5-04 embedded in left stack).
-	 * P132.5-01 — `CaseWorkspaceLayoutShell` (left / center / right) + `CaseWorkspaceShellPanel` frames.
+	 * P123-02 — `CaseWorkspaceCaseSidebar` remains for embedded use; primary case nav is the tab bar.
+	 * P132.5-01 — `CaseWorkspaceLayoutShell` (center / optional right) + `CaseWorkspaceShellPanel` frames.
 	 * P132.5-02 — Timeline route: primary center panel (`case-workspace-shell-timeline-panel`, delegated scroll).
 	 * P132.5-03 — Right rail: `CaseWorkspaceRightPanelStack` (Activity / AI / Proposals; internal tabs only).
-	 * P132.5-04 — Left rail: `CaseWorkspaceLeftPanelStack` (context + entities + workflow + demoted nav).
 	 * P76-02 — Wave 3 `ds-case-shell*` frame + `data-region`.
 	 * P76-08 — `caseModeActive` for GNAV / case shell coordination.
 	 */
@@ -14,7 +13,8 @@
 	import { get } from 'svelte/store';
 	import { browser } from '$app/environment';
 	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
+	import { page as pageStore } from '$app/stores';
 
 	import {
 		caseEngineToken,
@@ -41,14 +41,13 @@
 	import CaseWorkspaceLayoutShell from '$lib/components/case/CaseWorkspaceLayoutShell.svelte';
 	import CaseWorkspaceShellPanel from '$lib/components/case/CaseWorkspaceShellPanel.svelte';
 	import CaseWorkspaceRightPanelStack from '$lib/components/case/CaseWorkspaceRightPanelStack.svelte';
-	import CaseWorkspaceLeftPanelStack from '$lib/components/case/CaseWorkspaceLeftPanelStack.svelte';
 	import CaseWorkspaceHeader from '$lib/components/case/CaseWorkspaceHeader.svelte';
+	import CaseWorkspaceCaseNavTabBar from '$lib/components/case/CaseWorkspaceCaseNavTabBar.svelte';
 	import CaseExportPanel from '$lib/components/case/CaseExportPanel.svelte';
 	import EditCaseModal from '$lib/components/case/EditCaseModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { DS_CASE_SHELL_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import {
-		P1325_LEFT_STACK_PANEL_TITLE,
 		P1325_RIGHT_STACK_PANEL_TITLE,
 		P1325_SHELL_TIMELINE_PANEL_TITLE
 	} from '$lib/caseContext/p1325CaseWorkspaceShellCopy';
@@ -72,16 +71,20 @@
 	let loading = true;
 	let loadError = '';
 	let showEditCaseModal = false;
+	let showCaseExportModal = false;
 	let editCaseSeed: CaseEngineCase | null = null;
 	let loadUiState: CaseEngineUiState | null = null;
 	let pendingProposalsShellCount: number | null = null;
 
-	let prevCaseId: string = getRouteCaseId($page.params) ?? '';
+	let prevCaseId: string = getRouteCaseId(page.params) ?? '';
 
 	function mapCaseToMeta(c: CaseEngineCase) {
 		const createdRaw = c.created_at;
 		const created_at =
 			typeof createdRaw === 'string' && createdRaw.trim() ? createdRaw : null;
+		const updatedRaw = (c as { updated_at?: unknown }).updated_at;
+		const updated_at =
+			typeof updatedRaw === 'string' && updatedRaw.trim() ? updatedRaw : null;
 		return {
 			id: c.id as string,
 			case_number: (c.case_number ?? c.id) as string,
@@ -92,7 +95,8 @@
 				typeof c.incident_date === 'string' && c.incident_date.trim()
 					? c.incident_date
 					: null,
-			created_at
+			created_at,
+			updated_at
 		};
 	}
 
@@ -152,7 +156,7 @@
 			return;
 		}
 
-		const rid = getRouteCaseId($page.params);
+		const rid = getRouteCaseId(page.params);
 		if (!rid) {
 			loading = false;
 			loadUiState = 'idle';
@@ -180,7 +184,7 @@
 			});
 		};
 		schedule();
-		const unsub = page.subscribe(() => schedule());
+		const unsub = pageStore.subscribe(() => schedule());
 		return () => unsub();
 	});
 
@@ -188,7 +192,7 @@
 	onMount(() => {
 		if (!browser || import.meta.env.PROD) return;
 		let lastDevLogKey = '';
-		const unsub = page.subscribe(($p) => {
+		const unsub = pageStore.subscribe(($p) => {
 			if ($p.url.searchParams.get('p96_synthesis') !== '1') return;
 			const id = getRouteCaseId($p.params);
 			const token = get(caseEngineToken);
@@ -204,16 +208,16 @@
 	});
 
 	$: {
-		const rid = getRouteCaseId($page.params);
+		const rid = getRouteCaseId(page.params);
 		if (rid && $caseEngineToken && rid !== prevCaseId) {
 			prevCaseId = rid;
 			loadCaseMeta(rid);
 		}
 	}
 
-	$: routeCaseId = getRouteCaseId($page.params);
+	$: routeCaseId = getRouteCaseId(page.params);
 
-	$: activeSection = resolveActiveCaseSection($page.url.pathname);
+	$: activeSection = resolveActiveCaseSection(page.url.pathname);
 
 	$: shellHeaderDataUiState = caseShellHeaderDataUiState({
 		loading,
@@ -232,6 +236,10 @@
 		: WAVE3_CASE_SHELL_LEGACY_CANVAS_COLUMN_CLASS;
 	$: contextRailClass = wave3CaseShellEnabled ? WAVE3_CASE_SHELL_GOVERNED_RAIL_CLASS : WAVE3_CASE_SHELL_LEGACY_RAIL_CLASS;
 
+	function closeCaseExportModal(): void {
+		showCaseExportModal = false;
+	}
+
 	function openEditCaseModal(): void {
 		if (!$activeCaseMeta) return;
 		editCaseSeed = {
@@ -246,36 +254,62 @@
 	}
 </script>
 
+<svelte:window
+	on:keydown={(e) => {
+		if (e.key !== 'Escape' || !showCaseExportModal) return;
+		closeCaseExportModal();
+	}}
+/>
+
 <div
 	class={caseShellRootClass}
 	data-testid="case-workspace-shell"
 	data-case-shell-wave3={wave3CaseShellEnabled ? 'on' : 'off'}
 	data-region={wave3CaseShellEnabled ? 'case-shell-root' : undefined}
 >
-	<CaseWorkspaceHeader
-		caseId={routeCaseId ?? ''}
-		{loading}
-		{loadError}
-		meta={$activeCaseMeta}
-		shellHeaderDataUiState={shellHeaderDataUiState}
-		{identityStripExpanded}
-		{wave3CaseShellEnabled}
-		{pendingProposalsShellCount}
-		onEdit={openEditCaseModal}
-	/>
+	<div
+		class="case-shell-occ-root ds-occ-root ds-surface flex min-h-0 min-w-0 flex-1 flex-col"
+		data-region="case-shell-occ-root"
+		data-testid="case-shell-occ-root"
+	>
+		<div
+			class="case-shell-occ-dashboard ds-occ-dashboard-surface flex min-h-0 min-w-0 flex-1 flex-col"
+			data-region="case-shell-occ-dashboard"
+			data-testid="case-shell-occ-dashboard-surface"
+		>
+			<CaseWorkspaceHeader
+				caseId={routeCaseId ?? ''}
+				{loading}
+				{loadError}
+				meta={$activeCaseMeta}
+				shellHeaderDataUiState={shellHeaderDataUiState}
+				{identityStripExpanded}
+				{wave3CaseShellEnabled}
+				{pendingProposalsShellCount}
+				occSheetEmbedded={true}
+				occHeroBannerStack={true}
+				exportCaseEnabled={!!(
+					$activeCaseMeta &&
+					$caseEngineToken &&
+					routeCaseId &&
+					activeSection !== 'summary'
+				)}
+				onExportCase={() => (showCaseExportModal = true)}
+				onEdit={openEditCaseModal}
+			/>
 
-	<CaseWorkspaceLayoutShell>
-		<svelte:fragment slot="left">
-			<CaseWorkspaceShellPanel testId="case-workspace-shell-left-panel" title={P1325_LEFT_STACK_PANEL_TITLE}>
-				<CaseWorkspaceLeftPanelStack
-					caseId={routeCaseId ?? ''}
-					caseEngineToken={$caseEngineToken ?? ''}
-					meta={$activeCaseMeta}
-					shellLoading={loading && !$activeCaseMeta}
-				/>
-			</CaseWorkspaceShellPanel>
-		</svelte:fragment>
+			{#if routeCaseId}
+				<CaseWorkspaceCaseNavTabBar caseId={routeCaseId} occSheetEmbedded={true} />
+			{/if}
 
+			<div
+				class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+				data-testid="case-shell-occ-body-scroll"
+			>
+			<!-- Activity route: hide right stack so the main Activity tab is not duplicated beside itself. -->
+			<CaseWorkspaceLayoutShell
+				hideRightRail={activeSection === 'summary' || activeSection === 'activity'}
+			>
 		<svelte:fragment slot="center">
 			<div class={caseShellBodyClass} data-region={wave3CaseShellEnabled ? 'case-shell-body' : undefined}>
 				<div
@@ -283,7 +317,9 @@
 					data-region={wave3CaseShellEnabled ? 'case-shell-canvas-column' : undefined}
 				>
 					<div
-						class="flex flex-col flex-1 min-h-0 min-w-0 overflow-hidden relative"
+						class="relative flex min-h-0 min-w-0 flex-1 flex-col {activeSection === 'summary'
+							? 'overflow-x-hidden overflow-y-auto min-h-0'
+							: 'overflow-hidden'}"
 						data-testid="case-workspace-main"
 						data-region={wave3CaseShellEnabled ? 'case-shell-page' : undefined}
 					>
@@ -296,9 +332,6 @@
 								<p class="text-sm text-red-500 dark:text-red-400">{loadError}</p>
 							</div>
 						{:else}
-							{#if $activeCaseMeta && $caseEngineToken && routeCaseId}
-								<CaseExportPanel caseId={routeCaseId} token={$caseEngineToken} />
-							{/if}
 							{#if activeSection === 'timeline'}
 								<CaseWorkspaceShellPanel
 									testId="case-workspace-shell-timeline-panel"
@@ -343,7 +376,51 @@
 			</CaseWorkspaceShellPanel>
 		</svelte:fragment>
 	</CaseWorkspaceLayoutShell>
+			</div>
+		</div>
+	</div>
 </div>
+
+{#if showCaseExportModal && routeCaseId && $caseEngineToken}
+	<div
+		class="fixed inset-0 z-[150] flex items-start justify-center overflow-y-auto bg-black/50 p-4 pt-[min(8rem,10vh)] sm:pt-12"
+		role="presentation"
+		data-testid="case-export-launch-backdrop"
+		on:click={(e) => e.target === e.currentTarget && closeCaseExportModal()}
+	>
+		<div
+			class="w-full max-w-lg rounded-[var(--ds-radius-lg)] border border-[color:var(--ds-border-default)] bg-[color:var(--ds-bg-elevated)] shadow-xl"
+			role="dialog"
+			aria-modal="true"
+			aria-labelledby="case-export-launch-title"
+			data-testid="case-export-launch-dialog"
+			on:click|stopPropagation
+		>
+			<div
+				class="flex items-center justify-between gap-2 border-b border-[color:var(--ce-l-border-subtle)] px-3 py-2"
+			>
+				<h2
+					id="case-export-launch-title"
+					class="m-0 text-sm font-semibold text-[color:var(--ce-l-text-primary)]"
+				>
+					Export
+				</h2>
+				<button
+					type="button"
+					class="ds-btn ds-btn-ghost min-h-0 rounded px-2 py-1 text-sm"
+					aria-label="Close export dialog"
+					data-testid="case-export-launch-close"
+					on:click={closeCaseExportModal}
+				>
+					×
+				</button>
+			</div>
+			<div class="max-h-[min(70vh,28rem)] overflow-y-auto p-3">
+				<CaseExportPanel caseId={routeCaseId} token={$caseEngineToken} inDialog={true} />
+			</div>
+		</div>
+	</div>
+{/if}
 
 <EditCaseModal
 	show={showEditCaseModal}

@@ -21,8 +21,11 @@
 	 *   - No personal thread IDs or metadata are exposed to case views.
 	 *   - activeThreadScope is set to 'personal' on successful binding.
 	 */
+	import { browser } from '$app/environment';
 	import { onMount, getContext } from 'svelte';
+	import { get } from 'svelte/store';
 	import OperatorCommandCenterFrame from '$lib/components/operator/OperatorCommandCenterFrame.svelte';
+	import OccHeroCitySkyline from '$lib/components/operator/OccHeroCitySkyline.svelte';
 	import OccSummaryKpiTiles from '$lib/components/operator/OccSummaryKpiTiles.svelte';
 	import OccSkeletonTileRow from '$lib/components/operator/OccSkeletonTileRow.svelte';
 	import OccStateContainer from '$lib/components/operator/OccStateContainer.svelte';
@@ -60,9 +63,11 @@
 		type PersonalThreadAssociation,
 		type CaseEngineCase
 	} from '$lib/apis/caseEngine';
+	import { getChatList } from '$lib/apis/chats';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
 	import type { ThreadListItem } from '$lib/components/case/CaseThreadList.svelte';
 	import { activeUiThread } from '$lib/stores/activeUiThread';
+	import OccIconHome from '$lib/components/icons/occ/OccIconHome.svelte';
 
 	const i18n = getContext('i18n');
 
@@ -83,6 +88,141 @@
 		threadId: t.thread_id,
 		createdAt: t.created_at
 	}));
+
+	/** OCC AI Assistant rail: up to four threads that are both CE-bound and OWUI chats, ordered by OWUI recency. */
+	const ASSISTANT_RECENT_CHAT_COUNT = 4;
+
+	function ceRecencySort(a: PersonalThreadAssociation, b: PersonalThreadAssociation): number {
+		const ta = Math.max(Date.parse(a.updated_at) || 0, Date.parse(a.created_at) || 0);
+		const tb = Math.max(Date.parse(b.updated_at) || 0, Date.parse(b.created_at) || 0);
+		return tb - ta;
+	}
+
+	function threadLookupKey(s: string): string {
+		return String(s ?? '').trim().toLowerCase();
+	}
+	function threadLookupKeyCompact(s: string): string {
+		return threadLookupKey(s).replace(/-/g, '');
+	}
+
+	/** OWUI chat list uses Unix seconds (see getTimeRange). */
+	function owuiUpdatedAtToIso(updatedAt: number | undefined): string {
+		if (updatedAt == null || Number.isNaN(updatedAt)) return new Date().toISOString();
+		return new Date(updatedAt * 1000).toISOString();
+	}
+
+	function syntheticPersonalThread(
+		threadId: string,
+		row: { updated_at?: number },
+		ownerUserId: string
+	): PersonalThreadAssociation {
+		const iso = owuiUpdatedAtToIso(row.updated_at);
+		return {
+			id: `owui-chat:${threadId}`,
+			owner_user_id: ownerUserId,
+			thread_id: threadId,
+			scope_type: 'personal',
+			created_at: iso,
+			created_by: ownerUserId,
+			updated_at: iso
+		};
+	}
+
+	let recentPersonalThreads: PersonalThreadAssociation[] = [];
+
+	/** Invalidates in-flight `recomputeAssistantRecentThreads` so stale async completions cannot overwrite. */
+	let recomputeAssistantSeq = 0;
+
+	async function recomputeAssistantRecentThreads(t: PersonalThreadAssociation[]): Promise<void> {
+		if (!browser) {
+			recentPersonalThreads = [];
+			return;
+		}
+		const seq = ++recomputeAssistantSeq;
+		const applyRecent = (next: PersonalThreadAssociation[]) => {
+			if (seq !== recomputeAssistantSeq) return;
+			recentPersonalThreads = next;
+		};
+
+		const ow = typeof localStorage !== 'undefined' ? String(localStorage.token ?? '').trim() : '';
+		if (!ow) {
+			applyRecent(
+				t.length > 0
+					? [...t].sort(ceRecencySort).slice(0, ASSISTANT_RECENT_CHAT_COUNT)
+					: []
+			);
+			return;
+		}
+		const ownerUserId = get(user)?.id ?? '';
+		try {
+			const listRaw = await getChatList(ow, null, true, true);
+			const list = Array.isArray(listRaw) ? listRaw : [];
+			if (list.length === 0) {
+				applyRecent(
+					t.length > 0
+						? [...t].sort(ceRecencySort).slice(0, ASSISTANT_RECENT_CHAT_COUNT)
+						: []
+				);
+				return;
+			}
+			const byKey = new Map<string, PersonalThreadAssociation>();
+			for (const assoc of t) {
+				byKey.set(threadLookupKey(assoc.thread_id), assoc);
+				byKey.set(threadLookupKeyCompact(assoc.thread_id), assoc);
+			}
+			type ChatListRow = { id?: string; chat_id?: string; title?: string; updated_at?: number };
+			const defaultOwuiTitle = get(i18n).t('New Chat').trim().toLowerCase();
+			const isDefaultTitle = (title: string | undefined) => {
+				const s = String(title ?? '').trim().toLowerCase();
+				return s === '' || s === defaultOwuiTitle;
+			};
+			const listRows = list as ChatListRow[];
+			const sortedRows = [...listRows].sort((a, b) => {
+				const aDef = isDefaultTitle(a.title);
+				const bDef = isDefaultTitle(b.title);
+				if (aDef !== bDef) return aDef ? 1 : -1;
+				return (b.updated_at ?? 0) - (a.updated_at ?? 0);
+			});
+			const seenThread = new Set<string>();
+			const out: PersonalThreadAssociation[] = [];
+			for (const row of sortedRows) {
+				const id =
+					typeof row.id === 'string' && row.id.length > 0
+						? row.id
+						: typeof row.chat_id === 'string' && row.chat_id.length > 0
+							? row.chat_id
+							: '';
+				if (!id || seenThread.has(id)) continue;
+				seenThread.add(id);
+				const assoc =
+					byKey.get(threadLookupKey(id)) ?? byKey.get(threadLookupKeyCompact(id));
+				const iso = owuiUpdatedAtToIso(row.updated_at);
+				if (assoc) {
+					out.push({ ...assoc, updated_at: iso });
+				} else {
+					out.push(syntheticPersonalThread(id, row, ownerUserId));
+				}
+				if (out.length >= ASSISTANT_RECENT_CHAT_COUNT) break;
+			}
+			applyRecent(
+				out.length > 0
+					? out
+					: t.length > 0
+						? [...t].sort(ceRecencySort).slice(0, ASSISTANT_RECENT_CHAT_COUNT)
+						: []
+			);
+		} catch {
+			applyRecent(
+				t.length > 0
+					? [...t].sort(ceRecencySort).slice(0, ASSISTANT_RECENT_CHAT_COUNT)
+					: []
+			);
+		}
+	}
+
+	$: if (browser) {
+		void recomputeAssistantRecentThreads(threads);
+	}
 
 	async function loadThreads(): Promise<void> {
 		if (!$caseEngineToken) {
@@ -259,38 +399,31 @@
 
 {#if wave2ShellChrome}
 	<OperatorCommandCenterFrame occDesktopBoard={occDesktopBoard}>
-		<div class="ds-occ-hero-band__inner w-full" slot="hero">
-			<div class="flex items-start gap-3 min-w-0 flex-1">
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					fill="none"
-					viewBox="0 0 24 24"
-					stroke-width="1.5"
-					stroke="currentColor"
-					class="size-7 shrink-0 text-[color:var(--ds-accent)] opacity-90"
-					aria-hidden="true"
-				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"
+		<div class="ds-occ-dashboard-hero-banner__stack" slot="heroBanner">
+			<OccHeroCitySkyline />
+			<div class="ds-occ-hero-band__inner ds-occ-hero-band__inner--on-banner w-full">
+				<div class="flex items-center gap-3 min-w-0 flex-1">
+					<OccIconHome
+						variant="hero"
+						className="shrink-0 text-[color:var(--ds-accent)] opacity-90"
 					/>
-				</svg>
-				<div class="min-w-0">
-					<h1 id="occ-home-hero-heading" class={DS_TYPE_CLASSES.display}>
-						{$i18n.t('Operator Command Center')}
-					</h1>
-					<p class="{DS_TYPE_CLASSES.meta} mt-1 max-w-2xl">
-						{$i18n.t('Personal workspace and case shortcuts')}
-					</p>
+					<div class="min-w-0">
+						<h1 id="occ-home-hero-heading" class={DS_TYPE_CLASSES.display}>
+							{$i18n.t('Operator Command Center')}
+						</h1>
+						<p class="{DS_TYPE_CLASSES.meta} mt-1 max-w-2xl">
+							{$i18n.t('Personal workspace and case shortcuts')}
+						</p>
+					</div>
+				</div>
+				<div class="ds-occ-hero-actions" data-testid="occ-hero-actions">
+					<span class="ds-occ-hero-actions__placeholder" aria-hidden="true">
+						{$i18n.t('Reserved')}
+					</span>
 				</div>
 			</div>
-			<div class="ds-occ-hero-actions" data-testid="occ-hero-actions">
-				<span class="ds-occ-hero-actions__placeholder" aria-hidden="true">
-					{$i18n.t('Reserved')}
-				</span>
-			</div>
 		</div>
+		<div class="hidden" slot="hero" aria-hidden="true"></div>
 		<div class="contents" slot="summary">
 			{#if hasSummaryError}
 				<OccStateContainer
@@ -335,6 +468,10 @@
 				bindingErrorActive={Boolean(localBindError) && summaryToken}
 				onRetryBinding={retryAssistantBinding}
 				{goToCases}
+				{openPersonalThread}
+				{activePersonalThreadId}
+				{threadsLoading}
+				{recentPersonalThreads}
 			/>
 		</div>
 
@@ -355,6 +492,10 @@
 			hasToken={summaryToken}
 			bindingErrorActive={Boolean(localBindError) && summaryToken}
 			onRetryBinding={retryAssistantBinding}
+			{openPersonalThread}
+			activePersonalThreadId={activePersonalThreadId}
+			{threadsLoading}
+			{recentPersonalThreads}
 		/>
 		<OccHomeWorkflowQueueZone slot="boardWorkflow" />
 		<OccRailIntel slot="boardIntel" retryAriaLabel={intelRetryAriaLabel} />
@@ -368,20 +509,7 @@
 	>
 		<div class="max-w-4xl w-full mx-auto">
 			<div class="flex items-center gap-3 mb-6">
-				<svg
-					xmlns="http://www.w3.org/2000/svg"
-					fill="none"
-					viewBox="0 0 24 24"
-					stroke-width="1.5"
-					stroke="currentColor"
-					class="size-6 text-gray-600 dark:text-gray-300"
-				>
-					<path
-						stroke-linecap="round"
-						stroke-linejoin="round"
-						d="m2.25 12 8.954-8.955c.44-.439 1.152-.439 1.591 0L21.75 12M4.5 9.75v10.125c0 .621.504 1.125 1.125 1.125H9.75v-4.875c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125V21h4.125c.621 0 1.125-.504 1.125-1.125V9.75M8.25 21h8.25"
-					/>
-				</svg>
+				<OccIconHome variant="legacy" className="text-gray-600 dark:text-gray-300" />
 				<h1 class="text-xl font-semibold text-gray-800 dark:text-gray-100">My Desktop</h1>
 			</div>
 

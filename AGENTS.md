@@ -24,6 +24,10 @@ It provides UI behavior, case navigation, scoped chat behavior, and case-aware f
 - **Layer version / CSS import contract:** `src/lib/case/detectivePrimitiveAdoption.ts` — bump `DETECTIVE_PRIMITIVE_LAYER_VERSION` only when DS primitive contracts intentionally change. **DS `@import` stack lives in `src/tailwind.css`** (after `@import 'tailwindcss'`), not `app.css`.
 - **Do not** mass-convert existing routes without ticket scope; Phase 74 primitive work is **additive** (hybrid coexistence per companion planning). **Wave 2** shell / page charter stays out of Phase 74 tickets.
 
+## Case overview KPI band (canonical colors + icons)
+
+The **seven** metric tiles on **case Summary** (`CaseOverviewSummaryCards.svelte`) are the **canonical** visual system for those domains (timeline, notes, files, entities, workflow, proposals, warrants): each uses `ds-occ-kpi-card--{blue|cyan|green|violet|yellow|rose|orange}` and a specific **Heroicons 24 outline** icon. **Reuse that pairing** on related case pages and list items so navigation and scanning stay consistent. Authoritative table: [docs/CASE_OVERVIEW_KPI_CANON.md](docs/CASE_OVERVIEW_KPI_CANON.md). (Home dashboard `OccSummaryKpiTiles` is a separate four-tile workspace summary, not this mapping.)
+
 ## Security and integrity rules
 1. Never bypass the Case Engine API for case ownership logic.
 2. Do not duplicate or invent case-data authority in the UI.

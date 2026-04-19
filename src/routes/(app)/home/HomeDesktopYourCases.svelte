@@ -18,6 +18,7 @@
 	} from '$lib/case/detectivePrimitiveFoundation';
 	import OccStateContainer from '$lib/components/operator/OccStateContainer.svelte';
 	import OccSkeletonList from '$lib/components/operator/OccSkeletonList.svelte';
+	import { EllipsisVerticalIcon, FolderOpenIcon } from 'heroicons-svelte/24/solid';
 
 	export let casesLoading: boolean;
 	export let casesError: string;
@@ -38,11 +39,33 @@
 		return typeof v === 'string' && v.trim() ? v.trim() : undefined;
 	}
 
-	function caseLocationLine(c: CaseEngineCase): string {
-		const ext = c as Record<string, unknown>;
-		const loc = ext['district'] ?? ext['location_text'] ?? ext['location'];
-		if (typeof loc === 'string' && loc.trim()) return loc.trim();
-		return '';
+	function readStr(c: CaseEngineCase, key: string): string {
+		const v = (c as Record<string, unknown>)[key];
+		return typeof v === 'string' && v.trim() ? v.trim() : '';
+	}
+
+	/** Street-only segment: text before first comma when `location_text` is "street, city, ST …". */
+	function streetFromLocationTextLine(full: string): string {
+		const t = full.trim();
+		if (!t) return '';
+		const i = t.indexOf(',');
+		if (i === -1) return t;
+		return t.slice(0, i).trim();
+	}
+
+	/** CID: dedicated street fields when present; else first segment of `location_text`. */
+	function cidPrimaryStreet(c: CaseEngineCase): string {
+		return (
+			readStr(c, 'primary_location_street') ||
+			readStr(c, 'primary_street_address') ||
+			readStr(c, 'street_address') ||
+			streetFromLocationTextLine(readStr(c, 'location_text'))
+		);
+	}
+
+	/** SIU: dedicated suspect fields when backend adds them. */
+	function siuPrimarySuspect(c: CaseEngineCase): string {
+		return readStr(c, 'primary_suspect') || readStr(c, 'primary_suspect_name');
 	}
 
 	function formatIncidentDate(iso: string | null | undefined): string {
@@ -53,19 +76,34 @@
 		return `${m}/${day}/${y}`;
 	}
 
+	/** Relative age since `iso` (hours → days → weeks → years); never a calendar date. */
 	function formatRelativeUpdated(iso: string | undefined): string {
 		if (!iso) return '';
 		const ms = Date.parse(iso);
 		if (Number.isNaN(ms)) return '';
-		const diffMs = Date.now() - ms;
+		const diffMs = Math.max(0, Date.now() - ms);
 		const sec = Math.floor(diffMs / 1000);
 		const min = Math.floor(sec / 60);
 		const hr = Math.floor(min / 60);
 		const day = Math.floor(hr / 24);
-		if (day > 6) return new Date(ms).toLocaleDateString();
-		if (day > 0) return `${day}d ago`;
-		if (hr > 0) return `${hr}h ago`;
-		if (min > 0) return `${min}m ago`;
+		const week = Math.floor(day / 7);
+		const year = Math.floor(day / 365);
+
+		if (day >= 365) {
+			return year < 2 ? '1y ago' : `${year}y ago`;
+		}
+		if (day >= 7) {
+			return week < 2 ? '1w ago' : `${week}w ago`;
+		}
+		if (day >= 1) {
+			return day === 1 ? '1d ago' : `${day}d ago`;
+		}
+		if (hr >= 1) {
+			return hr === 1 ? '1h ago' : `${hr}h ago`;
+		}
+		if (min >= 1) {
+			return min === 1 ? '1m ago' : `${min}m ago`;
+		}
 		return 'just now';
 	}
 
@@ -77,28 +115,17 @@
 	}
 
 	function openCase(c: CaseEngineCase): void {
-		void goto(`/case/${c.id}/chat`);
+		void goto(`/case/${c.id}/summary`);
 	}
 </script>
 
 <div class={boardShellHeaderClass}>
 	<div class={DS_OCC_CLASSES.sectionHeaderRow}>
 		<div class={DS_OCC_CLASSES.sectionHeaderTitle}>
-			<svg
-				xmlns="http://www.w3.org/2000/svg"
-				fill="none"
-				viewBox="0 0 24 24"
-				stroke-width="1.5"
-				stroke="currentColor"
+			<FolderOpenIcon
 				class="size-4 shrink-0 text-[color:var(--ds-text-muted)]"
 				aria-hidden="true"
-			>
-				<path
-					stroke-linecap="round"
-					stroke-linejoin="round"
-					d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5m-13.5 0h1.5m-1.5 0A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-1.5m-13.5 0v-8.25c0-.621.504-1.125 1.125-1.125h4.875c.621 0 1.125.504 1.125 1.125v1.875c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125.504 1.125 1.125V9.75"
-				/>
-			</svg>
+			/>
 			<h3
 				id="occ-home-your-cases-heading"
 				class={occBoardShell
@@ -159,7 +186,6 @@
 				{#each recentCases as c (c.id)}
 					{#if occBoardShell}
 						{@const incidentDisp = formatIncidentDate(c.incident_date)}
-						{@const locLine = caseLocationLine(c)}
 						{@const updatedIso = readIso(c, 'updated_at') ?? readIso(c, 'created_at')}
 						<div class="ds-occ-ccase-row" role="listitem">
 							<button
@@ -171,42 +197,27 @@
 								aria-label={$i18n.t('Open case {{number}}', { number: c.case_number })}
 							>
 								<div class="ds-occ-ccase-row__icon-tile" aria-hidden="true">
-									<svg
-										xmlns="http://www.w3.org/2000/svg"
-										fill="none"
-										viewBox="0 0 24 24"
-										stroke-width="1.5"
-										stroke="currentColor"
-									>
-										<path
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											d="M19.5 14.25v-2.625a3.375 3.375 0 0 0-3.375-3.375h-1.5m-13.5 0h1.5m-1.5 0A2.25 2.25 0 0 0 2.25 6v12a2.25 2.25 0 0 0 2.25 2.25h15A2.25 2.25 0 0 0 21.75 18V9a2.25 2.25 0 0 0-2.25-2.25h-1.5m-13.5 0v-8.25c0-.621.504-1.125 1.125-1.125h4.875c.621 0 1.125.504 1.125 1.125v1.875c0 .621.504 1.125 1.125 1.125h9.75c.621 0 1.125.504 1.125 1.125V9.75"
-										/>
-									</svg>
+									<FolderOpenIcon class="h-[1.125rem] w-[1.125rem]" />
 								</div>
 								<div class="ds-occ-ccase-row__text">
 									<div class="ds-occ-ccase-row__line1">
 										<span class="ds-occ-ccase-row__num">#{c.case_number}</span>
-										<span class={unitBadgeClass(c.unit)}>{c.unit}</span>
 										<span class="ds-occ-ccase-row__title">{c.title}</span>
 									</div>
-									{#if incidentDisp || locLine}
-										<p class="ds-occ-ccase-row__subline">
-											{#if incidentDisp}
-												<span>{$i18n.t('Incident')}: {incidentDisp}</span>
+									<p class="ds-occ-ccase-row__subline">
+										<span>{$i18n.t('Incident')}: {incidentDisp || '—'}</span>
+										<span class="ds-occ-ccase-row__dot" aria-hidden="true">·</span>
+										<span>
+											{#if String(c.unit ?? '').toUpperCase() === 'SIU'}
+												{siuPrimarySuspect(c) || $i18n.t('Primary suspect pending')}
+											{:else}
+												{cidPrimaryStreet(c) || $i18n.t('Primary location pending')}
 											{/if}
-											{#if incidentDisp && locLine}
-												<span class="ds-occ-ccase-row__dot" aria-hidden="true">·</span>
-											{/if}
-											{#if locLine}
-												<span>{locLine}</span>
-											{/if}
-										</p>
-									{/if}
+										</span>
+									</p>
 								</div>
 								<div class="ds-occ-ccase-row__meta">
-									<span class={statusBadgeClass(c.status)}>{c.status}</span>
+									<span class={unitBadgeClass(c.unit)}>{c.unit}</span>
 									{#if formatRelativeUpdated(updatedIso)}
 										<span class="ds-occ-ccase-row__updated">
 											{$i18n.t('Updated')}
@@ -221,20 +232,7 @@
 								on:click|stopPropagation={() => openCase(c)}
 								aria-label={$i18n.t('Open case menu')}
 							>
-								<svg
-									xmlns="http://www.w3.org/2000/svg"
-									fill="none"
-									viewBox="0 0 24 24"
-									stroke-width="1.5"
-									stroke="currentColor"
-									aria-hidden="true"
-								>
-									<path
-										stroke-linecap="round"
-										stroke-linejoin="round"
-										d="M12 6.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 12.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5ZM12 18.75a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z"
-									/>
-								</svg>
+								<EllipsisVerticalIcon class="h-4 w-4" aria-hidden="true" />
 							</button>
 						</div>
 					{:else}

@@ -29,8 +29,9 @@ export function caseStatusDsBadgeCompound(status: string): string {
 
 /**
  * Expanded vs compact shell identity posture (CASE_WORKSPACE_SHELL_SPEC §Shell context compression).
- * Summary tab is the closest product surface to an “overview / entry” moment for orientation.
+ * Dashboard-style case header (hero + metadata row) uses expanded posture on all primary sections.
  */
 export function caseIdentityStripExpandedPosture(section: CaseNavSection): boolean {
-	return section === 'summary';
+	void section;
+	return true;
 }

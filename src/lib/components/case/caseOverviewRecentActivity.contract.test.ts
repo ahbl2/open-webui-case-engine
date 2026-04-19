@@ -27,15 +27,17 @@ describe('CaseOverviewRecentActivity (P82-04)', () => {
 	});
 
 	it('enforces a bounded recent window (no pagination UI)', () => {
-		expect(componentSource).toContain('const RECENT_LIMIT = 10');
-		expect(componentSource).toContain('Math.max(0, total - RECENT_LIMIT)');
+		expect(componentSource).toContain('entryLimit = 5');
+		expect(componentSource).toContain('Math.max(0, total - entryLimit)');
 	});
 
-	it('exposes stable test ids and View timeline route', () => {
-		expect(componentSource).toContain('data-testid="case-overview-recent-activity"');
-		expect(componentSource).toContain('data-testid="case-overview-recent-activity-view-timeline"');
-		expect(componentSource).toContain('href="/case/{caseId}/timeline"');
-		expect(componentSource).toContain('id="summary-module-recent-activity"');
+	it('exposes stable test ids and View all activity route', () => {
+		expect(componentSource).toContain("testId = 'case-overview-recent-activity'");
+		expect(componentSource).toContain('data-testid={testId}');
+		expect(componentSource).toContain('data-testid="case-overview-recent-activity-view-all"');
+		expect(componentSource).toContain('href="/case/{caseId}/activity"');
+		expect(componentSource).toContain('View all activity ->');
+		expect(componentSource).toContain("sectionId = 'summary-module-recent-activity'");
 	});
 
 	it('in-page nav links to the Recent activity section', () => {

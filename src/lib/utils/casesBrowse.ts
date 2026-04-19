@@ -47,6 +47,38 @@ function compareIncidentDates(a: CaseEngineCase, b: CaseEngineCase, newestFirst:
 	return stableCaseTieBreak(a, b);
 }
 
+export type CasesDateRange = 'all' | '30d' | '90d' | '365d';
+
+/** Most recent activity signal for date-window filters (updated → created → incident). */
+export function caseListActivityEpoch(c: CaseEngineCase): number {
+	const r = c as Record<string, unknown>;
+	const u = r.updated_at;
+	const cr = r.created_at;
+	return Math.max(
+		toEpoch(typeof u === 'string' ? u : null),
+		toEpoch(typeof cr === 'string' ? cr : null),
+		incidentDateEpoch(c.incident_date) ?? 0
+	);
+}
+
+export function filterCasesByDateRange(cases: CaseEngineCase[], range: CasesDateRange): CaseEngineCase[] {
+	if (range === 'all') return cases;
+	const days = range === '30d' ? 30 : range === '90d' ? 90 : 365;
+	const cutoff = Date.now() - days * 86400_000;
+	return cases.filter((c) => caseListActivityEpoch(c) >= cutoff);
+}
+
+/** Filter by calendar year of `incident_date` (YYYY prefix). Empty or non-4-digit `year` returns `cases` unchanged. */
+export function filterCasesByIncidentYear(cases: CaseEngineCase[], year: string): CaseEngineCase[] {
+	const y = year.trim();
+	if (!y || !/^\d{4}$/.test(y)) return cases;
+	return cases.filter((c) => {
+		const id = c.incident_date;
+		if (typeof id !== 'string' || !id.trim()) return false;
+		return id.startsWith(y);
+	});
+}
+
 export function applyCaseBrowse(cases: CaseEngineCase[], options: CasesBrowseOptions): CaseEngineCase[] {
 	const q = options.searchQuery.trim().toLowerCase();
 	const filtered = cases.filter((c) => {

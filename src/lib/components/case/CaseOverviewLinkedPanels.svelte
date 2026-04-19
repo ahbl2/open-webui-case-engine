@@ -25,6 +25,8 @@
 	} from '$lib/case/detectivePrimitiveFoundation';
 
 	export let caseId: string;
+	/** When true, stacks panels in one column and drops bottom page border (nested in Overview dashboard column). */
+	export let embedded = false;
 
 	const PREVIEW_LIMIT = 3;
 
@@ -173,8 +175,11 @@
 
 <section
 	id="summary-module-linked-panels"
-	class="{DS_STACK_CLASSES.stack} border-b border-[color:var(--ds-border-default)] pb-6"
+	class="{DS_STACK_CLASSES.stack} {embedded
+		? 'pb-0'
+		: 'border-b border-[color:var(--ds-border-default)] pb-6'}"
 	data-testid="case-overview-linked-panels"
+	data-overview-linked-embedded={embedded ? 'true' : 'false'}
 	aria-labelledby="case-overview-linked-panels-heading"
 >
 	<div class={DS_STACK_CLASSES.tight}>
@@ -193,7 +198,7 @@
 		</p>
 	{:else}
 		<div
-			class="mt-4 grid gap-4 lg:grid-cols-3"
+			class="mt-4 grid gap-4 {embedded ? 'grid-cols-1' : 'lg:grid-cols-3'}"
 			data-testid="case-overview-linked-panels-grid"
 		>
 			<!-- Files -->

@@ -34,6 +34,7 @@ describe('caseWorkspaceTierL (P71-02)', () => {
 	it('includes shared component hooks for empty shell and content region', () => {
 		expect(tierLCss).toContain('.ce-l-empty-framed');
 		expect(tierLCss).toContain('.ce-l-content-region');
+		expect(tierLCss).toContain('.ce-l-content-region--delegate-page-scroll');
 		expect(tierLCss).toContain('.ce-l-error-retry-link');
 	});
 

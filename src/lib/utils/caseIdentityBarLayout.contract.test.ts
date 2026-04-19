@@ -26,21 +26,25 @@ describe('case identity bar layout (P71-03 / P70-04)', () => {
 		expect(headerSource).toContain('data-testid="case-shell-load-error"');
 	});
 
-	it('keeps Edit Case as a global identity action (P70-04 §2.3)', () => {
-		expect(headerSource).toContain('Edit Case');
-		expect(headerSource).toContain('ce-l-identity-edit');
+	it('keeps Edit case as a global identity action (P70-04 §2.3)', () => {
+		expect(headerSource).toContain('Edit case');
+		expect(headerSource).toContain('data-testid="case-shell-edit"');
+		expect(headerSource).toContain('DS_BTN_CLASSES.secondary');
 	});
 
-	it('declares CaseWorkspaceHeader before CaseWorkspaceLeftPanelStack in layout template', () => {
+	it('declares CaseWorkspaceHeader before CaseWorkspaceLayoutShell in layout template', () => {
 		const afterScript = layoutSource.indexOf('</script>');
 		const tmpl = layoutSource.slice(afterScript + 1);
-		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceLeftPanelStack'));
+		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceLayoutShell'));
 	});
 
-	it('identity secondary row uses DS chip + incident meta (P76-04; Tier L identity bar)', () => {
-		expect(headerSource).toContain('DS_CHIP_CLASSES.base');
+	it('identity primary row ends with status pill; secondary row has lead + incident + last updated', () => {
+		expect(headerSource).toContain('caseStatusDsBadgeCompound');
+		expect(headerSource).toContain('data-testid="case-identity-primary"');
 		expect(headerSource).toContain('data-testid="case-identity-secondary"');
+		expect(headerSource).toContain('Lead Detective');
 		expect(headerSource).toContain('{#if meta.incident_date}');
+		expect(headerSource).toContain('Last updated');
 	});
 
 	it('exposes case title tooltip for truncated titles', () => {

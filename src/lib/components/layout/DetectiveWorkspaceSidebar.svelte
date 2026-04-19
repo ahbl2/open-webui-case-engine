@@ -4,6 +4,7 @@
 	 * Used for /home, /cases, /search (route + modal), /case/[id]/..., /admin — retractable, state persisted in localStorage.
 	 * P131.8-02 — Density: reduced header/scroll/footer padding (Tailwind); GNAV tokens in `detectiveSurfaces.css`.
 	 * P131.8-07 — Measured vertical rebalance (slightly more shell + user-row breathing room; width unchanged).
+	 * P131.9-15 — CASE ENGINE identity + default width 178px; spacing/tone in `detectiveSurfaces.css`.
 	 */
 	import { onMount, getContext } from 'svelte';
 	import { showSidebar, sidebarWidth, mobile, showSearch, user, config } from '$lib/stores';
@@ -15,6 +16,7 @@
 	import UserMenu from '$lib/components/layout/Sidebar/UserMenu.svelte';
 	import SearchModal from '$lib/components/layout/SearchModal.svelte';
 	import SidebarIcon from '$lib/components/icons/Sidebar.svelte';
+	import { CaseEngineBrand } from '$lib/components/brand';
 	import { WEBUI_API_BASE_URL } from '$lib/constants';
 	import { isDetectiveWave2AppShellEnabled } from '$lib/case/detectiveWave2Shell';
 
@@ -23,8 +25,6 @@
 	/** P131.7-01 — Narrower rail; keep ~20–25% reduction vs legacy 220–480 band. */
 	const MIN_WIDTH = 176;
 	const MAX_WIDTH = 440;
-	const APP_NAME = 'Detective Workspace';
-
 	let navElement: HTMLElement | undefined;
 	let isResizing = false;
 	let startWidth = 0;
@@ -140,21 +140,19 @@
 		<div
 			class="my-auto flex flex-col justify-between h-screen max-h-[100dvh] w-[var(--sidebar-width)] overflow-x-hidden scrollbar-hidden z-50 ds-workspace-sidebar"
 		>
-			<!-- Header -->
+			<!-- Header: product identity (P131.9-15) -->
 			<div
-				class="sidebar px-2 pt-1.5 pb-0.5 flex justify-between space-x-1 text-gray-600 dark:text-gray-400 sticky top-0 z-10 -mb-3"
+				class="sidebar px-0.5 pt-1.5 pb-2 flex justify-between items-center gap-0.5 text-gray-600 dark:text-gray-400 sticky top-0 z-10"
 			>
-				<span
-					class="flex flex-1 items-center px-1.5 font-medium text-gray-850 dark:text-white font-primary text-sm"
-				>
-					{APP_NAME}
-				</span>
+				<div class="ds-sidebar-identity flex min-w-0 min-h-0 flex-1 items-center">
+					<CaseEngineBrand variant="sidebar" class="min-w-0 min-h-0 w-full flex-1" />
+				</div>
 				<Tooltip
 					content={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
 					placement="bottom"
 				>
 					<button
-						class="flex rounded-xl size-8.5 justify-center items-center hover:bg-gray-100/50 dark:hover:bg-gray-850/50 transition cursor-pointer"
+						class="flex shrink-0 rounded-xl size-7 justify-center items-center hover:bg-gray-100/50 dark:hover:bg-gray-850/50 transition cursor-pointer"
 						on:click={() => showSidebar.set(!$showSidebar)}
 						aria-label={$showSidebar ? $i18n.t('Close Sidebar') : $i18n.t('Open Sidebar')}
 					>
@@ -162,7 +160,7 @@
 					</button>
 				</Tooltip>
 				<div
-					class="{scrollTop > 0 ? 'visible' : 'invisible'} sidebar-bg-gradient-to-b bg-linear-to-b from-gray-50 dark:from-gray-950 to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mb-6"
+					class="{scrollTop > 0 ? 'visible' : 'invisible'} sidebar-bg-gradient-to-b bg-linear-to-b from-gray-50 dark:from-[color:var(--ds-bg-chrome)] to-transparent from-50% pointer-events-none absolute inset-0 -z-10 -mb-4"
 				></div>
 			</div>
 
@@ -266,7 +264,7 @@
 				></div>
 				<div class="flex flex-col font-primary">
 					{#if wave2ShellChrome}
-						<DetectiveGnavUtilityCluster onUtilityActivate={itemClickHandler} />
+						<DetectiveGnavUtilityCluster />
 					{:else}
 						{#if $user !== undefined && $user !== null}
 							<UserMenu
@@ -275,10 +273,8 @@
 								showActiveUsers={false}
 								className="max-w-[calc(var(--sidebar-width)-1rem)]"
 							>
-								<div
-									class="flex items-center rounded-xl py-1.5 px-1.5 w-full hover:bg-gray-100/50 dark:hover:bg-gray-900/50 transition"
-								>
-									<div class="self-center mr-1.5 relative">
+								<div class="ds-gnav-link w-full">
+									<div class="self-center mr-2 relative shrink-0">
 										<img
 											src={`${WEBUI_API_BASE_URL}/users/${$user?.id}/profile/image`}
 											class="size-6 object-cover rounded-full"
@@ -286,7 +282,7 @@
 											aria-label={$i18n.t('Open User Profile Menu')}
 										/>
 									</div>
-									<div class="self-center font-medium">{$user?.name}</div>
+									<div class="self-center font-medium truncate min-w-0">{$user?.name}</div>
 								</div>
 							</UserMenu>
 						{/if}

@@ -5,6 +5,8 @@
 	 * P131.6-01 — Dashboard shell: hero → summary row → 3-column grid (layout/composition only).
 	 * P131.6-04 — Landmarks: `<main>`, `<header>`, labeled `<section>` columns + summary.
 	 * P131.9-01 — Unified dashboard surface wraps hero + KPI + board; hero is de-framed inside it.
+	 * P131.9-18 — Optional `heroBanner` slot: full-bleed top strip inside the OCC sheet (stack + overlay title in `/home`).
+	 * Optional `afterColumns` slot: full-width stacked modules below the hero/summary/grid (`/case/:id/summary`).
 	 * P131.9-05B — Desktop (≥1200px): bottom six in `ds-occ-dashboard-board` 3×2 grid; `<1200px` keeps 3-column stack.
 	 * Breakpoint state is owned by `/home` +page (matchMedia) — frame stays free of lifecycle hooks.
 	 */
@@ -23,31 +25,69 @@
 
 	/** Set by parent from `matchMedia('(min-width: 1200px)')` (client); SSR/false → stacked columns. */
 	export let occDesktopBoard = false;
+
+	/** Optional landmark id for the hero `h1` when reusing this frame outside `/home` (defaults to Home). */
+	export let heroHeadingId = 'occ-home-hero-heading';
+
+	/**
+	 * `cases` — two columns only: browse (case list) + details rail; filters live in the page popover, not here.
+	 * `default` — Home / generic three-column ratio.
+	 */
+	export let dashboardGridVariant: 'default' | 'cases' = 'default';
+
+	/** Omit the hero band entirely (e.g. `/case/:id/summary` where shell header carries title context). */
+	export let showHeroBand = true;
+
+	/** Appended to `<main>` (e.g. `flex-1 min-h-0` when nested in a Tier-L scroll shell). */
+	export let occRootExtraClass = '';
+
+	/** `id` on `<main>` — override when reusing the frame under another landmark to keep ids unique. */
+	export let mainId = 'occ-command-center-main';
+
+	/**
+	 * When `showHeroBand` is false, `aria-labelledby` is omitted; set this for `aria-label` on `<main>`.
+	 */
+	export let mainAriaLabel: string | undefined = undefined;
+
+	/** Appended to the dashboard surface wrapper (e.g. overflow when the page adds `afterColumns` body content). */
+	export let dashboardSurfaceExtraClass = '';
 </script>
 
 <main
-	class="ds-occ-root ds-surface"
-	id="occ-command-center-main"
-	aria-labelledby="occ-home-hero-heading"
+	class="ds-occ-root ds-surface {occRootExtraClass}"
+	id={mainId}
+	aria-labelledby={showHeroBand ? heroHeadingId : undefined}
+	aria-label={!showHeroBand ? mainAriaLabel ?? undefined : undefined}
 	data-region="occ-root"
 	data-testid="occ-root"
 >
 	<div
-		class={DS_OCC_CLASSES.dashboardSurface}
+		class="{DS_OCC_CLASSES.dashboardSurface} {dashboardSurfaceExtraClass}"
 		data-region="occ-dashboard-surface"
 		data-testid="occ-dashboard-surface"
 	>
-		<header
-			class="ds-occ-hero-band"
-			data-region="occ-hero-band"
-			data-testid="occ-hero-band"
-		>
-			<slot name="hero">
-				<div class="ds-occ-hero-band__inner">
-					<p class="{DS_TYPE_CLASSES.meta} text-[color:var(--ds-text-muted)]">{fallbackNote}</p>
-				</div>
-			</slot>
-		</header>
+		{#if showHeroBand}
+			<header
+				class="ds-occ-hero-band"
+				data-region="occ-hero-band"
+				data-testid="occ-hero-band"
+			>
+				{#if $$slots.heroBanner}
+					<div
+						class="ds-occ-dashboard-hero-banner"
+						data-region="occ-hero-banner"
+						data-testid="occ-hero-banner"
+					>
+						<slot name="heroBanner" />
+					</div>
+				{/if}
+				<slot name="hero">
+					<div class="ds-occ-hero-band__inner">
+						<p class="{DS_TYPE_CLASSES.meta} text-[color:var(--ds-text-muted)]">{fallbackNote}</p>
+					</div>
+				</slot>
+			</header>
+		{/if}
 
 		<section
 			class="ds-occ-summary-band"
@@ -87,22 +127,29 @@
 				<slot name="boardProposals" />
 			</div>
 		{:else}
-			<div class="ds-occ-dashboard-grid" data-region="occ-dashboard-grid" data-testid="occ-dashboard-grid">
-				<section
-					class="ds-occ-dashboard-col"
-					aria-labelledby="occ-col-left-heading"
-					data-region="occ-dashboard-left"
-					data-testid="occ-dashboard-left"
-				>
-					<h2 id="occ-col-left-heading" class="sr-only">
-						{$i18n.t('Dashboard — left column')}
-					</h2>
-					<slot name="colLeft">
-						<div class="{DS_PANEL_CLASSES.muted} ds-panel-dense" data-occ-dashboard-fallback="left">
-							<p class="{DS_EMPTY_CLASSES.description}">{fallbackNote}</p>
-						</div>
-					</slot>
-				</section>
+			<div
+				class="ds-occ-dashboard-grid {dashboardGridVariant === 'cases' ? 'ds-occ-dashboard-grid--cases' : ''}"
+				data-region="occ-dashboard-grid"
+				data-testid="occ-dashboard-grid"
+				data-occ-dashboard-variant={dashboardGridVariant}
+			>
+				{#if dashboardGridVariant !== 'cases'}
+					<section
+						class="ds-occ-dashboard-col"
+						aria-labelledby="occ-col-left-heading"
+						data-region="occ-dashboard-left"
+						data-testid="occ-dashboard-left"
+					>
+						<h2 id="occ-col-left-heading" class="sr-only">
+							{$i18n.t('Dashboard — left column')}
+						</h2>
+						<slot name="colLeft">
+							<div class="{DS_PANEL_CLASSES.muted} ds-panel-dense" data-occ-dashboard-fallback="left">
+								<p class="{DS_EMPTY_CLASSES.description}">{fallbackNote}</p>
+							</div>
+						</slot>
+					</section>
+				{/if}
 				<section
 					class="ds-occ-dashboard-col"
 					aria-labelledby="occ-col-center-heading"
@@ -133,6 +180,16 @@
 						</div>
 					</slot>
 				</section>
+			</div>
+		{/if}
+
+		{#if $$slots.afterColumns}
+			<div
+				class="ds-occ-dashboard-after-columns flex min-w-0 flex-col gap-6"
+				data-region="occ-dashboard-after-columns"
+				data-testid="occ-dashboard-after-columns"
+			>
+				<slot name="afterColumns" />
 			</div>
 		{/if}
 	</div>

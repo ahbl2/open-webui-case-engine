@@ -9,6 +9,8 @@
 
 	export let caseId: string;
 	export let token: string | null;
+	/** When embedded in the launch dialog, drop the inline card chrome (parent provides frame). */
+	export let inDialog = false;
 
 	let includeNotes = false;
 	let includeWorkflow = false;
@@ -68,11 +70,16 @@
 </script>
 
 <div
-	class="border border-gray-200 dark:border-gray-700 rounded-md p-3 mb-3 bg-white/50 dark:bg-gray-900/40"
+	class="{inDialog
+		? 'bg-transparent'
+		: 'border border-gray-200 dark:border-gray-700 rounded-md p-3 mb-3 bg-white/50 dark:bg-gray-900/40'}"
 	data-testid="case-export-panel"
 	data-case-export-case-id={caseId}
+	data-case-export-in-dialog={inDialog ? 'true' : 'false'}
 >
-	<h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Export</h3>
+	{#if !inDialog}
+		<h3 class="text-sm font-semibold text-gray-900 dark:text-gray-100 mb-2">Export</h3>
+	{/if}
 	{#if !caseId}
 		<p class="text-xs text-gray-500 dark:text-gray-400" data-testid="case-export-no-case">No active case.</p>
 	{:else if !token}

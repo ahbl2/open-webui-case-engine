@@ -1,7 +1,7 @@
 <script lang="ts">
 	/**
 	 * P19-06 — Case entry redirect.
-	 * P76-08 — Bare `/case/[id]` (bookmark/legacy); app-level navigations should prefer `/case/[id]/chat` directly.
+	 * P76-08 — Bare `/case/[id]` (bookmark/legacy); redirects to Overview (`/summary`).
 	 *
 	 * /case/[id] is the case root.  The case workspace shell (+layout.svelte)
 	 * is already mounted at this point; this page simply redirects to the
@@ -15,6 +15,6 @@
 	import { page } from '$app/stores';
 
 	onMount(() => {
-		goto(`/case/${$page.params.id}/chat`, { replaceState: true });
+		goto(`/case/${$page.params.id}/summary`, { replaceState: true });
 	});
 </script>

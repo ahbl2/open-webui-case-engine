@@ -113,6 +113,8 @@ export type CaseMeta = {
 	incident_date?: string | null;
 	/** ISO timestamp from Case Engine `getCaseById` when present (read-only display). */
 	created_at?: string | null;
+	/** ISO timestamp when Case Engine exposes `updated_at` on the case (read-only display). */
+	updated_at?: string | null;
 };
 export const activeCaseMeta = writable<CaseMeta | null>(null);
 

@@ -56,7 +56,7 @@
 	}
 
 	function goToResult(r: SearchResultItem) {
-		goto(`/case/${r.caseId}/chat`);
+		goto(`/case/${r.caseId}/summary`);
 		showResults = false;
 	}
 

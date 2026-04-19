@@ -66,9 +66,9 @@
 	}
 
 	/*
-	 * P75-02 — App shell frame (Wave 2): persistent top utility strip + main canvas.
-	 * Sidebar remains `DetectiveWorkspaceSidebar` (fixed); this wraps routed content only.
-	 * Case routes suppress the top strip in Svelte to avoid stacking chrome with case identity + tab strip.
+	 * P75-02 — App shell (Wave 2): `.ds-app-shell` is on `data-testid="app-main-content-pane"` so atmosphere
+	 * includes the top utility strip + main canvas; top bar is a direct child of that pane (not inside main frame).
+	 * Sidebar remains `DetectiveWorkspaceSidebar` (fixed). `/case/*` suppresses the top strip in layout.
 	 */
 	.ds-app-shell {
 		background-color: var(--ds-bg-app);
@@ -79,23 +79,43 @@
 	 * P131.7-01 — Thin command strip: tighter vertical rhythm.
 	 * P131.9-06 — De-framed top bar: blend into workspace (no panel chrome); horizontal inset matches `.ds-occ-root` gutters.
 	 * P131.9-09 — Final polish: extra top breathing room, lighter bottom edge, softer wash (inset still matches `.ds-occ-root`).
+	 * P131.9-14 — Dark tone: lighter canvas-subtle wash mix (neutral surfaces in tokens).
 	 */
 	.ds-app-shell__top {
 		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 20%, transparent);
 		background-color: transparent;
 		background-image: linear-gradient(
 			180deg,
-			color-mix(in oklab, var(--ds-bg-canvas-subtle) 24%, transparent) 0%,
+			color-mix(in oklab, var(--ds-bg-canvas-subtle) 16%, transparent) 0%,
 			transparent 78%
 		);
 		box-shadow: none;
-		padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-1) 0;
+		padding: var(--ds-space-3) var(--ds-space-4) 0 0;
 	}
 
 	@media (min-width: 768px) {
 		.ds-app-shell__top {
-			padding: var(--ds-space-3) var(--ds-space-5) var(--ds-space-1) var(--ds-space-1);
+			padding: var(--ds-space-3) var(--ds-space-5) 0 var(--ds-space-1);
 		}
+
+		/* Goal mockup: ~12px gutter vs sidebar (matches `.ds-occ-root`). */
+		html.dark .ds-app-shell__top {
+			padding: var(--ds-space-3) var(--ds-space-5) 0 0.75rem;
+		}
+	}
+
+	/*
+	 * `/cases` + `/case/*` — match `/home` inset under the command row without changing Home’s `.ds-app-shell__top` rules.
+	 * `/home` uses `data-occ-dashboard-variant="default"` on the OCC grid, so `:has(cases)` does not apply there.
+	 */
+	[data-testid='app-main-content-pane']:has([data-occ-dashboard-variant='cases'])
+		[data-region='app-shell-top'].ds-app-shell__top {
+		/* Between `--ds-space-1` (4px) and `--ds-space-2` (8px). */
+		padding-bottom: calc((var(--ds-space-1) + var(--ds-space-2)) / 2);
+	}
+
+	[data-testid='case-workspace-header'] header[data-testid='case-shell-app-top'].ds-app-shell__top {
+		padding-bottom: calc((var(--ds-space-1) + var(--ds-space-2)) / 2);
 	}
 
 	.ds-app-shell__top-row {
@@ -127,6 +147,7 @@
 	 * P77 — Workspace sidebar column: product chrome (not flat scaffolding).
 	 * P131.8-02 — Shell header/scroll/footer padding tightened in `DetectiveWorkspaceSidebar.svelte` (this rule unchanged).
 	 * P131.8-07 — Shell padding rebalance in Svelte only; surface tokens unchanged.
+	 * P131.9-15 — Darker neutral chrome + subtle app wash (see `html.dark` block below).
 	 */
 	.ds-workspace-sidebar {
 		background-color: var(--ds-bg-chrome);
@@ -135,10 +156,679 @@
 		box-shadow: inset -1px 0 0 var(--ds-border-subtle);
 	}
 
+	html.dark .ds-workspace-sidebar {
+		background-color: var(--ds-bg-chrome);
+		background-image: linear-gradient(
+			180deg,
+			color-mix(in oklab, var(--ds-bg-chrome) 96%, black) 0%,
+			color-mix(in oklab, var(--ds-bg-chrome) 88%, black) 100%
+		);
+	}
+
+	/*
+	 * P131.9-17 — Dark canvas: one atmosphere for app chrome + routed canvases (goal-image alignment).
+	 */
+	html.dark .ds-app-shell {
+		background-color: var(--ds-bg-app);
+		background-image: var(--ds-canvas-atmosphere-gradient);
+	}
+
+	html.dark .ds-app-shell__main {
+		background-color: transparent;
+	}
+
+	html.dark .ds-app-shell__top {
+		background-image: linear-gradient(
+			180deg,
+			color-mix(in oklab, var(--ds-bg-app) 88%, #12151e) 0%,
+			transparent 72%
+		);
+		border-bottom-color: color-mix(in oklab, var(--ds-border-default) 28%, transparent);
+	}
+
+	html.dark .ds-occ-root.ds-surface {
+		background-color: transparent;
+		background-image: none;
+	}
+
+	html.dark .ds-occ-root {
+		--occ-interactive-hover-glow:
+			0 0 0 1px color-mix(in oklab, var(--ds-accent) 34%, transparent),
+			0 3px 16px color-mix(in oklab, var(--ds-accent) 36%, transparent),
+			0 0 28px color-mix(in oklab, var(--ds-accent) 26%, transparent);
+		/* Brighter than default header aura + `--occ-interactive-hover-glow` so hover reads clearly. */
+		--occ-header-new-chat-hover-glow:
+			0 0 0 1px color-mix(in oklab, var(--ds-accent) 52%, transparent),
+			0 4px 24px color-mix(in oklab, var(--ds-accent) 48%, transparent),
+			0 0 40px color-mix(in oklab, var(--ds-accent) 40%, transparent),
+			0 0 64px color-mix(in oklab, var(--ds-accent) 30%, transparent);
+		gap: var(--ds-space-2);
+		padding: 0 var(--ds-space-3) var(--ds-space-2) 0;
+	}
+
+	@media (min-width: 768px) {
+		html.dark .ds-occ-root {
+			padding: 0 var(--ds-space-4) var(--ds-space-3) 0.75rem;
+		}
+	}
+
+	html.dark .ds-command-page {
+		background-color: transparent;
+		background-image: none;
+		padding: 0 var(--ds-space-3) var(--ds-space-2) 0;
+	}
+
+	@media (min-width: 768px) {
+		html.dark .ds-command-page {
+			padding: 0 var(--ds-space-4) var(--ds-space-3) 0.75rem;
+		}
+	}
+
+	/*
+	 * P132.RUI-03 — `/search` route.
+	 * P132.RUI-04 — `/case/*` workspace root (`data-testid="case-workspace-shell"`).
+	 * Same under-app-shell gutters as `.ds-occ-root` (no extra background here).
+	 */
+	html.dark .ds-shell-route-gutter,
+	html.dark [data-testid='case-workspace-shell'] {
+		padding: 0 var(--ds-space-3) var(--ds-space-2) 0;
+	}
+
+	html.dark [data-testid='case-workspace-shell'] {
+		--case-shell-pad-inline-start: 0;
+		--case-shell-pad-inline-end: var(--ds-space-3);
+	}
+
+	@media (min-width: 768px) {
+		html.dark .ds-shell-route-gutter,
+		html.dark [data-testid='case-workspace-shell'] {
+			padding: 0 var(--ds-space-4) var(--ds-space-3) 0.75rem;
+		}
+
+		html.dark [data-testid='case-workspace-shell'] {
+			--case-shell-pad-inline-start: 0.75rem;
+			--case-shell-pad-inline-end: var(--ds-space-4);
+		}
+	}
+
+	html.dark .ds-case-shell {
+		background-color: transparent;
+	}
+
+	html.dark .ds-p1325-layout-center {
+		background-color: transparent;
+		background-image: var(--ds-canvas-atmosphere-gradient);
+	}
+
+	/*
+	 * OCC sheet: one vertical story — top matches elevated/chrome; just below the hero the same hue
+	 * as `var(--occ-hero-sheet-bridge)` then slowly deepens to app/canvas black (no “step” at KPI seam).
+	 */
+	html.dark .ds-occ-dashboard-surface {
+		--occ-surface-pad: 1.25rem;
+		background-color: var(--ds-bg-app);
+		background-image: linear-gradient(
+			180deg,
+			var(--ds-bg-elevated) 0%,
+			var(--occ-hero-sheet-bridge) 12%,
+			color-mix(in oklab, var(--occ-hero-sheet-bridge) 82%, var(--ds-bg-app)) 30%,
+			var(--ds-bg-app) 56%,
+			color-mix(in oklab, var(--ds-bg-app) 82%, black) 90%,
+			color-mix(in oklab, var(--ds-bg-app) 72%, black) 100%
+		);
+		border: 1px solid color-mix(in oklab, var(--ds-border-default) 78%, transparent);
+		box-shadow:
+			inset 0 1px 0 color-mix(in oklab, white 4%, transparent),
+			0 1px 0 color-mix(in oklab, black 45%, transparent);
+		border-radius: var(--ds-radius-lg);
+		gap: 1rem;
+		padding: 1.25rem;
+	}
+
+	/* Bottom six: frosted charcoal over sheet (goal card read). */
+	html.dark .ds-occ-main-section,
+	html.dark .ds-occ-rail-panel {
+		--occ-board-border: var(--ds-border-default);
+		background-color: color-mix(in oklab, var(--ds-bg-elevated) 54%, transparent);
+		background-image: none;
+		box-shadow: inset 0 1px 0 color-mix(in oklab, white 3.5%, transparent);
+		border-radius: var(--ds-radius-lg);
+	}
+
+	/* Goal: ~20px grid gaps between the six panels + stacked columns. */
+	html.dark .ds-occ-dashboard-board {
+		column-gap: 1.25rem;
+		row-gap: 1.25rem;
+	}
+
+	html.dark .ds-occ-dashboard-grid {
+		gap: 1.25rem;
+	}
+
+	html.dark .ds-occ-dashboard-col {
+		gap: 1.25rem;
+	}
+
+	html.dark .ds-occ-dashboard-col .ds-stack {
+		gap: 1.25rem;
+	}
+
+	/* Goal: ~20px comfortable padding inside panel bodies (header keeps compact rhythm). */
+	html.dark .ds-occ-main-section .ds-occ-board-card__header,
+	html.dark .ds-occ-rail-panel .ds-occ-board-card__header {
+		padding: 0.75rem 1.25rem;
+		min-height: 0;
+		border-bottom-color: color-mix(in oklab, var(--ds-border-default) 65%, transparent);
+	}
+
+	/* Bottom-6: override loose dark header padding so title bars match Activity cell height. */
+	html.dark .ds-occ-dashboard-grid :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header,
+	html.dark .ds-occ-dashboard-board :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header {
+		box-sizing: border-box;
+		height: 2.75rem;
+		min-height: 2.75rem;
+		max-height: 2.75rem;
+		padding: 0 1.25rem;
+	}
+
+	html.dark .ds-occ-rail-panel[data-occ-rail-slot='assistant'] .ds-occ-section-header-row__title::before {
+		background-color: color-mix(in oklab, var(--ds-accent) 12%, #05070f);
+		background-image:
+			linear-gradient(
+				168deg,
+				color-mix(in oklab, var(--ds-accent) 26%, #0a1224) 0%,
+				color-mix(in oklab, #1e3a5f 28%, transparent) 48%,
+				color-mix(in oklab, black 35%, #03050a) 100%
+			),
+			radial-gradient(1px 1px at 8% 42%, rgba(255, 255, 255, 0.92) 50%, transparent 52%),
+			radial-gradient(1px 1px at 18% 28%, rgba(255, 255, 255, 0.5) 50%, transparent 52%),
+			radial-gradient(1px 1px at 28% 58%, rgba(255, 255, 255, 0.78) 50%, transparent 52%),
+			radial-gradient(1px 1px at 42% 22%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 52% 48%, rgba(255, 255, 255, 0.9) 50%, transparent 52%),
+			radial-gradient(1px 1px at 62% 32%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 72% 62%, rgba(255, 255, 255, 0.95) 50%, transparent 52%),
+			radial-gradient(1px 1px at 82% 38%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1px 1px at 90% 52%, rgba(255, 255, 255, 0.82) 50%, transparent 52%),
+			radial-gradient(1px 1px at 14% 68%, rgba(255, 255, 255, 0.38) 50%, transparent 52%),
+			radial-gradient(1px 1px at 38% 72%, rgba(255, 255, 255, 0.65) 50%, transparent 52%),
+			radial-gradient(1px 1px at 66% 18%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1px 1px at 94% 24%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 4% 18%, rgba(255, 255, 255, 0.55) 50%, transparent 52%),
+			radial-gradient(1px 1px at 11% 8%, rgba(255, 255, 255, 0.4) 50%, transparent 52%),
+			radial-gradient(1px 1px at 22% 82%, rgba(255, 255, 255, 0.7) 50%, transparent 52%),
+			radial-gradient(1px 1px at 33% 12%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1px 1px at 47% 65%, rgba(255, 255, 255, 0.36) 50%, transparent 52%),
+			radial-gradient(1px 1px at 58% 8%, rgba(255, 255, 255, 0.62) 50%, transparent 52%),
+			radial-gradient(1px 1px at 68% 78%, rgba(255, 255, 255, 0.44) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 76% 12%, rgba(255, 255, 255, 0.85) 50%, transparent 52%),
+			radial-gradient(1px 1px at 85% 68%, rgba(255, 255, 255, 0.52) 50%, transparent 52%),
+			radial-gradient(1px 1px at 96% 8%, rgba(255, 255, 255, 0.68) 50%, transparent 52%),
+			radial-gradient(1px 1px at 6% 88%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 31% 38%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1px 1px at 44% 88%, rgba(255, 255, 255, 0.5) 50%, transparent 52%),
+			radial-gradient(1px 1px at 55% 28%, rgba(255, 255, 255, 0.64) 50%, transparent 52%),
+			radial-gradient(1px 1px at 64% 52%, rgba(255, 255, 255, 0.38) 50%, transparent 52%),
+			radial-gradient(1px 1px at 78% 42%, rgba(255, 255, 255, 0.72) 50%, transparent 52%),
+			radial-gradient(1px 1px at 88% 12%, rgba(255, 255, 255, 0.46) 50%, transparent 52%),
+			radial-gradient(1px 1px at 17% 48%, rgba(255, 255, 255, 0.54) 50%, transparent 52%),
+			radial-gradient(1px 1px at 49% 12%, rgba(255, 255, 255, 0.62) 50%, transparent 52%),
+			radial-gradient(1px 1px at 59% 82%, rgba(255, 255, 255, 0.4) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 71% 88%, rgba(255, 255, 255, 0.88) 50%, transparent 52%),
+			radial-gradient(1px 1px at 25% 92%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1px 1px at 91% 78%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1px 1px at 2% 52%, rgba(255, 255, 255, 0.44) 50%, transparent 52%),
+			radial-gradient(1px 1px at 7% 72%, rgba(255, 255, 255, 0.54) 50%, transparent 52%),
+			radial-gradient(1px 1px at 13% 22%, rgba(255, 255, 255, 0.6) 50%, transparent 52%),
+			radial-gradient(1px 1px at 19% 62%, rgba(255, 255, 255, 0.4) 50%, transparent 52%),
+			radial-gradient(1px 1px at 27% 2%, rgba(255, 255, 255, 0.5) 50%, transparent 52%),
+			radial-gradient(1px 1px at 35% 52%, rgba(255, 255, 255, 0.68) 50%, transparent 52%),
+			radial-gradient(1px 1px at 41% 8%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 48% 38%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 53% 92%, rgba(255, 255, 255, 0.84) 50%, transparent 52%),
+			radial-gradient(1px 1px at 61% 68%, rgba(255, 255, 255, 0.46) 50%, transparent 52%),
+			radial-gradient(1px 1px at 69% 2%, rgba(255, 255, 255, 0.54) 50%, transparent 52%),
+			radial-gradient(1px 1px at 74% 58%, rgba(255, 255, 255, 0.66) 50%, transparent 52%),
+			radial-gradient(1px 1px at 79% 22%, rgba(255, 255, 255, 0.38) 50%, transparent 52%),
+			radial-gradient(1px 1px at 84% 92%, rgba(255, 255, 255, 0.52) 50%, transparent 52%),
+			radial-gradient(1px 1px at 89% 48%, rgba(255, 255, 255, 0.7) 50%, transparent 52%),
+			radial-gradient(1px 1px at 93% 62%, rgba(255, 255, 255, 0.43) 50%, transparent 52%),
+			radial-gradient(1px 1px at 97% 32%, rgba(255, 255, 255, 0.55) 50%, transparent 52%),
+			radial-gradient(1px 1px at 15% 92%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1px 1px at 29% 22%, rgba(255, 255, 255, 0.6) 50%, transparent 52%),
+			radial-gradient(1px 1px at 37% 62%, rgba(255, 255, 255, 0.36) 50%, transparent 52%),
+			radial-gradient(1px 1px at 51% 72%, rgba(255, 255, 255, 0.64) 50%, transparent 52%),
+			radial-gradient(1px 1px at 63% 42%, rgba(255, 255, 255, 0.45) 50%, transparent 52%),
+			radial-gradient(1px 1px at 73% 32%, rgba(255, 255, 255, 0.74) 50%, transparent 52%),
+			radial-gradient(1px 1px at 81% 18%, rgba(255, 255, 255, 0.41) 50%, transparent 52%),
+			radial-gradient(1px 1px at 86% 58%, rgba(255, 255, 255, 0.56) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 9% 38%, rgba(255, 255, 255, 0.88) 50%, transparent 52%),
+			radial-gradient(1px 1px at 56% 18%, rgba(255, 255, 255, 0.49) 50%, transparent 52%),
+			radial-gradient(1px 1px at 39% 18%, rgba(255, 255, 255, 0.6) 50%, transparent 52%),
+			radial-gradient(1px 1px at 46% 58%, rgba(255, 255, 255, 0.39) 50%, transparent 52%),
+			radial-gradient(1px 1px at 18% 82%, rgba(255, 255, 255, 0.54) 50%, transparent 52%),
+			radial-gradient(1px 1px at 99% 12%, rgba(255, 255, 255, 0.46) 50%, transparent 52%),
+			radial-gradient(1px 1px at 1% 28%, rgba(255, 255, 255, 0.51) 50%, transparent 52%),
+			radial-gradient(1px 1px at 3% 8%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 5% 98%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1px 1px at 10% 48%, rgba(255, 255, 255, 0.45) 50%, transparent 52%),
+			radial-gradient(1px 1px at 21% 38%, rgba(255, 255, 255, 0.66) 50%, transparent 52%),
+			radial-gradient(1px 1px at 24% 68%, rgba(255, 255, 255, 0.38) 50%, transparent 52%),
+			radial-gradient(1px 1px at 32% 28%, rgba(255, 255, 255, 0.53) 50%, transparent 52%),
+			radial-gradient(1px 1px at 36% 88%, rgba(255, 255, 255, 0.6) 50%, transparent 52%),
+			radial-gradient(1px 1px at 43% 42%, rgba(255, 255, 255, 0.41) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 50% 22%, rgba(255, 255, 255, 0.86) 50%, transparent 52%),
+			radial-gradient(1px 1px at 54% 62%, rgba(255, 255, 255, 0.49) 50%, transparent 52%),
+			radial-gradient(1px 1px at 57% 8%, rgba(255, 255, 255, 0.64) 50%, transparent 52%),
+			radial-gradient(1px 1px at 60% 38%, rgba(255, 255, 255, 0.44) 50%, transparent 52%),
+			radial-gradient(1px 1px at 65% 12%, rgba(255, 255, 255, 0.55) 50%, transparent 52%),
+			radial-gradient(1px 1px at 70% 48%, rgba(255, 255, 255, 0.68) 50%, transparent 52%),
+			radial-gradient(1px 1px at 75% 8%, rgba(255, 255, 255, 0.4) 50%, transparent 52%),
+			radial-gradient(1px 1px at 77% 72%, rgba(255, 255, 255, 0.52) 50%, transparent 52%),
+			radial-gradient(1px 1px at 82% 28%, rgba(255, 255, 255, 0.62) 50%, transparent 52%),
+			radial-gradient(1px 1px at 87% 82%, rgba(255, 255, 255, 0.46) 50%, transparent 52%),
+			radial-gradient(1px 1px at 92% 18%, rgba(255, 255, 255, 0.7) 50%, transparent 52%),
+			radial-gradient(1px 1px at 95% 88%, rgba(255, 255, 255, 0.37) 50%, transparent 52%),
+			radial-gradient(1px 1px at 98% 52%, rgba(255, 255, 255, 0.54) 50%, transparent 52%),
+			radial-gradient(1px 1px at 8% 62%, rgba(255, 255, 255, 0.5) 50%, transparent 52%),
+			radial-gradient(1px 1px at 16% 12%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1px 1px at 30% 48%, rgba(255, 255, 255, 0.43) 50%, transparent 52%),
+			radial-gradient(1px 1px at 40% 32%, rgba(255, 255, 255, 0.65) 50%, transparent 52%),
+			radial-gradient(1px 1px at 45% 78%, rgba(255, 255, 255, 0.39) 50%, transparent 52%),
+			radial-gradient(1px 1px at 52% 82%, rgba(255, 255, 255, 0.56) 50%, transparent 52%),
+			radial-gradient(1px 1px at 67% 28%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1px 1px at 71% 52%, rgba(255, 255, 255, 0.74) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 83% 42%, rgba(255, 255, 255, 0.84) 50%, transparent 52%),
+			radial-gradient(1px 1px at 88% 72%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 23% 8%, rgba(255, 255, 255, 0.6) 50%, transparent 52%),
+			radial-gradient(1px 1px at 34% 98%, rgba(255, 255, 255, 0.44) 50%, transparent 52%),
+			radial-gradient(1px 1px at 59% 48%, rgba(255, 255, 255, 0.54) 50%, transparent 52%),
+			radial-gradient(1px 1px at 76% 92%, rgba(255, 255, 255, 0.63) 50%, transparent 52%),
+			radial-gradient(1px 1px at 14% 38%, rgba(255, 255, 255, 0.4) 50%, transparent 52%),
+			radial-gradient(1px 1px at 42% 2%, rgba(255, 255, 255, 0.72) 50%, transparent 52%),
+			radial-gradient(1px 1px at 62% 98%, rgba(255, 255, 255, 0.46) 50%, transparent 52%);
+	}
+
+	html.dark .ds-occ-rail-panel[data-occ-rail-slot='assistant'] .ds-occ-section-header-row__title h3 {
+		text-shadow: 0 1px 2px color-mix(in oklab, black 60%, transparent);
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-board-card__body,
+	html.dark .ds-occ-rail-panel .ds-occ-board-card__body {
+		padding: 0 1.25rem 1.25rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-section-header-row,
+	html.dark .ds-occ-rail-panel .ds-occ-section-header-row {
+		margin-bottom: 0;
+		align-items: center;
+		gap: 0.75rem;
+	}
+
+	/*
+	 * OCC bottom-6 — goal list shape: flat stack + hairline row dividers (not card-per-row),
+	 * taller row/header rhythm; scoped to dashboard cells only.
+	 */
+	html.dark .ds-occ-main-section .ds-occ-ccase-list,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-list {
+		gap: 0;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-row,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-row {
+		border-radius: 0;
+		border: none;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 58%, transparent);
+		background-color: transparent;
+		box-shadow: none;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-row:last-child,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-row:last-child {
+		border-bottom: none;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-row:hover,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-row:hover {
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 30%, transparent);
+		border-color: transparent;
+		box-shadow: none;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-row__main,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-row__main {
+		align-items: center;
+		padding: 0 0.375rem 0 0.125rem;
+		border-radius: 0;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-row__icon-tile,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-row__icon-tile {
+		width: 2.5rem;
+		height: 2.5rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-list .ds-occ-ccase-row,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-list .ds-occ-ccase-row {
+		min-height: 2.5rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-list .ds-occ-ccase-row__text,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-list .ds-occ-ccase-row__text {
+		min-height: auto;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-list .ds-occ-ccase-row__line1,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-list .ds-occ-ccase-row__line1 {
+		gap: 0.25rem 0.375rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-list .ds-occ-ccase-row__main,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-list .ds-occ-ccase-row__main {
+		padding: 0 0 0 0.125rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-list .ds-occ-ccase-row__meta,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-list .ds-occ-ccase-row__meta {
+		padding: 0;
+		max-height: none;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-board-card__body:has(.ds-occ-ccase-list),
+	html.dark .ds-occ-rail-panel .ds-occ-board-card__body:has(.ds-occ-ccase-list) {
+		padding-right: 0;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-row__line1,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-row__line1 {
+		gap: 0.5rem 0.625rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-row__meta,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-row__meta {
+		padding: 0 0 0 0.25rem;
+		justify-content: flex-end;
+		max-height: 2.5rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-ccase-row__menu,
+	html.dark .ds-occ-rail-panel .ds-occ-ccase-row__menu {
+		width: 2.5rem;
+		border-left-color: color-mix(in oklab, var(--ds-border-default) 50%, transparent);
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cfeed-list,
+	html.dark .ds-occ-rail-panel .ds-occ-cfeed-list {
+		gap: 0;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cfeed-row,
+	html.dark .ds-occ-rail-panel .ds-occ-cfeed-row {
+		border-radius: 0;
+		border: none;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 58%, transparent);
+		background-color: transparent;
+		padding: 0.75rem 0.125rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cfeed-row:last-child,
+	html.dark .ds-occ-rail-panel .ds-occ-cfeed-row:last-child {
+		border-bottom: none;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cfeed-row__avatar,
+	html.dark .ds-occ-rail-panel .ds-occ-cfeed-row__avatar {
+		width: 2.25rem;
+		height: 2.25rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cintel-list,
+	html.dark .ds-occ-rail-panel .ds-occ-cintel-list {
+		gap: 0;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cintel-row,
+	html.dark .ds-occ-rail-panel .ds-occ-cintel-row {
+		border-radius: 0;
+		border: none;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 58%, transparent);
+		background-color: transparent;
+		box-shadow: none;
+		padding: 0.75rem 0.125rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cintel-row:last-child,
+	html.dark .ds-occ-rail-panel .ds-occ-cintel-row:last-child {
+		border-bottom: none;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cintel-row__icon,
+	html.dark .ds-occ-rail-panel .ds-occ-cintel-row__icon {
+		box-shadow:
+			0 0 0 1px color-mix(in oklab, var(--ds-border-default) 45%, transparent),
+			inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
+		border-color: color-mix(in oklab, var(--ds-border-default) 40%, transparent);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 45%, transparent);
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cwf,
+	html.dark .ds-occ-rail-panel .ds-occ-cwf {
+		gap: 0.875rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cwf-filters,
+	html.dark .ds-occ-rail-panel .ds-occ-cwf-filters {
+		gap: 0.5rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cwf-filters__pill,
+	html.dark .ds-occ-rail-panel .ds-occ-cwf-filters__pill {
+		padding: 0.3125rem 0.5625rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cwf-task-list,
+	html.dark .ds-occ-rail-panel .ds-occ-cwf-task-list {
+		gap: 0;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cwf-task-row,
+	html.dark .ds-occ-rail-panel .ds-occ-cwf-task-row {
+		border-radius: 0;
+		border: none;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 58%, transparent);
+		background-color: transparent;
+		padding: 0.75rem 0.25rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cwf-task-row:last-child,
+	html.dark .ds-occ-rail-panel .ds-occ-cwf-task-row:last-child {
+		border-bottom: none;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-cwf-task-row__icon,
+	html.dark .ds-occ-rail-panel .ds-occ-cwf-task-row__icon {
+		width: 2.5rem;
+		height: 2.5rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-rail-assist-stack,
+	html.dark .ds-occ-rail-panel .ds-occ-rail-assist-stack {
+		gap: 0.75rem;
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-rail-assist-input-shell,
+	html.dark .ds-occ-rail-panel .ds-occ-rail-assist-input-shell {
+		min-height: auto;
+		padding: 0.5rem;
+		border-radius: var(--ds-radius-md);
+		border-color: color-mix(
+			in oklab,
+			black 18%,
+			color-mix(in oklab, var(--ds-accent) 28%, var(--ds-border-default))
+		);
+		background-color: color-mix(in oklab, black 17%, color-mix(in oklab, var(--ds-accent) 12%, var(--ds-bg-muted)));
+		background-image: linear-gradient(
+			180deg,
+			color-mix(in oklab, black 15%, color-mix(in oklab, var(--ds-accent) 8%, var(--ds-bg-elevated))) 0%,
+			color-mix(in oklab, black 18%, color-mix(in oklab, var(--ds-accent) 16%, var(--ds-bg-muted))) 100%
+		);
+		box-shadow:
+			var(--ds-shadow-sm),
+			inset 0 1px 0 color-mix(in oklab, var(--ds-accent) 5%, transparent);
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-rail-assist-input-shell:focus-within,
+	html.dark .ds-occ-rail-panel .ds-occ-rail-assist-input-shell:focus-within {
+		position: relative;
+		z-index: 2;
+		border-color: color-mix(in oklab, var(--ds-accent) 56%, var(--ds-border-default));
+		box-shadow:
+			var(--ds-shadow-sm),
+			inset 0 1px 0 color-mix(in oklab, var(--ds-accent) 5%, transparent),
+			var(--occ-header-new-chat-hover-glow);
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-rail-assist-input,
+	html.dark .ds-occ-rail-panel .ds-occ-rail-assist-input {
+		padding: 0.5rem 0.625rem;
+		background-color: color-mix(in oklab, black 16%, color-mix(in oklab, var(--ds-accent) 14%, var(--ds-bg-muted)));
+		color: var(--ds-text-primary);
+	}
+
+	html.dark .ds-occ-rail-panel .ds-btn.ds-occ-rail-assist-header-new-chat:not(:disabled) {
+		border-color: color-mix(in oklab, var(--ds-accent) 48%, var(--ds-border-strong));
+		box-shadow:
+			0 0 0 1px color-mix(in oklab, var(--ds-accent) 28%, transparent),
+			0 2px 12px color-mix(in oklab, var(--ds-accent) 32%, transparent),
+			0 0 24px color-mix(in oklab, var(--ds-accent) 22%, transparent);
+	}
+
+	html.dark .ds-occ-rail-panel .ds-btn.ds-occ-rail-assist-header-new-chat:hover:not(:disabled) {
+		border-color: color-mix(in oklab, var(--ds-accent) 64%, var(--ds-border-default));
+		box-shadow: var(--occ-header-new-chat-hover-glow);
+	}
+
+	html.dark .ds-occ-main-section .ds-occ-rail-assist-pills,
+	html.dark .ds-occ-rail-panel .ds-occ-rail-assist-pills {
+		gap: 0.5rem;
+	}
+
+	html.dark .ds-occ-rail-panel .ds-occ-rail-prop-governance {
+		margin-top: 0;
+		padding: 0.75rem 1.25rem 1rem;
+		border-top-color: color-mix(in oklab, var(--ds-border-default) 55%, transparent);
+	}
+
+	html.dark .ds-occ-summary-band {
+		gap: 1.25rem;
+	}
+
+	/*
+	 * Hero band: goal mockup — title overlays banner; wash stays subtle (bitmap carries the scene).
+	 */
+	html.dark .ds-occ-hero-band {
+		background-color: transparent;
+		background-image: none;
+	}
+
+	/* Washes sit above the <img> so the bitmap stays sharp (no gradient-on-bitmap compositing). */
+	/*
+	 * Bottom stop must stay translucent: full `--occ-hero-sheet-bridge` at 100% read as the pano being
+	 * cut off or fully faded (especially with `object-position: center bottom` + shorter `--occ-hero-banner-band-height`).
+	 * Seam to KPI/summary is handled by `.ds-occ-hero-band__inner--on-banner` border + surface gradient below.
+	 */
+	html.dark .ds-occ-hero-skyline::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: 1;
+		pointer-events: none;
+		background-image: linear-gradient(
+			to bottom,
+			color-mix(in oklab, var(--ds-bg-app) 55%, transparent) 0%,
+			transparent 20%,
+			transparent 52%,
+			color-mix(in oklab, var(--occ-hero-sheet-bridge) 18%, transparent) 72%,
+			color-mix(in oklab, var(--occ-hero-sheet-bridge) 42%, transparent) 88%,
+			color-mix(in oklab, var(--occ-hero-sheet-bridge) 58%, transparent) 100%
+		);
+	}
+
+	html.dark .ds-occ-hero-skyline {
+		opacity: 1;
+	}
+
+	/*
+	 * Case identity strip is short (~10rem): default hero wash reads as solid; lighten overlay so the pano reads.
+	 */
+	html.dark [data-testid='case-shell-hero-banner'] .ds-occ-hero-skyline::after {
+		background-image: linear-gradient(
+			to bottom,
+			color-mix(in oklab, var(--ds-bg-app) 18%, transparent) 0%,
+			transparent 28%,
+			transparent 62%,
+			color-mix(in oklab, var(--occ-hero-sheet-bridge) 28%, transparent) 88%,
+			color-mix(in oklab, var(--occ-hero-sheet-bridge) 62%, transparent) 100%
+		);
+	}
+
+	/*
+	 * Case Engine lockup — `CaseEngineBrand.svelte` raster (e.g. `/brand/case-engine-lockup-medium.png`).
+	 */
+	.ds-case-engine-brand {
+		display: block;
+		flex: 1 1 auto;
+		min-width: 0;
+		max-width: 100%;
+		box-sizing: border-box;
+	}
+
+	.ds-case-engine-brand__img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		max-width: 100%;
+		object-fit: contain;
+		object-position: left center;
+		-webkit-user-drag: none;
+		user-select: none;
+	}
+
+	/* Shield lockup: fill rail width; intrinsic height from aspect ratio (no fixed short box). */
+	.ds-case-engine-brand--sidebar {
+		width: 100%;
+		height: auto;
+		min-height: 0;
+		max-width: 100%;
+		align-self: stretch;
+	}
+
+	.ds-case-engine-brand--sidebar .ds-case-engine-brand__img {
+		display: block;
+		width: 100%;
+		height: auto;
+		max-height: none;
+		object-fit: contain;
+		object-position: center center;
+	}
+
+	.ds-case-engine-brand--header {
+		height: 4.5rem;
+		min-height: 4.5rem;
+		max-width: min(100%, 18rem);
+	}
+
+	.ds-case-engine-brand--compact {
+		height: 2rem;
+		min-height: 2rem;
+		max-width: min(100%, 10rem);
+	}
+
 	/*
 	 * P77 — Command center page frame (cases browse, operator dashboards).
+	 * P132.RUI-05 — Same `--ds-occ-content-max` as Home OCC `.ds-occ-root` so inner width tracks baseline.
 	 */
 	.ds-command-page {
+		--ds-occ-content-max: 100%;
 		flex: 1 1 auto;
 		display: flex;
 		flex-direction: column;
@@ -147,18 +837,42 @@
 		width: 100%;
 		background-color: var(--ds-bg-app);
 		background-image: linear-gradient(180deg, var(--ds-bg-canvas-subtle) 0%, var(--ds-bg-app) 42%);
-		padding: var(--ds-space-4);
 		overflow-y: auto;
 	}
 
+	/*
+	 * P132.RUI-03 — Match `/home` `.ds-occ-root` gutters: flush under app top bar, asymmetric insets vs sidebar.
+	 * P132.RUI-04 — `/case/*` workspace root: same shell discipline (see `[data-testid='case-workspace-shell']`).
+	 * Shared with `.ds-shell-route-gutter` for non-OCC routes that only need the same shell padding.
+	 */
+	.ds-command-page,
+	.ds-shell-route-gutter,
+	[data-testid='case-workspace-shell'] {
+		padding: 0 var(--ds-space-4) var(--ds-space-3) 0;
+	}
+
+	[data-testid='case-workspace-shell'] {
+		/* Mirrors horizontal padding above — used to align case `ds-app-shell__top` with Home global strip. */
+		--case-shell-pad-inline-start: 0;
+		--case-shell-pad-inline-end: var(--ds-space-4);
+	}
+
 	@media (min-width: 768px) {
-		.ds-command-page {
-			padding: var(--ds-space-4) var(--ds-space-6);
+		.ds-command-page,
+		.ds-shell-route-gutter,
+		[data-testid='case-workspace-shell'] {
+			padding: 0 var(--ds-space-5) var(--ds-space-4) var(--ds-space-1);
+		}
+
+		[data-testid='case-workspace-shell'] {
+			--case-shell-pad-inline-start: var(--ds-space-1);
+			--case-shell-pad-inline-end: var(--ds-space-5);
 		}
 	}
 
+	/* P132.RUI-05 — Was 72rem; align with Home OCC (`max-width: var(--ds-occ-content-max, 100%)` on dashboard surface). */
 	.ds-command-page__inner {
-		max-width: 72rem;
+		max-width: var(--ds-occ-content-max, 100%);
 		width: 100%;
 		margin-inline: auto;
 	}
@@ -305,6 +1019,265 @@
 	.ds-case-list-card__open:focus-visible {
 		outline: 2px solid var(--ds-focus-ring);
 		outline-offset: 2px;
+	}
+
+	/* P132 — Cases browse page cells (list + grid; mock “10 Cases” reference) */
+	.ds-case-browse-card {
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-3);
+		padding: var(--ds-space-4);
+		border-radius: var(--ds-radius-lg);
+		border: 1px solid var(--ds-border-default);
+		background: linear-gradient(
+			165deg,
+			color-mix(in oklab, var(--ds-bg-elevated) 100%, transparent) 0%,
+			color-mix(in oklab, var(--ds-bg-muted) 42%, var(--ds-bg-elevated) 58%) 100%
+		);
+		box-shadow: var(--ds-shadow-card);
+		cursor: pointer;
+		outline: none;
+		transition:
+			border-color 0.15s ease,
+			box-shadow 0.15s ease;
+		text-align: left;
+	}
+
+	.ds-case-browse-card:hover {
+		border-color: color-mix(in oklab, var(--ds-accent) 32%, var(--ds-border-default));
+		box-shadow: var(--ds-shadow-md);
+	}
+
+	.ds-case-browse-card:focus-visible {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.ds-case-browse-card--selected {
+		border-color: color-mix(in oklab, var(--ds-accent) 55%, var(--ds-border-default));
+		box-shadow:
+			var(--ds-shadow-md),
+			0 0 0 1px color-mix(in oklab, var(--ds-accent) 28%, transparent);
+	}
+
+	.ds-case-browse-card__top {
+		display: flex;
+		flex-direction: row;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: var(--ds-space-3);
+		flex-wrap: wrap;
+	}
+
+	.ds-case-browse-card__top-left {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-start;
+		gap: var(--ds-space-2);
+		min-width: 0;
+		flex: 1 1 12rem;
+	}
+
+	.ds-case-browse-card__case-id-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--ds-space-2);
+	}
+
+	.ds-case-browse-card__case-id {
+		font-weight: 650;
+		letter-spacing: 0.02em;
+		color: var(--ds-text-on-canvas);
+	}
+
+	.ds-case-browse-card__title {
+		margin: 0;
+		font-size: 1.0625rem;
+		font-weight: 650;
+		line-height: 1.35;
+		width: 100%;
+		overflow: hidden;
+		display: -webkit-box;
+		-webkit-line-clamp: 2;
+		-webkit-box-orient: vertical;
+		word-break: break-word;
+	}
+
+	.ds-case-browse-card__top-right {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--ds-space-2);
+		flex-shrink: 0;
+	}
+
+	.ds-case-browse-card__updated {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.35rem;
+		font-size: var(--ds-type-meta-size);
+	}
+
+	.ds-case-browse-card__meta {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--ds-space-4);
+		flex-wrap: wrap;
+		padding-top: var(--ds-space-1);
+		border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 88%, transparent);
+	}
+
+	.ds-case-browse-card__stats {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--ds-space-3);
+		min-width: 0;
+	}
+
+	.ds-case-browse-card__stat {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		font-size: var(--ds-type-meta-size);
+		font-variant-numeric: tabular-nums;
+		color: var(--ds-text-secondary);
+	}
+
+	.ds-case-browse-card__assignee {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: var(--ds-space-2);
+		flex-shrink: 0;
+	}
+
+	.ds-case-browse-card__avatar {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		width: 2.25rem;
+		height: 2.25rem;
+		border-radius: 999px;
+		font-size: 0.7rem;
+		font-weight: 650;
+		letter-spacing: 0.04em;
+		background: color-mix(in oklab, var(--ds-accent) 28%, var(--ds-bg-muted));
+		border: 1px solid color-mix(in oklab, var(--ds-border-default) 70%, transparent);
+		color: var(--ds-text-on-canvas);
+	}
+
+	.ds-case-browse-card__assignee-text {
+		display: flex;
+		flex-direction: column;
+		gap: 0.1rem;
+		min-width: 0;
+		max-width: 12rem;
+	}
+
+	.ds-case-browse-card__actions {
+		display: flex;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		justify-content: space-between;
+		gap: var(--ds-space-3);
+	}
+
+	.ds-case-browse-card__actions-primary {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--ds-space-2);
+		flex: 1 1 14rem;
+		min-width: 0;
+	}
+
+	.ds-case-browse-card__lead {
+		display: flex;
+		flex-direction: column;
+		align-items: flex-end;
+		justify-content: flex-end;
+		gap: 0.25rem;
+		flex-shrink: 0;
+	}
+
+	.ds-case-browse-card__lead .ds-case-browse-card__assignee {
+		flex-direction: row;
+	}
+
+	.ds-case-browse-card__action {
+		display: inline-flex;
+		align-items: center;
+		justify-content: center;
+		gap: 0.45rem;
+		min-height: 2.5rem;
+		padding-inline: var(--ds-space-3);
+		font-size: 0.8125rem;
+		font-weight: 600;
+	}
+
+	.ds-case-browse-card__action--edit {
+		min-height: 2.5rem;
+	}
+
+	.ds-case-browse-card__summary {
+		margin: 0;
+		line-height: 1.55;
+		display: -webkit-box;
+		-webkit-line-clamp: 4;
+		-webkit-box-orient: vertical;
+		overflow: hidden;
+	}
+
+	@media (max-width: 40rem) {
+		.ds-case-browse-card__actions {
+			flex-direction: column;
+			align-items: stretch;
+		}
+
+		.ds-case-browse-card__lead {
+			align-items: flex-start;
+			width: 100%;
+		}
+	}
+
+	.ds-case-browse-view-toggle {
+		display: inline-flex;
+		align-items: center;
+		gap: 2px;
+		padding: 2px;
+		border-radius: var(--ds-radius-md);
+		background: color-mix(in oklab, var(--ds-bg-muted) 65%, transparent);
+		border: 1px solid var(--ds-border-default);
+	}
+
+	.ds-case-browse-view-toggle__btn {
+		appearance: none;
+		border: none;
+		background: transparent;
+		color: var(--ds-text-secondary);
+		font-size: 0.8125rem;
+		font-weight: 600;
+		padding: 0.35rem 0.65rem;
+		border-radius: var(--ds-radius-sm);
+		cursor: pointer;
+	}
+
+	.ds-case-browse-view-toggle__btn:hover {
+		color: var(--ds-text-on-canvas);
+		background: color-mix(in oklab, var(--ds-bg-elevated) 55%, transparent);
+	}
+
+	.ds-case-browse-view-toggle__btn--active {
+		color: var(--ds-text-on-canvas);
+		background: color-mix(in oklab, var(--ds-accent) 26%, var(--ds-bg-elevated));
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-accent) 22%, transparent);
 	}
 
 	/*
@@ -521,27 +1494,39 @@
 		background-image: linear-gradient(180deg, var(--ds-bg-canvas-subtle) 0%, var(--ds-bg-app) 46%);
 	}
 
-	/* P131.7-01 — OCC dashboard: shared max-width token + tighter gutters */
+	/* P131.7-01 — OCC dashboard: shared width token + gutters (full main-pane span like goal mockup). */
 	/* P131.9-04 — Asymmetric gutters: smaller padding-inline-start pulls surface toward sidebar (no sidebar width changes). */
 	.ds-occ-root {
-		--ds-occ-content-max: 80rem;
+		/* Shared accent aura for generic OCC interactive hover. */
+		--occ-interactive-hover-glow:
+			0 0 0 1px color-mix(in oklab, var(--ds-accent) 26%, transparent),
+			0 3px 14px color-mix(in oklab, var(--ds-accent) 26%, transparent),
+			0 0 22px color-mix(in oklab, var(--ds-accent) 18%, transparent);
+		/* New Chat header: stronger hover than rest state + generic hover (always inherits from `.ds-occ-root`). */
+		--occ-header-new-chat-hover-glow:
+			0 0 0 1px color-mix(in oklab, var(--ds-accent) 42%, transparent),
+			0 4px 20px color-mix(in oklab, var(--ds-accent) 36%, transparent),
+			0 0 34px color-mix(in oklab, var(--ds-accent) 30%, transparent),
+			0 0 52px color-mix(in oklab, var(--ds-accent) 20%, transparent);
+		--ds-occ-content-max: 100%;
 		display: flex;
 		flex-direction: column;
 		gap: var(--ds-space-3);
 		width: 100%;
 		min-height: 0;
 		flex: 1 1 auto;
-		padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-3) 0;
+		/* Flush under app top bar; keep side/bottom gutters */
+		padding: 0 var(--ds-space-4) var(--ds-space-3) 0;
 	}
 
 	@media (min-width: 768px) {
 		.ds-occ-root {
-			padding: var(--ds-space-4) var(--ds-space-5) var(--ds-space-4) var(--ds-space-1);
+			padding: 0 var(--ds-space-5) var(--ds-space-4) var(--ds-space-1);
 		}
 	}
 
 	.ds-occ-main-canvas {
-		max-width: var(--ds-occ-content-max, 80rem);
+		max-width: var(--ds-occ-content-max, 100%);
 		width: 100%;
 		margin-inline: auto;
 	}
@@ -552,9 +1537,111 @@
 	 * P131.9-02 — Tighter internal vertical rhythm + modest outer padding (cohesion vs P131.9-01).
 	 * P131.9-11 — Hero → KPI seam (hero inner padding + softer divider).
 	 * P131.9-12 — Uniform spacing: surface padding + flex gap = `--ds-space-2` (symmetric; matches grid/KPI gaps).
+	 * P131.9-14 — Dark tone: softer top gradient wash (neutral tokens).
 	 */
+	/*
+	 * Fill the app-shell main pane so nested grids can use `minmax(0,1fr)` + `overflow:auto`
+	 * (e.g. `/cases` browse list scrolls instead of growing the page).
+	 */
+	.ds-occ-root > .ds-occ-dashboard-surface {
+		flex: 1 1 0%;
+		min-height: 0;
+		overflow: hidden;
+	}
+
+	/*
+	 * Case workspace — one OCC sheet in `case/[id]/+layout` wraps identity header + tabs + layout (center + rail).
+	 * Gutters stay on `[data-testid='case-workspace-shell']`; inner scroll lives in `case-workspace-main` where needed.
+	 */
+	[data-testid='case-workspace-shell'] > .case-shell-occ-root.ds-occ-root.ds-surface {
+		padding: 0;
+		gap: 0;
+		flex: 1 1 auto;
+		min-height: 0;
+		width: 100%;
+		min-width: 0;
+	}
+
+	[data-testid='case-workspace-shell'] > .case-shell-occ-root > [data-testid='case-shell-occ-dashboard-surface'] {
+		flex: 1 1 auto;
+		min-height: 0;
+		/* Allow case top strip negative margins to align with Home `ds-app-shell__top`; scroll lives in `case-shell-occ-body-scroll`. */
+		overflow: visible;
+		width: 100%;
+		max-width: none;
+		margin-inline: 0;
+		align-self: stretch;
+		/* `.ds-occ-dashboard-surface` adds `--ds-space-2` on all sides; without this, case `ds-app-shell__top`
+		 * stacks surface pad + bar pad and reads lower than Home (global bar uses only `--ds-space-3` top). */
+		padding-top: 0;
+	}
+
+	/*
+	 * Case workspace: `ds-app-shell__top` is nested under shell gutters + OCC surface padding; Home renders the same
+	 * class on `app-main-content-pane` with no outer horizontal inset. Pull the header to the main-pane edges so
+	 * padding top/right/bottom/left on `.ds-app-shell__top` matches Home (same token values, same box).
+	 */
+	[data-testid='case-workspace-header'] header[data-testid='case-shell-app-top'].ds-app-shell__top {
+		--case-top-pull-left: calc(
+			var(--case-shell-pad-inline-start) + var(--occ-surface-pad, var(--ds-space-2))
+		);
+		--case-top-pull-right: calc(var(--case-shell-pad-inline-end) + var(--occ-surface-pad, var(--ds-space-2)));
+		margin-left: calc(-1 * var(--case-top-pull-left));
+		margin-right: calc(-1 * var(--case-top-pull-right));
+		width: calc(100% + var(--case-top-pull-left) + var(--case-top-pull-right));
+		max-width: none;
+		box-sizing: border-box;
+	}
+
+	/*
+	 * Overview still uses `OperatorCommandCenterFrame` — strip the duplicate inner OCC chrome so one sheet reads
+	 * as continuous with the layout-wrapped header + tabs (outer surface owns border/radius).
+	 */
+	[data-testid='case-shell-occ-dashboard-surface'] [data-testid='occ-root'] {
+		padding: 0 !important;
+		gap: 0 !important;
+		flex: 1 1 auto;
+		min-height: 0;
+		width: 100%;
+		background-image: none !important;
+		background-color: transparent !important;
+		box-shadow: none !important;
+	}
+
+	/*
+	 * Case overview (`/case/:id/summary`): page scroll lives on `case-workspace-main`.
+	 * Do not stretch `main#occ-root` to the viewport — that traps tall OCC content and causes overlapping panels.
+	 */
+	[data-testid='case-workspace-main'] [data-testid='occ-root'].case-summary-occ-root {
+		flex: 0 0 auto !important;
+		align-self: stretch;
+		width: 100%;
+		min-height: 0;
+	}
+
+	[data-testid='case-workspace-main'] [data-testid='occ-dashboard-surface'] {
+		flex: 0 0 auto !important;
+		min-height: 0;
+	}
+
+	[data-testid='case-shell-occ-dashboard-surface'] [data-testid='occ-dashboard-surface'] {
+		flex: 1 1 auto;
+		min-height: 0;
+		overflow: visible;
+		width: 100%;
+		max-width: none !important;
+		margin-inline: 0 !important;
+		border: none !important;
+		border-radius: 0 !important;
+		background-color: transparent !important;
+		background-image: none !important;
+		box-shadow: none !important;
+		padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+	}
+
 	.ds-occ-dashboard-surface {
-		max-width: var(--ds-occ-content-max, 80rem);
+		--occ-surface-pad: var(--ds-space-2);
+		max-width: var(--ds-occ-content-max, 100%);
 		width: 100%;
 		margin-inline: auto;
 		display: flex;
@@ -568,7 +1655,7 @@
 		background-color: color-mix(in oklab, var(--ds-bg-elevated) 88%, var(--ds-bg-app));
 		background-image: linear-gradient(
 			180deg,
-			color-mix(in oklab, var(--ds-bg-surface) 35%, transparent) 0%,
+			color-mix(in oklab, var(--ds-bg-surface) 22%, transparent) 0%,
 			transparent 42%
 		);
 		box-shadow: inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
@@ -582,12 +1669,19 @@
 		margin-inline: 0;
 	}
 
+	/* `/cases` — no KPI strip above the browse column. */
+	.ds-occ-dashboard-surface:has([data-occ-dashboard-variant='cases']) .ds-occ-summary-band {
+		display: none;
+	}
+
 	/*
 	 * P131.6-01 — Home dashboard shell: hero band + summary + 3-column grid foundation.
 	 * P131.8-05 — Hero title hierarchy + action-slot chrome (tokens).
 	 * P131.9-01 — Hero de-framed: no standalone card border/radius/shadow; accent washes only (inside unified surface).
 	 * P131.9-08 — Final de-framing: minimal wash, hairline KPI separator, tighter vertical rhythm (copy/structure unchanged).
 	 * P131.9-11 — Seam micro-tighten: less padding below hero row; fainter, shorter fade divider vs KPI.
+	 * P131.9-14 — Dark tone: fainter accent radial (neutral base).
+	 * P131.9-18 — Full-bleed city banner at top of OCC sheet (`heroBanner` slot); title row below.
 	 */
 	.ds-occ-hero-band {
 		max-width: none;
@@ -599,13 +1693,96 @@
 		border-radius: 0;
 		padding: 0;
 		border: none;
+		display: flex;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0;
 		background-color: transparent;
 		background-image: radial-gradient(
 			ellipse 105% 65% at 100% -8%,
-			color-mix(in oklab, var(--ds-accent) 5%, transparent) 0%,
+			color-mix(in oklab, var(--ds-accent) 3%, transparent) 0%,
 			transparent 58%
 		);
 		box-shadow: none;
+	}
+
+	/*
+	 * Edge-to-edge strip under the OCC rounded top corners (pulls into `padding` of `.ds-occ-dashboard-surface`).
+	 * Bitmap: `static/detective/occ-city-banner.jpg` → `/detective/occ-city-banner.jpg`
+	 */
+	.ds-occ-dashboard-hero-banner {
+		position: relative;
+		flex-shrink: 0;
+		align-self: stretch;
+		width: calc(100% + 2 * var(--occ-surface-pad));
+		max-width: none;
+		margin: calc(-1 * var(--occ-surface-pad)) calc(-1 * var(--occ-surface-pad)) 0;
+		border-radius: var(--ds-radius-lg) var(--ds-radius-lg) 0 0;
+		overflow: hidden;
+	}
+
+	/*
+	 * OCC hero bitmap band — shared height for `/home`, `/cases`, and case workspace (`--occ-hero-banner-band-height`).
+	 */
+	.ds-occ-dashboard-hero-banner__stack {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		justify-content: flex-end;
+		min-height: var(--occ-hero-banner-band-height);
+		max-height: var(--occ-hero-banner-band-height);
+		overflow: hidden;
+		isolation: isolate;
+	}
+
+	[data-testid='case-shell-occ-dashboard-surface'] .case-shell-identity-hero-banner.ds-occ-dashboard-hero-banner {
+		margin-top: 0;
+		border-radius: 0;
+		/* Match `/home` + `/cases`: flex min-content must not inflate past the band token. */
+		max-height: var(--occ-hero-banner-band-height);
+	}
+
+	[data-testid='case-shell-hero-banner'] .ds-occ-dashboard-hero-banner__stack {
+		height: var(--occ-hero-banner-band-height);
+		min-height: 0;
+		max-height: var(--occ-hero-banner-band-height);
+		box-sizing: border-box;
+	}
+
+	[data-testid='case-shell-hero-banner'] .ds-occ-hero-band__inner--on-banner {
+		min-height: 0;
+	}
+
+	/*
+	 * City bitmap: `cover` fills the strip. Bottom anchoring (`center bottom`) favored the street
+	 * when the band was taller; with `--occ-hero-banner-band-height` shorter it crops almost entirely
+	 * from the top. Center vertically so sky + mid-rise stay visible on /home, /cases, and case shell.
+	 * Optional nudge: `--occ-hero-skyline-nudge-x` (e.g. fine-tune pano alignment).
+	 */
+	.ds-occ-hero-skyline {
+		--occ-hero-skyline-nudge-x: 0px;
+		position: absolute;
+		inset: 0;
+		display: block;
+		width: 100%;
+		height: 100%;
+		min-height: var(--occ-hero-banner-band-height);
+		pointer-events: none;
+		z-index: 0;
+		overflow: hidden;
+		background-color: var(--ds-bg-elevated);
+		opacity: 1;
+	}
+
+	.ds-occ-hero-skyline__img {
+		display: block;
+		width: 100%;
+		height: 100%;
+		max-width: none;
+		object-fit: cover;
+		object-position: center center;
+		transform: translateX(var(--occ-hero-skyline-nudge-x));
+		image-rendering: auto;
 	}
 
 	.ds-occ-hero-band__inner {
@@ -629,6 +1806,23 @@
 				transparent 100%
 			)
 			bottom center / 72% 1px no-repeat;
+	}
+
+	/* Overlay row: same horizontal inset as padded sheet so KPI/columns line up below. */
+	.ds-occ-hero-band__inner--on-banner {
+		align-items: center;
+		padding: 0.75rem var(--occ-surface-pad) 0.625rem;
+		margin-bottom: 0;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 45%, transparent);
+		background: none;
+	}
+
+	html.dark .ds-occ-hero-band__inner--on-banner {
+		color: var(--ds-text-primary);
+		border-bottom-color: color-mix(in oklab, var(--occ-hero-sheet-bridge) 78%, var(--ds-border-default));
+		text-shadow:
+			0 1px 2px rgb(0 0 0 / 0.55),
+			0 0 12px rgb(0 0 0 / 0.35);
 	}
 
 	.ds-occ-hero-band .ds-type-display {
@@ -671,7 +1865,7 @@
 
 	/* P131.9-12 — KPI row gap matches `--ds-space-2` (dashboard grid/board). */
 	.ds-occ-summary-band {
-		max-width: var(--ds-occ-content-max, 80rem);
+		max-width: var(--ds-occ-content-max, 100%);
 		width: 100%;
 		margin-inline: auto;
 		display: grid;
@@ -689,6 +1883,25 @@
 		.ds-occ-summary-band {
 			grid-template-columns: repeat(4, minmax(0, 1fr));
 		}
+	}
+
+	/*
+	 * Summary band is a 4-across KPI grid. The sr-only heading is the first grid item — without a full-row span,
+	 * the next sibling (case overview’s six-tile strip, or Home’s KPI cards) was auto-placed in column 2 only (~¼ width).
+	 */
+	.ds-occ-summary-band > #occ-dashboard-summary-heading {
+		grid-column: 1 / -1;
+	}
+
+	/*
+	 * Must be a descendant selector: summary slot often wraps in `div.contents` (or Svelte fragment); `>` never matched `section`.
+	 */
+	.ds-occ-summary-band [data-testid='case-overview-summary-cards'] {
+		grid-column: 1 / -1;
+		width: 100%;
+		max-width: 100%;
+		min-width: 0;
+		justify-self: stretch;
 	}
 
 	.ds-occ-summary-slot {
@@ -772,6 +1985,18 @@
 			0 3px 12px -7px color-mix(in oklab, var(--occ-kpi-accent) 24%, transparent);
 	}
 
+	/* Case overview — notebook notes (between timeline blue and files green). */
+	.ds-occ-kpi-card--cyan {
+		--occ-kpi-accent: #06b6d4;
+		--occ-kpi-border: color-mix(in oklab, var(--occ-kpi-accent) 32%, var(--ds-border-default));
+		--occ-kpi-wash:
+			radial-gradient(115% 75% at 0% 0%, color-mix(in oklab, var(--occ-kpi-accent) 14%, transparent) 0%, transparent 52%),
+			linear-gradient(165deg, color-mix(in oklab, var(--occ-kpi-accent) 6%, transparent) 0%, transparent 52%);
+		--occ-kpi-glow:
+			0 0 0 1px color-mix(in oklab, var(--occ-kpi-accent) 12%, transparent),
+			0 3px 12px -7px color-mix(in oklab, var(--occ-kpi-accent) 24%, transparent);
+	}
+
 	.ds-occ-kpi-card--amber {
 		--occ-kpi-accent: #f59e0b;
 		--occ-kpi-border: color-mix(in oklab, var(--occ-kpi-accent) 32%, var(--ds-border-default));
@@ -805,6 +2030,438 @@
 			0 3px 12px -7px color-mix(in oklab, var(--occ-kpi-accent) 21%, transparent);
 	}
 
+	/* Same wash/glow system as home OCC KPIs — used by Case overview (six vertical tiles). */
+	.ds-occ-kpi-card--violet {
+		--occ-kpi-accent: #8b5cf6;
+		--occ-kpi-border: color-mix(in oklab, var(--occ-kpi-accent) 32%, var(--ds-border-default));
+		--occ-kpi-wash:
+			radial-gradient(115% 75% at 0% 0%, color-mix(in oklab, var(--occ-kpi-accent) 14%, transparent) 0%, transparent 52%),
+			linear-gradient(165deg, color-mix(in oklab, var(--occ-kpi-accent) 6%, transparent) 0%, transparent 52%);
+		--occ-kpi-glow:
+			0 0 0 1px color-mix(in oklab, var(--occ-kpi-accent) 12%, transparent),
+			0 3px 12px -7px color-mix(in oklab, var(--occ-kpi-accent) 22%, transparent);
+	}
+
+	.ds-occ-kpi-card--yellow {
+		--occ-kpi-accent: #eab308;
+		--occ-kpi-border: color-mix(in oklab, var(--occ-kpi-accent) 32%, var(--ds-border-default));
+		--occ-kpi-wash:
+			radial-gradient(115% 75% at 0% 0%, color-mix(in oklab, var(--occ-kpi-accent) 13%, transparent) 0%, transparent 52%),
+			linear-gradient(165deg, color-mix(in oklab, var(--occ-kpi-accent) 5.5%, transparent) 0%, transparent 52%);
+		--occ-kpi-glow:
+			0 0 0 1px color-mix(in oklab, var(--occ-kpi-accent) 12%, transparent),
+			0 3px 12px -7px color-mix(in oklab, var(--occ-kpi-accent) 21%, transparent);
+	}
+
+	.ds-occ-kpi-card--gold {
+		--occ-kpi-accent: #d97706;
+		--occ-kpi-border: color-mix(in oklab, var(--occ-kpi-accent) 32%, var(--ds-border-default));
+		--occ-kpi-wash:
+			radial-gradient(115% 75% at 0% 0%, color-mix(in oklab, var(--occ-kpi-accent) 13%, transparent) 0%, transparent 52%),
+			linear-gradient(165deg, color-mix(in oklab, var(--occ-kpi-accent) 5.5%, transparent) 0%, transparent 52%);
+		--occ-kpi-glow:
+			0 0 0 1px color-mix(in oklab, var(--occ-kpi-accent) 12%, transparent),
+			0 3px 12px -7px color-mix(in oklab, var(--occ-kpi-accent) 21%, transparent);
+	}
+
+	/* Case overview row: workflow / proposals / warrants — hues spaced apart (vs amber+yellow+gold). */
+	.ds-occ-kpi-card--teal {
+		--occ-kpi-accent: #14b8a6;
+		--occ-kpi-border: color-mix(in oklab, var(--occ-kpi-accent) 32%, var(--ds-border-default));
+		--occ-kpi-wash:
+			radial-gradient(115% 75% at 0% 0%, color-mix(in oklab, var(--occ-kpi-accent) 14%, transparent) 0%, transparent 52%),
+			linear-gradient(165deg, color-mix(in oklab, var(--occ-kpi-accent) 6%, transparent) 0%, transparent 52%);
+		--occ-kpi-glow:
+			0 0 0 1px color-mix(in oklab, var(--occ-kpi-accent) 12%, transparent),
+			0 3px 12px -7px color-mix(in oklab, var(--occ-kpi-accent) 22%, transparent);
+	}
+
+	.ds-occ-kpi-card--rose {
+		--occ-kpi-accent: #f43f5e;
+		--occ-kpi-border: color-mix(in oklab, var(--occ-kpi-accent) 32%, var(--ds-border-default));
+		--occ-kpi-wash:
+			radial-gradient(115% 75% at 0% 0%, color-mix(in oklab, var(--occ-kpi-accent) 13%, transparent) 0%, transparent 52%),
+			linear-gradient(165deg, color-mix(in oklab, var(--occ-kpi-accent) 5.5%, transparent) 0%, transparent 52%);
+		--occ-kpi-glow:
+			0 0 0 1px color-mix(in oklab, var(--occ-kpi-accent) 12%, transparent),
+			0 3px 12px -7px color-mix(in oklab, var(--occ-kpi-accent) 21%, transparent);
+	}
+
+	.ds-occ-kpi-card--orange {
+		--occ-kpi-accent: #ea580c;
+		--occ-kpi-border: color-mix(in oklab, var(--occ-kpi-accent) 32%, var(--ds-border-default));
+		--occ-kpi-wash:
+			radial-gradient(115% 75% at 0% 0%, color-mix(in oklab, var(--occ-kpi-accent) 13%, transparent) 0%, transparent 52%),
+			linear-gradient(165deg, color-mix(in oklab, var(--occ-kpi-accent) 5.5%, transparent) 0%, transparent 52%);
+		--occ-kpi-glow:
+			0 0 0 1px color-mix(in oklab, var(--occ-kpi-accent) 12%, transparent),
+			0 3px 12px -7px color-mix(in oklab, var(--occ-kpi-accent) 21%, transparent);
+	}
+
+	/*
+	 * Case overview / Summary — seven KPI rectangles (vertical stack: label | metric | support).
+	 * Reuses home `ds-occ-kpi-card` color tokens + translucent tile treatment (P131.7-04 family).
+	 */
+	.ds-case-overview-kpi-tile.ds-occ-kpi-card {
+		flex-direction: column;
+		align-items: stretch;
+		justify-content: flex-start;
+		gap: 0.125rem;
+		min-height: 0;
+		min-width: 0;
+		padding: 0.375rem 0.4375rem;
+		border-radius: var(--ds-radius-sm);
+	}
+
+	.ds-case-overview-kpi-tile.ds-occ-kpi-card .ds-occ-kpi-card__metric {
+		font-size: clamp(1.125rem, 0.9rem + 0.6vw, 1.4rem);
+		line-height: 1.05;
+	}
+
+	.ds-case-overview-kpi-tile__head {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.25rem;
+		flex-shrink: 0;
+	}
+
+	.ds-case-overview-kpi-tile__head .ds-occ-kpi-card__label {
+		margin-top: 0;
+		font-size: 0.5625rem;
+		line-height: 1.12;
+	}
+
+	.ds-case-overview-kpi-tile__icon {
+		flex-shrink: 0;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: var(--ds-radius-sm);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background-color: color-mix(in oklab, var(--occ-kpi-accent) 12%, var(--ds-bg-muted));
+		box-shadow: inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
+		color: var(--occ-kpi-accent);
+	}
+
+	.ds-case-overview-kpi-tile__icon :is(svg) {
+		width: 0.9375rem;
+		height: 0.9375rem;
+		flex-shrink: 0;
+	}
+
+	.ds-case-overview-kpi-tile__stack {
+		display: flex;
+		flex: 1 1 auto;
+		flex-direction: column;
+		justify-content: flex-start;
+		min-height: 0;
+		gap: 0.0625rem;
+		padding-top: 0;
+	}
+
+	.ds-case-overview-kpi-tile .ds-occ-kpi-card__support {
+		font-size: calc(var(--ds-type-meta-size) * 0.88);
+		line-height: 1.18;
+	}
+
+	/*
+	 * Case Activity tab — feed rows reuse `--occ-kpi-accent` from `ds-occ-kpi-card--*` modifiers
+	 * (same domain colors as Summary KPI tiles; docs/CASE_OVERVIEW_KPI_CANON.md).
+	 */
+	.ds-case-activity-feed-card {
+		position: relative;
+		display: flex;
+		flex-direction: column;
+		min-width: 0;
+		border-radius: var(--ds-radius-md);
+		border: 1px solid color-mix(in oklab, var(--occ-kpi-accent) 22%, var(--ds-border-default));
+		background-color: var(--ds-bg-surface);
+		background-image:
+			radial-gradient(120% 80% at 0% 0%, color-mix(in oklab, var(--occ-kpi-accent) 10%, transparent) 0%, transparent 55%),
+			linear-gradient(165deg, color-mix(in oklab, var(--occ-kpi-accent) 4%, transparent) 0%, transparent 50%);
+		box-shadow:
+			0 0 0 1px color-mix(in oklab, var(--occ-kpi-accent) 8%, transparent),
+			0 1px 6px -4px color-mix(in oklab, var(--occ-kpi-accent) 16%, transparent);
+	}
+
+	.ds-case-activity-feed-card__inner {
+		display: flex;
+		gap: 0.5rem;
+		align-items: flex-start;
+		padding: 0.4375rem 0.5rem;
+		min-width: 0;
+	}
+
+	.ds-case-activity-feed-card__icon-well {
+		flex-shrink: 0;
+		width: 1.5rem;
+		height: 1.5rem;
+		border-radius: calc(var(--ds-radius-sm) * 0.85);
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		background-color: color-mix(in oklab, var(--occ-kpi-accent) 12%, var(--ds-bg-muted));
+		box-shadow: inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
+		color: var(--occ-kpi-accent);
+	}
+
+	.ds-case-activity-feed-card__icon-well :is(svg) {
+		width: 0.875rem;
+		height: 0.875rem;
+	}
+
+	.ds-case-activity-feed-card__body {
+		display: flex;
+		min-width: 0;
+		flex: 1 1 auto;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.ds-case-activity-feed-card__title-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		justify-content: space-between;
+		gap: 0.25rem 0.5rem;
+		row-gap: 0.125rem;
+	}
+
+	.ds-case-activity-feed-card__title-main {
+		display: flex;
+		min-width: 0;
+		flex: 1 1 min(100%, 14rem);
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.25rem 0.375rem;
+	}
+
+	.ds-case-activity-feed-card__when {
+		flex-shrink: 0;
+		font-size: calc(var(--ds-type-meta-size) * 0.95);
+		line-height: 1.2;
+		color: var(--ds-text-muted);
+		white-space: nowrap;
+	}
+
+	.ds-case-activity-feed-card__summary {
+		margin: 0;
+		font-size: 0.8125rem;
+		line-height: 1.35;
+		color: var(--ds-text-secondary);
+		display: -webkit-box;
+		-webkit-box-orient: vertical;
+		-webkit-line-clamp: 2;
+		line-clamp: 2;
+		overflow: hidden;
+	}
+
+	.ds-case-activity-feed-card__meta-line {
+		margin: 0;
+		font-size: calc(var(--ds-type-meta-size) * 0.92);
+		line-height: 1.25;
+		color: var(--ds-text-muted);
+	}
+
+	.ds-case-activity-feed-card__actions {
+		display: flex;
+		flex-shrink: 0;
+		flex-direction: column;
+		align-items: flex-end;
+		justify-content: flex-start;
+		gap: 0.25rem;
+		padding-top: 0.0625rem;
+	}
+
+	.ds-case-activity-toolbar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.375rem 0.5rem;
+		margin-bottom: 0.5rem;
+	}
+
+	/* Single bar: search + filters (left), counts + domain chips (right). */
+	.ds-case-activity-chrome {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		column-gap: 0.75rem;
+		row-gap: 0.5rem;
+		margin-bottom: 0.75rem;
+		padding: 0.35rem 0.5rem;
+		border-radius: var(--ds-radius-md);
+		border: 1px solid var(--ds-border-subtle);
+		background-color: var(--ds-bg-muted);
+	}
+
+	.ds-case-activity-chrome__left {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		min-width: 0;
+		flex: 1 1 14rem;
+	}
+
+	.ds-case-activity-chrome__left .ds-case-activity-toolbar__search {
+		flex: 1 1 8rem;
+		min-width: 6.5rem;
+		max-width: 24rem;
+		min-height: 2.75rem;
+		box-sizing: border-box;
+		padding: 0.5rem 0.75rem;
+		font-size: 0.875rem;
+		line-height: 1.35;
+	}
+
+	.ds-case-activity-chrome__right {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: 0.3rem 0.45rem;
+		flex: 0 1 auto;
+		min-width: 0;
+		max-width: min(100%, 44rem);
+		text-align: right;
+	}
+
+	.ds-case-activity-feed-summary--in-chrome {
+		margin-bottom: 0;
+		padding: 0;
+		border: none;
+		background: transparent;
+	}
+
+	.ds-case-activity-feed-summary--in-chrome .ds-case-activity-feed-summary__chip {
+		padding: 0.0625rem 0.4rem;
+		font-size: calc(var(--ds-type-meta-size) * 0.92);
+	}
+
+	.ds-case-activity-feed-summary__chip--zero {
+		opacity: 0.52;
+	}
+
+	.ds-case-activity-toolbar__search {
+		min-width: 8rem;
+		flex: 1 1 10rem;
+		border-radius: var(--ds-radius-sm);
+		border: 1px solid var(--ds-border-default);
+		background-color: var(--ds-bg-surface);
+		padding: 0.25rem 0.5rem;
+		font-size: 0.8125rem;
+		line-height: 1.25;
+		color: var(--ds-text-primary);
+	}
+
+	.ds-case-activity-toolbar__search::placeholder {
+		color: var(--ds-text-muted);
+	}
+
+	.ds-case-activity-toolbar__search:focus {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 1px;
+	}
+
+	.ds-case-activity-toolbar__domain {
+		flex: 0 1 auto;
+		border-radius: var(--ds-radius-sm);
+		border: 1px solid var(--ds-border-default);
+		background-color: var(--ds-bg-surface);
+		padding: 0.25rem 0.375rem;
+		font-size: 0.75rem;
+		line-height: 1.25;
+		color: var(--ds-text-primary);
+	}
+
+	.ds-case-activity-toolbar__domain:focus {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 1px;
+	}
+
+	.ds-case-activity-toolbar__date {
+		flex: 0 1 auto;
+		min-width: 0;
+		border-radius: var(--ds-radius-sm);
+		border: 1px solid var(--ds-border-default);
+		background-color: var(--ds-bg-surface);
+		padding: 0.125rem 0.375rem;
+		font-size: 0.75rem;
+		line-height: 1.35;
+		color: var(--ds-text-primary);
+	}
+
+	.ds-case-activity-toolbar__date:focus {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 1px;
+	}
+
+	.ds-case-activity-feed-card__by {
+		min-width: 0;
+		flex: 0 1 auto;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+		font-size: calc(var(--ds-type-meta-size) * 0.95);
+		line-height: 1.25;
+		color: var(--ds-text-secondary);
+	}
+
+	.ds-case-activity-feed-summary {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.375rem 0.5rem;
+		margin-bottom: 0.75rem;
+		padding: 0.5rem 0.625rem;
+		border-radius: var(--ds-radius-md);
+		border: 1px solid var(--ds-border-subtle);
+		background-color: var(--ds-bg-muted);
+	}
+
+	.ds-case-activity-feed-summary__chip {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.25rem;
+		padding: 0.125rem 0.5rem;
+		border-radius: 9999px;
+		font-size: calc(var(--ds-type-meta-size) * 0.95);
+		line-height: 1.2;
+		font-weight: 500;
+		border: 1px solid color-mix(in oklab, var(--occ-kpi-accent) 28%, var(--ds-border-default));
+		background-color: color-mix(in oklab, var(--occ-kpi-accent) 8%, var(--ds-bg-surface));
+		color: var(--ds-text-secondary);
+	}
+
+	.ds-case-activity-feed-summary__chip-dot {
+		width: 0.4375rem;
+		height: 0.4375rem;
+		border-radius: 9999px;
+		background-color: var(--occ-kpi-accent);
+	}
+
+	/* Must sit inside `.ds-case-activity-feed-card` (or sibling with `ds-occ-kpi-card--*`) so `--occ-kpi-accent` resolves. */
+	.ds-case-activity-feed-domain-chip {
+		display: inline-flex;
+		max-width: 100%;
+		align-items: center;
+		border-radius: 9999px;
+		border-width: 1px;
+		border-style: solid;
+		border-color: color-mix(in oklab, var(--occ-kpi-accent) 35%, var(--ds-border-default));
+		background-color: color-mix(in oklab, var(--occ-kpi-accent) 8%, var(--ds-bg-surface));
+		padding: 0.0625rem 0.375rem;
+		font-size: 0.625rem;
+		font-weight: 600;
+		line-height: 1.15;
+		text-transform: uppercase;
+		letter-spacing: 0.02em;
+		color: var(--occ-kpi-accent);
+	}
+
 	.ds-occ-kpi-card__icon-tile,
 	.ds-occ-kpi-card__action-tile {
 		flex-shrink: 0;
@@ -821,9 +2478,33 @@
 
 	.ds-occ-kpi-card__icon-tile :is(svg),
 	.ds-occ-kpi-card__action-tile :is(svg) {
-		width: 1rem;
-		height: 1rem;
+		width: 1.5rem;
+		height: 1.5rem;
 		flex-shrink: 0;
+	}
+
+	/* Mockup parity: narrow trend column (decorative). */
+	.ds-occ-kpi-card__trend {
+		flex-shrink: 0;
+		display: flex;
+		align-items: center;
+		justify-content: center;
+		width: 0.75rem;
+		opacity: 0.92;
+	}
+
+	.ds-occ-kpi-card__trend :is(svg) {
+		width: 0.625rem;
+		height: 0.625rem;
+		flex-shrink: 0;
+	}
+
+	.ds-occ-kpi-card__trend--positive {
+		color: #22c55e;
+	}
+
+	.ds-occ-kpi-card__trend--warning {
+		color: #fb923c;
 	}
 
 	.ds-occ-kpi-card__body {
@@ -898,17 +2579,23 @@
 	}
 
 	.ds-occ-kpi-card--skeleton .ds-occ-kpi-card__icon-tile,
-	.ds-occ-kpi-card--skeleton .ds-occ-kpi-card__action-tile {
+	.ds-occ-kpi-card--skeleton .ds-occ-kpi-card__action-tile,
+	.ds-occ-kpi-card--skeleton .ds-occ-kpi-card__trend {
 		background: transparent;
 		box-shadow: none;
 		border: 1px dashed color-mix(in oklab, var(--ds-border-default) 55%, transparent);
 		color: var(--ds-text-muted);
 	}
 
+	.ds-occ-kpi-card--skeleton .ds-occ-kpi-card__trend {
+		border: none;
+	}
+
 	/*
 	 * P131.7-05 — Home dashboard bottom-6 cards: shared outer shell (neutral depth vs KPI row).
 	 * P131.8-03 — Denser header/body rhythm: shared padding + header row gaps (shell only; row internals unchanged).
 	 * P131.9-03 — Tighter body + header horizontal inset (shell edge padding only; row/list internals unchanged).
+	 * P131.9-16 — Bottom-6 **cell body** inset: shared `.ds-occ-board-card__body` padding (not row-item selectors; row framing is P131.9-13).
 	 * Header/body zones: `.ds-occ-board-card__header` + `.ds-occ-board-card__body` inside the shell.
 	 */
 	.ds-occ-main-section,
@@ -961,13 +2648,53 @@
 		margin: 0;
 	}
 
+	/*
+	 * Bottom-6 dashboard — title bar same height as Activity & review queue (single-line rhythm).
+	 * Icons / actions stay on one row; vertical padding normalized so cells don’t vary in height.
+	 */
+	.ds-occ-dashboard-grid :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header,
+	.ds-occ-dashboard-board :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header {
+		box-sizing: border-box;
+		height: 2.75rem;
+		min-height: 2.75rem;
+		max-height: 2.75rem;
+		padding: 0 var(--ds-space-2);
+	}
+
+	.ds-occ-dashboard-grid :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header > .ds-occ-section-header-row,
+	.ds-occ-dashboard-board :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header > .ds-occ-section-header-row {
+		margin-bottom: 0;
+		flex-wrap: nowrap;
+		align-items: center;
+		gap: 0.75rem;
+		min-height: 0;
+	}
+
+	.ds-occ-dashboard-grid :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header .ds-occ-section-header-row__title,
+	.ds-occ-dashboard-board :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header .ds-occ-section-header-row__title {
+		min-width: 0;
+		flex: 1 1 auto;
+	}
+
+	.ds-occ-dashboard-grid :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header .ds-occ-section-header-row__title h3,
+	.ds-occ-dashboard-board :is(.ds-occ-main-section, .ds-occ-rail-panel) .ds-occ-board-card__header .ds-occ-section-header-row__title h3 {
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
 	.ds-occ-board-card__body {
 		flex: 1 1 auto;
 		display: flex;
 		flex-direction: column;
 		min-height: 0;
 		min-width: 0;
-		padding: var(--ds-space-1) var(--ds-space-2) var(--ds-space-3);
+		padding: 0.125rem var(--ds-space-1) var(--ds-space-2);
+	}
+
+	/* Active/assigned case list: flush to card edge on the right (row chrome has its own menu column). */
+	.ds-occ-board-card__body:has(.ds-occ-ccase-list) {
+		padding-right: 0;
 	}
 
 	.ds-occ-board-card__body > .ds-occ-state-container {
@@ -1054,12 +2781,110 @@
 	/*
 	 * P131.7-06 — Home OCC left column: Active/Assigned case rows + Workflow task queue (internals only).
 	 * P131.8-04 — Row density: tighter list gaps, row padding, icon/text/meta rhythm (structure unchanged).
+	 * P131.9-13 — Bottom-6 list row framing (cases / workflow / activity / intel / proposals); see docs/phases/phase_131_9/P131_9-13_CLOSURE.md.
 	 */
 	.ds-occ-ccase-list {
 		display: flex;
 		flex-direction: column;
 		gap: 0.25rem;
 		min-width: 0;
+	}
+
+	/*
+	 * Two-line density (# + title, then incident line). Do not cap height + overflow:hidden
+	 * on __text — min-height:0 + overflow hidden collapsed the column in flex layouts.
+	 */
+	.ds-occ-ccase-list .ds-occ-ccase-row__text {
+		justify-content: flex-start;
+		gap: 0.0625rem;
+		min-height: auto;
+		align-self: center;
+	}
+
+	.ds-occ-ccase-list .ds-occ-ccase-row__text:not(:has(.ds-occ-ccase-row__subline)) {
+		justify-content: center;
+	}
+
+	.ds-occ-ccase-list .ds-occ-ccase-row__line1 {
+		min-height: 0;
+		margin-top: -0.125rem;
+		gap: 0.25rem 0.375rem;
+	}
+
+	.ds-occ-ccase-list .ds-occ-ccase-row__text:not(:has(.ds-occ-ccase-row__subline)) .ds-occ-ccase-row__line1 {
+		margin-top: 0;
+	}
+
+	.ds-occ-ccase-list .ds-occ-ccase-row__num,
+	.ds-occ-ccase-list .ds-occ-ccase-row__title {
+		font-size: 0.6875rem;
+		line-height: 1.15;
+	}
+
+	/* Incident line + “Updated …”: identical type ramp (same as Incident: mm/dd/yyyy). */
+	.ds-occ-ccase-list .ds-occ-ccase-row__subline,
+	.ds-occ-ccase-list .ds-occ-ccase-row__updated {
+		font-size: 0.625rem;
+		line-height: 1.15;
+	}
+
+	.ds-occ-ccase-list .ds-occ-ccase-row__subline {
+		margin: 0;
+	}
+
+	/* Right column: unit chip + Updated stack. */
+	.ds-occ-ccase-list .ds-occ-ccase-row__meta {
+		padding: 0;
+		flex-direction: column;
+		align-items: flex-end;
+		justify-content: center;
+		gap: 0.0625rem;
+		min-width: 0;
+		max-height: none;
+		flex-shrink: 0;
+	}
+
+	/*
+	 * Unit chip: rectangular (not pill), no border/outline; match report # sizing.
+	 * Overrides `.ds-badge` / `.ds-badge-unit-*` oval + border from detectiveBadgesChips.css.
+	 */
+	.ds-occ-ccase-list .ds-occ-ccase-row__meta .ds-badge {
+		min-height: 0;
+		font-size: 0.6875rem;
+		line-height: 1.15;
+		max-height: none;
+		padding: 0 0.3125rem;
+		font-family: var(--ds-font-mono, ui-monospace, monospace);
+		font-weight: 700;
+		border-radius: 0;
+		border: none;
+		outline: none;
+		box-shadow: none;
+	}
+
+	.ds-occ-ccase-list .ds-occ-ccase-row__updated {
+		display: block;
+		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		max-width: 5.5rem;
+		text-align: right;
+		color: var(--ds-text-muted);
+	}
+
+	.ds-occ-ccase-list .ds-occ-ccase-row {
+		align-items: stretch;
+		min-height: 2.25rem;
+		/* Breathing room between “Updated …” and the ⋮ menu column. */
+		gap: 0.375rem;
+	}
+
+	.ds-occ-ccase-list .ds-occ-ccase-row__main {
+		align-self: stretch;
+	}
+
+	.ds-occ-ccase-list .ds-occ-ccase-row__menu {
+		align-self: stretch;
 	}
 
 	.ds-occ-ccase-row {
@@ -1086,9 +2911,9 @@
 		min-width: 0;
 		display: flex;
 		flex-direction: row;
-		align-items: flex-start;
+		align-items: center;
 		gap: 0.375rem;
-		padding: 0.3125rem 0 0.3125rem 0.3125rem;
+		padding: 0 0 0 0.3125rem;
 		margin: 0;
 		border: none;
 		background: transparent;
@@ -1128,15 +2953,17 @@
 		min-width: 0;
 		display: flex;
 		flex-direction: column;
-		gap: 0.0625rem;
-		padding: 0.0625rem 0;
+		gap: 0;
+		padding: 0;
+		justify-content: center;
+		min-height: 0;
 	}
 
 	.ds-occ-ccase-row__line1 {
 		display: flex;
 		flex-direction: row;
-		align-items: baseline;
-		flex-wrap: wrap;
+		align-items: center;
+		flex-wrap: nowrap;
 		gap: 0.375rem 0.5rem;
 		min-width: 0;
 	}
@@ -1177,25 +3004,37 @@
 	.ds-occ-ccase-row__meta {
 		flex-shrink: 0;
 		display: flex;
-		flex-direction: column;
-		align-items: flex-end;
-		justify-content: center;
-		gap: 0.125rem;
-		padding: 0.1875rem 0.3125rem 0.1875rem 0;
+		flex-direction: row;
+		flex-wrap: nowrap;
+		align-items: center;
+		justify-content: flex-end;
+		align-content: center;
+		gap: 0.25rem 0.375rem;
+		padding: 0 0.3125rem 0 0;
 		min-width: 4.5rem;
+		max-height: 2.25rem;
 		text-align: right;
 	}
 
-	.ds-occ-ccase-row__meta :global(.ds-badge) {
+	.ds-occ-ccase-row__meta .ds-badge {
 		font-size: 0.625rem;
-		padding: 0.0625rem 0.375rem;
+		line-height: 1.125rem;
+		max-height: 1.125rem;
+		padding: 0 0.375rem;
+		display: inline-flex;
+		align-items: center;
 	}
 
 	.ds-occ-ccase-row__updated {
 		font-size: 0.625rem;
-		line-height: 1.2;
+		line-height: 1.125rem;
+		max-height: 1.125rem;
 		color: var(--ds-text-muted);
 		white-space: nowrap;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		display: inline-block;
+		vertical-align: middle;
 	}
 
 	.ds-occ-ccase-row__menu {
@@ -1416,7 +3255,7 @@
 		text-align: right;
 	}
 
-	.ds-occ-cwf-task-row__meta :global(.ds-badge) {
+	.ds-occ-cwf-task-row__meta .ds-badge {
 		font-size: 0.625rem;
 		padding: 0.0625rem 0.375rem;
 	}
@@ -1517,7 +3356,7 @@
 		padding-top: 0.03125rem;
 	}
 
-	.ds-occ-cfeed-row__meta :global(.ds-badge) {
+	.ds-occ-cfeed-row__meta .ds-badge {
 		font-size: 0.625rem;
 		padding: 0.0625rem 0.3125rem;
 	}
@@ -1619,7 +3458,7 @@
 		padding-top: 0.0625rem;
 	}
 
-	.ds-occ-cintel-row__meta :global(.ds-badge) {
+	.ds-occ-cintel-row__meta .ds-badge {
 		font-size: 0.625rem;
 		padding: 0.0625rem 0.3125rem;
 	}
@@ -1635,19 +3474,169 @@
 	 * P131.7-08 — Home OCC right column: AI Assistant + Pending Proposals (internals only).
 	 * P131.8-06 — Assistant input emphasis: stronger shell + send, clearer intro/input/pills rhythm (behavior unchanged).
 	 */
+	/* AI Assistant title — celestial blue wash + star dots (scoped via `data-occ-rail-slot="assistant"`). */
+	.ds-occ-rail-panel[data-occ-rail-slot='assistant'] .ds-occ-section-header-row__title {
+		position: relative;
+		align-self: stretch;
+		display: flex;
+		align-items: center;
+		min-width: 0;
+		padding-inline: 0.5rem;
+		margin-inline: -0.25rem;
+		border-radius: var(--ds-radius-sm);
+	}
+
+	.ds-occ-rail-panel[data-occ-rail-slot='assistant'] .ds-occ-section-header-row__title::before {
+		content: '';
+		position: absolute;
+		inset: 0.15rem 0.2rem;
+		border-radius: calc(var(--ds-radius-sm) - 1px);
+		pointer-events: none;
+		z-index: 0;
+		opacity: 0.98;
+		background-color: color-mix(in oklab, var(--ds-accent) 14%, #e8f0ff);
+		background-image:
+			linear-gradient(
+				168deg,
+				color-mix(in oklab, var(--ds-accent) 22%, #dbeafe) 0%,
+				color-mix(in oklab, var(--ds-accent) 10%, #bfdbfe) 52%,
+				color-mix(in oklab, #93c5fd 18%, #dbeafe) 100%
+			),
+			radial-gradient(1px 1px at 8% 42%, rgba(255, 255, 255, 0.95) 50%, transparent 52%),
+			radial-gradient(1px 1px at 18% 28%, rgba(255, 255, 255, 0.55) 50%, transparent 52%),
+			radial-gradient(1px 1px at 28% 58%, rgba(255, 255, 255, 0.75) 50%, transparent 52%),
+			radial-gradient(1px 1px at 42% 22%, rgba(255, 255, 255, 0.45) 50%, transparent 52%),
+			radial-gradient(1px 1px at 52% 48%, rgba(255, 255, 255, 0.88) 50%, transparent 52%),
+			radial-gradient(1px 1px at 62% 32%, rgba(255, 255, 255, 0.5) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 72% 62%, rgba(255, 255, 255, 0.92) 50%, transparent 52%),
+			radial-gradient(1px 1px at 82% 38%, rgba(255, 255, 255, 0.62) 50%, transparent 52%),
+			radial-gradient(1px 1px at 90% 52%, rgba(255, 255, 255, 0.78) 50%, transparent 52%),
+			radial-gradient(1px 1px at 14% 68%, rgba(255, 255, 255, 0.4) 50%, transparent 52%),
+			radial-gradient(1px 1px at 38% 72%, rgba(255, 255, 255, 0.68) 50%, transparent 52%),
+			radial-gradient(1px 1px at 66% 18%, rgba(255, 255, 255, 0.52) 50%, transparent 52%),
+			radial-gradient(1px 1px at 94% 24%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1px 1px at 4% 18%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1px 1px at 11% 8%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 22% 82%, rgba(255, 255, 255, 0.72) 50%, transparent 52%),
+			radial-gradient(1px 1px at 33% 12%, rgba(255, 255, 255, 0.5) 50%, transparent 52%),
+			radial-gradient(1px 1px at 47% 65%, rgba(255, 255, 255, 0.38) 50%, transparent 52%),
+			radial-gradient(1px 1px at 58% 8%, rgba(255, 255, 255, 0.65) 50%, transparent 52%),
+			radial-gradient(1px 1px at 68% 78%, rgba(255, 255, 255, 0.46) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 76% 12%, rgba(255, 255, 255, 0.88) 50%, transparent 52%),
+			radial-gradient(1px 1px at 85% 68%, rgba(255, 255, 255, 0.55) 50%, transparent 52%),
+			radial-gradient(1px 1px at 96% 8%, rgba(255, 255, 255, 0.7) 50%, transparent 52%),
+			radial-gradient(1px 1px at 6% 88%, rgba(255, 255, 255, 0.44) 50%, transparent 52%),
+			radial-gradient(1px 1px at 31% 38%, rgba(255, 255, 255, 0.6) 50%, transparent 52%),
+			radial-gradient(1px 1px at 44% 88%, rgba(255, 255, 255, 0.52) 50%, transparent 52%),
+			radial-gradient(1px 1px at 55% 28%, rgba(255, 255, 255, 0.66) 50%, transparent 52%),
+			radial-gradient(1px 1px at 64% 52%, rgba(255, 255, 255, 0.4) 50%, transparent 52%),
+			radial-gradient(1px 1px at 78% 42%, rgba(255, 255, 255, 0.74) 50%, transparent 52%),
+			radial-gradient(1px 1px at 88% 12%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1px 1px at 17% 48%, rgba(255, 255, 255, 0.56) 50%, transparent 52%),
+			radial-gradient(1px 1px at 49% 12%, rgba(255, 255, 255, 0.64) 50%, transparent 52%),
+			radial-gradient(1px 1px at 59% 82%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 71% 88%, rgba(255, 255, 255, 0.9) 50%, transparent 52%),
+			radial-gradient(1px 1px at 25% 92%, rgba(255, 255, 255, 0.5) 50%, transparent 52%),
+			radial-gradient(1px 1px at 91% 78%, rgba(255, 255, 255, 0.62) 50%, transparent 52%),
+			radial-gradient(1px 1px at 2% 52%, rgba(255, 255, 255, 0.46) 50%, transparent 52%),
+			radial-gradient(1px 1px at 7% 72%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1px 1px at 13% 22%, rgba(255, 255, 255, 0.64) 50%, transparent 52%),
+			radial-gradient(1px 1px at 19% 62%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 27% 2%, rgba(255, 255, 255, 0.52) 50%, transparent 52%),
+			radial-gradient(1px 1px at 35% 52%, rgba(255, 255, 255, 0.7) 50%, transparent 52%),
+			radial-gradient(1px 1px at 41% 8%, rgba(255, 255, 255, 0.44) 50%, transparent 52%),
+			radial-gradient(1px 1px at 48% 38%, rgba(255, 255, 255, 0.6) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 53% 92%, rgba(255, 255, 255, 0.86) 50%, transparent 52%),
+			radial-gradient(1px 1px at 61% 68%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1px 1px at 69% 2%, rgba(255, 255, 255, 0.56) 50%, transparent 52%),
+			radial-gradient(1px 1px at 74% 58%, rgba(255, 255, 255, 0.68) 50%, transparent 52%),
+			radial-gradient(1px 1px at 79% 22%, rgba(255, 255, 255, 0.4) 50%, transparent 52%),
+			radial-gradient(1px 1px at 84% 92%, rgba(255, 255, 255, 0.54) 50%, transparent 52%),
+			radial-gradient(1px 1px at 89% 48%, rgba(255, 255, 255, 0.72) 50%, transparent 52%),
+			radial-gradient(1px 1px at 93% 62%, rgba(255, 255, 255, 0.45) 50%, transparent 52%),
+			radial-gradient(1px 1px at 97% 32%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1px 1px at 15% 92%, rgba(255, 255, 255, 0.5) 50%, transparent 52%),
+			radial-gradient(1px 1px at 29% 22%, rgba(255, 255, 255, 0.62) 50%, transparent 52%),
+			radial-gradient(1px 1px at 37% 62%, rgba(255, 255, 255, 0.38) 50%, transparent 52%),
+			radial-gradient(1px 1px at 51% 72%, rgba(255, 255, 255, 0.66) 50%, transparent 52%),
+			radial-gradient(1px 1px at 63% 42%, rgba(255, 255, 255, 0.47) 50%, transparent 52%),
+			radial-gradient(1px 1px at 73% 32%, rgba(255, 255, 255, 0.76) 50%, transparent 52%),
+			radial-gradient(1px 1px at 81% 18%, rgba(255, 255, 255, 0.43) 50%, transparent 52%),
+			radial-gradient(1px 1px at 86% 58%, rgba(255, 255, 255, 0.59) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 9% 38%, rgba(255, 255, 255, 0.91) 50%, transparent 52%),
+			radial-gradient(1px 1px at 56% 18%, rgba(255, 255, 255, 0.51) 50%, transparent 52%),
+			radial-gradient(1px 1px at 39% 18%, rgba(255, 255, 255, 0.63) 50%, transparent 52%),
+			radial-gradient(1px 1px at 46% 58%, rgba(255, 255, 255, 0.41) 50%, transparent 52%),
+			radial-gradient(1px 1px at 18% 82%, rgba(255, 255, 255, 0.57) 50%, transparent 52%),
+			radial-gradient(1px 1px at 99% 12%, rgba(255, 255, 255, 0.49) 50%, transparent 52%),
+			radial-gradient(1px 1px at 1% 28%, rgba(255, 255, 255, 0.53) 50%, transparent 52%),
+			radial-gradient(1px 1px at 3% 8%, rgba(255, 255, 255, 0.44) 50%, transparent 52%),
+			radial-gradient(1px 1px at 5% 98%, rgba(255, 255, 255, 0.61) 50%, transparent 52%),
+			radial-gradient(1px 1px at 10% 48%, rgba(255, 255, 255, 0.47) 50%, transparent 52%),
+			radial-gradient(1px 1px at 21% 38%, rgba(255, 255, 255, 0.69) 50%, transparent 52%),
+			radial-gradient(1px 1px at 24% 68%, rgba(255, 255, 255, 0.4) 50%, transparent 52%),
+			radial-gradient(1px 1px at 32% 28%, rgba(255, 255, 255, 0.55) 50%, transparent 52%),
+			radial-gradient(1px 1px at 36% 88%, rgba(255, 255, 255, 0.62) 50%, transparent 52%),
+			radial-gradient(1px 1px at 43% 42%, rgba(255, 255, 255, 0.43) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 50% 22%, rgba(255, 255, 255, 0.89) 50%, transparent 52%),
+			radial-gradient(1px 1px at 54% 62%, rgba(255, 255, 255, 0.51) 50%, transparent 52%),
+			radial-gradient(1px 1px at 57% 8%, rgba(255, 255, 255, 0.67) 50%, transparent 52%),
+			radial-gradient(1px 1px at 60% 38%, rgba(255, 255, 255, 0.46) 50%, transparent 52%),
+			radial-gradient(1px 1px at 65% 12%, rgba(255, 255, 255, 0.58) 50%, transparent 52%),
+			radial-gradient(1px 1px at 70% 48%, rgba(255, 255, 255, 0.71) 50%, transparent 52%),
+			radial-gradient(1px 1px at 75% 8%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 77% 72%, rgba(255, 255, 255, 0.54) 50%, transparent 52%),
+			radial-gradient(1px 1px at 82% 28%, rgba(255, 255, 255, 0.65) 50%, transparent 52%),
+			radial-gradient(1px 1px at 87% 82%, rgba(255, 255, 255, 0.48) 50%, transparent 52%),
+			radial-gradient(1px 1px at 92% 18%, rgba(255, 255, 255, 0.73) 50%, transparent 52%),
+			radial-gradient(1px 1px at 95% 88%, rgba(255, 255, 255, 0.39) 50%, transparent 52%),
+			radial-gradient(1px 1px at 98% 52%, rgba(255, 255, 255, 0.56) 50%, transparent 52%),
+			radial-gradient(1px 1px at 8% 62%, rgba(255, 255, 255, 0.52) 50%, transparent 52%),
+			radial-gradient(1px 1px at 16% 12%, rgba(255, 255, 255, 0.6) 50%, transparent 52%),
+			radial-gradient(1px 1px at 30% 48%, rgba(255, 255, 255, 0.45) 50%, transparent 52%),
+			radial-gradient(1px 1px at 40% 32%, rgba(255, 255, 255, 0.68) 50%, transparent 52%),
+			radial-gradient(1px 1px at 45% 78%, rgba(255, 255, 255, 0.41) 50%, transparent 52%),
+			radial-gradient(1px 1px at 52% 82%, rgba(255, 255, 255, 0.59) 50%, transparent 52%),
+			radial-gradient(1px 1px at 67% 28%, rgba(255, 255, 255, 0.5) 50%, transparent 52%),
+			radial-gradient(1px 1px at 71% 52%, rgba(255, 255, 255, 0.77) 50%, transparent 52%),
+			radial-gradient(1.25px 1.25px at 83% 42%, rgba(255, 255, 255, 0.87) 50%, transparent 52%),
+			radial-gradient(1px 1px at 88% 72%, rgba(255, 255, 255, 0.44) 50%, transparent 52%),
+			radial-gradient(1px 1px at 23% 8%, rgba(255, 255, 255, 0.63) 50%, transparent 52%),
+			radial-gradient(1px 1px at 34% 98%, rgba(255, 255, 255, 0.46) 50%, transparent 52%),
+			radial-gradient(1px 1px at 59% 48%, rgba(255, 255, 255, 0.57) 50%, transparent 52%),
+			radial-gradient(1px 1px at 76% 92%, rgba(255, 255, 255, 0.66) 50%, transparent 52%),
+			radial-gradient(1px 1px at 14% 38%, rgba(255, 255, 255, 0.42) 50%, transparent 52%),
+			radial-gradient(1px 1px at 42% 2%, rgba(255, 255, 255, 0.74) 50%, transparent 52%),
+			radial-gradient(1px 1px at 62% 98%, rgba(255, 255, 255, 0.48) 50%, transparent 52%);
+	}
+
+	.ds-occ-rail-panel[data-occ-rail-slot='assistant'] .ds-occ-section-header-row__title h3 {
+		position: relative;
+		z-index: 1;
+		text-shadow: 0 1px 1px color-mix(in oklab, white 35%, transparent);
+	}
+
+	/* Header "New Chat": secondary frame + soft accent aura (same hue system as `.ds-occ-rail-assist-send`). */
+	.ds-btn.ds-occ-rail-assist-header-new-chat:not(:disabled) {
+		border-color: color-mix(in oklab, var(--ds-accent) 42%, var(--ds-border-strong));
+		box-shadow:
+			0 0 0 1px color-mix(in oklab, var(--ds-accent) 18%, transparent),
+			0 2px 10px color-mix(in oklab, var(--ds-accent) 20%, transparent),
+			0 0 18px color-mix(in oklab, var(--ds-accent) 14%, transparent);
+	}
+
+	.ds-btn.ds-occ-rail-assist-header-new-chat:hover:not(:disabled) {
+		border-color: color-mix(in oklab, var(--ds-accent) 58%, var(--ds-border-default));
+		box-shadow: var(--occ-header-new-chat-hover-glow);
+	}
+
 	.ds-occ-rail-assist-stack {
 		display: flex;
 		flex-direction: column;
 		gap: 0.5rem;
 		min-width: 0;
-	}
-
-	.ds-occ-rail-assist-intro {
-		margin: 0;
-		font-size: var(--ds-type-meta-size);
-		line-height: 1.38;
-		color: var(--ds-text-secondary);
-		padding-bottom: 0.0625rem;
+		/* Let focus aura paint outside the stack (grid/flex neighbors otherwise visually cover soft glow). */
+		overflow: visible;
 	}
 
 	.ds-occ-rail-assist-input-shell {
@@ -1656,32 +3645,58 @@
 		align-items: center;
 		gap: 0.5rem;
 		min-width: 0;
-		min-height: 2.875rem;
+		min-height: auto;
 		padding: 0.375rem;
 		border-radius: var(--ds-radius-md);
-		border: 1px solid color-mix(in oklab, var(--ds-border-default) 72%, transparent);
-		background-color: color-mix(in oklab, var(--ds-bg-muted) 28%, var(--ds-bg-surface));
+		border: 1px solid
+			color-mix(
+				in oklab,
+				black 12%,
+				color-mix(in oklab, var(--ds-accent) 20%, var(--ds-border-default))
+			);
+		background-color: color-mix(in oklab, black 11%, color-mix(in oklab, var(--ds-accent) 8%, var(--ds-bg-muted)));
 		background-image: linear-gradient(
 			180deg,
-			color-mix(in oklab, var(--ds-bg-surface) 55%, transparent) 0%,
-			color-mix(in oklab, var(--ds-bg-muted) 12%, var(--ds-bg-surface)) 100%
+			color-mix(in oklab, black 9%, color-mix(in oklab, var(--ds-accent) 5%, var(--ds-bg-surface))) 0%,
+			color-mix(in oklab, black 12%, color-mix(in oklab, var(--ds-accent) 11%, var(--ds-bg-muted))) 100%
 		);
 		box-shadow:
 			var(--ds-shadow-sm),
-			inset 0 1px 0 color-mix(in oklab, white 8%, transparent);
+			inset 0 1px 0 color-mix(in oklab, var(--ds-accent) 5%, color-mix(in oklab, white 64%, black));
+		transition:
+			border-color 0.15s ease,
+			box-shadow 0.15s ease;
+	}
+
+	/*
+	 * Focus aura: `:focus-within` (reliable vs `:has(:focus)` in some engines).
+	 * Reuse `--occ-header-new-chat-hover-glow` from `.ds-occ-root` so this matches the visible New Chat aura.
+	 */
+	.ds-occ-rail-assist-input-shell:focus-within {
+		position: relative;
+		z-index: 2;
+		border-color: color-mix(in oklab, var(--ds-accent) 52%, var(--ds-border-strong));
+		box-shadow:
+			var(--ds-shadow-sm),
+			inset 0 1px 0 color-mix(in oklab, var(--ds-accent) 5%, color-mix(in oklab, white 64%, black)),
+			var(--occ-header-new-chat-hover-glow);
 	}
 
 	.ds-occ-rail-assist-input {
 		flex: 1 1 0%;
 		min-width: 0;
 		margin: 0;
-		padding: 0.5625rem 0.75rem;
+		padding: 0.4375rem 0.625rem;
 		border: none;
 		border-radius: calc(var(--ds-radius-md) - 2px);
-		background-color: color-mix(in oklab, var(--ds-bg-surface) 96%, transparent);
+		background-color: color-mix(in oklab, black 10%, color-mix(in oklab, var(--ds-accent) 6%, var(--ds-bg-surface)));
 		color: var(--ds-text-primary);
-		font-size: var(--ds-type-meta-size);
-		line-height: 1.35;
+		font-family: inherit;
+		font-size: 0.6875rem;
+		line-height: 1.4;
+		min-height: calc(3 * 1.4em);
+		resize: vertical;
+		overflow-y: auto;
 	}
 
 	.ds-occ-rail-assist-input::placeholder {
@@ -1690,7 +3705,8 @@
 
 	.ds-occ-rail-assist-input:focus {
 		outline: none;
-		box-shadow: 0 0 0 2px color-mix(in oklab, var(--ds-focus-ring) 55%, transparent);
+		/* Glow lives on `.ds-occ-rail-assist-input-shell:focus-within`. */
+		box-shadow: none;
 	}
 
 	.ds-occ-rail-assist-input:disabled {
@@ -1701,8 +3717,8 @@
 	/* P131.7-09 — primary action control: same hue system as `.ds-btn-primary` */
 	.ds-occ-rail-assist-send {
 		flex-shrink: 0;
-		width: 2.5rem;
-		height: 2.5rem;
+		width: 1.875rem;
+		height: 1.875rem;
 		display: flex;
 		align-items: center;
 		justify-content: center;
@@ -1727,7 +3743,7 @@
 	.ds-occ-rail-assist-send:hover:not(:disabled) {
 		filter: brightness(1.06);
 		box-shadow:
-			0 2px 4px color-mix(in oklab, var(--ds-accent) 28%, transparent),
+			var(--occ-interactive-hover-glow),
 			inset 0 1px 0 color-mix(in oklab, white 18%, transparent);
 	}
 
@@ -1742,8 +3758,137 @@
 	}
 
 	.ds-occ-rail-assist-send :is(svg) {
-		width: 1.1875rem;
-		height: 1.1875rem;
+		width: 1rem;
+		height: 1rem;
+	}
+
+	/*
+	 * OCC frame: same accent aura on hover for buttons, links, and keyboard-focusable link rows
+	 * (`--occ-interactive-hover-glow` on `.ds-occ-root`; dark override in `html.dark .ds-occ-root`).
+	 */
+	.ds-occ-root
+		:is(
+			button:not(:disabled):not([aria-disabled='true']),
+			a[href]:not([aria-disabled='true']),
+			[role='button']:not([aria-disabled='true']),
+			[role='link'][tabindex]:not([tabindex='-1'])
+		) {
+		transition-property: box-shadow, color, background-color, border-color, text-decoration-color, fill, stroke,
+			filter, opacity;
+		transition-duration: 0.15s;
+		transition-timing-function: ease;
+	}
+
+	.ds-occ-root
+		:is(
+			button:not(:disabled):not([aria-disabled='true']),
+			a[href]:not([aria-disabled='true']),
+			[role='button']:not([aria-disabled='true']),
+			[role='link'][tabindex]:not([tabindex='-1'])
+		):hover {
+		box-shadow: var(--occ-interactive-hover-glow);
+		border-radius: var(--ds-radius-sm);
+		position: relative;
+		z-index: 1;
+	}
+
+	/* AI Assistant rail — last personal threads under quick input (GET /desktop/threads, sorted in +page). */
+	.ds-occ-rail-assist-recent {
+		margin-top: 0.5rem;
+		min-width: 0;
+	}
+
+	.ds-occ-rail-assist-recent__hint {
+		margin: 0;
+		color: var(--ds-text-muted);
+	}
+
+	.ds-occ-rail-assist-recent__list {
+		list-style: none;
+		margin: 0;
+		padding: 0;
+		display: flex;
+		flex-direction: column;
+		gap: 0.25rem;
+		min-width: 0;
+	}
+
+	.ds-occ-rail-assist-recent__item {
+		margin: 0;
+		padding: 0;
+		min-width: 0;
+	}
+
+	.ds-occ-rail-assist-recent__btn {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		justify-content: space-between;
+		gap: 0.5rem;
+		width: 100%;
+		margin: 0;
+		padding: 0.375rem 0.5rem;
+		text-align: left;
+		border-radius: var(--ds-radius-sm);
+		border: 1px solid color-mix(in oklab, var(--ds-border-default) 80%, transparent);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 40%, transparent);
+		color: var(--ds-text-primary);
+		font-size: var(--ds-type-meta-size);
+		line-height: 1.25;
+		cursor: pointer;
+		min-width: 0;
+		transition:
+			background-color 0.12s ease,
+			border-color 0.12s ease,
+			color 0.12s ease;
+	}
+
+	.ds-occ-rail-assist-recent__btn:hover:not(:disabled) {
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 65%, transparent);
+		border-color: color-mix(in oklab, var(--ds-accent) 28%, var(--ds-border-default));
+	}
+
+	.ds-occ-rail-assist-recent__btn[aria-current='true'] {
+		border-color: color-mix(in oklab, var(--ds-accent) 40%, var(--ds-border-default));
+		background-color: color-mix(in oklab, var(--ds-accent) 10%, var(--ds-bg-muted));
+	}
+
+	.ds-occ-rail-assist-recent__btn:disabled {
+		opacity: 0.55;
+		cursor: not-allowed;
+	}
+
+	.ds-occ-rail-assist-recent__btn:focus-visible {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 2px;
+	}
+
+	.ds-occ-rail-assist-recent__title {
+		font-family: var(--ds-font-sans);
+		font-size: 0.625rem;
+		line-height: 1.2;
+		color: var(--ds-text-primary);
+		min-width: 0;
+		flex: 1 1 auto;
+		overflow: hidden;
+		text-overflow: ellipsis;
+		white-space: nowrap;
+	}
+
+	.ds-occ-rail-assist-recent__time {
+		font-size: 0.625rem;
+		line-height: 1.2;
+		color: var(--ds-text-secondary);
+		flex-shrink: 0;
+		white-space: nowrap;
+	}
+
+	html.dark .ds-occ-rail-panel .ds-occ-rail-assist-recent__btn {
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 32%, transparent);
+	}
+
+	html.dark .ds-occ-rail-panel .ds-occ-rail-assist-recent__btn:hover:not(:disabled) {
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 48%, transparent);
 	}
 
 	.ds-occ-rail-assist-pills {
@@ -1881,7 +4026,7 @@
 		max-width: 7rem;
 	}
 
-	.ds-occ-rail-prop-row__rail :global(.ds-badge) {
+	.ds-occ-rail-prop-row__rail .ds-badge {
 		font-size: 0.625rem;
 		padding: 0.0625rem 0.3125rem;
 	}
@@ -4443,28 +6588,6 @@
 	/*
 	 * P77-09 — Case Overview / Summary (`/case/:id/summary`).
 	 */
-	.ds-summary-page-scroll {
-		flex: 1 1 auto;
-		min-height: 0;
-		overflow: auto;
-		padding: var(--ds-space-4);
-	}
-
-	@media (min-width: 768px) {
-		.ds-summary-page-scroll {
-			padding: var(--ds-space-6);
-		}
-	}
-
-	.ds-summary-page-inner {
-		margin-left: auto;
-		margin-right: auto;
-		display: flex;
-		max-width: 56rem;
-		flex-direction: column;
-		gap: var(--ds-space-6);
-	}
-
 	.ds-summary-identity-band {
 		border-bottom: 1px solid var(--ds-border-default);
 		padding-bottom: var(--ds-space-3);
@@ -6493,7 +8616,7 @@
 		align-items: start;
 		min-height: 0;
 		flex: 1 1 auto;
-		max-width: var(--ds-occ-content-max, 80rem);
+		max-width: var(--ds-occ-content-max, 100%);
 		width: 100%;
 		margin-inline: auto;
 	}
@@ -6524,19 +8647,19 @@
 
 	/*
 	 * P131.9-05B — Desktop bottom six: direct 3×2 grid (≥1200px DOM from `OperatorCommandCenterFrame`); natural equal row heights.
-	 * P131.8-10 column weights preserved as fr tracks.
+	 * P131.8-10 column weights: col1 widest; col2/col3 fr tracks swapped vs earlier (middle ↔ right).
 	 * P131.9-12 — Row/column gaps unified to `--ds-space-2`.
 	 */
 	.ds-occ-dashboard-board {
 		display: grid;
-		grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.85fr);
+		grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr) minmax(0, 1fr);
 		grid-template-rows: auto auto;
 		column-gap: var(--ds-space-2);
 		row-gap: var(--ds-space-2);
 		align-items: stretch;
 		min-height: 0;
 		flex: 1 1 auto;
-		max-width: var(--ds-occ-content-max, 80rem);
+		max-width: var(--ds-occ-content-max, 100%);
 		width: 100%;
 		margin-inline: auto;
 	}
@@ -6546,12 +8669,62 @@
 		height: 100%;
 	}
 
-	/* Desktop: weighted 3-column (~1.2 / 1 / 0.9) for <1200px resize path / SSR stacked columns */
+	/* Desktop: weighted 3-column (~1.25 / 0.85 / 1) for <1200px resize path / SSR stacked columns */
 	@media (min-width: 1200px) {
 		.ds-occ-dashboard-grid {
-			grid-template-columns: minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 0.85fr);
+			grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.85fr) minmax(0, 1fr);
 			column-gap: var(--ds-space-2);
 			row-gap: var(--ds-space-2);
+		}
+
+		/*
+		 * `/cases` Wave 2: list + details rail only; filters are a popover on the browse toolbar (no left column).
+		 */
+		.ds-occ-dashboard-grid.ds-occ-dashboard-grid--cases {
+			grid-template-columns: minmax(0, 1fr) minmax(16rem, 26rem);
+			grid-template-rows: minmax(0, 1fr);
+			align-items: stretch;
+			column-gap: var(--ds-space-4);
+			row-gap: var(--ds-space-4);
+			flex: 1 1 0%;
+			min-height: 0;
+			overflow: hidden;
+		}
+
+		.ds-occ-dashboard-grid.ds-occ-dashboard-grid--cases > .ds-occ-dashboard-col[data-region='occ-dashboard-center'] {
+			min-width: 0;
+			min-height: 0;
+			overflow: hidden;
+		}
+
+		.ds-occ-dashboard-grid.ds-occ-dashboard-grid--cases > .ds-occ-dashboard-col[data-region='occ-dashboard-right'] {
+			align-self: stretch;
+			min-height: 0;
+			overflow: hidden;
+		}
+	}
+
+	/* Cases browse: search + chips + sort on one aligned band (inside board header). */
+	.ds-case-browse-toolbar {
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-3);
+		padding: var(--ds-space-2) var(--ds-space-2) var(--ds-space-3);
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 65%, transparent);
+	}
+
+	.ds-case-browse-toolbar__grid {
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-3);
+	}
+
+	@media (min-width: 1024px) {
+		.ds-case-browse-toolbar__grid {
+			display: grid;
+			grid-template-columns: minmax(0, 1fr) auto minmax(11.25rem, 14rem) auto;
+			gap: var(--ds-space-2);
+			align-items: end;
 		}
 	}
 
@@ -6608,6 +8781,112 @@
 		outline-offset: 2px;
 	}
 
+	/*
+	 * Plain `<input>` — same metrics as `.ds-app-shell-top-search-trigger` (no leading icon).
+	 */
+	.ds-app-shell-top-search-input {
+		display: block;
+		width: 100%;
+		max-width: 28rem;
+		box-sizing: border-box;
+		min-height: calc(1.625rem / var(--app-text-scale, 1));
+		padding: 0 0.5rem;
+		border-radius: var(--ds-radius-md);
+		border: 1px solid var(--ds-border-default);
+		background-color: var(--ds-bg-muted);
+		color: var(--ds-text-on-canvas);
+		font-size: var(--ds-type-meta-size);
+		font-weight: 500;
+		line-height: 1.2;
+		font-family: var(--ds-font-sans);
+		transition:
+			border-color 0.15s ease,
+			box-shadow 0.15s ease,
+			background-color 0.15s ease;
+	}
+
+	.ds-app-shell-top-search-input::placeholder {
+		color: var(--ds-text-muted);
+	}
+
+	.ds-app-shell-top-search-input:hover:not(:disabled) {
+		background-color: var(--ds-bg-elevated);
+		border-color: var(--ds-accent);
+		box-shadow: var(--ds-shadow-sm);
+	}
+
+	.ds-app-shell-top-search-input:focus {
+		outline: none;
+	}
+
+	.ds-app-shell-top-search-input:focus-visible {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 2px;
+		border-color: var(--ds-accent);
+	}
+
+	/*
+	 * Icon + field — pixel-aligned with `.ds-app-shell-top-search-trigger` (DetectiveAppShellTopBar).
+	 */
+	.ds-app-shell-top-search-composite {
+		display: flex;
+		flex-direction: row;
+		align-items: center;
+		gap: 0.375rem;
+		width: 100%;
+		max-width: 28rem;
+		box-sizing: border-box;
+		min-height: calc(1.625rem / var(--app-text-scale, 1));
+		padding: 0 0.5rem;
+		border-radius: var(--ds-radius-md);
+		border: 1px solid var(--ds-border-default);
+		background-color: var(--ds-bg-muted);
+		color: var(--ds-text-on-canvas);
+		transition:
+			border-color 0.15s ease,
+			box-shadow 0.15s ease,
+			background-color 0.15s ease;
+	}
+
+	.ds-app-shell-top-search-composite:hover {
+		background-color: var(--ds-bg-elevated);
+		border-color: var(--ds-accent);
+		box-shadow: var(--ds-shadow-sm);
+	}
+
+	.ds-app-shell-top-search-composite:focus-within {
+		outline: 2px solid var(--ds-focus-ring);
+		outline-offset: 2px;
+		border-color: var(--ds-accent);
+	}
+
+	.ds-app-shell-top-search-composite :is(input, input[type='search']) {
+		flex: 1 1 auto;
+		min-width: 0;
+		border: none;
+		background: transparent;
+		padding: 0;
+		margin: 0;
+		outline: none;
+		box-shadow: none;
+		font-size: var(--ds-type-meta-size);
+		font-weight: 500;
+		line-height: 1.2;
+		font-family: var(--ds-font-sans);
+		color: var(--ds-text-on-canvas);
+	}
+
+	.ds-app-shell-top-search-composite :is(input, input[type='search'])::placeholder {
+		color: var(--ds-text-muted);
+	}
+
+	/* Case OCC sheet: solid chrome under banner — override app-shell top wash so strip height matches Home. */
+	header[data-case-shell-app-top='true'].ds-app-shell__top {
+		background-image: none;
+		background-color: var(--ce-l-chrome);
+		border-bottom-color: color-mix(in oklab, var(--ds-border-default) 28%, transparent);
+	}
+
 	.ds-app-shell-top-actions {
 		display: flex;
 		flex-direction: row;
@@ -6621,6 +8900,7 @@
 	 * P131.7-03 — Compact command-style rows (density only; colors unchanged).
 	 * P131.8-02 — Sidebar rail compression: tighter rows, gaps, group labels, utility cluster (no routing/structure changes).
 	 * P131.8-07 — Measured rebalance: slightly more row, group, and utility breathing room (thinner rail + hierarchy preserved).
+	 * P131.9-15 — Tighter icon↔label gap (glyph size unchanged).
 	 */
 	.ds-gnav-group-label {
 		font-size: var(--ds-type-meta-size);
@@ -6628,7 +8908,7 @@
 		letter-spacing: 0.06em;
 		text-transform: uppercase;
 		color: var(--ds-text-muted);
-		padding: 0.125rem var(--ds-space-2) 0.0625rem;
+		padding: 0.25rem var(--ds-space-2) 0.125rem;
 		line-height: 1.22;
 	}
 
@@ -6636,11 +8916,11 @@
 		display: flex;
 		flex-direction: row;
 		align-items: center;
-		gap: 0.375rem;
+		gap: 0.25rem;
 		width: 100%;
 		text-align: left;
 		border-radius: var(--ds-radius-sm);
-		padding: 0.3125rem 0.5rem;
+		padding: 0.4375rem 0.5rem;
 		font-size: var(--ds-type-body-size);
 		line-height: 1.22;
 		font-weight: 400;
@@ -6682,29 +8962,17 @@
 		color: var(--ds-accent);
 	}
 
+	/* Profile row only — no inset card; aligns with primary nav padding rhythm. */
 	.ds-gnav-utility-cluster {
 		display: flex;
 		flex-direction: column;
-		gap: 0.3125rem;
-		border-top: 1px solid var(--ds-border-default);
-		padding: 0.4375rem var(--ds-space-2) 0.375rem;
-		margin-top: 0.4375rem;
-		border-radius: var(--ds-radius-md);
-		background-color: color-mix(in oklab, var(--ds-bg-muted) 55%, var(--ds-bg-chrome));
-		box-shadow: 0 -10px 28px -18px rgb(15 23 42 / 0.35);
-	}
-
-	html.dark .ds-gnav-utility-cluster {
-		box-shadow: 0 -12px 32px -16px rgb(0 0 0 / 0.55);
-	}
-
-	.ds-gnav-utility-row {
-		display: flex;
-		flex-direction: row;
-		align-items: center;
-		justify-content: flex-start;
-		gap: 0.1875rem;
-		padding: 0;
+		gap: 0;
+		padding: 0.25rem var(--ds-space-2) 0.375rem;
+		margin-top: 0;
+		border: none;
+		border-radius: 0;
+		background: transparent;
+		box-shadow: none;
 	}
 
 	.ds-gnav-utility-icon {

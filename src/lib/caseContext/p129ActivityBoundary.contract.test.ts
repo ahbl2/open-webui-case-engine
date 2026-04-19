@@ -16,7 +16,12 @@ const p129CopyAndComponentPaths = [
 	join(__dirname, '../components/case/CaseActivityList.svelte'),
 	join(__dirname, '../components/case/CaseActivityEventDetail.svelte'),
 	join(__dirname, '../case/p129ActivityDisplay.ts'),
-	join(__dirname, '../case/p129ActivitySourceHref.ts')
+	join(__dirname, '../case/p129ActivitySourceHref.ts'),
+	join(__dirname, '../case/p129ActivityDomainTheme.ts'),
+	join(__dirname, '../case/p129ActivityHumanTarget.ts'),
+	join(__dirname, '../case/p129ActivityEventSummary.ts'),
+	join(__dirname, '../case/p129ActivityOpenRecordCta.ts'),
+	join(__dirname, '../case/p129ActivityFeedFilter.ts')
 ];
 
 function assertP129TabooFree(lower: string): void {

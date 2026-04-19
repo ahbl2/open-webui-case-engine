@@ -21,13 +21,13 @@ describe('CaseWorkspaceLayoutShell / CaseWorkspaceShellPanel P132.5 shell', () =
 		expect(src).not.toMatch(/<script[^>]*>[\s\S]*\bpage\b/);
 	});
 
-	it('declares left / center / right zones with stable test ids and primary center landmark', () => {
+	it('declares center + optional right zones with stable test ids and primary center landmark (no left rail)', () => {
 		const src = readFileSync(shellPath, 'utf8');
 		expect(src).toMatch(/data-testid="case-workspace-layout-shell"/);
-		expect(src).toMatch(/data-testid="case-workspace-shell-left"/);
+		expect(src).not.toMatch(/data-testid="case-workspace-shell-left"/);
 		expect(src).toMatch(/data-testid="case-workspace-shell-center"/);
 		expect(src).toMatch(/data-testid="case-workspace-shell-right"/);
-		expect(src).toMatch(/<slot name="left"/);
+		expect(src).not.toMatch(/<slot name="left"/);
 		expect(src).toMatch(/<slot name="center"/);
 		expect(src).toMatch(/<slot name="right"/);
 		expect(src).toMatch(/Primary work area/);

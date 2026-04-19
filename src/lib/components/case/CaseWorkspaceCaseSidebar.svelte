@@ -8,7 +8,7 @@
 	 * No auto-select on load; selection navigates explicitly to `/case/:id/timeline`.
 	 */
 	import { goto } from '$app/navigation';
-	import { page } from '$app/stores';
+	import { page } from '$app/state';
 	import { caseEngineToken } from '$lib/stores';
 	import { listCasesSidebar, type CaseEngineCase } from '$lib/apis/caseEngine';
 	import { resolveActiveCaseSection } from '$lib/utils/caseNavSection';
@@ -46,8 +46,8 @@
 	/** P132.5-04 — Full-width when embedded in left rail (no fixed 15rem column). */
 	export let layoutVariant: 'default' | 'embedded' = 'default';
 
-	$: routeCaseId = getRouteCaseId($page.params) ?? '';
-	$: activeSection = resolveActiveCaseSection($page.url.pathname);
+	$: routeCaseId = getRouteCaseId(page.params) ?? '';
+	$: activeSection = resolveActiveCaseSection(page.url.pathname);
 	$: wave3CaseShellEnabled = isDetectiveWave3CaseShellEnabled();
 
 	$: filteredCases = cases.filter((c) => {
@@ -89,7 +89,7 @@
 		const id = String(c.id ?? '');
 		if (!id) return;
 		const target = `/case/${id}/timeline`;
-		if ($page.url.pathname === target) return;
+		if (page.url.pathname === target) return;
 		goto(target);
 	}
 

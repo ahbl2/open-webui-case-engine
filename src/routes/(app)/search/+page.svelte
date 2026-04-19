@@ -22,7 +22,7 @@
 </svelte:head>
 
 <div
-	class="flex flex-1 flex-col w-full min-w-0 h-full overflow-y-auto px-4 py-6 md:px-8 md:py-8"
+	class="ds-shell-route-gutter flex flex-1 flex-col w-full min-w-0 h-full overflow-y-auto"
 	data-testid="search-route-page"
 >
 	<div class="max-w-4xl w-full mx-auto">

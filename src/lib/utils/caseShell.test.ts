@@ -7,7 +7,7 @@
  * environment without a browser or Svelte rendering runtime.
  *
  * What is covered:
- *   - /case/[id] redirect target is deterministic and ends at /chat
+ *   - /case/[id] redirect target is deterministic and ends at /summary (Overview)
  *   - caseModeActive enter/exit transitions (shell enable ↔ shell disable)
  *   - detective workspace uses one sidebar; content offset when sidebar open
  *   - every non-active auth state is blocked from entering the case shell
@@ -25,26 +25,26 @@ import { resolveActiveCaseSection } from './caseNavSection';
 // 1. /case/[id] redirect target
 // ─────────────────────────────────────────────────────────────────────────────
 describe('case shell — /case/[id] redirect target', () => {
-	it('redirect target is /case/[id]/chat', () => {
+	it('redirect target is /case/[id]/summary', () => {
 		const caseId = 'abc-123';
-		const target = `/case/${caseId}/chat`;
-		expect(target).toBe('/case/abc-123/chat');
+		const target = `/case/${caseId}/summary`;
+		expect(target).toBe('/case/abc-123/summary');
 	});
 
-	it('redirect target always ends with /chat', () => {
+	it('redirect target always ends with /summary', () => {
 		for (const id of ['abc', '123-def', 'uuid-with-dashes']) {
-			const target = `/case/${id}/chat`;
-			expect(target.endsWith('/chat')).toBe(true);
+			const target = `/case/${id}/summary`;
+			expect(target.endsWith('/summary')).toBe(true);
 		}
 	});
 
-	it('the redirect destination resolves to the chat nav section', () => {
-		const target = `/case/abc-123/chat`;
-		expect(resolveActiveCaseSection(target)).toBe('chat');
+	it('the redirect destination resolves to the summary (Overview) nav section', () => {
+		const target = `/case/abc-123/summary`;
+		expect(resolveActiveCaseSection(target)).toBe('summary');
 	});
 
 	it('redirect uses replaceState so /case/[id] does not appear in history', () => {
-		// The +page.svelte calls: goto(`/case/${id}/chat`, { replaceState: true })
+		// The +page.svelte calls: goto(`/case/${id}/summary`, { replaceState: true })
 		// Verify the replaceState flag is documented as required by this contract.
 		// This test encodes the intent so future refactors cannot silently remove it.
 		const gotoOptions = { replaceState: true };

@@ -30,7 +30,9 @@ describe('P85-05 case workspace shell (Tier L content region)', () => {
 		for (const { rel, testId } of CASE_WORKSPACE_PAGES) {
 			const src = readFileSync(join(caseRouteRoot, rel), 'utf8');
 			expect(src, rel).toContain('import CaseWorkspaceContentRegion');
-			expect(src, rel).toContain(`<CaseWorkspaceContentRegion testId="${testId}">`);
+			expect(src, rel).toMatch(
+				new RegExp(`<CaseWorkspaceContentRegion[^>]*\\btestId="${testId}"`)
+			);
 		}
 	});
 });

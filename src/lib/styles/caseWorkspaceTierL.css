@@ -572,3 +572,30 @@ html {
 	flex: 1 1 0%;
 	overflow: hidden;
 }
+
+/*
+ * `/case/:id/summary` — scroll lives on `case-workspace-main`; region must grow with OCC content, not stay a bounded flex slot.
+ * Without this, `.ce-l-content-region` flex:1 + overflow:hidden wins over Tailwind on the Svelte wrapper.
+ */
+.ce-l-content-region.ce-l-content-region--delegate-page-scroll {
+	flex: 0 0 auto;
+	align-self: stretch;
+	width: 100%;
+	min-height: min-content;
+	overflow-x: hidden;
+	overflow-y: visible;
+}
+
+/*
+ * P131.9-17 — Dark-first tab shells: inherit global canvas atmosphere (see --ds-canvas-atmosphere-gradient).
+ * Hero/toolbar chrome bands stay opaque; primary scroll sees the wash through transparent shell bg.
+ */
+html.dark .ce-l-timeline-shell,
+html.dark .ce-l-files-shell,
+html.dark .ce-l-proposals-shell,
+html.dark .ce-l-tasks-shell,
+html.dark .ce-l-activity-shell,
+html.dark .ce-l-intelligence-shell {
+	background-color: transparent;
+	background-image: var(--ds-canvas-atmosphere-gradient);
+}

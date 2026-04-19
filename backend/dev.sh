@@ -14,6 +14,8 @@ export CE_DB_PATH="${CE_DB_PATH:-/tmp/case-engine/data/case.db}"
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+# Package lives under backend/open_webui; uvicorn subprocess needs this when not installed editable.
+export PYTHONPATH="${ROOT_DIR}/backend:${PYTHONPATH}"
 VENV_PYTHON="${ROOT_DIR}/.venv/bin/python"
 node "$ROOT_DIR/scripts/check-ports.js" 8080 || exit 1
 

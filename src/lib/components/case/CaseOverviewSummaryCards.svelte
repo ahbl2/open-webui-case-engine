@@ -1,28 +1,35 @@
 <script lang="ts">
 	/**
-	 * P82-03 — Read-only overview metrics from existing Case Engine list endpoints + `activeCaseMeta`.
-	 * No fabricated counts: each value comes from a successful API response or store-backed case fields.
+	 * P82-03 — Read-only overview metrics: seven KPI tiles (same translucent color system as home OCC `ds-occ-kpi-card`).
+	 * Canonical color + icon per domain for the whole case workspace: docs/CASE_OVERVIEW_KPI_CANON.md
 	 */
 	import { onDestroy } from 'svelte';
-	import { caseEngineToken, activeCaseMeta } from '$lib/stores';
+	import { caseEngineToken } from '$lib/stores';
 	import {
 		listCaseTimelineEntriesPage,
 		listCaseFilesPage,
 		listCaseNotebookNotes,
 		listProposalsPaginated,
-		listCaseIntelligenceCommittedEntities
+		listCaseIntelligenceCommittedEntities,
+		listWarrantDrafts
 	} from '$lib/apis/caseEngine';
-	import { caseStatusDsBadgeCompound } from '$lib/utils/caseIdentityStrip';
+	import { listCaseWorkflowItems } from '$lib/apis/caseEngine/caseWorkflowItemsApi';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import {
-		DS_BADGE_CLASSES,
-		DS_SUMMARY_CLASSES,
 		DS_STACK_CLASSES,
-		DS_TYPE_CLASSES,
 		DS_STATUS_TEXT_CLASSES,
 		DS_STATUS_SURFACE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
 	import { P128_OVERVIEW_PENDING_PROPOSALS_HINT } from '$lib/caseContext/p128ProposalFramingCopy';
+	import {
+		BookOpenIcon,
+		CalendarDaysIcon,
+		ClipboardDocumentListIcon,
+		DocumentTextIcon,
+		FolderIcon,
+		ShieldCheckIcon,
+		UserGroupIcon
+	} from 'heroicons-svelte/24/outline';
 
 	export let caseId: string;
 
@@ -30,31 +37,39 @@
 
 	let loadGeneration = 0;
 	let timeline: Ready<number> = { state: 'loading' };
-	let files: Ready<number> = { state: 'loading' };
 	let notes: Ready<number> = { state: 'loading' };
-	let proposals: Ready<number> = { state: 'loading' };
+	let files: Ready<number> = { state: 'loading' };
 	let entities: Ready<number> = { state: 'loading' };
+	let workflow: Ready<number> = { state: 'loading' };
+	let proposals: Ready<number> = { state: 'loading' };
+	let warrants: Ready<number> = { state: 'loading' };
+
+	const tileBase = 'ds-occ-kpi-card ds-case-overview-kpi-tile h-full min-w-0';
 
 	function resetMetrics(): void {
 		timeline = { state: 'loading' };
-		files = { state: 'loading' };
 		notes = { state: 'loading' };
-		proposals = { state: 'loading' };
+		files = { state: 'loading' };
 		entities = { state: 'loading' };
+		workflow = { state: 'loading' };
+		proposals = { state: 'loading' };
+		warrants = { state: 'loading' };
 	}
 
 	async function loadMetrics(id: string, token: string, gen: number): Promise<void> {
 		resetMetrics();
 		const settled = await Promise.allSettled([
 			listCaseTimelineEntriesPage(id, token, { limit: 1, offset: 0 }),
-			listCaseFilesPage(id, token, { limit: 1, offset: 0 }),
 			listCaseNotebookNotes(id, token),
+			listCaseFilesPage(id, token, { limit: 1, offset: 0 }),
+			listCaseIntelligenceCommittedEntities(id, token),
+			listCaseWorkflowItems(id, token),
 			listProposalsPaginated(id, token, 'pending', { limit: 1, offset: 0 }),
-			listCaseIntelligenceCommittedEntities(id, token)
+			listWarrantDrafts(id, token)
 		]);
 		if (gen !== loadGeneration) return;
 
-		const [tl, fi, nb, pr, en] = settled;
+		const [tl, nb, fi, en, wf, pr, wa] = settled;
 
 		if (tl.status === 'fulfilled') {
 			const n = tl.value.total;
@@ -66,6 +81,16 @@
 			timeline = {
 				state: 'error',
 				message: tl.reason instanceof Error ? tl.reason.message : 'Could not load timeline count.'
+			};
+		}
+
+		if (nb.status === 'fulfilled') {
+			const rows = nb.value.filter((n) => !n.deleted_at);
+			notes = { state: 'ready', value: rows.length };
+		} else {
+			notes = {
+				state: 'error',
+				message: nb.reason instanceof Error ? nb.reason.message : 'Could not load notebook notes count.'
 			};
 		}
 
@@ -82,12 +107,22 @@
 			};
 		}
 
-		if (nb.status === 'fulfilled') {
-			notes = { state: 'ready', value: nb.value.length };
+		if (en.status === 'fulfilled') {
+			entities = { state: 'ready', value: en.value.committed_entities.length };
 		} else {
-			notes = {
+			entities = {
 				state: 'error',
-				message: nb.reason instanceof Error ? nb.reason.message : 'Could not load notebook notes.'
+				message: en.reason instanceof Error ? en.reason.message : 'Could not load entities count.'
+			};
+		}
+
+		if (wf.status === 'fulfilled') {
+			const rows = wf.value.filter((r) => !r.deleted_at);
+			workflow = { state: 'ready', value: rows.length };
+		} else {
+			workflow = {
+				state: 'error',
+				message: wf.reason instanceof Error ? wf.reason.message : 'Could not load workflow items.'
 			};
 		}
 
@@ -104,18 +139,21 @@
 			};
 		}
 
-		if (en.status === 'fulfilled') {
-			entities = { state: 'ready', value: en.value.committed_entities.length };
+		if (wa.status === 'fulfilled') {
+			const n = wa.value.items?.length ?? 0;
+			warrants =
+				typeof n === 'number' && Number.isFinite(n)
+					? { state: 'ready', value: n }
+					: { state: 'error', message: 'Invalid warrant drafts count.' };
 		} else {
-			entities = {
+			warrants = {
 				state: 'error',
-				message: en.reason instanceof Error ? en.reason.message : 'Could not load entities count.'
+				message: wa.reason instanceof Error ? wa.reason.message : 'Could not load warrant drafts.'
 			};
 		}
 	}
 
 	$: token = $caseEngineToken;
-	$: meta = $activeCaseMeta;
 
 	$: if (caseId && token) {
 		loadGeneration += 1;
@@ -132,187 +170,240 @@
 </script>
 
 <section
-	class="{DS_STACK_CLASSES.stack} border-b border-[color:var(--ds-border-default)] pb-6"
+	class={DS_STACK_CLASSES.stack}
 	data-testid="case-overview-summary-cards"
-	aria-labelledby="case-overview-summary-cards-heading"
+	aria-label="Case overview metrics"
 >
-	<div class={DS_STACK_CLASSES.tight}>
-		<h2 id="case-overview-summary-cards-heading" class={DS_TYPE_CLASSES.panel}>
-			Case metrics
-		</h2>
-		<p class="{DS_TYPE_CLASSES.meta} max-w-3xl text-[var(--ds-text-secondary)]">
-			Read-only counts from Case Engine. Notebook counts are your drafts only (owner-scoped).
-		</p>
-	</div>
-
 	<div
-		class="mt-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-3"
-		data-testid="case-overview-summary-cards-grid"
+		class="w-full min-w-0 max-w-full border-b border-[color:var(--ds-border-default)] pb-4"
 	>
-		<!-- Case record (store / layout — same source as case header) -->
-		<div class={DS_SUMMARY_CLASSES.outputCard}>
-			<p class={DS_TYPE_CLASSES.label}>Case record</p>
-			{#if !meta}
-				<div class="mt-3 flex items-center gap-2 {DS_TYPE_CLASSES.meta}" role="status">
-					<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
-					<span>Loading case details…</span>
-				</div>
-			{:else}
-				<dl class="mt-3 space-y-2.5">
-					<div>
-						<dt class={DS_TYPE_CLASSES.meta}>Case number</dt>
-						<dd class="{DS_TYPE_CLASSES.mono} mt-0.5 tabular-nums">{meta.case_number}</dd>
+		<div
+			class="grid w-full grid-cols-2 gap-1.5 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-7 lg:gap-2"
+			data-testid="case-overview-summary-cards-grid"
+		>
+			<!-- Timeline — blue (home OCC blue) -->
+			<div class="{tileBase} ds-occ-kpi-card--blue">
+				<div class="ds-case-overview-kpi-tile__head">
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Timeline entries</div>
+					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
+						<CalendarDaysIcon />
 					</div>
-					<div>
-						<dt class={DS_TYPE_CLASSES.meta}>Status</dt>
-						<dd class="mt-0.5">
-							{#if meta.status?.trim()}
-								<span class={caseStatusDsBadgeCompound(meta.status)}>{meta.status}</span>
-							{:else}
-								<span class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral}">No status</span>
-							{/if}
-						</dd>
+				</div>
+				{#if timeline.state === 'loading'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-center" role="status">
+						<p class="ds-occ-kpi-card__metric ds-occ-kpi-card__metric--muted">—</p>
+						<p class="ds-occ-kpi-card__support ds-occ-kpi-card__support--loading">
+							<span class="inline-flex items-center gap-2">
+								<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
+								Loading…
+							</span>
+						</p>
 					</div>
-					<div>
-						<dt class={DS_TYPE_CLASSES.meta}>Unit</dt>
-						<dd class="{DS_TYPE_CLASSES.body} mt-0.5">{meta.unit?.trim() ? meta.unit : '—'}</dd>
+				{:else if timeline.state === 'error'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-end">
+						<div class="rounded-md px-2 py-1.5 text-xs {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+							<p class="ds-status-copy">{timeline.message}</p>
+						</div>
 					</div>
-					<div>
-						<dt class={DS_TYPE_CLASSES.meta}>Incident date</dt>
-						<dd class="{DS_TYPE_CLASSES.body} mt-0.5">
-							{#if meta.incident_date?.trim()}
-								{meta.incident_date}
-							{:else}
-								None recorded
-							{/if}
-						</dd>
+				{:else}
+					<div class="ds-case-overview-kpi-tile__stack flex-1">
+						<p class="ds-occ-kpi-card__metric" data-metric="timeline-total">{timeline.value}</p>
+						<p class="ds-occ-kpi-card__support">Committed chronology</p>
 					</div>
-				</dl>
-			{/if}
-		</div>
+				{/if}
+			</div>
 
-		<!-- Timeline -->
-		<div class={DS_SUMMARY_CLASSES.outputCard}>
-			<p class={DS_TYPE_CLASSES.label}>Timeline entries</p>
-			{#if timeline.state === 'loading'}
-				<div class="mt-3 flex items-center gap-2" role="status">
-					<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
-					<span class={DS_TYPE_CLASSES.meta}>Loading…</span>
+			<!-- Notes — cyan (between timeline blue and files green) -->
+			<div class="{tileBase} ds-occ-kpi-card--cyan">
+				<div class="ds-case-overview-kpi-tile__head">
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Notebook notes</div>
+					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
+						<BookOpenIcon />
+					</div>
 				</div>
-			{:else if timeline.state === 'error'}
-				<div class="mt-3 rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
-					<p class="ds-status-copy">{timeline.message}</p>
-				</div>
-			{:else}
-				<p class="{DS_TYPE_CLASSES.display} mt-2 tabular-nums" data-metric="timeline-total">{timeline.value}</p>
-				<a
-					href="/case/{caseId}/timeline"
-					class="{DS_SUMMARY_CLASSES.navLink} mt-3 inline-block"
-					data-testid="case-overview-summary-link-timeline"
-					>View timeline</a
-				>
-			{/if}
-		</div>
+				{#if notes.state === 'loading'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-center" role="status">
+						<p class="ds-occ-kpi-card__metric ds-occ-kpi-card__metric--muted">—</p>
+						<p class="ds-occ-kpi-card__support ds-occ-kpi-card__support--loading">
+							<span class="inline-flex items-center gap-2">
+								<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
+								Loading…
+							</span>
+						</p>
+					</div>
+				{:else if notes.state === 'error'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-end">
+						<div class="rounded-md px-2 py-1.5 text-xs {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+							<p class="ds-status-copy">{notes.message}</p>
+						</div>
+					</div>
+				{:else}
+					<div class="ds-case-overview-kpi-tile__stack flex-1">
+						<p class="ds-occ-kpi-card__metric" data-metric="notes-total">{notes.value}</p>
+						<p class="ds-occ-kpi-card__support">Working drafts</p>
+					</div>
+				{/if}
+			</div>
 
-		<!-- Files -->
-		<div class={DS_SUMMARY_CLASSES.outputCard}>
-			<p class={DS_TYPE_CLASSES.label}>Files</p>
-			{#if files.state === 'loading'}
-				<div class="mt-3 flex items-center gap-2" role="status">
-					<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
-					<span class={DS_TYPE_CLASSES.meta}>Loading…</span>
+			<!-- Files — green (home OCC green / teal family) -->
+			<div class="{tileBase} ds-occ-kpi-card--green">
+				<div class="ds-case-overview-kpi-tile__head">
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Files / evidence</div>
+					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
+						<FolderIcon />
+					</div>
 				</div>
-			{:else if files.state === 'error'}
-				<div class="mt-3 rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
-					<p class="ds-status-copy">{files.message}</p>
-				</div>
-			{:else}
-				<p class="{DS_TYPE_CLASSES.display} mt-2 tabular-nums" data-metric="files-total">{files.value}</p>
-				<a
-					href="/case/{caseId}/files"
-					class="{DS_SUMMARY_CLASSES.navLink} mt-3 inline-block"
-					data-testid="case-overview-summary-link-files"
-					>View files</a
-				>
-			{/if}
-		</div>
+				{#if files.state === 'loading'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-center" role="status">
+						<p class="ds-occ-kpi-card__metric ds-occ-kpi-card__metric--muted">—</p>
+						<p class="ds-occ-kpi-card__support ds-occ-kpi-card__support--loading">
+							<span class="inline-flex items-center gap-2">
+								<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
+								Loading…
+							</span>
+						</p>
+					</div>
+				{:else if files.state === 'error'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-end">
+						<div class="rounded-md px-2 py-1.5 text-xs {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+							<p class="ds-status-copy">{files.message}</p>
+						</div>
+					</div>
+				{:else}
+					<div class="ds-case-overview-kpi-tile__stack flex-1">
+						<p class="ds-occ-kpi-card__metric" data-metric="files-total">{files.value}</p>
+						<p class="ds-occ-kpi-card__support">Uploads &amp; attachments</p>
+					</div>
+				{/if}
+			</div>
 
-		<!-- Notebook notes (owner-scoped API) -->
-		<div class={DS_SUMMARY_CLASSES.outputCard}>
-			<p class={DS_TYPE_CLASSES.label}>Your notebook notes</p>
-			<p class="{DS_TYPE_CLASSES.meta} mt-1 text-[var(--ds-text-secondary)]">
-				Count for your drafts on this case (Case Engine notebook scope).
-			</p>
-			{#if notes.state === 'loading'}
-				<div class="mt-3 flex items-center gap-2" role="status">
-					<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
-					<span class={DS_TYPE_CLASSES.meta}>Loading…</span>
+			<!-- Entities — violet -->
+			<div class="{tileBase} ds-occ-kpi-card--violet">
+				<div class="ds-case-overview-kpi-tile__head">
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Entities</div>
+					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
+						<UserGroupIcon />
+					</div>
 				</div>
-			{:else if notes.state === 'error'}
-				<div class="mt-3 rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
-					<p class="ds-status-copy">{notes.message}</p>
-				</div>
-			{:else}
-				<p class="{DS_TYPE_CLASSES.display} mt-2 tabular-nums" data-metric="notes-total">{notes.value}</p>
-				<a
-					href="/case/{caseId}/notes"
-					class="{DS_SUMMARY_CLASSES.navLink} mt-3 inline-block"
-					data-testid="case-overview-summary-link-notes"
-					>View notes</a
-				>
-			{/if}
-		</div>
+				{#if entities.state === 'loading'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-center" role="status">
+						<p class="ds-occ-kpi-card__metric ds-occ-kpi-card__metric--muted">—</p>
+						<p class="ds-occ-kpi-card__support ds-occ-kpi-card__support--loading">
+							<span class="inline-flex items-center gap-2">
+								<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
+								Loading…
+							</span>
+						</p>
+					</div>
+				{:else if entities.state === 'error'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-end">
+						<div class="rounded-md px-2 py-1.5 text-xs {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+							<p class="ds-status-copy">{entities.message}</p>
+						</div>
+					</div>
+				{:else}
+					<div class="ds-case-overview-kpi-tile__stack flex-1">
+						<p class="ds-occ-kpi-card__metric" data-metric="entities-total">{entities.value}</p>
+						<p class="ds-occ-kpi-card__support">People, phones, vehicles…</p>
+					</div>
+				{/if}
+			</div>
 
-		<!-- Committed entities -->
-		<div class={DS_SUMMARY_CLASSES.outputCard}>
-			<p class={DS_TYPE_CLASSES.label}>Committed entities</p>
-			<p class="{DS_TYPE_CLASSES.meta} mt-1 text-[var(--ds-text-secondary)]">
-				Entities committed to this case (intelligence registry).
-			</p>
-			{#if entities.state === 'loading'}
-				<div class="mt-3 flex items-center gap-2" role="status">
-					<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
-					<span class={DS_TYPE_CLASSES.meta}>Loading…</span>
+			<!-- Workflow — yellow -->
+			<div class="{tileBase} ds-occ-kpi-card--yellow">
+				<div class="ds-case-overview-kpi-tile__head">
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Workflow tasks</div>
+					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
+						<ClipboardDocumentListIcon />
+					</div>
 				</div>
-			{:else if entities.state === 'error'}
-				<div class="mt-3 rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
-					<p class="ds-status-copy">{entities.message}</p>
-				</div>
-			{:else}
-				<p class="{DS_TYPE_CLASSES.display} mt-2 tabular-nums" data-metric="entities-total">{entities.value}</p>
-				<a
-					href="/case/{caseId}/entities"
-					class="{DS_SUMMARY_CLASSES.navLink} mt-3 inline-block"
-					data-testid="case-overview-summary-link-entities"
-					>View entities</a
-				>
-			{/if}
-		</div>
+				{#if workflow.state === 'loading'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-center" role="status">
+						<p class="ds-occ-kpi-card__metric ds-occ-kpi-card__metric--muted">—</p>
+						<p class="ds-occ-kpi-card__support ds-occ-kpi-card__support--loading">
+							<span class="inline-flex items-center gap-2">
+								<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
+								Loading…
+							</span>
+						</p>
+					</div>
+				{:else if workflow.state === 'error'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-end">
+						<div class="rounded-md px-2 py-1.5 text-xs {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+							<p class="ds-status-copy">{workflow.message}</p>
+						</div>
+					</div>
+				{:else}
+					<div class="ds-case-overview-kpi-tile__stack flex-1">
+						<p class="ds-occ-kpi-card__metric" data-metric="workflow-total">{workflow.value}</p>
+						<p class="ds-occ-kpi-card__support">Case workflow items</p>
+					</div>
+				{/if}
+			</div>
 
-		<!-- Pending proposals (P128-05 — candidates, not Timeline truth) -->
-		<div class={DS_SUMMARY_CLASSES.outputCard}>
-			<p class={DS_TYPE_CLASSES.label}>Pending proposals</p>
-			<p class="{DS_TYPE_CLASSES.meta} mt-1 text-[11px] leading-snug text-[color:var(--ds-text-muted)]">
-				{P128_OVERVIEW_PENDING_PROPOSALS_HINT}
-			</p>
-			{#if proposals.state === 'loading'}
-				<div class="mt-3 flex items-center gap-2" role="status">
-					<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
-					<span class={DS_TYPE_CLASSES.meta}>Loading…</span>
+			<!-- Proposals — rose (distinct from workflow yellow + warrants orange) -->
+			<div class="{tileBase} ds-occ-kpi-card--rose">
+				<div class="ds-case-overview-kpi-tile__head">
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1" title={P128_OVERVIEW_PENDING_PROPOSALS_HINT}>Pending proposals</div>
+					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
+						<DocumentTextIcon />
+					</div>
 				</div>
-			{:else if proposals.state === 'error'}
-				<div class="mt-3 rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
-					<p class="ds-status-copy">{proposals.message}</p>
+				{#if proposals.state === 'loading'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-center" role="status">
+						<p class="ds-occ-kpi-card__metric ds-occ-kpi-card__metric--muted">—</p>
+						<p class="ds-occ-kpi-card__support ds-occ-kpi-card__support--loading">
+							<span class="inline-flex items-center gap-2">
+								<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
+								Loading…
+							</span>
+						</p>
+					</div>
+				{:else if proposals.state === 'error'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-end">
+						<div class="rounded-md px-2 py-1.5 text-xs {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+							<p class="ds-status-copy">{proposals.message}</p>
+						</div>
+					</div>
+				{:else}
+					<div class="ds-case-overview-kpi-tile__stack flex-1">
+						<p class="ds-occ-kpi-card__metric" data-metric="proposals-pending">{proposals.value}</p>
+						<p class="ds-occ-kpi-card__support">Awaiting review</p>
+					</div>
+				{/if}
+			</div>
+
+			<!-- Warrants — orange (authority; distinct from workflow yellow + proposals rose) -->
+			<div class="{tileBase} ds-occ-kpi-card--orange">
+				<div class="ds-case-overview-kpi-tile__head">
+					<div class="ds-occ-kpi-card__label min-w-0 flex-1">Warrants / drafts</div>
+					<div class="ds-case-overview-kpi-tile__icon" aria-hidden="true">
+						<ShieldCheckIcon />
+					</div>
 				</div>
-			{:else}
-				<p class="{DS_TYPE_CLASSES.display} mt-2 tabular-nums" data-metric="proposals-pending">{proposals.value}</p>
-				<a
-					href="/case/{caseId}/proposals"
-					class="{DS_SUMMARY_CLASSES.navLink} mt-3 inline-block"
-					data-testid="case-overview-summary-link-proposals"
-					>View proposals</a
-				>
-			{/if}
+				{#if warrants.state === 'loading'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-center" role="status">
+						<p class="ds-occ-kpi-card__metric ds-occ-kpi-card__metric--muted">—</p>
+						<p class="ds-occ-kpi-card__support ds-occ-kpi-card__support--loading">
+							<span class="inline-flex items-center gap-2">
+								<span class={DS_STATUS_TEXT_CLASSES.info}><Spinner className="size-4" /></span>
+								Loading…
+							</span>
+						</p>
+					</div>
+				{:else if warrants.state === 'error'}
+					<div class="ds-case-overview-kpi-tile__stack flex-1 justify-end">
+						<div class="rounded-md px-2 py-1.5 text-xs {DS_STATUS_SURFACE_CLASSES.error}" role="alert">
+							<p class="ds-status-copy">{warrants.message}</p>
+						</div>
+					</div>
+				{:else}
+					<div class="ds-case-overview-kpi-tile__stack flex-1">
+						<p class="ds-occ-kpi-card__metric" data-metric="warrants-total">{warrants.value}</p>
+						<p class="ds-occ-kpi-card__support">Warrant draft records</p>
+					</div>
+				{/if}
+			</div>
 		</div>
 	</div>
 </section>

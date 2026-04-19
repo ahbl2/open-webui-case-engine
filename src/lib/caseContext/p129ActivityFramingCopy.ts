@@ -2,7 +2,17 @@
  * P129-01 — Activity / audit surface identity: static strings only (no stores, no routing).
  */
 
-export const P129_ACTIVITY_SURFACE_TITLE = 'Activity — Actions in this case';
+export const P129_ACTIVITY_SURFACE_TITLE = 'Activity';
+
+/** Short lead (tab body); full audit text stays in the disclosure on this surface. */
+export const P129_ACTIVITY_FRAMING_LEAD =
+	'Newest-first record of actions stored for this case. The Timeline tab holds the official chronology; this feed is a read-only audit trail.';
+
+export const P129_ACTIVITY_FRAMING_DETAILS_TOGGLE = 'Audit notes';
+
+/** Single-line header hint (full lead stays in `title` tooltip + disclosure). */
+export const P129_ACTIVITY_FRAMING_INLINE_HINT =
+	'Not the Timeline · read-only audit trail (newest first).';
 
 /** What this surface is for. */
 export const P129_ACTIVITY_FRAMING_BODY_PRIMARY =

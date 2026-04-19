@@ -24,9 +24,9 @@ describe('caseIdentityStrip (P76-04)', () => {
 		expect(caseStatusDsBadgeCompound('')).toContain('ds-badge-neutral');
 	});
 
-	it('caseIdentityStripExpandedPosture is true on summary only', () => {
+	it('caseIdentityStripExpandedPosture is true for dashboard-style case header on all sections', () => {
 		expect(caseIdentityStripExpandedPosture('summary')).toBe(true);
-		expect(caseIdentityStripExpandedPosture('chat')).toBe(false);
-		expect(caseIdentityStripExpandedPosture('timeline')).toBe(false);
+		expect(caseIdentityStripExpandedPosture('chat')).toBe(true);
+		expect(caseIdentityStripExpandedPosture('timeline')).toBe(true);
 	});
 });

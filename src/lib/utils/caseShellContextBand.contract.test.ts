@@ -17,13 +17,13 @@ describe('case shell context band (P76-06)', () => {
 	it('declares optional context band in CaseWorkspaceHeader before main workspace body in layout', () => {
 		const bandIdx = headerSource.indexOf('data-testid="case-shell-context-band"');
 		const bodyIdx = layoutSource.indexOf("'case-shell-body'");
-		const navIdx = layoutSource.indexOf('<CaseWorkspaceLeftPanelStack');
+		const shellIdx = layoutSource.indexOf('<CaseWorkspaceLayoutShell');
 		expect(bandIdx).toBeGreaterThan(-1);
 		expect(bodyIdx).toBeGreaterThan(-1);
-		expect(navIdx).toBeGreaterThan(-1);
+		expect(shellIdx).toBeGreaterThan(-1);
 		expect(headerSource.indexOf('data-testid="case-workspace-header"')).toBeLessThan(bandIdx);
-		expect(layoutSource.indexOf('<CaseWorkspaceHeader')).toBeLessThan(navIdx);
-		expect(navIdx).toBeLessThan(bodyIdx);
+		expect(layoutSource.indexOf('<CaseWorkspaceHeader')).toBeLessThan(shellIdx);
+		expect(shellIdx).toBeLessThan(bodyIdx);
 	});
 
 	it('links to proposals tab without inventing metrics in markup', () => {

@@ -15,9 +15,10 @@ const layoutSource = readFileSync(layoutPath, 'utf8');
 const navSource = readFileSync(navPath, 'utf8');
 const leftStackSource = readFileSync(leftStackPath, 'utf8');
 
-describe('case primary navigation (P71-04 / P70-05) — P123-02 left rail', () => {
-	it('embeds CaseWorkspaceLeftPanelStack (with CaseWorkspaceCaseSidebar) and CaseWorkspaceLayoutShell from the case layout (P132.5-01 / P132.5-04)', () => {
-		expect(layoutSource).toContain('CaseWorkspaceLeftPanelStack');
+describe('case primary navigation (P71-04 / P70-05) — tab bar + optional left stack component', () => {
+	it('embeds CaseWorkspaceCaseNavTabBar and CaseWorkspaceLayoutShell; left stack file still composes CaseWorkspaceCaseSidebar (not mounted in layout)', () => {
+		expect(layoutSource).toContain('CaseWorkspaceCaseNavTabBar');
+		expect(layoutSource).not.toContain('CaseWorkspaceLeftPanelStack');
 		expect(leftStackSource).toContain('CaseWorkspaceCaseSidebar');
 		expect(layoutSource).toContain('CaseWorkspaceLayoutShell');
 	});
@@ -45,9 +46,9 @@ describe('case primary navigation (P71-04 / P70-05) — P123-02 left rail', () =
 		expect(navSource).toContain("return `/case/${caseId}/${section}`");
 	});
 
-	it('keeps CaseWorkspaceHeader (identity surface) before CaseWorkspaceLeftPanelStack in template', () => {
+	it('keeps CaseWorkspaceHeader (identity surface) before CaseWorkspaceCaseNavTabBar in template', () => {
 		const afterScript = layoutSource.indexOf('</script>');
 		const tmpl = layoutSource.slice(afterScript + 1);
-		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceLeftPanelStack'));
+		expect(tmpl.indexOf('<CaseWorkspaceHeader')).toBeLessThan(tmpl.indexOf('<CaseWorkspaceCaseNavTabBar'));
 	});
 });

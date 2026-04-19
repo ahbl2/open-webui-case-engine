@@ -4,6 +4,7 @@
 	 * P131.6-03 — Assistant binding error + optional proposal error wiring from parent.
 	 */
 	import { DS_STACK_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+	import type { PersonalThreadAssociation } from '$lib/apis/caseEngine';
 
 	import OccRailAssistant from '$lib/components/operator/OccRailAssistant.svelte';
 	import OccRailProposals from '$lib/components/operator/OccRailProposals.svelte';
@@ -18,6 +19,11 @@
 	export let proposalsHasError = false;
 	export let onRetryProposals: (() => void) | undefined = undefined;
 	export let proposalsRetryDisabled = false;
+
+	export let openPersonalThread: (threadId: string) => void;
+	export let activePersonalThreadId: string | null = null;
+	export let threadsLoading = false;
+	export let recentPersonalThreads: PersonalThreadAssociation[] = [];
 </script>
 
 <div class="{DS_STACK_CLASSES.stack} min-w-0" data-testid="occ-home-dashboard-right">
@@ -27,6 +33,10 @@
 		{hasToken}
 		bindingErrorActive={bindingErrorActive}
 		{onRetryBinding}
+		{openPersonalThread}
+		{activePersonalThreadId}
+		{threadsLoading}
+		{recentPersonalThreads}
 	/>
 	<OccRailProposals
 		{goToCases}

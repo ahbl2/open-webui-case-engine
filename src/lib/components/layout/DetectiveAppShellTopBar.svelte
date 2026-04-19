@@ -10,11 +10,7 @@
 	import { page } from '$app/stores';
 
 	import { showSearch, showShortcuts, scope } from '$lib/stores';
-	import {
-		DS_TYPE_CLASSES,
-		DS_APP_SHELL_CLASSES,
-		DS_BADGE_CLASSES
-	} from '$lib/case/detectivePrimitiveFoundation';
+	import { DS_APP_SHELL_CLASSES, DS_BADGE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 
 	import Tooltip from '$lib/components/common/Tooltip.svelte';
 	import Search from '$lib/components/icons/Search.svelte';
@@ -23,6 +19,7 @@
 	const i18n = getContext('i18n');
 
 	$: pathname = $page.url.pathname;
+	$: casesRoute = pathname === '/cases' || pathname.startsWith('/cases/');
 	$: surface = pathname.startsWith('/admin')
 		? $i18n.t('Admin')
 		: pathname === '/cases' || pathname.startsWith('/cases/')
@@ -42,15 +39,10 @@
 </script>
 
 <div
-	class="flex min-w-0 flex-1 flex-row flex-wrap items-center gap-2 sm:gap-3"
+	class="grid min-w-0 w-full flex-1 grid-cols-[minmax(0,1fr)_minmax(0,28rem)_minmax(0,1fr)] items-center gap-2 sm:gap-3"
 	data-testid="detective-app-shell-top-bar"
 >
-	<div class="{DS_APP_SHELL_CLASSES.topContext} max-w-[min(100%,12rem)] sm:max-w-[14rem]">
-		<span
-			class="{DS_TYPE_CLASSES.label} uppercase tracking-wide text-[color:var(--ds-text-muted)]"
-		>
-			{$i18n.t('Workspace')}
-		</span>
+	<div class="{DS_APP_SHELL_CLASSES.topContext} min-w-0 max-w-[min(100%,12rem)] justify-self-start sm:max-w-[14rem]">
 		<span
 			class="truncate font-semibold leading-tight text-[color:var(--ds-text-on-canvas)]"
 			title={surface}
@@ -59,22 +51,22 @@
 		</span>
 	</div>
 
-	<div class="flex min-w-0 flex-[1_1_12rem] justify-center">
+	<div class="flex min-w-0 w-full justify-center justify-self-center">
 		<button
 			type="button"
-			class="{DS_APP_SHELL_CLASSES.topSearchTrigger}"
+			class="{DS_APP_SHELL_CLASSES.topSearchTrigger} !max-w-none w-full"
 			aria-label={$i18n.t('Open global search')}
 			data-testid="detective-app-shell-search-trigger"
 			on:click={() => showSearch.set(true)}
 		>
 			<Search className="size-4 shrink-0 opacity-85" strokeWidth="1.5" />
 			<span class="min-w-0 flex-1 truncate text-[color:var(--ds-text-muted)]">
-				{$i18n.t('Search & Intel')}
+				{casesRoute ? $i18n.t('Search all cases…') : $i18n.t('Search & Intel')}
 			</span>
 		</button>
 	</div>
 
-	<div class="{DS_APP_SHELL_CLASSES.topActions} ml-auto">
+	<div class="{DS_APP_SHELL_CLASSES.topActions} justify-self-end">
 		<Tooltip
 			content={$i18n.t('Ask / chat unit scope — cross-case behavior follows Case Engine rules.')}
 			placement="bottom"

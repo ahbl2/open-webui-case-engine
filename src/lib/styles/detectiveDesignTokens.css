@@ -117,18 +117,23 @@ html {
 	--ds-status-error-title: #b91c1c;
 	--ds-status-error-text: #ef4444;
 	--ds-status-error-link: #dc2626;
+
+	/* OCC panoramic strip height — same token in `html.dark` (bitmap band on /home, /cases, case shell). */
+	--occ-hero-banner-band-height: 5.5rem;
 }
 
 html.dark {
-	/* Dark-first benchmark posture: deep canvas, cool chrome, high-trust contrast */
-	--ds-bg-app: #030712;
-	--ds-bg-chrome: #111827;
-	--ds-bg-surface: #030712;
-	--ds-bg-muted: #111827;
-	--ds-bg-elevated: #111827;
+	/*
+	 * Goal dashboard mockup: page deepens to #090a0f; hero/sheet #12151e; hairlines #2d333b.
+	 */
+	--ds-bg-app: #090a0f;
+	--ds-bg-chrome: #0e1219;
+	--ds-bg-surface: #090a0f;
+	--ds-bg-muted: #151924;
+	--ds-bg-elevated: #12151e;
 
 	--ds-fg-chrome: #e5e7eb;
-	--ds-border-chrome: #1f2937;
+	--ds-border-chrome: #2d333b;
 
 	--ds-text-primary: #f9fafb;
 	--ds-text-secondary: #9ca3af;
@@ -137,30 +142,46 @@ html.dark {
 	--ds-text-canvas-fg: #f3f4f6;
 	--ds-fg-loading: #6b7280;
 
-	--ds-border-subtle: #1f2937;
-	--ds-border-default: #374151;
-	--ds-border-strong: #4b5563;
+	--ds-border-subtle: #151923;
+	--ds-border-default: #2d333b;
+	--ds-border-strong: #3d4654;
 
 	--ds-radius-sm: 0.375rem;
 	--ds-radius-md: 0.5rem;
 	--ds-radius-lg: 0.625rem;
 
-	--ds-accent: #60a5fa;
-	--ds-accent-strong: #93c5fd;
+	/* Primary action / active-nav blue (goal mockup saturation). */
+	--ds-accent: #3b82f6;
+	--ds-accent-strong: #2563eb;
 	--ds-accent-muted: #60a5fa;
-	--ds-interactive: #60a5fa;
+	--ds-interactive: #3b82f6;
 
-	--ds-nav-tab-active-border: #60a5fa;
-	--ds-nav-tab-active-fg: #93c5fd;
+	--ds-nav-tab-active-border: #3b82f6;
+	--ds-nav-tab-active-fg: #60a5fa;
 
 	--ds-shadow-sm: 0 1px 3px 0 rgb(0 0 0 / 0.45);
 	--ds-shadow-md: 0 8px 24px rgb(0 0 0 / 0.35);
 	--ds-shadow-lg: 0 16px 40px rgb(0 0 0 / 0.45);
 	--ds-shadow-card: 0 1px 3px 0 rgb(0 0 0 / 0.4), 0 2px 8px -2px rgb(0 0 0 / 0.35);
 
-	--ds-bg-canvas-subtle: #0b1220;
+	--ds-bg-canvas-subtle: #05070c;
 
-	--ds-focus-ring: #60a5fa;
+	/*
+	 * OCC sheet: color where panoramic hero meets the scrollable frame — bridge #12151e → #090a0f.
+	 * Keep bitmap foot + `.ds-occ-dashboard-surface` gradient in sync (see detectiveSurfaces.css).
+	 */
+	--occ-hero-sheet-bridge: color-mix(in oklab, var(--ds-bg-elevated) 76%, var(--ds-bg-app));
+
+	/* Top: hero/sheet navy → bottom: near-black canvas (goal vertical story). */
+	--ds-canvas-atmosphere-gradient: linear-gradient(
+		180deg,
+		#12151e 0%,
+		#0d1018 32%,
+		#090a0f 72%,
+		#06080d 100%
+	);
+
+	--ds-focus-ring: #3b82f6;
 
 	--ds-space-1: 0.25rem;
 	--ds-space-2: 0.5rem;

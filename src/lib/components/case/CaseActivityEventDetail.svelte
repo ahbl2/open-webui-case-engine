@@ -22,6 +22,8 @@
 	import { formatCaseDateTimeWithSeconds } from '$lib/utils/formatDateTime';
 
 	export let event: CaseActivityEvent;
+	/** Nested under activity feed card — lighter chrome. */
+	export let embedded = false;
 
 	$: showRecorded =
 		event.recorded_at &&
@@ -30,9 +32,12 @@
 </script>
 
 <section
-	class="{DS_BANNER_CLASSES.base} {DS_BANNER_CLASSES.denseModifier} mt-2 border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)] px-3 py-2.5"
+	class="{embedded
+		? 'mt-0 rounded-md border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-muted)] px-3 py-2.5'
+		: `${DS_BANNER_CLASSES.base} ${DS_BANNER_CLASSES.denseModifier} mt-2 border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)] px-3 py-2.5`}"
 	data-testid="case-activity-event-detail"
 	aria-label={P129_ACTIVITY_DETAIL_PANEL_TITLE}
+	data-embedded={embedded ? 'true' : undefined}
 >
 	<p class="{DS_TYPE_CLASSES.section} m-0 text-xs font-normal text-[color:var(--ce-l-text-primary)]">
 		{P129_ACTIVITY_DETAIL_PANEL_TITLE}

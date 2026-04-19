@@ -160,6 +160,14 @@ export interface CaseEngineCase {
 	status: string;
 	incident_date?: string | null;
 	created_at?: string;
+	/** When present, Cases browse rail shows a victim line. */
+	victim_name?: string | null;
+	/** Primary suspect display name; rail shows “Unknown” when absent. */
+	main_suspect?: string | null;
+	/** CID: shown as “Incident location” in the browse rail. */
+	incident_location?: string | null;
+	/** SIU: shown as “Main location” in the browse rail. */
+	main_location?: string | null;
 	[key: string]: unknown;
 }
 
@@ -294,10 +302,10 @@ export async function resolveBrowserAuthOnce(
 				const isBrowserResolveFailure = err instanceof BrowserResolveFailure;
 				if (!isBrowserResolveFailure) throw err;
 
+				// Do not retry rate_limited (429): each attempt hits Case Engine authRateLimiter
+				// (10 req / 15 min per IP). Retrying multiplies requests and locks users out faster.
 				const retryable =
-					err.classification === 'rate_limited' ||
-					err.classification === 'network_unreachable' ||
-					err.classification === 'server_error';
+					err.classification === 'network_unreachable' || err.classification === 'server_error';
 				if (!retryable || retryIndex >= AUTH_RESOLVE_RETRY_DELAYS_MS.length) {
 					if (err.classification === 'rate_limited') {
 						authResolveCooldownUntil = Date.now() + AUTH_RESOLVE_RATE_LIMIT_COOLDOWN_MS;
@@ -312,16 +320,8 @@ export async function resolveBrowserAuthOnce(
 				}
 
 				const delay = AUTH_RESOLVE_RETRY_DELAYS_MS[retryIndex];
-				const waitMs =
-					err.classification === 'rate_limited'
-						? Math.max(delay, AUTH_RESOLVE_RATE_LIMIT_COOLDOWN_MS)
-						: delay;
-				if (err.classification === 'rate_limited') {
-					authResolveCooldownUntil = Date.now() + waitMs;
-					console.warn('[AUTH] rate limited');
-				}
-				console.warn('[AUTH] retrying with backoff', retryIndex + 1, waitMs);
-				await sleep(waitMs);
+				console.warn('[AUTH] retrying with backoff', retryIndex + 1, delay);
+				await sleep(delay);
 				retryIndex += 1;
 			}
 		}

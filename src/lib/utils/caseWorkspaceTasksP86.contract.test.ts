@@ -14,11 +14,11 @@ const layoutPath = join(here, '../../routes/(app)/case/[id]/+layout.svelte');
 const tasksPagePath = join(here, '../../routes/(app)/case/[id]/tasks/+page.svelte');
 
 describe('P86-05 Case Workspace Tasks visibility', () => {
-	it('P123-02: case layout uses CaseWorkspaceLeftPanelStack embedding CaseWorkspaceCaseSidebar; Tasks route remains available', () => {
+	it('P123-02: left stack still composes CaseWorkspaceCaseSidebar; layout does not mount left rail; Tasks route remains available', () => {
 		const layout = readFileSync(layoutPath, 'utf8');
 		const stackPath = join(here, '../components/case/CaseWorkspaceLeftPanelStack.svelte');
 		const stack = readFileSync(stackPath, 'utf8');
-		expect(layout).toContain('CaseWorkspaceLeftPanelStack');
+		expect(layout).not.toContain('CaseWorkspaceLeftPanelStack');
 		expect(stack).toContain('CaseWorkspaceCaseSidebar');
 		expect(layout).not.toContain('CaseWorkspaceNav');
 	});

@@ -35,9 +35,10 @@ describe('case Overview Phase 82 composition (P82-06)', () => {
 	it('uses sentence-case View links on summary metric cards', () => {
 		expect(summaryCardsSource).toContain('>View timeline</a');
 		expect(summaryCardsSource).toContain('>View files</a');
-		expect(summaryCardsSource).toContain('>View notes</a');
+		expect(summaryCardsSource).toContain('>View workflow</a');
 		expect(summaryCardsSource).toContain('>View entities</a');
 		expect(summaryCardsSource).toContain('>View proposals</a');
+		expect(summaryCardsSource).toContain('>View warrants</a');
 	});
 
 	it('uses DS status surface for card-level load errors (consistent with Summary tab)', () => {

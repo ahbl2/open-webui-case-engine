@@ -36,7 +36,7 @@
 /* --sidebar-width: single source of truth for detective sidebar width; default here, updated at runtime by Sidebar.svelte (resize). Content offset and sidebar both use this. Future collapse can set to 0 or narrow value. */
 :root {
 	--app-text-scale: 1;
-	/* P131.7-01 — Compact GNAV rail (~23% narrower default vs legacy 260px) */
+	/* P131.7-01 — Compact GNAV rail; P131.9-15 — reference-aligned default width */
 	--sidebar-width: 200px;
 	/* Collapsed detective rail: fixed px so UI text scale does not inflate shell chrome vs --sidebar-width */
 	--sidebar-rail-width: 56px;

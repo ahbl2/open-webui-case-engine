@@ -97,6 +97,10 @@ export const DS_APP_SHELL_CLASSES = {
 	main: 'ds-app-shell__main',
 	topContext: 'ds-app-shell-top-context',
 	topSearchTrigger: 'ds-app-shell-top-search-trigger',
+	/** Plain `<input>` — same box as `topSearchTrigger` when a leading icon wrapper is not used. */
+	topSearchInput: 'ds-app-shell-top-search-input',
+	/** Icon + text field — matches `topSearchTrigger` layout (Home strip). */
+	topSearchComposite: 'ds-app-shell-top-search-composite',
 	topActions: 'ds-app-shell-top-actions'
 } as const;
 
@@ -340,8 +344,6 @@ export const DS_WORKFLOW_TEXT_CLASSES = {
 
 /** P77-09 — Case Overview / Summary (`/case/:id/summary`); `CaseSummaryPanel` + route modules */
 export const DS_SUMMARY_CLASSES = {
-	pageScroll: 'ds-summary-page-scroll',
-	pageInner: 'ds-summary-page-inner',
 	identityBand: 'ds-summary-identity-band',
 	identityTitleRow: 'ds-summary-identity-title-row',
 	pageEyebrow: 'ds-summary-page-eyebrow',
@@ -572,6 +574,35 @@ export const DS_OCC_CLASSES = {
 	sectionHeaderHeading: 'ds-occ-section-header-row__heading',
 	railPanel: 'ds-occ-rail-panel',
 	resourceRow: 'ds-occ-resource-row'
+} as const;
+
+/** P132 — Cases browse cells (mock-aligned list/grid cards; `CasesBrowseCaseCard.svelte`) */
+export const DS_CASE_BROWSE_CLASSES = {
+	root: 'ds-case-browse-card',
+	rootSelected: 'ds-case-browse-card--selected',
+	topRow: 'ds-case-browse-card__top',
+	topLeft: 'ds-case-browse-card__top-left',
+	caseIdRow: 'ds-case-browse-card__case-id-row',
+	actionsPrimary: 'ds-case-browse-card__actions-primary',
+	leadCluster: 'ds-case-browse-card__lead',
+	topRight: 'ds-case-browse-card__top-right',
+	caseId: 'ds-case-browse-card__case-id',
+	title: 'ds-case-browse-card__title',
+	updated: 'ds-case-browse-card__updated',
+	metaRow: 'ds-case-browse-card__meta',
+	stats: 'ds-case-browse-card__stats',
+	stat: 'ds-case-browse-card__stat',
+	assignee: 'ds-case-browse-card__assignee',
+	assigneeText: 'ds-case-browse-card__assignee-text',
+	avatar: 'ds-case-browse-card__avatar',
+	actions: 'ds-case-browse-card__actions',
+	actionBtn: 'ds-case-browse-card__action',
+	actionBtnEdit: 'ds-case-browse-card__action--edit',
+	summary: 'ds-case-browse-card__summary',
+	viewToggle: 'ds-case-browse-view-toggle',
+	viewToggleBtn: 'ds-case-browse-view-toggle__btn',
+	toolbar: 'ds-case-browse-toolbar',
+	toolbarGrid: 'ds-case-browse-toolbar__grid'
 } as const;
 
 /** P77 — Command center browse surfaces (token-only; cases list, OCC-adjacent layouts) */
