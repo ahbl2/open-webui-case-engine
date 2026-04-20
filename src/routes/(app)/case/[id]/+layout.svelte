@@ -47,10 +47,7 @@
 	import EditCaseModal from '$lib/components/case/EditCaseModal.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { DS_CASE_SHELL_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
-	import {
-		P1325_RIGHT_STACK_PANEL_TITLE,
-		P1325_SHELL_TIMELINE_PANEL_TITLE
-	} from '$lib/caseContext/p1325CaseWorkspaceShellCopy';
+	import { P1325_RIGHT_STACK_PANEL_TITLE } from '$lib/caseContext/p1325CaseWorkspaceShellCopy';
 	import { caseIdentityStripExpandedPosture } from '$lib/utils/caseIdentityStrip';
 	import {
 		isDetectiveWave3CaseShellEnabled,
@@ -308,7 +305,7 @@
 			>
 			<!-- Activity route: hide right stack so the main Activity tab is not duplicated beside itself. -->
 			<CaseWorkspaceLayoutShell
-				hideRightRail={activeSection === 'summary' || activeSection === 'activity'}
+				hideRightRail={activeSection === 'summary' || activeSection === 'activity' || activeSection === 'timeline'}
 			>
 		<svelte:fragment slot="center">
 			<div class={caseShellBodyClass} data-region={wave3CaseShellEnabled ? 'case-shell-body' : undefined}>
@@ -333,9 +330,9 @@
 							</div>
 						{:else}
 							{#if activeSection === 'timeline'}
+								<!-- No shell title: Timeline page already owns the primary “Timeline” heading. -->
 								<CaseWorkspaceShellPanel
 									testId="case-workspace-shell-timeline-panel"
-									title={P1325_SHELL_TIMELINE_PANEL_TITLE}
 									delegateBodyScroll={true}
 								>
 									<slot />

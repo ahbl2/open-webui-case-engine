@@ -13,16 +13,16 @@ const pagePath = join(
 );
 
 describe('P85-04 timeline list vertical rhythm (+page)', () => {
-	it('uses a single gap class for the chronological entry list (gap-3)', () => {
+	it('uses a single gap class for the chronological entry list', () => {
 		const src = readFileSync(pagePath, 'utf8');
-		expect(src).toMatch(/<ol class="flex flex-col gap-3"[^>]*aria-label="Official case timeline"/);
+		expect(src).toMatch(/<ol class="flex flex-col gap-6"[^>]*aria-label="Official case timeline"/);
 	});
 });
 
 describe('P85-04 detectiveSurfaces timeline entry tokens', () => {
-	it('keeps main column rhythm on DS token gap (--ds-space-3)', () => {
+	it('keeps main column rhythm on DS token gap (--ds-space-4)', () => {
 		const css = readFileSync(surfacesPath, 'utf8');
-		expect(css).toMatch(/\.ds-timeline-entry-row__main\s*\{[^}]*gap:\s*var\(--ds-space-3\)/s);
+		expect(css).toMatch(/\.ds-timeline-entry-row__main\s*\{[^}]*gap:\s*var\(--ds-space-4\)/s);
 	});
 
 	it('keeps top row + ops toolbar gaps on DS tokens', () => {
@@ -41,8 +41,10 @@ describe('P85-04 detectiveSurfaces timeline entry tokens', () => {
 		);
 	});
 
-	it('keeps timeline card padding on DS token (--ds-space-4)', () => {
+	it('keeps timeline card padding on DS token (--ds-space-5) with embedded-shell parity', () => {
 		const css = readFileSync(surfacesPath, 'utf8');
-		expect(css).toMatch(/\.ds-timeline-entry-row \.ds-card\s*\{[^}]*padding:\s*var\(--ds-space-4\)/s);
+		expect(css).toMatch(
+			/:is\(\.ds-timeline-entry-row, \.ds-timeline-entry-embedded-shell\) \.ds-card\s*\{[^}]*padding:\s*var\(--ds-space-5\)/s
+		);
 	});
 });

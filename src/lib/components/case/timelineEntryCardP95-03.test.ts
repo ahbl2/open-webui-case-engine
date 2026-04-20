@@ -9,13 +9,16 @@ import { describe, it, expect } from 'vitest';
 const cardPath = join(dirname(fileURLToPath(import.meta.url)), 'TimelineEntryCard.svelte');
 
 describe('TimelineEntryCard P95-03 inline context (source contract)', () => {
-	it('groups linked images and provenance in a dedicated strip with stable test ids', () => {
+	it('keeps deleted-card linked-images strip; moves origin/lineage to footer popover', () => {
 		const src = readFileSync(cardPath, 'utf8');
-		expect(src).toMatch(/showInlineContextBlock/);
+		expect(src).toMatch(/showDeletedInlineLinkedStrip/);
 		expect(src).toMatch(/data-testid="timeline-entry-inline-context"/);
 		expect(src).toMatch(/data-testid="timeline-entry-linked-files-row"/);
 		expect(src).toMatch(/data-testid="timeline-entry-context-origin"/);
 		expect(src).toMatch(/ds-timeline-entry-inline-context/);
+		expect(src).toMatch(/Popover\.Root/);
+		expect(src).toMatch(/data-testid="timeline-entry-lineage-trigger"/);
+		expect(src).toMatch(/variant="panel"/);
 	});
 
 	it('keeps linked-images trigger with explicit label and viewer wiring', () => {
@@ -26,7 +29,7 @@ describe('TimelineEntryCard P95-03 inline context (source contract)', () => {
 		expect(src).toMatch(/TimelineEntryLinkedImagesViewer/);
 	});
 
-	it('keeps TimelineEntryProvenanceBlock nested under the context-origin wrapper', () => {
+	it('keeps TimelineEntryProvenanceBlock (panel) nested under the context-origin wrapper in the popover', () => {
 		const src = readFileSync(cardPath, 'utf8');
 		expect(src).toMatch(
 			/data-testid="timeline-entry-context-origin"[\s\S]{0,1200}?\n\s*<TimelineEntryProvenanceBlock/s

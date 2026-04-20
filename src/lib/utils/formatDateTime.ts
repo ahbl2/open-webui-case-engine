@@ -18,7 +18,10 @@
  * where sub-minute sequence accuracy matters (e.g. two events in the same minute).
  */
 
-import { formatIsoInOperationalTimezone } from '$lib/caseTimeline/operationalOccurredAt';
+import {
+	DEFAULT_OPERATIONAL_TIMEZONE,
+	formatIsoInOperationalTimezone
+} from '$lib/caseTimeline/operationalOccurredAt';
 export function formatCaseDateTime(iso: string): string {
 	try {
 		const d = new Date(iso);
@@ -65,6 +68,24 @@ export function formatOperationalCaseTimeHm(iso: string): string {
 	const i = full.indexOf(' ');
 	if (i === -1) return full;
 	return full.slice(i + 1);
+}
+
+/** P41-10 — operational zone time in 12-hour form (e.g. `11:47 PM`) for timeline rail UI. */
+export function formatOperationalOccurredTime12h(iso: string): string {
+	const trimmed = String(iso ?? '').trim();
+	if (!trimmed) return '';
+	const d = new Date(trimmed);
+	if (isNaN(d.getTime())) return trimmed;
+	try {
+		return new Intl.DateTimeFormat('en-US', {
+			timeZone: DEFAULT_OPERATIONAL_TIMEZONE,
+			hour: 'numeric',
+			minute: '2-digit',
+			hour12: true
+		}).format(d);
+	} catch {
+		return trimmed;
+	}
 }
 
 /**

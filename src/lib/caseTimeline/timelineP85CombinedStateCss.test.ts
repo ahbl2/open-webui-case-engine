@@ -14,8 +14,9 @@ const TRIPLE_CARD =
 describe('P85-06 detectiveSurfaces triple-combined timeline card states', () => {
 	it('defines active-row light + dark + removed rules for all three P84 modifiers together', () => {
 		const css = readFileSync(surfacesPath, 'utf8');
-		expect(css).toContain(`.ds-timeline-entry-row ${TRIPLE_CARD}`);
-		expect(css).toContain(`html.dark .ds-timeline-entry-row ${TRIPLE_CARD}`);
+		const rowOrEmbedded = ':is(.ds-timeline-entry-row, .ds-timeline-entry-embedded-shell)';
+		expect(css).toContain(`${rowOrEmbedded} ${TRIPLE_CARD}`);
+		expect(css).toContain(`html.dark ${rowOrEmbedded} ${TRIPLE_CARD}`);
 		expect(css).toContain(`.ds-timeline-entry-row--removed ${TRIPLE_CARD}`);
 	});
 });

@@ -2066,7 +2066,11 @@ export interface TimelineEntry {
 	occurred_at: string;
 	created_at: string;
 	created_by: string;
+	/** Resolved from case_engine_users when available; else same as created_by. */
+	created_by_name?: string | null;
 	type: string;
+	/** Short label for the entry; required on direct create; may be absent on older API payloads. */
+	title?: string;
 	location_text: string | null;
 	tags: string[];
 	text_original: string;
@@ -2149,7 +2153,7 @@ export async function listCaseTimelineEntriesPage(
 		maxId?: string;
 		/** P41-46: case-insensitive text search (text_original, location_text, type display label). */
 		query?: string;
-		/** P41-46: comma-separated timeline entry types (e.g. `note` or `note,surveillance`). */
+		/** P41-46: comma-separated timeline entry types (e.g. `incident` or `incident,surveillance`). */
 		types?: string;
 		/** P41-46: inclusive lower bound, `YYYY-MM-DD` (UTC calendar date of occurred_at). */
 		occurredFrom?: string;
@@ -2226,6 +2230,8 @@ export interface TimelineEntryVersion {
 	prior_text_cleaned: string | null;
 	prior_location_text: string | null;
 	prior_tags: string | null;
+	/** Present after migration 070; older snapshots may omit. */
+	prior_title?: string;
 	changed_by: string;
 	changed_at: string;
 	change_reason: string;
@@ -2273,6 +2279,7 @@ export async function updateCaseTimelineEntry(
 		type?: string;
 		occurred_at?: string;
 		location_text?: string | null;
+		title?: string;
 		change_reason: string;
 		linked_file_ids?: string[];
 	}
@@ -2311,6 +2318,7 @@ export async function createCaseTimelineEntry(
 	payload: {
 		occurred_at: string;
 		type: string;
+		title: string;
 		text_original: string;
 		location_text?: string | null;
 		linked_file_ids?: string[];

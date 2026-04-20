@@ -14,7 +14,7 @@ const placeholderPath = join(__dirname, '../components/case/CaseWorkspaceRouteSu
 describe('P124-01 Timeline authority framing', () => {
 	it('timeline page mounts framing and does not use $page.params.id', () => {
 		const src = readFileSync(timelinePage, 'utf8');
-		expect(src).toMatch(/CaseTimelineAuthorityFraming/);
+		expect(src).toMatch(/case-timeline-p124-authority-framing/);
 		expect(src).not.toMatch(/\$page\.params\.id/);
 		expect(src).toMatch(/getRouteCaseId/);
 	});

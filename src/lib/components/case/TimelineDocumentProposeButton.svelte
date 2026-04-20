@@ -36,6 +36,8 @@
 	export let token: string;
 	/** When true the trigger button is also disabled (e.g. while timeline is loading). */
 	export let disabled = false;
+	/** When true, no trigger button is rendered — parent opens the file picker via `triggerPick()`. */
+	export let hideTrigger = false;
 
 	// ── Workflow state ─────────────────────────────────────────────────────────
 
@@ -71,6 +73,11 @@
 	function openFilePicker(): void {
 		error = '';
 		fileInput?.click();
+	}
+
+	/** Headless / menu wiring — opens the same file dialog as the toolbar button. */
+	export function triggerPick(): void {
+		openFilePicker();
 	}
 
 	function onFileSelected(e: Event): void {
@@ -215,6 +222,7 @@
   Trigger button — violet to visually distinguish it from the blue "Log entry"
   button beside it, while sharing the same size/shape/hover pattern.
 -->
+{#if !hideTrigger}
 <button
 	type="button"
 	on:click={openFilePicker}
@@ -235,6 +243,7 @@
 		📄 Create from document
 	{/if}
 </button>
+{/if}
 
 {#if error}
 	<span

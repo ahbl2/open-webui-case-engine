@@ -9,18 +9,19 @@ import { describe, expect, it } from 'vitest';
 const here = dirname(fileURLToPath(import.meta.url));
 
 describe('P40-02 timeline provenance UI', () => {
-	it('TimelineEntryProvenanceBlock exposes operator test ids and distinguishes chat vs file copy', () => {
-		const src = readFileSync(join(here, 'TimelineEntryProvenanceBlock.svelte'), 'utf8');
-		expect(src).toMatch(/data-testid="timeline-entry-provenance"/);
-		expect(src).toMatch(/data-testid="timeline-entry-origin-badge"/);
-		expect(src).toMatch(/data-testid="timeline-entry-provenance-source-file"/);
-		expect(src).toMatch(/data-testid="timeline-entry-provenance-chat-context"/);
-		expect(src).toMatch(/data-testid="timeline-entry-provenance-legacy-fallback"/);
-		expect(src).toMatch(/data-testid="timeline-entry-provenance-payload-unreadable"/);
-		expect(src).toMatch(/not from a document extract/);
-		expect(src).not.toMatch(/normal chat/);
-		expect(src).toContain('data-testid="timeline-entry-provenance-chronology"');
-		expect(src).toMatch(/When confidence \(at commit\)/);
+	it('TimelineEntryProvenanceBlock + Body expose operator test ids and distinguish chat vs file copy', () => {
+		const block = readFileSync(join(here, 'TimelineEntryProvenanceBlock.svelte'), 'utf8');
+		const body = readFileSync(join(here, 'TimelineEntryProvenanceBody.svelte'), 'utf8');
+		expect(block).toMatch(/data-testid="timeline-entry-provenance"/);
+		expect(block).toMatch(/data-testid="timeline-entry-origin-badge"/);
+		expect(body).toMatch(/data-testid="timeline-entry-provenance-source-file"/);
+		expect(body).toMatch(/data-testid="timeline-entry-provenance-chat-context"/);
+		expect(body).toMatch(/data-testid="timeline-entry-provenance-legacy-fallback"/);
+		expect(body).toMatch(/data-testid="timeline-entry-provenance-payload-unreadable"/);
+		expect(body).toMatch(/not from a document extract/);
+		expect(body).not.toMatch(/normal chat/);
+		expect(body).toContain('data-testid="timeline-entry-provenance-chronology"');
+		expect(body).toMatch(/When confidence \(at commit\)/);
 	});
 
 	it('TimelineEntryCard shows provenance only when not manual', () => {

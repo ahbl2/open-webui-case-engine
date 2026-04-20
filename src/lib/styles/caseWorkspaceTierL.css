@@ -247,7 +247,7 @@ html {
 
 	/*
 	 * P71-05 — Timeline tab shell (P70-06 S1 internal scroll + W1 width; P70-04 B operational hero).
-	 * Root: canvas; hero: chrome band; toolbar: hairline on canvas; one primary vertical scroll (list).
+	 * Root: canvas; hero + toolbar fixed; list column (`.ce-l-timeline-primary-scroll`) scrolls independently.
 	 */
 	.ce-l-timeline-shell {
 		display: flex;
@@ -291,9 +291,29 @@ html {
 	.ce-l-timeline-primary-scroll {
 		flex: 1 1 0%;
 		min-height: 0;
+		min-width: 0;
+		overflow-x: hidden;
 		overflow-y: auto;
 		-webkit-overflow-scrolling: touch;
 		scroll-padding-block: 0.5rem;
+	}
+
+	/*
+	 * Timeline nested OCC — `detectiveSurfaces.css` sets
+	 * `[data-testid='case-workspace-main'] [data-testid='occ-dashboard-surface'] { flex: 0 0 auto !important; }`
+	 * for the Summary tab. That selector also matches the Timeline `OperatorCommandCenterFrame`, collapsing
+	 * the nested dashboard to zero usable height so list and sidebar scrollports never activate.
+	 */
+	[data-testid='case-workspace-main'] [data-testid='case-timeline-page'] [data-testid='occ-root'].timeline-occ-root {
+		flex: 1 1 0% !important;
+		min-height: 0 !important;
+		overflow: hidden !important;
+	}
+
+	[data-testid='case-workspace-main'] [data-testid='case-timeline-page'] [data-testid='occ-dashboard-surface'] {
+		flex: 1 1 0% !important;
+		min-height: 0 !important;
+		overflow: hidden !important;
 	}
 
 	/*

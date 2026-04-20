@@ -1,8 +1,8 @@
 /**
  * P98-02 / P98-05 — Timeline-only declared-relationship presentation (read-only).
  *
- * Maps P98-01 `CaseRecordRelationshipCollection` for `timeline_entry` origins into compact copy for
- * {@link TimelineEntryDeclaredRelationshipsBlock}. No navigation, no inference, no extra filtering
+ * Maps P98-01 `CaseRecordRelationshipCollection` for `timeline_entry` origins into compact copy.
+ * No navigation, no inference, no extra filtering
  * beyond the contract. Later tickets add builders only when a Case Engine read contract exists.
  */
 import type { TimelineEntry } from '$lib/apis/caseEngine';

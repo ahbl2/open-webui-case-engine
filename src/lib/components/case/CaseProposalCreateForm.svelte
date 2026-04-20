@@ -47,7 +47,7 @@
 	let proposalType: ProposalType = 'timeline';
 	let bodyText = '';
 	let occurredAt = '';
-	let entryType: string = TIMELINE_ENTRY_TYPE_VALUES[0] ?? 'note';
+	let entryType: string = TIMELINE_ENTRY_TYPE_VALUES[0] ?? 'incident';
 
 	let threads: CaseThreadAssociation[] = [];
 	let threadId = '';

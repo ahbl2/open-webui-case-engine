@@ -17,13 +17,11 @@ describe('TimelineEntryCard P95-02 metadata readability (source contract)', () =
 		expect(src).toMatch(/Event occurred/);
 	});
 
-	it('surfaces recorded (created_at) and authorship with stable test ids', () => {
+	it('surfaces authorship in the footer when present with stable test id', () => {
 		const src = readFileSync(cardPath, 'utf8');
-		expect(src).toMatch(/data-testid="timeline-entry-recorded-at"/);
 		expect(src).toMatch(/data-testid="timeline-entry-entered-by"/);
-		expect(src).toMatch(/P124_TIMELINE_LABEL_ENTRY_LOGGED_AT/);
-		expect(src).toMatch(/Entry logged/);
 		expect(src).toMatch(/P124_TIMELINE_LABEL_LOGGED_BY/);
+		expect(src).not.toMatch(/data-testid="timeline-entry-recorded-at"/);
 	});
 
 	it('labels type, tags, and location explicitly without workflow/task wording', () => {
@@ -34,12 +32,12 @@ describe('TimelineEntryCard P95-02 metadata readability (source contract)', () =
 		expect(src).not.toMatch(/\bworkflow\b|\bowner\b|\bdue date\b|\bstatus\b.*task/i);
 	});
 
-	it('groups secondary metadata (tags + location/author) under a shared block', () => {
+	it('uses OCC-style header for active entries (type + tags + pin/location) and keeps removed-state secondary block', () => {
 		const src = readFileSync(cardPath, 'utf8');
-		expect(src).toMatch(/data-testid="timeline-entry-metadata-secondary"/);
+		expect(src).toMatch(/data-testid="timeline-entry-occ-header"/);
 		expect(src).toMatch(/data-testid="timeline-entry-tags-block"/);
 		expect(src).toMatch(/data-testid="timeline-entry-location"/);
-		expect(src).toMatch(/ds-timeline-entry-metadata-secondary/);
+		expect(src).toMatch(/data-testid="timeline-entry-metadata-secondary"/);
 	});
 
 	it('does not prefix location with plain “at" (explicit Location label instead)', () => {
@@ -47,7 +45,7 @@ describe('TimelineEntryCard P95-02 metadata readability (source contract)', () =
 		expect(src).not.toMatch(/\bat\s+\{#each splitTextForSearchHighlight\(metadataLocationRaw/);
 	});
 
-	it('preserves Phase 83 metadata line contract (separator + conditional)', () => {
+	it('preserves Phase 83 metadata line contract on removed-state rows (separator + conditional)', () => {
 		const src = readFileSync(cardPath, 'utf8');
 		expect(src).toMatch(/timeline-entry-metadata-line/);
 		expect(src).toMatch(/hasMetadataLocation && hasMetadataCreator/);

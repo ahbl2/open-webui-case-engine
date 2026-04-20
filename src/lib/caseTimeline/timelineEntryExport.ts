@@ -21,6 +21,7 @@ export function timelineEntryExportFilename(
 /** Same plain document as TXT export (metadata block + body); used for TXT download and PDF generation. */
 export function buildTimelineEntryTxtDocument(entry: TimelineEntry, bodyText: string): string {
 	const loc = entry.location_text?.trim() || '';
+	const title = (entry.title ?? '').trim();
 	const occurred = entry.occurred_at ?? '';
 	const recorded = entry.created_at ?? '';
 	const typeLabel = entry.type ?? '';
@@ -30,10 +31,11 @@ export function buildTimelineEntryTxtDocument(entry: TimelineEntry, bodyText: st
 		`Entry ID: ${entry.id}\n` +
 		`Case ID: ${entry.case_id}\n` +
 		`Type: ${typeLabel}\n` +
+		(title ? `Title: ${title}\n` : '') +
 		`Occurred at: ${occurred}\n` +
 		(loc ? `Location: ${loc}\n` : '') +
 		`Recorded: ${recorded}\n` +
-		`Recorded by: ${entry.created_by}\n\n` +
+		`Recorded by: ${entry.created_by_name?.trim() || entry.created_by}\n\n` +
 		bodyText
 	);
 }

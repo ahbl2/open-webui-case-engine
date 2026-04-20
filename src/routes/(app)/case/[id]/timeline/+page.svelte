@@ -94,6 +94,7 @@
 	import { nextP99ArrivalSnapshot } from '$lib/case/p99ArrivalContextPresentation';
 	import type { ArrivalContext } from '$lib/case/p99ArrivalContextReadModel';
 	import TimelineEntryCard from '$lib/components/case/TimelineEntryCard.svelte';
+	import TimelineEntryLeftRail from '$lib/components/case/TimelineEntryLeftRail.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocumentProposeButton.svelte';
 	import {
@@ -106,8 +107,10 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	import { datetimeLocalToIso } from '$lib/caseTimeline/timelineOccurredAtLocal';
 	import {
 		TIMELINE_ENTRY_TYPE_VALUES,
-		timelineEntryTypeOptionLabel
+		timelineEntryTypeOptionLabel,
+		timelineEntryTypeSelectOptions
 	} from '$lib/caseTimeline/timelineEntryTypeOptions';
+	import { timelineDayRailConnector } from '$lib/caseTimeline/timelineDayRailConnector';
 	import {
 		TIMELINE_SENSITIVE_CHANGE_REASON_MIN_LEN,
 		TIMELINE_SENSITIVE_REASON_HINT,
@@ -120,10 +123,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		TIMELINE_TIME_ZONE_LABEL,
 		TIMELINE_TIME_ZONE_TOOLTIP
 	} from './timelineOperatorMicrocopy';
-	import {
-		TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
-		TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP
-	} from '$lib/caseTimeline/timelineTypeNoteClarity';
+	import { TIMELINE_TYPE_FIELD_TOOLTIP } from '$lib/caseTimeline/timelineTypeNoteClarity';
 	import { normalizeTimelineSearchNeedle } from '$lib/caseTimeline/timelineListFilter';
 	import {
 		isTimelinePageShortcutTargetEditable,
@@ -179,10 +179,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		parseEntityLensEntityIdFromSearchParams,
 		timelineEntryIdsLinkedFromEntityEvidence
 	} from '$lib/case/p108EntityTimelineLens';
-	import {
-		P108_ENTITY_TIMELINE_LENS_EMPTY,
-		p108EntityLensTimelineLoadedCountLabel
-	} from '$lib/case/p108EntityTimelineLensCopy';
+	import { P108_ENTITY_TIMELINE_LENS_EMPTY } from '$lib/case/p108EntityTimelineLensCopy';
 	import {
 		ensureEvidenceSelectionCaseScope,
 		toggleEvidenceSelection,
@@ -192,9 +189,14 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		removeEvidenceSelectionKey
 	} from '$lib/case/p109EvidenceSelection';
 	import { isTimelineEntrySelectableForEvidence } from '$lib/case/p109EvidenceSelectionGates';
-	import CaseEvidenceSelectionStatusBar from '$lib/components/case/CaseEvidenceSelectionStatusBar.svelte';
 	import CaseWorkspaceRouteSurfacePlaceholder from '$lib/components/case/CaseWorkspaceRouteSurfacePlaceholder.svelte';
-	import CaseTimelineAuthorityFraming from '$lib/components/case/CaseTimelineAuthorityFraming.svelte';
+	import OperatorCommandCenterFrame from '$lib/components/operator/OperatorCommandCenterFrame.svelte';
+	import CaseTimelineOccSidebar from '$lib/components/case/CaseTimelineOccSidebar.svelte';
+	import { DropdownMenu } from 'bits-ui';
+	import { flyAndScale } from '$lib/utils/transitions';
+	import { DEFAULT_OPERATIONAL_TIMEZONE } from '$lib/caseTimeline/operationalOccurredAt';
+	import type { TimelineEntryTypeValue } from '$lib/caseTimeline/timelineEntryTypeOptions';
+	import { DS_BADGE_CLASSES, DS_BTN_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import { getRouteCaseId } from '$lib/caseContext/routeCaseContext';
 	import { P101_PANEL_EYEBROW } from '$lib/case/p101ProposalUiCopy';
 
@@ -241,7 +243,6 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	let entries: TimelineEntry[] = [];
 	let loading = true;
 	let loadError = '';
-	let loadedAt = '';
 
 	// ── P41-43: Incremental loading ────────────────────────────────────────────
 	/** Number of entries to fetch on initial page load. */
@@ -276,7 +277,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	 */
 	let scrollBoundary: { maxOccurredAt: string; maxId: string } | null = null;
 
-	/** DOM ref for the scroll container (the overflow-y-auto div). */
+	/** DOM ref for the list scrollport (`.ce-l-timeline-primary-scroll` only — hero/toolbar stay fixed). */
 	let scrollContainerEl: HTMLElement | undefined;
 	/** DOM ref for the invisible sentinel at list bottom (triggers auto-load). */
 	let scrollSentinelEl: HTMLElement | undefined;
@@ -285,18 +286,19 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 
 	function setupScrollObserver(): void {
 		scrollObserver?.disconnect();
-		if (!scrollSentinelEl) { scrollObserver = undefined; return; }
+		if (!scrollSentinelEl) {
+			scrollObserver = undefined;
+			return;
+		}
+		/** Observe against the list scrollport so load-more tracks inner timeline scroll. */
+		const root = scrollContainerEl ?? null;
 		scrollObserver = new IntersectionObserver(
 			(observed) => {
 				if (observed[0]?.isIntersecting && hasMore && !isLoadingMore && !loading) {
 					void loadMoreEntries();
 				}
 			},
-			// root: null — watch against the viewport, not scrollContainerEl.
-			// If scrollContainerEl has no fixed height the parent does the actual
-			// scrolling; using scrollContainerEl as root would make the sentinel
-			// always appear "visible" inside it and trigger eager loading of all pages.
-			{ root: null, rootMargin: '0px 0px 100px 0px', threshold: 0 }
+			{ root, rootMargin: '0px 0px 100px 0px', threshold: 0 }
 		);
 		scrollObserver.observe(scrollSentinelEl);
 	}
@@ -337,6 +339,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 
 	$: {
 		const el = scrollSentinelEl;
+		void scrollContainerEl;
 		if (el) {
 			// Defer until after the browser has painted the new entries so the sentinel
 			// has a real layout position. Without this, the observer fires immediately
@@ -481,7 +484,6 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		prevLoadedCaseId = caseId;
 		entries = [];
 		loadError = '';
-		loadedAt = '';
 		hasMore = false;
 		totalEntries = 0;
 		isLoadingMore = false;
@@ -564,8 +566,6 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			entries = [];
 			totalEntries = 0;
 			pruneEvidenceSelectionAfterTimelineSync(caseId, [], false);
-			const now = new Date();
-			loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 			loading = false;
 			return;
 		}
@@ -588,8 +588,6 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				lastKnownUnfilteredTotal = filtered.length;
 				entityLensLabel = detail.case_entity.display_label;
 				pruneEvidenceSelectionAfterTimelineSync(caseId, entries, false);
-				const now = new Date();
-				loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 			} catch (e: unknown) {
 				if (loadId !== activeEntriesLoadId) return;
 				entries = [];
@@ -632,8 +630,6 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					maxId: result.snapshotMaxId
 				};
 			}
-			const now = new Date();
-			loadedAt = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 			pruneEvidenceSelectionAfterTimelineSync(caseId, entries, hasMore);
 		} catch (e: unknown) {
 			if (loadId !== activeEntriesLoadId) return;
@@ -647,11 +643,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	// Canonical entry types from timeline_entries.type (see TimelineEntryCard.svelte).
 	// 'all' is a sentinel — never stored in the database.
 	const FILTER_TYPES = [
-		{ value: 'all',         label: 'All'          },
-		{ value: 'note',        label: TIMELINE_TYPE_NOTE_DISPLAY_LABEL },
-		{ value: 'surveillance',label: 'Surveillance' },
-		{ value: 'interview',   label: 'Interview'    },
-		{ value: 'evidence',    label: 'Evidence'     }
+		{ value: 'all' as const, label: 'All' },
+		...TIMELINE_ENTRY_TYPE_VALUES.map((value) => ({
+			value,
+			label: timelineEntryTypeOptionLabel(value)
+		}))
 	] as const;
 	type FilterValue = (typeof FILTER_TYPES)[number]['value'];
 
@@ -808,14 +804,15 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 
 	$: composerSaveValid = isBottomComposerSaveValid(composerDraft);
 
-	function doOpenComposer(): void {
+	function doOpenComposer(presetType?: TimelineEntryTypeValue): void {
 		editingEntryId = null;
 		editDraft = null;
 		editError = '';
 		composerDraft = {
 			occurred_date: '',
 			occurred_time: '',
-			type: 'note',
+			type: presetType ?? 'incident',
+			title: '',
 			text_original: '',
 			location_text: '',
 			linked_images: []
@@ -835,6 +832,18 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		}
 		doOpenComposer();
 	}
+
+	function openCreateFormWithPreset(preset: TimelineEntryTypeValue): void {
+		if (editingEntryId) {
+			pendingDiscardAction = () => doOpenComposer(preset);
+			showDiscardConfirm = true;
+			return;
+		}
+		doOpenComposer(preset);
+	}
+
+	/** Headless document propose control (More actions menu). */
+	let documentProposeCtl: { triggerPick: () => void } | undefined;
 
 	function cancelComposer(): void {
 		resetTimelineDictation();
@@ -944,6 +953,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			const created = await createCaseTimelineEntry(caseId, $caseEngineToken, {
 				occurred_at: datetimeLocalToIso(localDatetime),
 				type: composerDraft.type,
+				title: composerDraft.title.trim(),
 				text_original: text,
 				location_text: composerDraft.location_text.trim() || null,
 				linked_file_ids: composerDraft.linked_images.map((x) => x.id)
@@ -1290,6 +1300,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	// editDraft.occurred_at is datetime-local (America/New_York civil time); save uses
 	// `$lib/caseTimeline/timelineOccurredAtLocal` `datetimeLocalToIso` → UTC Z for the API.
 	interface EditDraft {
+		title: string;
 		text_original: string;
 		type: string;
 		occurred_at: string;   // datetime-local format for <input type="datetime-local">
@@ -1327,6 +1338,122 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		Math.max(lastKnownUnfilteredTotal, entries.length)
 	);
 	$: searchHighlightNeedle = normalizeTimelineSearchNeedle(filterSearchText);
+
+	function operationalDayKeyFromIso(iso: string): string {
+		const d = new Date(iso);
+		if (isNaN(d.getTime())) return '';
+		return new Intl.DateTimeFormat('en-CA', {
+			timeZone: DEFAULT_OPERATIONAL_TIMEZONE,
+			year: 'numeric',
+			month: '2-digit',
+			day: '2-digit'
+		}).format(d);
+	}
+
+	function formatOperationalDayBannerLabel(dayKey: string): string {
+		if (dayKey === 'unknown') return 'DATE UNKNOWN';
+		const m = dayKey.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+		if (!m) return dayKey;
+		const y = parseInt(m[1], 10);
+		const mo = parseInt(m[2], 10) - 1;
+		const d = parseInt(m[3], 10);
+		const date = new Date(y, mo, d);
+		return new Intl.DateTimeFormat('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+			.format(date)
+			.toUpperCase();
+	}
+
+	$: dayGroups = (() => {
+		const groups: { dayKey: string; label: string; items: TimelineEntry[] }[] = [];
+		let currentKey = '';
+		let bucket: TimelineEntry[] = [];
+		for (const e of entries) {
+			const k = operationalDayKeyFromIso(e.occurred_at);
+			const key = k || 'unknown';
+			if (currentKey === '') {
+				currentKey = key;
+				bucket = [e];
+				continue;
+			}
+			if (key !== currentKey) {
+				groups.push({
+					dayKey: currentKey,
+					label: formatOperationalDayBannerLabel(currentKey),
+					items: bucket
+				});
+				currentKey = key;
+				bucket = [e];
+			} else {
+				bucket.push(e);
+			}
+		}
+		if (bucket.length && currentKey) {
+			groups.push({
+				dayKey: currentKey,
+				label: formatOperationalDayBannerLabel(currentKey),
+				items: bucket
+			});
+		}
+		return groups;
+	})();
+
+	$: entriesThisWeekCount = entries.filter((e) => {
+		const t = new Date(e.occurred_at).getTime();
+		const now = Date.now();
+		return !isNaN(t) && now - t <= 7 * 86400000 && t <= now;
+	}).length;
+
+	$: lateLogAlertsCount = entries.filter((e) => {
+		const o = new Date(e.occurred_at).getTime();
+		const c = new Date(e.created_at).getTime();
+		return !isNaN(o) && !isNaN(c) && c - o > 24 * 3600000;
+	}).length;
+
+	$: chronologyGapsCount = (() => {
+		let gaps = 0;
+		for (let i = 1; i < entries.length; i++) {
+			const a = new Date(entries[i - 1].occurred_at).getTime();
+			const b = new Date(entries[i].occurred_at).getTime();
+			if (!isNaN(a) && !isNaN(b) && b - a > 7 * 86400000) gaps += 1;
+		}
+		return gaps;
+	})();
+
+	const TIMELINE_TYPE_BAR_PALETTE = [
+		'bg-sky-500/80',
+		'bg-emerald-500/80',
+		'bg-amber-500/80',
+		'bg-violet-500/80',
+		'bg-slate-500/75',
+		'bg-gray-500/70'
+	] as const;
+
+	$: timelineTypeDistributionRows = (() => {
+		const counts = new Map<string, number>();
+		for (const e of entries) {
+			const t = String(e.type ?? '').trim() || 'unspecified';
+			counts.set(t, (counts.get(t) ?? 0) + 1);
+		}
+		const rows = Array.from(counts.entries())
+			.map(([type, count]) => ({
+				label: timelineEntryTypeOptionLabel(type),
+				count,
+				type
+			}))
+			.sort((a, b) => b.count - a.count)
+			.slice(0, 6);
+		const max = rows.length ? Math.max(...rows.map((r) => r.count), 1) : 1;
+		return rows.map((r, i) => ({
+			label: r.label,
+			count: r.count,
+			barClass: TIMELINE_TYPE_BAR_PALETTE[i % TIMELINE_TYPE_BAR_PALETTE.length],
+			pct: Math.round((r.count / max) * 100)
+		}));
+	})();
+
+	function focusTimelineScrollTop(): void {
+		scrollContainerEl?.scrollTo({ top: 0, behavior: 'smooth' });
+	}
 
 	// P99-02 — arrival orientation strip (read-only; P99-01 contract only)
 	$: if (browser && caseId) {
@@ -1384,16 +1511,6 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		void clearSynthesisNavState();
 	}
 
-	// P41-48: header data-state line — loaded vs server total (filters use matching total).
-	$: timelineHeaderDataLine = (() => {
-		if (loading && entries.length === 0) return '';
-		if (!filtersActive && !entityLensEntityId && entries.length === 0 && totalEntries === 0) return '';
-		if (entityLensEntityId) {
-			return p108EntityLensTimelineLoadedCountLabel(entries.length);
-		}
-		return `${entries.length} of ${totalEntries} entries loaded`;
-	})();
-
 	onMount(() => {
 		timelineListMounted = true;
 	});
@@ -1418,6 +1535,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	let editLinkedUploading = false;
 	let editLinkedUploadError = '';
 
+	/** Include legacy `note` in the edit <select> only when the row is still `note`. */
+	$: editTypeSelectOptions = timelineEntryTypeSelectOptions(
+		editingEntryId ? entries.find((e) => e.id === editingEntryId)?.type : null
+	);
+
 	// ── Dirty-switch confirm dialog (P28-36) ────────────────────────────────────
 	// Replaces window.confirm from P28-34. Same deferred-action pattern as Notes.
 	let showDiscardConfirm = false;
@@ -1432,6 +1554,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		composerError = '';
 		editingEntryId = entry.id;
 		editDraft = {
+			title: (entry.title ?? '').trim(),
 			text_original: entry.text_original,
 			type: entry.type,
 			occurred_at: isoToDatetimeLocal(entry.occurred_at),
@@ -1506,6 +1629,12 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			editError = 'Reason for change is required.';
 			return;
 		}
+		const titleTrim = editDraft.title.trim();
+		if (!titleTrim) {
+			editError = 'Title is required.';
+			return;
+		}
+
 		const text = normalizeTimelineEntryTextForSave(editDraft.text_original.trim());
 		if (!text) {
 			editError = 'Entry text must not be empty.';
@@ -1539,6 +1668,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				editingEntryId,
 				$caseEngineToken,
 				{
+					title: titleTrim,
 					text_original: text,
 					type: editDraft.type,
 					occurred_at: draftOccurredAtIso,
@@ -1557,6 +1687,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					if (e.id !== savedId) return e;
 					return {
 						...e,
+						title: (updated.title as string) ?? e.title,
 						text_original: (updated.text_original as string) ?? e.text_original,
 						type: (updated.type as string) ?? e.type,
 						occurred_at: (updated.occurred_at as string) ?? e.occurred_at,
@@ -1654,129 +1785,126 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	<CaseWorkspaceRouteSurfacePlaceholder surface="Timeline" testId="case-timeline-placeholder" />
 {:else}
 <CaseWorkspaceContentRegion testId="case-timeline-page">
-<div class="ce-l-timeline-shell">
-	<!-- P124-01 — Authority framing: always visible (empty, loading, populated). -->
-	<CaseTimelineAuthorityFraming />
-
-	<!-- ── Section header ──────────────────────────────────────────────────── -->
-	<div class="ce-l-timeline-hero">
-		<!-- P71-05 shell hook; primary title remains in CaseTimelineAuthorityFraming (P124-01). -->
-		<div class="sr-only ce-l-timeline-hero-title">Timeline surface</div>
+<div class="ce-l-timeline-shell relative">
+	<!-- P124-01 — Authority framing (OCC hero row; static copy). -->
+	<section
+		class="ce-l-timeline-hero shrink-0 flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between"
+		data-testid="case-timeline-p124-authority-framing"
+		aria-labelledby="case-timeline-mock-hero-title"
+	>
 		<div class="flex flex-col gap-1 min-w-0">
-			{#if timelineHeaderDataLine}
-				<p
-					class="m-0 text-xs ce-l-timeline-hero-meta"
-					data-testid="case-timeline-count"
-				>
-					{timelineHeaderDataLine}
-				</p>
-			{/if}
-			<p class="m-0 text-[10px] ce-l-timeline-hero-meta">
-				{TIMELINE_HEADER_RULES_LINE}
+			<div class="sr-only ce-l-timeline-hero-title">Timeline surface</div>
+			<h2
+				id="case-timeline-mock-hero-title"
+				class="m-0 text-lg font-semibold tracking-tight text-[color:var(--ce-l-text-primary)]"
+			>
+				Timeline
+			</h2>
+			<p class="m-0 max-w-2xl text-xs leading-snug text-[color:var(--ce-l-text-muted)]">
+				Official chronological investigative record. Ordered by occurred time.
 			</p>
+			<p class="sr-only">{TIMELINE_HEADER_RULES_LINE}</p>
 		</div>
-
-		<!-- Refresh controls + ADMIN lifecycle toggle + Log entry + Create from document (P28-31, P28-35, P28-37) -->
-		<div class="flex items-center gap-2 shrink-0 flex-wrap">
-			<!-- Log entry: opens the governed inline create form (P28-37) -->
-			<button
-				type="button"
-				on:click={openCreateForm}
-				disabled={loading}
-				class="text-xs font-medium px-2.5 py-1 rounded
-				       text-blue-600 dark:text-blue-400
-				       hover:text-blue-800 dark:hover:text-blue-200
-				       hover:bg-blue-50 dark:hover:bg-blue-900/20
-				       disabled:opacity-40 transition"
-				data-testid="case-timeline-log-entry"
-				title={TIMELINE_LOG_ENTRY_BUTTON_TITLE}
-			>
-				+ Log entry
-			</button>
-
-			<button
-				type="button"
-				on:click={() => (showP101ProposalModal = true)}
-				disabled={loading}
-				class="text-xs font-medium px-2.5 py-1 rounded
-				       text-blue-600 dark:text-blue-400
-				       hover:text-blue-800 dark:hover:text-blue-200
-				       hover:bg-blue-50 dark:hover:bg-blue-900/20
-				       disabled:opacity-40 transition"
-				data-testid="case-timeline-p101-proposal-open"
-				title="Open AI-assisted Phase 101 proposal draft (Timeline surface)"
-			>
-				{P101_PANEL_EYEBROW}
-			</button>
-
-			<!-- Thin divider between entry actions and the rest -->
-			<span class="w-px h-3.5 shrink-0 bg-[color:var(--ce-l-border-strong)]" aria-hidden="true"></span>
-
-			<!-- P87-03 / P87-05: navigation-only; no task counts; same title string as header Tasks link -->
-			<a
-				href={`/case/${caseId}/tasks`}
-				class="{DS_WORKFLOW_CLASSES.embedNavLink} {DS_WORKFLOW_CLASSES.embedNavLinkCompact}"
-				data-testid="case-timeline-open-tasks-operational"
-				title="Operational tasks — not part of the official Timeline"
-			>
-				Open Tasks (Operational)
-			</a>
-
-			<span class="w-px h-3.5 shrink-0 bg-[color:var(--ce-l-border-strong)]" aria-hidden="true"></span>
-
-			<!-- Create from document: upload → propose → review in Proposals tab -->
-			<TimelineDocumentProposeButton
-				caseId={caseId}
-				token={$caseEngineToken ?? ''}
-				disabled={loading}
-			/>
-
-			<!-- ADMIN-only: toggle to include soft-deleted entries in the fetch -->
-			{#if isAdmin}
-				<label
-					class="flex items-center gap-1.5 cursor-pointer select-none"
-					title="Show entries that have been soft-deleted (ADMIN only)"
-				>
-					<input
-						type="checkbox"
-						bind:checked={showDeleted}
-						class="rounded border-gray-300 dark:border-gray-600 text-amber-600 focus:ring-amber-500 size-3"
-						data-testid="case-timeline-show-deleted-toggle"
-					/>
-					<span class="text-[10px] text-gray-500 dark:text-gray-400">
-						Show removed
+		<div class="flex flex-col items-stretch gap-3 sm:items-end">
+			<div class="flex flex-wrap items-center justify-end gap-3 sm:gap-4">
+				<div class="text-right">
+					<div
+						class="text-2xl font-semibold tabular-nums text-[color:var(--ce-l-text-primary)] leading-none"
+						data-testid="case-timeline-count"
+					>
+						{totalEntries}
+					</div>
+					<div class="text-[10px] uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">Entries</div>
+				</div>
+				{#if filtersActive && !entityLensEntityId}
+					<span
+						class="{DS_BADGE_CLASSES.base} {DS_BADGE_CLASSES.neutral} inline-flex items-center gap-1"
+						data-testid="case-timeline-filtered-badge"
+					>
+						<span aria-hidden="true">⏷</span> Filtered
 					</span>
-				</label>
-			{/if}
-
-			{#if loadedAt && !loading}
-				<span
-					class="text-[10px] text-gray-400 dark:text-gray-500 font-mono"
-					title="Timeline data last loaded at this time"
+				{/if}
+				<button
+					type="button"
+					on:click={openCreateForm}
+					disabled={loading}
+					class="{DS_BTN_CLASSES.primary} disabled:opacity-40"
+					data-testid="case-timeline-log-entry"
+					title={TIMELINE_LOG_ENTRY_BUTTON_TITLE}
 				>
-					{loadedAt}
-				</span>
-			{/if}
-			<button
-				type="button"
-				disabled={loading}
-				class="text-xs text-gray-500 dark:text-gray-400
-				       hover:text-gray-700 dark:hover:text-gray-200
-				       disabled:opacity-40 transition px-2 py-1 rounded
-				       hover:bg-gray-100 dark:hover:bg-gray-800"
-				on:click={loadEntries}
-				title="Refresh timeline"
-				aria-label="Refresh timeline"
-				data-testid="case-timeline-refresh"
-			>
-				{loading ? '…' : '↻ Refresh'}
-			</button>
+					+ Add Timeline Entry
+				</button>
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger asChild let:builder>
+						<button
+							type="button"
+							{...builder}
+							use:builder.action
+							class="{DS_BTN_CLASSES.secondary} inline-flex items-center gap-1"
+							data-testid="case-timeline-more-actions-trigger"
+							aria-label="More timeline actions"
+						>
+							More actions
+							<span class="text-[10px] opacity-70" aria-hidden="true">▾</span>
+						</button>
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content
+						class="w-full max-w-[16rem] text-sm rounded-xl px-1 py-1 border border-gray-100 dark:border-gray-800 z-50 bg-white dark:bg-gray-850 dark:text-white shadow-lg"
+						sideOffset={4}
+						side="bottom"
+						align="end"
+						transition={flyAndScale}
+					>
+						<DropdownMenu.Item
+							class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+							on:click={() => (showP101ProposalModal = true)}
+							data-testid="case-timeline-p101-proposal-open"
+						>
+							{P101_PANEL_EYEBROW}
+						</DropdownMenu.Item>
+						<DropdownMenu.Item
+							class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+							on:click={() => documentProposeCtl?.triggerPick()}
+							disabled={loading}
+							data-testid="case-timeline-more-propose-document"
+						>
+							Create from document
+						</DropdownMenu.Item>
+						<DropdownMenu.Item
+							class="select-none px-0 py-0"
+							on:click={(e) => e.preventDefault()}
+						>
+							<a
+								href={`/case/${caseId}/tasks`}
+								class="flex gap-2 items-center px-3 py-1.5 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800 text-inherit no-underline"
+								data-testid="case-timeline-open-tasks-operational"
+							>
+								Open Tasks (Operational)
+							</a>
+						</DropdownMenu.Item>
+						<DropdownMenu.Item
+							class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+							on:click={loadEntries}
+							disabled={loading}
+							data-testid="case-timeline-refresh"
+						>
+							{loading ? 'Refreshing…' : 'Refresh timeline'}
+						</DropdownMenu.Item>
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
+			</div>
 		</div>
-	</div>
+	</section>
+
+	<TimelineDocumentProposeButton
+		bind:this={documentProposeCtl}
+		hideTrigger={true}
+		caseId={caseId}
+		token={$caseEngineToken ?? ''}
+		disabled={loading}
+	/>
 
 	<CaseArrivalOrientationBlock context={p99ArrivalSnapshot} testId="case-timeline-p99-arrival" />
-
-	<CaseEvidenceSelectionStatusBar />
 
 	<!-- Lifecycle error banners (P28-35) — shown beneath header if a delete/restore fails -->
 	{#if deleteLifecycleError}
@@ -1836,12 +1964,12 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		/>
 	{/if}
 
-	<!-- ── Search + date range + type (P28-32 type chips; P39-02 text + dates) ── -->
+	<!-- ── Search + date range + type (P39-02); mockup-aligned toolbar ── -->
 	<!-- Do not gate on `loading`: filter refetch sets loading=true and would unmount this bar,
 	     destroying the search input and dropping focus (debounced search). -->
 	{#if !loadError && (lastKnownUnfilteredTotal > 0 || filtersOrEntityLens)}
 		<div
-			class="ce-l-timeline-toolbar shrink-0 flex flex-col gap-2 px-4 py-2"
+			class="ce-l-timeline-toolbar shrink-0 flex flex-col gap-2 px-4 py-2.5"
 			data-testid="case-timeline-search-filter-bar"
 		>
 			{#if showLargeTimelineFilterHint}
@@ -1853,116 +1981,148 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					Filtering large timelines may be slower
 				</p>
 			{/if}
-			<div class="flex flex-wrap items-center gap-2">
-				<input
-					type="search"
-					bind:this={timelineFilterSearchEl}
-					bind:value={filterSearchText}
-					on:input={onFilterSearchInput}
-					disabled={!!entityLensEntityId}
-					placeholder="Search timeline (text, location, type)"
-					class="text-xs rounded border border-gray-300 dark:border-gray-600
-					       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100
-					       px-2 py-1.5 min-w-[10rem] flex-1 max-w-md
-					       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600
-					       disabled:opacity-50 disabled:cursor-not-allowed"
-					data-testid="case-timeline-filter-search"
-					aria-label="Search timeline entries"
-				/>
-				<div class="flex flex-col gap-0.5 min-w-0">
-					<div class="flex items-center gap-1 flex-wrap">
-						<label class="sr-only" for="timeline-filter-date-from">Occurred from</label>
+			<div
+				class="flex flex-col gap-2 xl:flex-row xl:items-end xl:justify-between xl:gap-3"
+			>
+				<div class="flex min-w-0 flex-1 flex-wrap items-end gap-2">
+					<div class="relative min-w-[12rem] flex-1 max-w-lg">
+						<span class="pointer-events-none absolute inset-y-0 left-2 flex items-center text-[color:var(--ce-l-text-muted)]" aria-hidden="true">⌕</span>
 						<input
-							id="timeline-filter-date-from"
-							type="date"
-							bind:value={filterDateFrom}
+							type="search"
+							bind:this={timelineFilterSearchEl}
+							bind:value={filterSearchText}
+							on:input={onFilterSearchInput}
 							disabled={!!entityLensEntityId}
-							class="text-xs rounded border border-gray-300 dark:border-gray-600
-							       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
-							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600
-							       disabled:opacity-50 disabled:cursor-not-allowed"
-							data-testid="case-timeline-filter-date-from"
-						/>
-						<span class="text-[10px] text-gray-400 dark:text-gray-500">–</span>
-						<label class="sr-only" for="timeline-filter-date-to">Occurred to</label>
-						<input
-							id="timeline-filter-date-to"
-							type="date"
-							bind:value={filterDateTo}
-							disabled={!!entityLensEntityId}
-							class="text-xs rounded border border-gray-300 dark:border-gray-600
-							       bg-white dark:bg-gray-900 text-gray-800 dark:text-gray-100 px-2 py-1.5
-							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600
-							       disabled:opacity-50 disabled:cursor-not-allowed"
-							data-testid="case-timeline-filter-date-to"
+							placeholder="Search timeline entries…"
+							class="w-full rounded-md border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-canvas)] py-1.5 pl-7 pr-2 text-xs text-[color:var(--ce-l-text-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ds-accent)] disabled:opacity-50 disabled:cursor-not-allowed"
+							data-testid="case-timeline-filter-search"
+							aria-label="Search timeline entries"
 						/>
 					</div>
-					{#if filterDateRangeInvalid}
-						<span
-							class="text-[10px] text-amber-600 dark:text-amber-400"
-							data-testid="case-timeline-filter-date-range-hint"
-							role="status"
+					<div class="flex flex-col gap-0.5">
+						<label class="text-[10px] font-medium text-[color:var(--ce-l-text-muted)]" for="timeline-filter-entry-type">Entry type</label>
+						<select
+							id="timeline-filter-entry-type"
+							bind:value={activeFilter}
+							disabled={!!entityLensEntityId}
+							class="min-w-[9rem] rounded-md border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-canvas)] px-2 py-1.5 text-xs text-[color:var(--ce-l-text-primary)] focus:outline-none focus:ring-2 focus:ring-[color:var(--ds-accent)] disabled:opacity-50"
+							data-testid="case-timeline-filter-entry-type"
+							aria-label="Filter by entry type"
 						>
-							Start date is after end date
+							{#each FILTER_TYPES as ft}
+								<option value={ft.value}>{ft.value === 'all' ? 'All types' : ft.label}</option>
+							{/each}
+						</select>
+					</div>
+					<div class="flex flex-col gap-0.5 min-w-0">
+						<span class="text-[10px] font-medium text-[color:var(--ce-l-text-muted)]">Date range</span>
+						<div class="flex flex-wrap items-center gap-1">
+							<label class="sr-only" for="timeline-filter-date-from">Occurred from</label>
+							<input
+								id="timeline-filter-date-from"
+								type="date"
+								bind:value={filterDateFrom}
+								disabled={!!entityLensEntityId}
+								class="rounded-md border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-canvas)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[color:var(--ds-accent)] disabled:opacity-50"
+								data-testid="case-timeline-filter-date-from"
+							/>
+							<label class="sr-only" for="timeline-filter-date-to">Occurred to</label>
+							<input
+								id="timeline-filter-date-to"
+								type="date"
+								bind:value={filterDateTo}
+								disabled={!!entityLensEntityId}
+								class="rounded-md border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-canvas)] px-2 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-[color:var(--ds-accent)] disabled:opacity-50"
+								data-testid="case-timeline-filter-date-to"
+							/>
+						</div>
+						{#if filterDateRangeInvalid}
+							<span
+								class="text-[10px] text-amber-600 dark:text-amber-400"
+								data-testid="case-timeline-filter-date-range-hint"
+								role="status"
+							>
+								Start date is after end date
+							</span>
+						{/if}
+					</div>
+					<div class="flex flex-col gap-0.5">
+						<label class="text-[10px] font-medium text-[color:var(--ce-l-text-muted)]" for="timeline-filter-tags-placeholder">Tags</label>
+						<select
+							id="timeline-filter-tags-placeholder"
+							disabled={true}
+							class="min-w-[7rem] rounded-md border border-dashed border-[color:var(--ce-l-border-strong)] bg-transparent px-2 py-1.5 text-xs text-[color:var(--ce-l-text-muted)]"
+							title="Tag filter is not available yet"
+						>
+							<option>All tags</option>
+						</select>
+					</div>
+					<button
+						type="button"
+						class="{DS_BTN_CLASSES.ghost} !px-2 !py-1.5 text-xs"
+						disabled={true}
+						title="Additional filters are not available yet"
+					>
+						More filters
+					</button>
+					<button
+						type="button"
+						disabled={!filtersActive || !!entityLensEntityId}
+						class="{DS_BTN_CLASSES.secondary} !px-2 !py-1.5 text-xs disabled:opacity-40"
+						data-testid="case-timeline-filter-clear"
+						on:click={clearTimelineFilters}
+					>
+						Clear
+					</button>
+					{#if filtersActive && !entityLensEntityId}
+						<span
+							class="self-center text-xs text-[color:var(--ce-l-text-muted)] tabular-nums"
+							data-testid="case-timeline-filter-shown-count"
+						>
+							{entries.length} of {totalEntries} match
 						</span>
 					{/if}
 				</div>
-				<button
-					type="button"
-					disabled={!filtersActive || !!entityLensEntityId}
-					class="text-xs font-medium px-2.5 py-1 rounded border border-gray-300 dark:border-gray-600
-					       text-gray-600 dark:text-gray-300
-					       hover:bg-gray-100 dark:hover:bg-gray-800
-					       disabled:opacity-40 disabled:cursor-not-allowed transition"
-					data-testid="case-timeline-filter-clear"
-					on:click={clearTimelineFilters}
-				>
-					Clear filters
-				</button>
-				{#if filtersActive && !entityLensEntityId}
-					<span
-						class="text-xs text-gray-500 dark:text-gray-400 tabular-nums"
-						data-testid="case-timeline-filter-shown-count"
-					>
-						{entries.length} of {totalEntries} match
-					</span>
-				{/if}
-			</div>
-			<div
-				class="flex flex-wrap items-center gap-1"
-				role="toolbar"
-				aria-label="Filter timeline by entry type"
-				data-testid="case-timeline-filter-strip"
-			>
-				{#each FILTER_TYPES as ft}
-					<button
-						type="button"
-						disabled={!!entityLensEntityId}
-						class="text-xs px-2.5 py-1 rounded-full transition font-medium
-						       {activeFilter === ft.value
-						           ? 'bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900'
-						           : 'text-gray-500 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-700 dark:hover:text-gray-200'}
-						       disabled:opacity-40 disabled:cursor-not-allowed"
-						on:click={() => (activeFilter = ft.value)}
-						aria-pressed={activeFilter === ft.value}
-						data-testid="case-timeline-filter-{ft.value}"
-					>
-						{ft.label}
-					</button>
-				{/each}
+				<div class="flex flex-wrap items-center justify-end gap-3 border-t border-[color:var(--ce-l-border-strong)] pt-2 xl:border-0 xl:pt-0" data-testid="case-timeline-filter-strip">
+					{#if isAdmin}
+						<label
+							class="flex cursor-pointer select-none items-center gap-2 text-xs text-[color:var(--ce-l-text-secondary)]"
+							title="Show entries that have been soft-deleted (ADMIN only)"
+						>
+							<input
+								type="checkbox"
+								bind:checked={showDeleted}
+								class="size-3 rounded border-gray-300 text-amber-600 focus:ring-amber-500 dark:border-gray-600"
+								data-testid="case-timeline-show-deleted-toggle"
+							/>
+							Show removed
+						</label>
+					{/if}
+				</div>
 			</div>
 		</div>
 	{/if}
 
-	<!-- ── Timeline list ───────────────────────────────────────────────────── -->
+	<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+	<OperatorCommandCenterFrame
+		showHeroBand={false}
+		dashboardGridVariant="cases"
+		occDesktopBoard={false}
+		occRootExtraClass="timeline-occ-root flex min-h-0 min-w-0 flex-1 flex-col"
+		mainId="case-timeline-occ-main"
+		mainAriaLabel="Timeline workspace"
+		dashboardSurfaceExtraClass="!m-0 !max-w-none flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden !border-0 !bg-transparent !p-0 !shadow-none"
+	>
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden" slot="colCenter">
+	<!-- ── Timeline list (sole vertical scroll in this column) ─────────────── -->
 	<div
-		class="ce-l-timeline-primary-scroll px-4 sm:px-5 pt-5 flex flex-col gap-5 {composerOpen ? 'pb-80' : 'pb-8'}"
+		class="ce-l-timeline-primary-scroll flex min-h-0 flex-1 flex-col gap-5 px-2 pt-4 sm:px-4 {composerOpen ? 'pb-80' : 'pb-8'}"
 		data-testid="case-timeline-primary-scroll"
 		bind:this={scrollContainerEl}
 	>
 
 		<!-- Loading / error / list states -->
-		<div class="flex-1 min-h-0 flex flex-col">
+		<div class="flex min-h-0 flex-1 flex-col">
 		{#if synthesisRevealBanner === 'not_found'}
 			<div
 				class="rounded-md border border-amber-200 dark:border-amber-800/80 bg-amber-50/90 dark:bg-amber-950/40 px-3 py-2 text-sm text-amber-950 dark:text-amber-100 mb-3"
@@ -2016,14 +2176,21 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 				</CaseEmptyState>
 			{/if}
 		{:else}
-			<!-- Chronological list — occurred_at ASC (earliest at top) -->
-			<ol class="flex flex-col gap-4" aria-label="Official case timeline">
-			{#each entries as entry (entry.id)}
+			<!-- Chronological list — occurred_at ASC (earliest at top), grouped by operational calendar day -->
+			<ol class="flex flex-col gap-6" aria-label="Official case timeline">
+			{#each dayGroups as group (group.dayKey)}
+				<li class="flex list-none flex-col gap-0 min-w-0">
+					<ol
+						class="ce-timeline-day-entries relative flex flex-col gap-3"
+						aria-label={`Timeline entries for ${group.label}`}
+						use:timelineDayRailConnector
+					>
+			{#each group.items as entry (entry.id)}
 				{#if editingEntryId === entry.id && editDraft}
 						<!-- ── Inline governed edit form (P28-34) ──────────────────── -->
 						<li
 							class="flex flex-col gap-3 rounded-lg border-2 border-amber-300 dark:border-amber-700
-							       bg-white dark:bg-gray-900 px-4 py-3 shadow-sm"
+							       bg-white dark:bg-gray-900 px-4 py-3 shadow-sm min-w-0 w-full"
 							data-testid="timeline-entry-edit-form"
 							data-entry-id={entry.id}
 						>
@@ -2055,6 +2222,28 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 									{TIMELINE_SENSITIVE_REASON_HINT}
 								</p>
 							{/if}
+
+						<div class="flex flex-col gap-1.5">
+							<label
+								class="text-xs font-medium text-gray-600 dark:text-gray-300"
+								for="edit-title-{entry.id}"
+							>
+								Title
+								<span class="text-blue-600 dark:text-blue-400 ml-0.5" title="Required">*</span>
+							</label>
+							<input
+								id="edit-title-{entry.id}"
+								type="text"
+								bind:value={editDraft.title}
+								autocomplete="off"
+								placeholder="Short label for this entry"
+								class="text-sm rounded border border-gray-300 dark:border-gray-600
+								       bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-100
+								       px-2.5 py-2 w-full max-w-xl
+								       focus:outline-none focus:ring-1 focus:ring-amber-400 dark:focus:ring-amber-600"
+								data-testid="edit-title-input"
+							/>
+						</div>
 
 						<!-- Entry text (full-width textarea) -->
 						<div class="flex flex-col gap-1.5">
@@ -2095,9 +2284,9 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 									       px-2 py-1.5
 									       focus:outline-none focus:ring-1 focus:ring-amber-400 dark:focus:ring-amber-600"
 									data-testid="edit-type-select"
-									title={TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP}
+									title={TIMELINE_TYPE_FIELD_TOOLTIP}
 								>
-									{#each TIMELINE_ENTRY_TYPE_VALUES as t}
+									{#each editTypeSelectOptions as t}
 										<option value={t}>{timelineEntryTypeOptionLabel(t)}</option>
 									{/each}
 								</select>
@@ -2281,29 +2470,43 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 							</div>
 						</li>
 					{:else}
-					<TimelineEntryCard
-						{entry}
-						{caseId}
-						token={$caseEngineToken ?? ''}
-						searchHighlightNeedle={searchHighlightNeedle}
-						relationshipPendingId={relationshipPendingId}
-						relationshipPair={relationshipPair}
-						onRelateClick={() => handleTimelineRelateClick(entry.id)}
-						entryNeedsFollowUp={followUpEntryIds.has(entry.id)}
-						onFollowUpClick={() => handleFollowUpToggle(entry.id)}
-						onEditRequest={() => startEdit(entry)}
-						onDeleteRequest={() => handleDeleteEntry(entry)}
-						onRestoreRequest={isAdmin ? () => handleRestoreEntry(entry) : null}
-						synthesisNavigationReveal={synthesisHighlightId === entry.id}
-						synthesisNavigationContextPreview={synthesisHighlightId === entry.id
-							? synthesisContextPreview
-							: null}
-						manualEvidenceSelectionEnabled={isTimelineEntrySelectableForEvidence(entry)}
-						manualEvidenceSelected={isEvidenceSelected($evidenceSelection, 'timeline_entry', entry.id)}
-						onManualEvidenceSelectionToggle={() =>
-							toggleEvidenceSelection('timeline_entry', entry.id, caseId)}
-					/>
+					<li
+						class="ce-timeline-feed-item flex list-none flex-col gap-2 sm:flex-row sm:items-stretch sm:gap-3 min-w-0"
+					>
+						<TimelineEntryLeftRail
+							dayLabel={group.label}
+							showDatePill={entry.id === group.items[0]?.id}
+							occurredAt={entry.occurred_at}
+							entryType={entry.type}
+						/>
+						<TimelineEntryCard
+							embeddedInTimelineRow={true}
+							{entry}
+							{caseId}
+							token={$caseEngineToken ?? ''}
+							searchHighlightNeedle={searchHighlightNeedle}
+							relationshipPendingId={relationshipPendingId}
+							relationshipPair={relationshipPair}
+							onRelateClick={() => handleTimelineRelateClick(entry.id)}
+							entryNeedsFollowUp={followUpEntryIds.has(entry.id)}
+							onFollowUpClick={() => handleFollowUpToggle(entry.id)}
+							onEditRequest={() => startEdit(entry)}
+							onDeleteRequest={() => handleDeleteEntry(entry)}
+							onRestoreRequest={isAdmin ? () => handleRestoreEntry(entry) : null}
+							synthesisNavigationReveal={synthesisHighlightId === entry.id}
+							synthesisNavigationContextPreview={synthesisHighlightId === entry.id
+								? synthesisContextPreview
+								: null}
+							manualEvidenceSelectionEnabled={isTimelineEntrySelectableForEvidence(entry)}
+							manualEvidenceSelected={isEvidenceSelected($evidenceSelection, 'timeline_entry', entry.id)}
+							onManualEvidenceSelectionToggle={() =>
+								toggleEvidenceSelection('timeline_entry', entry.id, caseId)}
+						/>
+					</li>
 					{/if}
+			{/each}
+					</ol>
+				</li>
 			{/each}
 		</ol>
 
@@ -2321,33 +2524,14 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	{/if}
 	</div><!-- end flex-1 loading/error/list wrapper -->
 
-	<!-- P41-43: load-more footer (visible controls; sentinel is now inside the list above) -->
+	<!-- P41-43: additional pages load via scroll sentinel only (IntersectionObserver); no manual control -->
 	{#if !loading && !loadError}
-		{#if hasMore}
-			<div class="flex flex-col items-center gap-1.5 py-4">
-				{#if isLoadingMore}
-					<svg class="animate-spin size-4 text-gray-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" aria-hidden="true">
-						<circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
-						<path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"></path>
-					</svg>
-					<p class="text-xs text-gray-400 dark:text-gray-500">Loading more entries…</p>
-				{:else}
-					<button
-						type="button"
-						class="text-xs font-medium text-violet-600 dark:text-violet-400 hover:underline"
-						on:click={loadMoreEntries}
-						data-testid="timeline-load-more-btn"
-					>Load {TIMELINE_CHUNK_SIZE} more</button>
-				{/if}
-				{#if loadMoreError}
-					<p
-						class="text-xs text-red-500 dark:text-red-400"
-						data-testid="timeline-load-more-error"
-					>{loadMoreError}</p>
-				{/if}
-			</div>
-		{:else if entries.length > 0 && totalEntries > TIMELINE_INITIAL_CHUNK}
-			<!-- All entries are loaded and total exceeded the initial chunk — confirm end -->
+		{#if loadMoreError}
+			<p
+				class="text-xs text-center text-red-500 dark:text-red-400 py-2 px-2"
+				data-testid="timeline-load-more-error"
+			>{loadMoreError}</p>
+		{:else if !hasMore && entries.length > 0 && totalEntries > TIMELINE_INITIAL_CHUNK}
 			<p
 				class="text-xs text-center text-gray-400 dark:text-gray-500 py-3"
 				data-testid="timeline-end-of-list"
@@ -2355,6 +2539,26 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		{/if}
 	{/if}
 </div>
+		</div><!-- end colCenter -->
+
+		<div
+			class="flex min-h-0 w-full min-w-0 flex-col overflow-hidden border-t border-[color:var(--ce-l-border-strong)] pt-3 min-[1200px]:h-full min-[1200px]:max-w-[26rem] min-[1200px]:min-h-0 min-[1200px]:border-l min-[1200px]:border-t-0 min-[1200px]:pt-0 min-[1200px]:pl-4"
+			slot="colRight"
+		>
+			<CaseTimelineOccSidebar
+				caseId={caseId}
+				loading={loading}
+				totalEntries={totalEntries}
+				entriesThisWeek={entriesThisWeekCount}
+				lateLogCount={lateLogAlertsCount}
+				chronologyGaps={chronologyGapsCount}
+				typeBars={timelineTypeDistributionRows}
+				onQuickAdd={openCreateFormWithPreset}
+				onReviewGaps={focusTimelineScrollTop}
+			/>
+		</div>
+	</OperatorCommandCenterFrame>
+	</div>
 
 	<!-- ── P39-03: Bottom composer sheet ──────────────────────────────────── -->
 	<!--    Fixed to bottom of the page container; Timeline list stays visible.  -->
@@ -2462,13 +2666,35 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 							       px-2 py-1.5
 							       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
 							data-testid="composer-type-select"
-							title={TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP}
+							title={TIMELINE_TYPE_FIELD_TOOLTIP}
 						>
 							{#each TIMELINE_ENTRY_TYPE_VALUES as t}
 								<option value={t}>{timelineEntryTypeOptionLabel(t)}</option>
 							{/each}
 						</select>
 					</div>
+				</div>
+
+				<div class="flex flex-col gap-1">
+					<label
+						class="text-xs font-medium text-gray-600 dark:text-gray-300"
+						for="composer-title"
+					>
+						Title
+						<span class="text-blue-600 dark:text-blue-400 ml-0.5" title="Required">*</span>
+					</label>
+					<input
+						id="composer-title"
+						type="text"
+						bind:value={composerDraft.title}
+						autocomplete="off"
+						placeholder="Short label for this entry"
+						class="text-sm rounded border border-gray-300 dark:border-gray-600
+						       bg-gray-50 dark:bg-gray-800 text-gray-800 dark:text-gray-100
+						       px-2.5 py-2 w-full max-w-xl
+						       focus:outline-none focus:ring-1 focus:ring-blue-400 dark:focus:ring-blue-600"
+						data-testid="composer-title-input"
+					/>
 				</div>
 
 				<!-- Required: entry text -->

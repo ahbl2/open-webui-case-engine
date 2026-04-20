@@ -13,6 +13,7 @@ export interface TimelineCreateDraftForDirty {
 }
 
 export interface TimelineEditDraftForDirty {
+	title: string;
 	text_original: string;
 	type: string;
 	occurred_at: string;
@@ -35,6 +36,8 @@ export interface BottomComposerDraft {
 	/** HH:MM or HH:MM:SS from <input type="time"> — required before save */
 	occurred_time: string;
 	type: string;
+	/** Short entry label — required before save */
+	title: string;
 	text_original: string;
 	location_text: string;
 	/** Images uploaded as case files, pending link on explicit save */
@@ -49,6 +52,7 @@ export function isDirtyBottomComposer(draft: BottomComposerDraft | null): boolea
 	if (!draft) return false;
 	return (
 		draft.text_original.trim() !== '' ||
+		draft.title.trim() !== '' ||
 		draft.occurred_date !== '' ||
 		draft.occurred_time !== '' ||
 		draft.location_text.trim() !== '' ||
@@ -64,6 +68,7 @@ export function isBottomComposerSaveValid(draft: BottomComposerDraft | null): bo
 	return (
 		draft.occurred_date.trim() !== '' &&
 		draft.occurred_time.trim() !== '' &&
+		draft.title.trim() !== '' &&
 		draft.text_original.trim() !== ''
 	);
 }
@@ -82,6 +87,7 @@ export function isDirtyTimelineEdit(
 	const imagesDirty = JSON.stringify(persistedImageIds) !== JSON.stringify(draftImageIds);
 	return (
 		editDraft.text_original.trim() !== (entry.text_original ?? '').trim() ||
+		(editDraft.title.trim() || '') !== ((entry.title ?? '').trim()) ||
 		editDraft.type !== entry.type ||
 		editDraft.occurred_at !== isoToDatetimeLocal(entry.occurred_at) ||
 		(editDraft.location_text.trim() || '') !== (entry.location_text ?? '').trim() ||

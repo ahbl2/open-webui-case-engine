@@ -17,6 +17,7 @@ const baseEntry: TimelineEntry = {
 	created_at: '2024-01-16T10:00:00Z',
 	created_by: 'u1',
 	type: 'note',
+	title: '',
 	location_text: 'Loc A',
 	tags: [],
 	text_original: 'Hello',
@@ -43,6 +44,7 @@ describe('isDirtyTimelineCreate', () => {
 
 describe('isDirtyTimelineEdit', () => {
 	const draftMatch: TimelineEditDraftForDirty = {
+		title: '',
 		text_original: 'Hello',
 		type: 'note',
 		occurred_at: isoToDatetimeLocal(baseEntry.occurred_at),
@@ -85,6 +87,12 @@ describe('isDirtyTimelineEdit', () => {
 	it('true when location changed', () => {
 		expect(
 			isDirtyTimelineEdit('e1', { ...draftMatch, location_text: 'Loc B' }, [baseEntry])
+		).toBe(true);
+	});
+
+	it('true when title changed', () => {
+		expect(
+			isDirtyTimelineEdit('e1', { ...draftMatch, title: 'New title' }, [baseEntry])
 		).toBe(true);
 	});
 

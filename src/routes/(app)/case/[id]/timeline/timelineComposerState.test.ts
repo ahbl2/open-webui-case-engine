@@ -13,6 +13,7 @@ const clean: BottomComposerDraft = {
 	occurred_date: '',
 	occurred_time: '',
 	type: 'note',
+	title: '',
 	text_original: '',
 	location_text: '',
 	linked_images: []
@@ -45,6 +46,10 @@ describe('isDirtyBottomComposer — open/close and dirty detection', () => {
 		expect(isDirtyBottomComposer({ ...clean, location_text: '123 Main St' })).toBe(true);
 	});
 
+	it('true when title has content', () => {
+		expect(isDirtyBottomComposer({ ...clean, title: 'Subject line' })).toBe(true);
+	});
+
 	it('false when only type changed (type always has a value; not a meaningful dirty signal)', () => {
 		expect(isDirtyBottomComposer({ ...clean, type: 'evidence' })).toBe(false);
 	});
@@ -68,19 +73,34 @@ describe('isBottomComposerSaveValid — required field enforcement', () => {
 
 	it('false when date missing', () => {
 		expect(
-			isBottomComposerSaveValid({ ...clean, occurred_time: '10:00', text_original: 'abc' })
+			isBottomComposerSaveValid({
+				...clean,
+				occurred_time: '10:00',
+				title: 'T',
+				text_original: 'abc'
+			})
 		).toBe(false);
 	});
 
 	it('false when time missing', () => {
 		expect(
-			isBottomComposerSaveValid({ ...clean, occurred_date: '2024-06-01', text_original: 'abc' })
+			isBottomComposerSaveValid({
+				...clean,
+				occurred_date: '2024-06-01',
+				title: 'T',
+				text_original: 'abc'
+			})
 		).toBe(false);
 	});
 
 	it('false when text missing', () => {
 		expect(
-			isBottomComposerSaveValid({ ...clean, occurred_date: '2024-06-01', occurred_time: '10:00' })
+			isBottomComposerSaveValid({
+				...clean,
+				occurred_date: '2024-06-01',
+				occurred_time: '10:00',
+				title: 'T'
+			})
 		).toBe(false);
 	});
 
@@ -90,17 +110,30 @@ describe('isBottomComposerSaveValid — required field enforcement', () => {
 				...clean,
 				occurred_date: '2024-06-01',
 				occurred_time: '10:00',
+				title: 'T',
 				text_original: '   '
 			})
 		).toBe(false);
 	});
 
-	it('true when date, time, and text are all present', () => {
+	it('false when title missing', () => {
 		expect(
 			isBottomComposerSaveValid({
 				...clean,
 				occurred_date: '2024-06-01',
 				occurred_time: '10:00',
+				text_original: 'Body'
+			})
+		).toBe(false);
+	});
+
+	it('true when date, time, title, and text are all present', () => {
+		expect(
+			isBottomComposerSaveValid({
+				...clean,
+				occurred_date: '2024-06-01',
+				occurred_time: '10:00',
+				title: 'Brief subject',
 				text_original: 'Witness sighted near fence'
 			})
 		).toBe(true);
@@ -112,6 +145,7 @@ describe('isBottomComposerSaveValid — required field enforcement', () => {
 				...clean,
 				occurred_date: '2024-06-01',
 				occurred_time: '10:00',
+				title: 'Brief subject',
 				text_original: 'Entry',
 				location_text: '14 Elm St'
 			})
@@ -149,6 +183,7 @@ describe('save blocked when invalid', () => {
 			...clean,
 			occurred_date: '2024-06-01',
 			occurred_time: '09:30',
+			title: 'Patrol',
 			text_original: 'Completed patrol'
 		};
 		expect(isBottomComposerSaveValid(full)).toBe(true);

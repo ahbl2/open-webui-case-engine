@@ -17,20 +17,21 @@ describe('TimelineEntryCard P95-05 cross-entry consistency (source contract)', (
 		expect(src).not.toMatch(/mt-1 pt-2 border-t border-dashed border-amber-200/);
 	});
 
-	it('uses ds-timeline-entry-ai-row for the AI-assisted cleaned/original toggle row', () => {
+	it('places the AI original-text emblem in the footer icon cluster', () => {
 		const src = readFileSync(cardPath, 'utf8');
-		expect(src).toMatch(/ds-timeline-entry-ai-row/);
+		expect(src).toMatch(/ds-timeline-entry-ai-emblem/);
+		expect(src).toMatch(/ds-timeline-entry-row__footer--occ[\s\S]*timeline-entry-ai-emblem/s);
 	});
 
 	it('documents P95-05 margin rhythm (no double-stack with __main gap) in detectiveSurfaces.css', () => {
 		const css = readFileSync(surfacesPath, 'utf8');
 		expect(css).toContain('P95-05');
-		expect(css).toMatch(/\.ds-timeline-entry-row__main\s*\{[\s\S]*?gap:\s*var\(--ds-space-3\)/);
+		expect(css).toMatch(/\.ds-timeline-entry-row__main\s*\{[\s\S]*?gap:\s*var\(--ds-space-4\)/);
+		const rowOrEmbedded =
+			/:is\(\.ds-timeline-entry-row, \.ds-timeline-entry-embedded-shell\) \.ds-timeline-entry-inline-context\s*\{[\s\S]*?margin-top:\s*0/s;
+		expect(css).toMatch(rowOrEmbedded);
 		expect(css).toMatch(
-			/\.ds-timeline-entry-row \.ds-timeline-entry-inline-context\s*\{[\s\S]*?margin-top:\s*0/s
-		);
-		expect(css).toMatch(
-			/\.ds-timeline-entry-row \.ds-timeline-entry-metadata-secondary\s*\{[\s\S]*?margin-top:\s*0/s
+			/:is\(\.ds-timeline-entry-row, \.ds-timeline-entry-embedded-shell\) \.ds-timeline-entry-metadata-secondary\s*\{[\s\S]*?margin-top:\s*0/s
 		);
 		expect(css).toMatch(/\.ds-timeline-entry-row__footer\s*\{[\s\S]*?margin-top:\s*0/s);
 	});

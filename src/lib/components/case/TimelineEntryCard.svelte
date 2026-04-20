@@ -9,14 +9,13 @@
 	 *                     P83-04 — long body: line-clamp preview + Show more / Show less (CSS only; full text on expand)
 	 *                     P95-01 — standardized 5-line collapsed preview, body block hierarchy, no text mutation
 	 *                     P95-02 — metadata labeling, grouping, hierarchy (presentation only; values unchanged)
-	 *                     P95-03 — inline context strip: linked images + origin/lineage (existing data only)
+	 *                     P95-03 — deleted-card inline strip for linked images only; origin/lineage via footer popover
 	 *                     P95-04 — interaction polish: hover/focus-visible + hit targets (existing controls only)
 	 *                     P95-05 — cross-entry spacing rhythm; unified section stack (no IA change)
 	 *                     P124-03 — type/main column gap + DS row/card rhythm (layout only; no ordering)
-	 *                     P98-02 — declared same-case relationship strip (read-only; P98-01 contract; no navigation)
 	 *                     P83-05 — metadata line consistency (order, separators, type display; trim only; no new fields)
-	 *                     P83-02 — explicit occurred vs recorded labels + tooltips (no timestamp logic changes)
-	 *                     P124-02 — clearer occurred_at / created_at / created_by labeling (copy + layout only)
+	 *                     P83-02 — explicit occurred labels + tooltips (no timestamp logic changes)
+	 *                     P124-02 — clearer occurred_at and optional By (created_by) labeling (copy + layout only)
 	 *                     P83-03 — readability + scanning (spacing, hierarchy, body line rhythm; see detectiveSurfaces.css)
 	 *                     P84-01 — local-only review flag (not persisted; no ordering/filter changes)
 	 *                     P84-02 — flagged row scan affordance (CSS in detectiveSurfaces.css; no new controls)
@@ -26,24 +25,23 @@
 	 *                     P109-01 — manual evidence selection checkbox (active entries only; session-only store)
 	 *
 	 * Truth signals (P28-31):
-	 *   1. AI-assisted transparency — badge + show/hide original toggle
+	 *   1. AI-assisted transparency — purple AI emblem opens popover with original entry text
 	 *   2. Edited badge — derived from version_count (0 = untouched)
 	 *   3. occurred_at with seconds — prevents same-minute sequence ambiguity
-	 *   4. Retrospective signal — when entry was recorded >24h after it occurred
-	 *   5. Attribution contrast — slightly more visible (text-gray-500)
-	 *   6. Location: label + value (P95-02); entry text unchanged
+	 *   4. Attribution contrast — slightly more visible (text-gray-500)
+	 *   5. Location: label + value (P95-02); entry text unchanged
 	 *
 	 * Version history (P28-33):
-	 *   - `Edited · vN` badge is a button that expands/collapses inline version history
+	 *   - `Edited · vN` badge is a button that expands/collapses inline version history (footer row, left of ⋮)
 	 *   - Lazy-loaded on first expand; cached for session
 	 *
 	 * Lifecycle (P28-35):
-	 *   - Active entries: primary Edit inline; secondary actions in Notes-style ⋮ menu
+	 *   - Active entries: Edit in ⋮ menu; other actions in the same menu
 	 *   - Deleted entries (entry.deleted_at set) render a compact removed-state view
 	 *   - onRestoreRequest (ADMIN only) shown for deleted entries
 	 */
 	import { tick, afterUpdate } from 'svelte';
-	import { DropdownMenu } from 'bits-ui';
+	import { DropdownMenu, Popover } from 'bits-ui';
 	import { flyAndScale } from '$lib/utils/transitions';
 	import type { TimelineEntry, TimelineEntryVersion } from '$lib/apis/caseEngine';
 	import { listTimelineEntryVersions } from '$lib/apis/caseEngine';
@@ -54,14 +52,20 @@
 	import { splitTextForSearchHighlight } from '$lib/caseTimeline/timelineSearchUx';
 	import { TIMELINE_ENTRY_BODY_LINE_CLAMP_TAILWIND } from '$lib/caseTimeline/timelineEntryBodyDisplay';
 	import {
+		timelineTypeBadgeClass,
+		timelineTypeOccBorderClass,
+		timelineTypeOccHeadingClass,
+		timelineTypeSpineMarkerClass
+	} from '$lib/caseTimeline/timelineEntryTypeAccents';
+	import {
 		formatOperationalCaseDateTimeWithSeconds,
 		formatCaseDateTime
 	} from '$lib/utils/formatDateTime';
 	import TimelineEntryLinkedImagesViewer from './TimelineEntryLinkedImagesViewer.svelte';
-	import TimelineEntryDeclaredRelationshipsBlock from './TimelineEntryDeclaredRelationshipsBlock.svelte';
 	import TimelineEntryProvenanceBlock from './TimelineEntryProvenanceBlock.svelte';
 	import SynthesisNavigationContextPreview from './SynthesisNavigationContextPreview.svelte';
 	import EllipsisVertical from '$lib/components/icons/EllipsisVertical.svelte';
+	import Pencil from '$lib/components/icons/Pencil.svelte';
 	import ClockRotateRight from '$lib/components/icons/ClockRotateRight.svelte';
 	import Download from '$lib/components/icons/Download.svelte';
 	import GarbageBin from '$lib/components/icons/GarbageBin.svelte';
@@ -70,16 +74,13 @@
 		DS_BADGE_CLASSES,
 		DS_BTN_CLASSES,
 		DS_CARD_CLASSES,
-		DS_CHIP_CLASSES,
 		DS_TIMELINE_CLASSES,
 		DS_TYPE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
 	import { P109_EVIDENCE_SELECTION_TIMELINE_TOGGLE_TITLE } from '$lib/case/p109EvidenceSelectionCopy';
 	import {
-		P124_TIMELINE_LABEL_ENTRY_LOGGED_AT,
 		P124_TIMELINE_LABEL_EVENT_OCCURRED,
 		P124_TIMELINE_LABEL_LOGGED_BY,
-		P124_TIMELINE_TOOLTIP_CREATED_AT,
 		P124_TIMELINE_TOOLTIP_CREATED_BY,
 		P124_TIMELINE_TOOLTIP_OCCURRED_AT
 	} from '$lib/caseContext/p124TimelineMetadataLabels';
@@ -92,9 +93,15 @@
 	/** P95-03 — linked files row label (presentation only) */
 	const TIMELINE_CONTEXT_LABEL_LINKED_IMAGES = 'Linked images';
 
+	const TIMELINE_LINEAGE_TRIGGER_TITLE = 'Origin and lineage — how this entry was added to the record';
+
+	const TIMELINE_AI_ORIGINAL_HEADING = 'Original timeline entry';
+	const TIMELINE_AI_EMBLEM_TITLE =
+		'AI-assisted text is shown below. Open to read the verbatim original timeline entry.';
+
 	/** P84-05 — Ops toolbar (flag → relate → follow-up): shared chrome + session-only titles */
 	const TIMELINE_OPS_BTN =
-		'inline-flex items-center justify-center min-h-8 min-w-8 shrink-0 rounded-md p-1 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition';
+		'inline-flex items-center justify-center min-h-7 min-w-7 shrink-0 rounded-md p-0.5 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 transition';
 	const TIMELINE_OPS_FOCUS_FLAG =
 		'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-amber-400/60 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900';
 	const TIMELINE_OPS_FOCUS_RELATE =
@@ -105,6 +112,8 @@
 	const TIMELINE_OPS_TITLE_RELATE =
 		'Visual link between two entries (context). Not saved (session only).';
 	const TIMELINE_OPS_TITLE_FOLLOWUP = 'Follow-up reminder. Not saved (session only).';
+	const TIMELINE_OPS_FOCUS_LINEAGE =
+		'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-sky-400/45 focus-visible:ring-offset-1 dark:focus-visible:ring-offset-gray-900';
 
 	export let entry: TimelineEntry;
 	/** Case ID — required for the versions endpoint. */
@@ -141,12 +150,20 @@
 	export let manualEvidenceSelectionEnabled = false;
 	export let manualEvidenceSelected = false;
 	export let onManualEvidenceSelectionToggle: () => void = () => {};
+	/**
+	 * When true, render a `div` shell without the spine (parent `/timeline` row provides
+	 * `TimelineEntryLeftRail` + this block inside an `<li>`).
+	 */
+	export let embeddedInTimelineRow = false;
 
 	const TYPE_LABELS: Record<string, string> = {
-		note:         TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
-		surveillance: 'Surveillance',
-		interview:    'Interview',
-		evidence:     'Evidence'
+		note:             TIMELINE_TYPE_NOTE_DISPLAY_LABEL,
+		incident:         'Incident',
+		controlled_buy:   'Controlled buy',
+		search_warrant:   'Search warrant',
+		surveillance:     'Surveillance',
+		interview:        'Interview',
+		evidence:         'Evidence'
 	};
 
 	/** P83-05 — display-only; known types use product labels; unknown → title-cased tokens (no API renames). */
@@ -163,24 +180,22 @@
 			.join(' ');
 	}
 
-	function timelineTypeBadgeClass(type: string): string {
-		const lower = (type ?? '').trim().toLowerCase();
-		switch (lower) {
-			case 'note':
-				return DS_BADGE_CLASSES.neutral;
-			case 'surveillance':
-				return DS_BADGE_CLASSES.info;
-			case 'interview':
-				return DS_BADGE_CLASSES.warning;
-			case 'evidence':
-				return DS_BADGE_CLASSES.success;
-			default:
-				return DS_BADGE_CLASSES.neutral;
-		}
-	}
-
 	function typeBadgeTitle(type: string): string | undefined {
 		return (type ?? '').trim().toLowerCase() === 'note' ? TIMELINE_TYPE_NOTE_VS_NOTES_TAB_TOOLTIP : undefined;
+	}
+
+	function typeHeadingUpper(type: string): string {
+		return typeLabel(type).toUpperCase();
+	}
+
+	/** Shorten UUID-like actor ids in dense footers (full value stays in title). */
+	function formatActorForDisplay(raw: string): string {
+		const t = raw.trim();
+		if (!t) return '';
+		if (/^[0-9a-f]{8}-[0-9a-f-]{27,36}$/i.test(t)) {
+			return `${t.slice(0, 8)}…`;
+		}
+		return t;
 	}
 
 	function parseTags(raw: string | string[] | null | undefined): string[] {
@@ -190,6 +205,10 @@
 	}
 
 	let linkedImagesViewerOpen = false;
+	/** Origin / lineage popover (per card). */
+	let lineagePopoverOpen = false;
+	/** AI original text popover (cleaned entries only). */
+	let aiOriginalPopoverOpen = false;
 	/** Notes-style kebab menu (per card instance). */
 	let actionsMenuOpen = false;
 
@@ -223,15 +242,12 @@
 	$: showProvenanceBlock =
 		entry.provenance != null && entry.provenance.origin_kind !== 'manual';
 
-	/** P95-03 — show grouped inline context (linked images and/or provenance); no new data */
-	$: showInlineContextBlock = linkedImageFiles.length > 0 || showProvenanceBlock;
+	/** P95-03 — soft-deleted entries only: linked images row when present (provenance is in footer popover). */
+	$: showDeletedInlineLinkedStrip = isDeleted && linkedImageFiles.length > 0;
 
-	// ── AI-assisted text toggle (P28-31) ────────────────────────────────────────
-	let showOriginal = false;
+	// ── AI-assisted text (P28-31): main body shows cleaned; verbatim original in popover ──
 	$: isCleaned = typeof entry.text_cleaned === 'string' && entry.text_cleaned.trim() !== '';
-	$: displayText = isCleaned && !showOriginal
-		? entry.text_cleaned!.trim()
-		: (entry.text_original ?? '').trim();
+	$: displayText = isCleaned ? entry.text_cleaned!.trim() : (entry.text_original ?? '').trim();
 
 	$: bodyHighlightSegments = splitTextForSearchHighlight(displayText, searchHighlightNeedle);
 
@@ -240,22 +256,7 @@
 
 	// ── Edited / version state (P28-31) ────────────────────────────────────────
 	$: versionCount = entry.version_count ?? 0;
-	$: isEdited = versionCount > 0;
 	$: currentVersion = versionCount + 1;
-
-	// ── Retrospective signal (P28-31) ───────────────────────────────────────────
-	$: retrospectiveHours = (() => {
-		try {
-			const occurred = new Date(entry.occurred_at).getTime();
-			const created = new Date(entry.created_at).getTime();
-			if (isNaN(occurred) || isNaN(created)) return 0;
-			const diffHours = (created - occurred) / (1000 * 60 * 60);
-			return diffHours > 24 ? Math.round(diffHours) : 0;
-		} catch {
-			return 0;
-		}
-	})();
-	$: isRetrospective = retrospectiveHours > 0;
 
 	// ── Version history (P28-33) ────────────────────────────────────────────────
 	let historyExpanded = false;
@@ -280,15 +281,6 @@
 		}
 	}
 
-	async function toggleHistory(): Promise<void> {
-		if (!isEdited) return;
-		if (historyExpanded) {
-			historyExpanded = false;
-			return;
-		}
-		await expandHistoryPanel();
-	}
-
 	function exportEntryFromMenu(format: 'txt' | 'pdf'): void {
 		actionsMenuOpen = false;
 		downloadTimelineEntryExport(entry, textForExport, format);
@@ -297,6 +289,11 @@
 	async function openVersionHistoryFromMenu(): Promise<void> {
 		actionsMenuOpen = false;
 		await expandHistoryPanel();
+	}
+
+	function openLineageFromMenu(): void {
+		actionsMenuOpen = false;
+		lineagePopoverOpen = true;
 	}
 
 	function requestRemoveFromMenu(): void {
@@ -309,9 +306,15 @@
 	}
 
 	$: metadataLocationRaw = entry.location_text?.trim() ?? '';
-	$: metadataCreatorRaw = entry.created_by?.trim() ?? '';
+	/** Prefer human-readable name from API; shorten UUID-like ids only when no name. */
+	$: creatorDisplayLabel = (() => {
+		const name = entry.created_by_name?.trim();
+		if (name) return name;
+		return formatActorForDisplay(entry.created_by?.trim() ?? '');
+	})();
+	$: creatorTooltipRaw = entry.created_by_name?.trim() || entry.created_by?.trim() || '';
 	$: hasMetadataLocation = metadataLocationRaw.length > 0;
-	$: hasMetadataCreator = metadataCreatorRaw.length > 0;
+	$: hasMetadataCreator = creatorTooltipRaw.length > 0;
 
 	// ── P83-04 / P95-01 — Body expand/collapse (local state; CSS line-clamp; no content mutation) ──
 	let bodyEl: HTMLParagraphElement | undefined;
@@ -339,7 +342,7 @@
 	afterUpdate(() => {
 		const key = isDeleted
 			? `del:${entry.id}:${entry.text_original ?? ''}:${searchHighlightNeedle}`
-			: `act:${entry.id}:${displayText}:${searchHighlightNeedle}:${showOriginal}`;
+			: `act:${entry.id}:${displayText}:${searchHighlightNeedle}`;
 		if (key !== bodyClampMeasureKey) {
 			bodyClampMeasureKey = key;
 			bodyExpanded = false;
@@ -355,8 +358,9 @@
 			entryFlagged = false;
 			bodyExpanded = false;
 			historyExpanded = false;
-			showOriginal = false;
 			actionsMenuOpen = false;
+			lineagePopoverOpen = false;
+			aiOriginalPopoverOpen = false;
 			linkedImagesViewerOpen = false;
 		}
 		prevIsDeleted = isDeleted;
@@ -365,9 +369,12 @@
 
 {#if isDeleted}
 	<!-- ── Compact removed-state card (P28-35) ────────────────────────────────── -->
-	<li
+	<svelte:element
+		this={embeddedInTimelineRow ? 'div' : 'li'}
 		id={`ce-timeline-entry-${entry.id}`}
-		class="{DS_TIMELINE_CLASSES.entryRow} ds-timeline-entry-row--removed{synthesisNavigationReveal
+		class="{embeddedInTimelineRow
+			? 'ds-timeline-entry-embedded-shell min-w-0 flex flex-1 flex-col'
+			: `${DS_TIMELINE_CLASSES.entryRow} ds-timeline-entry-row--removed`}{synthesisNavigationReveal
 			? ' ds-p97-synthesis-nav-reveal'
 			: ''}"
 		data-testid="timeline-entry-deleted"
@@ -377,10 +384,12 @@
 		data-timeline-row-related={relatePaired ? '1' : '0'}
 		data-timeline-row-followup={entryNeedsFollowUp ? '1' : '0'}
 	>
-		<div class="{DS_TIMELINE_CLASSES.entrySpine}" aria-hidden="true">
-			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
-		</div>
-		<div class="{DS_TIMELINE_CLASSES.entryBody}">
+		{#if !embeddedInTimelineRow}
+			<div class="{DS_TIMELINE_CLASSES.entrySpine}" aria-hidden="true">
+				<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
+			</div>
+		{/if}
+		<div class="{DS_TIMELINE_CLASSES.entryBody}{embeddedInTimelineRow ? ' min-w-0 flex-1 flex flex-col' : ''}">
 			{#if synthesisNavigationReveal && synthesisNavigationContextPreview}
 				<SynthesisNavigationContextPreview
 					role="authoritative"
@@ -527,6 +536,53 @@
 										<path d="M9 16h6" />
 									</svg>
 								</button>
+								{#if showProvenanceBlock && entry.provenance}
+									<Popover.Root bind:open={lineagePopoverOpen} onOpenChange={(o) => (lineagePopoverOpen = o)}>
+										<Popover.Trigger
+											class="{TIMELINE_OPS_BTN} {TIMELINE_OPS_FOCUS_LINEAGE} ds-timeline-entry-lineage-trigger text-gray-400 dark:text-gray-500 hover:text-sky-700 dark:hover:text-sky-300"
+											aria-expanded={lineagePopoverOpen}
+											aria-label="Origin and lineage"
+											title={TIMELINE_LINEAGE_TRIGGER_TITLE}
+											data-testid="timeline-entry-lineage-trigger"
+											type="button"
+										>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												class="size-4 shrink-0"
+												aria-hidden="true"
+											>
+												<line x1="6" x2="6" y1="3" y2="15" />
+												<circle cx="18" cy="6" r="3" />
+												<circle cx="6" cy="18" r="3" />
+												<path d="M18 9a9 9 0 0 1-9 9" />
+											</svg>
+										</Popover.Trigger>
+										<Popover.Content
+											class="z-[60] w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-850 p-0 shadow-xl outline-none"
+											side="top"
+											sideOffset={8}
+											align="end"
+											collisionPadding={12}
+										>
+											<div
+												class="p-3"
+												data-testid="timeline-entry-context-origin"
+											>
+												<TimelineEntryProvenanceBlock
+													variant="panel"
+													{caseId}
+													provenance={entry.provenance}
+												/>
+											</div>
+										</Popover.Content>
+									</Popover.Root>
+								{/if}
 								<DropdownMenu.Root bind:open={actionsMenuOpen} onOpenChange={(s) => (actionsMenuOpen = s)}>
 									<DropdownMenu.Trigger>
 										<button
@@ -547,13 +603,41 @@
 										transition={flyAndScale}
 									>
 										<DropdownMenu.Item
-											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+											class="ds-timeline-entry-version-history-item select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
 											on:click={() => void openVersionHistoryFromMenu()}
 											data-testid="timeline-entry-menu-version-history"
 										>
 											<ClockRotateRight className="w-4 h-4 shrink-0" />
-											<span>Version history</span>
+											<span class="flex flex-col items-start gap-0 leading-tight">
+												<span>Version history</span>
+												<span class="text-[10px] font-normal text-gray-500 dark:text-gray-400">Now v{currentVersion}</span>
+											</span>
 										</DropdownMenu.Item>
+										{#if showProvenanceBlock && entry.provenance}
+											<DropdownMenu.Item
+												class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+												on:click={openLineageFromMenu}
+												data-testid="timeline-entry-menu-origin-lineage"
+											>
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													class="w-4 h-4 shrink-0"
+													aria-hidden="true"
+												>
+													<line x1="6" x2="6" y1="3" y2="15" />
+													<circle cx="18" cy="6" r="3" />
+													<circle cx="6" cy="18" r="3" />
+													<path d="M18 9a9 9 0 0 1-9 9" />
+												</svg>
+												<span>Origin &amp; lineage</span>
+											</DropdownMenu.Item>
+										{/if}
 										<hr class="border-gray-100 dark:border-gray-800 my-1" />
 										<DropdownMenu.Item
 											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
@@ -587,52 +671,43 @@
 							</div>
 						</div>
 
-						{#if showInlineContextBlock}
+						{#if showDeletedInlineLinkedStrip}
 							<div
 								class="ds-timeline-entry-inline-context min-w-0"
 								data-testid="timeline-entry-inline-context"
 							>
-								{#if linkedImageFiles.length > 0}
-									<div
-										class="ds-timeline-entry-linked-files-row flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"
-										data-testid="timeline-entry-linked-files-row"
+								<div
+									class="ds-timeline-entry-linked-files-row flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"
+									data-testid="timeline-entry-linked-files-row"
+								>
+									<span
+										class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
+										id={`ce-timeline-entry-linked-images-label-${entry.id}`}
+									>{TIMELINE_CONTEXT_LABEL_LINKED_IMAGES}</span>
+									<button
+										type="button"
+										class="ds-timeline-entry-linked-images-trigger inline-flex items-center gap-0.5 text-[10px] font-medium px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
+										title="View linked images from case files"
+										data-testid="timeline-entry-linked-images-trigger"
+										aria-labelledby={`ce-timeline-entry-linked-images-label-${entry.id}`}
+										on:click={() => (linkedImagesViewerOpen = true)}
 									>
-										<span
-											class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
-											id={`ce-timeline-entry-linked-images-label-${entry.id}`}
-										>{TIMELINE_CONTEXT_LABEL_LINKED_IMAGES}</span>
-										<button
-											type="button"
-											class="ds-timeline-entry-linked-images-trigger inline-flex items-center gap-0.5 text-[10px] font-medium px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
-											title="View linked images from case files"
-											data-testid="timeline-entry-linked-images-trigger"
-											aria-labelledby={`ce-timeline-entry-linked-images-label-${entry.id}`}
-											on:click={() => (linkedImagesViewerOpen = true)}
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											viewBox="0 0 16 16"
+											fill="currentColor"
+											class="size-3.5 shrink-0 opacity-80"
+											aria-hidden="true"
 										>
-											<svg
-												xmlns="http://www.w3.org/2000/svg"
-												viewBox="0 0 16 16"
-												fill="currentColor"
-												class="size-3.5 shrink-0 opacity-80"
-												aria-hidden="true"
-											>
-												<path
-													d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
-												/>
-											</svg>
-											{linkedImageFiles.length}
-										</button>
-									</div>
-								{/if}
-								{#if showProvenanceBlock && entry.provenance}
-									<div class="ds-timeline-entry-context-origin min-w-0" data-testid="timeline-entry-context-origin">
-										<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
-									</div>
-								{/if}
+											<path
+												d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
+											/>
+										</svg>
+										{linkedImageFiles.length}
+									</button>
+								</div>
 							</div>
 						{/if}
-
-						<TimelineEntryDeclaredRelationshipsBlock {caseId} {entry} />
 
 						<div class="ds-timeline-entry-body-block min-w-0" data-testid="timeline-entry-body-block">
 							<p
@@ -690,7 +765,7 @@
 									{#if hasMetadataCreator}
 										<span data-testid="timeline-entry-entered-by" title={P124_TIMELINE_TOOLTIP_CREATED_BY}>
 											<span class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} mr-1">{P124_TIMELINE_LABEL_LOGGED_BY}</span>
-											<span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
+											<span class="{DS_TYPE_CLASSES.label}">{creatorDisplayLabel}</span>
 										</span>
 									{/if}
 								</div>
@@ -700,20 +775,6 @@
 						<div
 							class="ds-timeline-entry-row__footer ds-timeline-entry-row__footer--removed flex items-center gap-2 flex-wrap text-[10px] text-gray-400 dark:text-gray-600"
 						>
-							<span
-								class="{DS_TYPE_CLASSES.meta} ds-timeline-entry-recorded-line inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5"
-								title={P124_TIMELINE_TOOLTIP_CREATED_AT}
-								data-testid="timeline-entry-recorded-at"
-							>
-								<span class="ds-timeline-entry-meta-label">{P124_TIMELINE_LABEL_ENTRY_LOGGED_AT}</span>
-								<time
-									datetime={entry.created_at}
-									class="{DS_TYPE_CLASSES.mono}"
-									title={P124_TIMELINE_TOOLTIP_CREATED_AT}
-								>
-									{formatCaseDateTime(entry.created_at)}
-								</time>
-							</span>
 							<span class="ml-auto font-mono" title="When this entry was removed from the timeline.">
 								Removed {formatCaseDateTime(entry.deleted_at ?? '')}
 							</span>
@@ -769,6 +830,11 @@
 										Type (then): {typeLabel(ver.prior_type)}
 									</p>
 								{/if}
+								{#if (ver.prior_title ?? '').trim() !== ''}
+									<p class="text-[10px] text-gray-400 dark:text-gray-500">
+										Title (then): {(ver.prior_title ?? '').trim()}
+									</p>
+								{/if}
 								<p class="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
 									{ver.prior_text_original}
 								</p>
@@ -795,13 +861,16 @@
 			files={linkedImageFiles}
 			onClose={() => (linkedImagesViewerOpen = false)}
 		/>
-	</li>
+	</svelte:element>
 
 {:else}
 	<!-- ── Active entry card ─────────────────────────────────────────────────── -->
-	<li
+	<svelte:element
+		this={embeddedInTimelineRow ? 'div' : 'li'}
 		id={`ce-timeline-entry-${entry.id}`}
-		class="{DS_TIMELINE_CLASSES.entryRow}{synthesisNavigationReveal ? ' ds-p97-synthesis-nav-reveal' : ''}"
+		class="{embeddedInTimelineRow
+			? 'ds-timeline-entry-embedded-shell min-w-0 flex flex-1 flex-col'
+			: DS_TIMELINE_CLASSES.entryRow}{synthesisNavigationReveal ? ' ds-p97-synthesis-nav-reveal' : ''}"
 		data-testid="timeline-entry"
 		data-entry-id={entry.id}
 		data-synthesis-timeline-reveal={synthesisNavigationReveal ? '1' : '0'}
@@ -809,10 +878,14 @@
 		data-timeline-row-related={relatePaired ? '1' : '0'}
 		data-timeline-row-followup={entryNeedsFollowUp ? '1' : '0'}
 	>
-		<div class="{DS_TIMELINE_CLASSES.entrySpine}" aria-hidden="true">
-			<div class="{DS_TIMELINE_CLASSES.entryMarker}"></div>
-		</div>
-		<div class="{DS_TIMELINE_CLASSES.entryBody}">
+		{#if !embeddedInTimelineRow}
+			<div class="{DS_TIMELINE_CLASSES.entrySpine}" aria-hidden="true">
+				<div
+					class="{DS_TIMELINE_CLASSES.entryMarker} {timelineTypeSpineMarkerClass(entry.type)}"
+				></div>
+			</div>
+		{/if}
+		<div class="{DS_TIMELINE_CLASSES.entryBody}{embeddedInTimelineRow ? ' min-w-0 flex-1 flex flex-col' : ''}">
 			{#if synthesisNavigationReveal && synthesisNavigationContextPreview}
 				<SynthesisNavigationContextPreview
 					role="authoritative"
@@ -822,82 +895,155 @@
 				/>
 			{/if}
 			<div
-				class="{DS_CARD_CLASSES.card} min-w-0 {entryFlagged ? 'ds-timeline-entry-card--review-flagged' : ''}{relatePaired
-					? ' ds-timeline-entry-card--relationship-paired'
-					: ''}{entryNeedsFollowUp ? ' ds-timeline-entry-card--followup-marked' : ''}"
+				class="{DS_CARD_CLASSES.card} ds-timeline-entry-card--occ min-w-0 {timelineTypeOccBorderClass(entry.type)} {entryFlagged
+					? 'ds-timeline-entry-card--review-flagged'
+					: ''}{relatePaired ? ' ds-timeline-entry-card--relationship-paired' : ''}{entryNeedsFollowUp
+					? ' ds-timeline-entry-card--followup-marked'
+					: ''}"
 				data-timeline-card-flagged={entryFlagged ? '1' : '0'}
 				data-timeline-card-related={relatePaired ? '1' : '0'}
 				data-timeline-card-followup={entryNeedsFollowUp ? '1' : '0'}
+				data-entry-type={entry.type}
 			>
-				<div class="flex gap-5 min-w-0">
-					<!-- P83-01: narrow type column -->
+				<div class="flex-1 min-w-0 ds-timeline-entry-row__main">
+					<!-- OCC: type row only in header; title + body stacked flush; one band before footer -->
 					<div
-						class="shrink-0 w-[7.25rem] max-w-[28%] sm:max-w-none pt-0.5 ds-timeline-entry-type-column"
-						data-testid="timeline-entry-type-column"
+						class="ds-timeline-entry-occ-header flex flex-col gap-0 min-w-0"
+						data-testid="timeline-entry-occ-header"
 					>
-						<span
-							class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta}"
-							title="Entry type"
-							id={`ce-timeline-entry-type-label-${entry.id}`}
-						>{TIMELINE_META_LABEL_TYPE}</span>
-						<span
-							class="{timelineTypeBadgeClass(entry.type)}"
-							title={typeBadgeTitle(entry.type)}
-							data-testid="timeline-entry-type-badge"
-							aria-labelledby={`ce-timeline-entry-type-label-${entry.id}`}
-						>
-							{typeLabel(entry.type)}
-						</span>
-					</div>
-					<div class="flex-1 min-w-0 ds-timeline-entry-row__main">
-						<!-- Top line: occurred_at primary; edited + linked images secondary -->
-						<div class="ds-timeline-entry-row__top">
-							<div class="ds-timeline-entry-metadata-primary min-w-0">
-								<div class="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
+						<div class="flex flex-wrap items-start justify-between gap-x-3 gap-y-1 w-full min-w-0">
+							<div class="flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0">
 								<span
-									class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
-									id={`ce-timeline-entry-occurred-label-${entry.id}`}
-									title={P124_TIMELINE_TOOLTIP_OCCURRED_AT}
-								>{P124_TIMELINE_LABEL_EVENT_OCCURRED}</span>
-								<time
-									datetime={entry.occurred_at}
-									class="text-base font-semibold tabular-nums text-[color:var(--ds-fg)] {DS_TYPE_CLASSES.mono}"
-									title={P124_TIMELINE_TOOLTIP_OCCURRED_AT}
-									data-testid="timeline-entry-occurred-at"
-									aria-labelledby={`ce-timeline-entry-occurred-label-${entry.id}`}
+									class="text-[11px] font-bold tracking-wide {timelineTypeOccHeadingClass(entry.type)}"
+									id={`ce-timeline-entry-type-label-${entry.id}`}
+									data-testid="timeline-entry-type-badge"
+									title={typeBadgeTitle(entry.type) ?? 'Entry type'}
 								>
-									{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
-								</time>
-								{#if isEdited}
-									<button
-										type="button"
-										class="{DS_BTN_CLASSES.ghost} ds-timeline-entry-edited-toggle text-xs py-0.5 min-h-0"
-										title={historyExpanded
-											? 'Collapse version history'
-											: `Version ${currentVersion} — click to view history`}
-										aria-expanded={historyExpanded}
-										on:click={toggleHistory}
-										data-testid="timeline-entry-edited"
+									{typeHeadingUpper(entry.type)}
+								</span>
+								{#if tags.length > 0}
+									<div
+										class="flex flex-wrap gap-1 min-w-0"
+										role="group"
+										aria-label={TIMELINE_META_LABEL_TAGS}
+										data-testid="timeline-entry-tags-block"
 									>
-										Edited · v{currentVersion}
-										<svg
-											xmlns="http://www.w3.org/2000/svg"
-											viewBox="0 0 12 12"
-											fill="none"
-											stroke="currentColor"
-											stroke-width="1.5"
-											stroke-linecap="round"
-											stroke-linejoin="round"
-											class="size-2.5 transition-transform {historyExpanded ? 'rotate-180' : ''}"
-											aria-hidden="true"
-										>
-											<path d="M2 4l4 4 4-4" />
-										</svg>
-									</button>
+										{#each tags as tag}
+											<span
+												class="text-[10px] px-1.5 py-px rounded border border-gray-200/90 dark:border-gray-600/90 text-gray-500 dark:text-gray-400 font-mono"
+											>
+												{tag}
+											</span>
+										{/each}
+									</div>
 								{/if}
-								</div>
 							</div>
-							<div class="ds-timeline-entry-row__top-actions">
+							<div
+								class="flex items-center gap-1 shrink-0 justify-end min-w-0 max-w-[min(100%,22rem)] text-[11px] text-slate-500 dark:text-slate-400 {!hasMetadataLocation ? 'min-h-[1.25rem]' : ''}"
+								data-testid="timeline-entry-location"
+								title={hasMetadataLocation ? metadataLocationRaw : ''}
+							>
+								{#if hasMetadataLocation}
+									<svg
+										xmlns="http://www.w3.org/2000/svg"
+										viewBox="0 0 24 24"
+										fill="none"
+										stroke="currentColor"
+										stroke-width="2"
+										stroke-linecap="round"
+										stroke-linejoin="round"
+										class="size-3.5 shrink-0 opacity-90"
+										aria-hidden="true"
+									>
+										<path d="M20 10c0 6-8 12-8 12s-8-6-8-12a8 8 0 0 1 16 0Z" />
+										<circle cx="12" cy="10" r="3" />
+									</svg>
+									<span class="truncate font-medium text-slate-600 dark:text-slate-300 text-right">
+										{#each splitTextForSearchHighlight(metadataLocationRaw, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
+											{#if locSeg.highlight}
+												<mark class="{DS_TIMELINE_CLASSES.searchMark} text-inherit">{locSeg.text}</mark>
+											{:else}{locSeg.text}{/if}
+										{/each}
+									</span>
+								{/if}
+							</div>
+						</div>
+						<span class="sr-only" id={`ce-timeline-entry-occurred-label-${entry.id}`}>{P124_TIMELINE_LABEL_EVENT_OCCURRED}</span>
+						<time
+							datetime={entry.occurred_at}
+							class="sr-only"
+							title={P124_TIMELINE_TOOLTIP_OCCURRED_AT}
+							data-testid="timeline-entry-occurred-at"
+							aria-labelledby={`ce-timeline-entry-occurred-label-${entry.id}`}
+						>
+							{formatOperationalCaseDateTimeWithSeconds(entry.occurred_at)}
+						</time>
+					</div>
+
+					<div class="ds-timeline-entry-occ-main-text flex flex-col gap-0 min-w-0">
+						{#if (entry.title ?? '').trim()}
+							<p
+								class="w-full min-w-0 text-sm font-semibold text-[color:var(--ds-fg)] leading-snug m-0 pb-0"
+								data-testid="timeline-entry-title"
+							>
+								{#each splitTextForSearchHighlight((entry.title ?? '').trim(), searchHighlightNeedle) as tSeg, tix (tix)}
+									{#if tSeg.highlight}
+										<mark class="{DS_TIMELINE_CLASSES.searchMark} text-inherit">{tSeg.text}</mark>
+									{:else}{tSeg.text}{/if}
+								{/each}
+							</p>
+						{/if}
+						<div class="ds-timeline-entry-body-block min-w-0" data-testid="timeline-entry-body-block">
+							<p
+								bind:this={bodyEl}
+								class="ds-timeline-entry-body-primary text-sm text-gray-700 dark:text-gray-200 whitespace-pre-wrap break-words"
+								class:line-clamp-5={showBodyClampToggle && !bodyExpanded}
+								class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
+								data-testid="timeline-entry-body"
+							>
+								{#each bodyHighlightSegments as seg, bIdx (bIdx)}
+									{#if seg.highlight}
+										<mark
+											class="{DS_TIMELINE_CLASSES.searchMark}"
+										>{seg.text}</mark>
+									{:else}{seg.text}{/if}
+								{/each}
+							</p>
+							{#if showBodyClampToggle}
+								<button
+									type="button"
+									class="ds-timeline-entry-body-toggle text-left text-[10px] font-medium text-gray-500 dark:text-gray-400 underline underline-offset-2"
+									data-testid="timeline-entry-body-toggle"
+									aria-expanded={bodyExpanded}
+									on:click={() => (bodyExpanded = !bodyExpanded)}
+								>
+									{bodyExpanded ? 'Show less' : 'Show more'}
+								</button>
+							{/if}
+						</div>
+					</div>
+
+						<div
+							class="ds-timeline-entry-row__footer ds-timeline-entry-row__footer--occ flex flex-wrap items-center justify-between gap-x-1.5 gap-y-1 py-0 text-[10px] text-gray-500 dark:text-gray-400 w-full min-w-0"
+						>
+							{#if hasMetadataCreator}
+								<span
+									class="inline-flex flex-wrap items-baseline gap-x-1 min-w-0 max-w-[min(100%,24rem)]"
+									data-testid="timeline-entry-entered-by"
+									title={`${P124_TIMELINE_TOOLTIP_CREATED_BY} ${creatorTooltipRaw}`}
+								>
+									<span class="sr-only">{P124_TIMELINE_LABEL_LOGGED_BY}</span>
+									<span
+										class="text-[10px] font-semibold uppercase tracking-wide text-gray-500/90 dark:text-gray-500"
+										aria-hidden="true"
+									>By</span>
+									<span class="{DS_TYPE_CLASSES.mono} text-gray-600 dark:text-gray-300 truncate">{creatorDisplayLabel}</span>
+								</span>
+							{:else}
+								<span class="min-w-0 flex-1" aria-hidden="true"></span>
+							{/if}
+
+							<div class="flex items-center gap-0.5 shrink-0 ml-auto">
 								{#if manualEvidenceSelectionEnabled}
 									<label
 										class="inline-flex items-center shrink-0 cursor-pointer"
@@ -997,205 +1143,125 @@
 										<path d="M9 16h6" />
 									</svg>
 								</button>
-							</div>
-						</div>
-
-						{#if showInlineContextBlock}
-							<div
-								class="ds-timeline-entry-inline-context min-w-0"
-								data-testid="timeline-entry-inline-context"
-							>
-								{#if linkedImageFiles.length > 0}
-									<div
-										class="ds-timeline-entry-linked-files-row flex flex-wrap items-center gap-x-2 gap-y-1 min-w-0"
-										data-testid="timeline-entry-linked-files-row"
-									>
-										<span
-											class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
-											id={`ce-timeline-entry-linked-images-label-${entry.id}`}
-										>{TIMELINE_CONTEXT_LABEL_LINKED_IMAGES}</span>
-										<button
+								{#if isCleaned}
+									<Popover.Root bind:open={aiOriginalPopoverOpen} onOpenChange={(o) => (aiOriginalPopoverOpen = o)}>
+										<Popover.Trigger
+											class="{TIMELINE_OPS_BTN} ds-timeline-entry-ai-emblem !rounded-full text-violet-300 dark:text-violet-200 bg-violet-950/35 dark:bg-violet-950/50 border border-violet-400/35 dark:border-violet-400/25 shadow-[0_0_14px_rgba(167,139,250,0.4)] hover:shadow-[0_0_18px_rgba(167,139,250,0.6)] transition-shadow duration-200"
+											aria-expanded={aiOriginalPopoverOpen}
+											aria-label="View original timeline entry text"
+											title={TIMELINE_AI_EMBLEM_TITLE}
+											data-testid="timeline-entry-ai-emblem"
 											type="button"
-											class="ds-timeline-entry-linked-images-trigger inline-flex items-center gap-0.5 text-[10px] font-medium px-2 py-1 rounded border border-gray-200 dark:border-gray-600 text-gray-500 dark:text-gray-400"
-											title="View linked images from case files"
-											data-testid="timeline-entry-linked-images-trigger"
-											aria-labelledby={`ce-timeline-entry-linked-images-label-${entry.id}`}
-											on:click={() => (linkedImagesViewerOpen = true)}
 										>
 											<svg
 												xmlns="http://www.w3.org/2000/svg"
-												viewBox="0 0 16 16"
+												viewBox="0 0 24 24"
 												fill="currentColor"
-												class="size-3.5 shrink-0 opacity-80"
+												class="size-4 shrink-0 drop-shadow-[0_0_6px_rgba(196,181,253,0.85)]"
 												aria-hidden="true"
 											>
 												<path
-													d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
+													d="M9.813 15.904 9 18.75l-.813-2.846a4.5 4.5 0 0 0-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 0 0 3.09-3.09L9 5.25l.813 2.847a4.5 4.5 0 0 0 3.09 3.09L15.75 12l-2.847.813a4.5 4.5 0 0 0-3.09 3.09ZM18.259 8.715 18 9.75l-.259-1.035a3.375 3.375 0 0 0-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 0 0 2.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 0 0 2.456 2.456L21.75 6l-1.035.259a3.375 3.375 0 0 0-2.456 2.456ZM16.894 20.567 16.5 21.75l-.394-1.183a2.25 2.25 0 0 0-1.423-1.423L13.5 18.75l1.183-.394a2.25 2.25 0 0 0 1.423-1.423l.394-1.183.394 1.183a2.25 2.25 0 0 0 1.423 1.423l1.183.394-1.183.394a2.25 2.25 0 0 0-1.423 1.423Z"
 												/>
 											</svg>
-											{linkedImageFiles.length}
-										</button>
-									</div>
+											<span class="sr-only" data-testid="timeline-entry-ai-cleaned">AI-assisted entry</span>
+										</Popover.Trigger>
+										<Popover.Content
+											class="z-[60] w-[min(22rem,calc(100vw-2rem))] max-h-[min(70vh,28rem)] overflow-hidden flex flex-col rounded-xl border border-violet-200/80 dark:border-violet-800/60 bg-white dark:bg-gray-850 p-0 shadow-xl outline-none"
+											side="top"
+											sideOffset={8}
+											align="end"
+											collisionPadding={12}
+										>
+											<div
+												class="px-3 pt-3 pb-2 border-b border-gray-100 dark:border-gray-800 shrink-0"
+											>
+												<p
+													class="text-xs font-semibold tracking-wide text-violet-700 dark:text-violet-300 m-0"
+													data-testid="timeline-entry-ai-original-heading"
+												>
+													{TIMELINE_AI_ORIGINAL_HEADING}
+												</p>
+											</div>
+											<div
+												class="overflow-y-auto px-3 py-3 text-sm leading-relaxed text-gray-800 dark:text-gray-100 whitespace-pre-wrap break-words font-sans"
+												data-testid="timeline-entry-ai-original-body"
+											>
+												{(entry.text_original ?? '').trim()}
+											</div>
+										</Popover.Content>
+									</Popover.Root>
 								{/if}
 								{#if showProvenanceBlock && entry.provenance}
-									<div class="ds-timeline-entry-context-origin min-w-0" data-testid="timeline-entry-context-origin">
-										<TimelineEntryProvenanceBlock {caseId} provenance={entry.provenance} />
-									</div>
-								{/if}
-							</div>
-						{/if}
-
-						<TimelineEntryDeclaredRelationshipsBlock {caseId} {entry} />
-
-						{#if isCleaned}
-							<div class="ds-timeline-entry-ai-row">
-								<span
-									class="{DS_CHIP_CLASSES.base}"
-									title="AI-assisted text is shown. Use the toggle to see the verbatim original."
-									data-testid="timeline-entry-ai-cleaned"
-								>
-									AI-assisted (original available)
-								</span>
-								<button
-									type="button"
-									class="ds-timeline-entry-text-toggle text-[10px] text-gray-400 dark:text-gray-500 underline underline-offset-2"
-									on:click={() => (showOriginal = !showOriginal)}
-									data-testid="timeline-entry-text-toggle"
-								>
-									{showOriginal ? 'Show cleaned' : 'Show original'}
-								</button>
-							</div>
-						{/if}
-
-						<div class="ds-timeline-entry-body-block min-w-0" data-testid="timeline-entry-body-block">
-							<p
-								bind:this={bodyEl}
-								class="ds-timeline-entry-body-primary {DS_TYPE_CLASSES.body} whitespace-pre-wrap break-words"
-								class:line-clamp-5={showBodyClampToggle && !bodyExpanded}
-								class:overflow-hidden={showBodyClampToggle && !bodyExpanded}
-								data-testid="timeline-entry-body"
-							>
-								{#each bodyHighlightSegments as seg, bIdx (bIdx)}
-									{#if seg.highlight}
-										<mark
-											class="{DS_TIMELINE_CLASSES.searchMark}"
-										>{seg.text}</mark>
-									{:else}{seg.text}{/if}
-								{/each}
-							</p>
-							{#if showBodyClampToggle}
-								<button
-									type="button"
-									class="ds-timeline-entry-body-toggle text-left text-[10px] font-medium text-gray-500 dark:text-gray-400 underline underline-offset-2"
-									data-testid="timeline-entry-body-toggle"
-									aria-expanded={bodyExpanded}
-									on:click={() => (bodyExpanded = !bodyExpanded)}
-								>
-									{bodyExpanded ? 'Show less' : 'Show more'}
-								</button>
-							{/if}
-						</div>
-
-						{#if tags.length > 0 || hasMetadataLocation || hasMetadataCreator}
-							<div
-								class="ds-timeline-entry-metadata-secondary min-w-0"
-								data-testid="timeline-entry-metadata-secondary"
-							>
-								{#if tags.length > 0}
-									<div
-										class="ds-timeline-entry-tags-block flex flex-wrap items-baseline gap-x-2 gap-y-1.5"
-										data-testid="timeline-entry-tags-block"
-									>
-										<span
-											class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} shrink-0"
-											id={`ce-timeline-entry-tags-label-${entry.id}`}
-										>{TIMELINE_META_LABEL_TAGS}</span>
-										<div
-											class="flex flex-wrap gap-1 min-w-0"
-											role="group"
-											aria-labelledby={`ce-timeline-entry-tags-label-${entry.id}`}
+									<Popover.Root bind:open={lineagePopoverOpen} onOpenChange={(o) => (lineagePopoverOpen = o)}>
+										<Popover.Trigger
+											class="{TIMELINE_OPS_BTN} {TIMELINE_OPS_FOCUS_LINEAGE} ds-timeline-entry-lineage-trigger text-gray-400 dark:text-gray-500 hover:text-sky-700 dark:hover:text-sky-300"
+											aria-expanded={lineagePopoverOpen}
+											aria-label="Origin and lineage"
+											title={TIMELINE_LINEAGE_TRIGGER_TITLE}
+											data-testid="timeline-entry-lineage-trigger"
+											type="button"
 										>
-											{#each tags as tag}
-												<span
-													class="text-xs px-1 py-0.5 rounded
-													       bg-gray-100 dark:bg-gray-800
-													       text-gray-500 dark:text-gray-400 font-mono"
-												>
-													{tag}
-												</span>
-											{/each}
-										</div>
-									</div>
+											<svg
+												xmlns="http://www.w3.org/2000/svg"
+												viewBox="0 0 24 24"
+												fill="none"
+												stroke="currentColor"
+												stroke-width="2"
+												stroke-linecap="round"
+												stroke-linejoin="round"
+												class="size-4 shrink-0"
+												aria-hidden="true"
+											>
+												<line x1="6" x2="6" y1="3" y2="15" />
+												<circle cx="18" cy="6" r="3" />
+												<circle cx="6" cy="18" r="3" />
+												<path d="M18 9a9 9 0 0 1-9 9" />
+											</svg>
+										</Popover.Trigger>
+										<Popover.Content
+											class="z-[60] w-[min(22rem,calc(100vw-2rem))] rounded-xl border border-gray-100 dark:border-gray-800 bg-white dark:bg-gray-850 p-0 shadow-xl outline-none"
+											side="top"
+											sideOffset={8}
+											align="end"
+											collisionPadding={12}
+										>
+											<div
+												class="p-3"
+												data-testid="timeline-entry-context-origin"
+											>
+												<TimelineEntryProvenanceBlock
+													variant="panel"
+													{caseId}
+													provenance={entry.provenance}
+												/>
+											</div>
+										</Popover.Content>
+									</Popover.Root>
 								{/if}
-								{#if hasMetadataLocation || hasMetadataCreator}
-									<div
-										class="ds-timeline-entry-row__meta-line flex flex-wrap items-baseline gap-x-2 gap-y-1 text-xs text-gray-500/90 dark:text-gray-400/90 {DS_TYPE_CLASSES.meta}"
-										data-testid="timeline-entry-metadata-line"
+								{#if linkedImageFiles.length > 0}
+									<button
+										type="button"
+										class="ds-timeline-entry-linked-images-trigger inline-flex items-center justify-center min-h-7 min-w-7 rounded-md p-0.5 text-gray-400 dark:text-gray-500 hover:text-gray-700 dark:hover:text-gray-200 hover:bg-gray-100 dark:hover:bg-gray-800 border border-transparent hover:border-gray-200 dark:hover:border-gray-700"
+										title="View linked images from case files"
+										data-testid="timeline-entry-linked-images-trigger"
+										aria-label={`${TIMELINE_CONTEXT_LABEL_LINKED_IMAGES} (${linkedImageFiles.length})`}
+										on:click|stopPropagation={() => (linkedImagesViewerOpen = true)}
 									>
-										{#if hasMetadataLocation}
-											<span class="min-w-0 break-words" title={metadataLocationRaw} data-testid="timeline-entry-location">
-												<span class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} mr-1">{TIMELINE_META_LABEL_LOCATION}</span>
-												{#each splitTextForSearchHighlight(metadataLocationRaw, searchHighlightNeedle) as locSeg, lIdx (lIdx)}
-													{#if locSeg.highlight}
-														<mark
-															class="{DS_TIMELINE_CLASSES.searchMark} text-inherit"
-														>{locSeg.text}</mark>
-													{:else}{locSeg.text}{/if}
-												{/each}
-											</span>
-										{/if}
-										{#if hasMetadataLocation && hasMetadataCreator}
-											<span class="shrink-0 text-gray-400/80 dark:text-gray-500/80 select-none" aria-hidden="true">·</span>
-										{/if}
-										{#if hasMetadataCreator}
-											<span data-testid="timeline-entry-entered-by" title={P124_TIMELINE_TOOLTIP_CREATED_BY}>
-												<span class="ds-timeline-entry-meta-label {DS_TYPE_CLASSES.meta} mr-1">{P124_TIMELINE_LABEL_LOGGED_BY}</span>
-												<span class="{DS_TYPE_CLASSES.label}">{metadataCreatorRaw}</span>
-											</span>
-										{/if}
-									</div>
+										<svg
+											xmlns="http://www.w3.org/2000/svg"
+											viewBox="0 0 16 16"
+											fill="currentColor"
+											class="size-4 shrink-0 opacity-90"
+											aria-hidden="true"
+										>
+											<path
+												d="M2 3a1 1 0 011-1h10a1 1 0 011 1v10a1 1 0 01-1 1H3a1 1 0 01-1-1V3zm11 0H3v7.5l2.5-2.5 3 3 2-2L13 10V3zM5.5 5a1.5 1.5 0 100-3 1.5 1.5 0 000 3z"
+											/>
+										</svg>
+										<span class="sr-only">{linkedImageFiles.length} linked</span>
+									</button>
 								{/if}
-							</div>
-						{/if}
-
-						<div
-							class="ds-timeline-entry-row__footer flex items-center gap-2 flex-wrap"
-						>
-							<span
-								class="{DS_TYPE_CLASSES.meta} ds-timeline-entry-recorded-line inline-flex flex-wrap items-baseline gap-x-1.5 gap-y-0.5"
-								title={P124_TIMELINE_TOOLTIP_CREATED_AT}
-								data-testid="timeline-entry-recorded-at"
-							>
-								<span class="ds-timeline-entry-meta-label">{P124_TIMELINE_LABEL_ENTRY_LOGGED_AT}</span>
-								<time
-									datetime={entry.created_at}
-									class="{DS_TYPE_CLASSES.mono}"
-									title={P124_TIMELINE_TOOLTIP_CREATED_AT}
-								>
-									{formatCaseDateTime(entry.created_at)}
-								</time>
-							</span>
-
-							{#if isRetrospective}
-								<span
-									class="{DS_CHIP_CLASSES.base}"
-									title="Entry logged (created_at) approximately {retrospectiveHours} hours after the event (occurred_at)."
-									data-testid="timeline-entry-retrospective"
-								>
-									Logged +{retrospectiveHours}h after event
-								</span>
-							{/if}
-
-							<div class="ml-auto flex items-center gap-1">
-								<button
-									type="button"
-									class="{DS_BTN_CLASSES.secondary}"
-									on:click={onEditRequest}
-									title="Edit this timeline entry"
-									data-testid="timeline-entry-edit-button"
-								>
-									Edit
-								</button>
 								<DropdownMenu.Root bind:open={actionsMenuOpen} onOpenChange={(s) => (actionsMenuOpen = s)}>
 									<DropdownMenu.Trigger>
 										<button
@@ -1217,12 +1283,49 @@
 									>
 										<DropdownMenu.Item
 											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+											on:click={onEditRequest}
+											data-testid="timeline-entry-edit-button"
+										>
+											<Pencil className="w-4 h-4 shrink-0" />
+											<span>Edit</span>
+										</DropdownMenu.Item>
+										<hr class="border-gray-100 dark:border-gray-800 my-1" />
+										<DropdownMenu.Item
+											class="ds-timeline-entry-version-history-item select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
 											on:click={() => void openVersionHistoryFromMenu()}
 											data-testid="timeline-entry-menu-version-history"
 										>
 											<ClockRotateRight className="w-4 h-4 shrink-0" />
-											<span>Version history</span>
+											<span class="flex flex-col items-start gap-0 leading-tight">
+												<span>Version history</span>
+												<span class="text-[10px] font-normal text-gray-500 dark:text-gray-400">Now v{currentVersion}</span>
+											</span>
 										</DropdownMenu.Item>
+										{#if showProvenanceBlock && entry.provenance}
+											<DropdownMenu.Item
+												class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
+												on:click={openLineageFromMenu}
+												data-testid="timeline-entry-menu-origin-lineage"
+											>
+												<svg
+													xmlns="http://www.w3.org/2000/svg"
+													viewBox="0 0 24 24"
+													fill="none"
+													stroke="currentColor"
+													stroke-width="2"
+													stroke-linecap="round"
+													stroke-linejoin="round"
+													class="w-4 h-4 shrink-0"
+													aria-hidden="true"
+												>
+													<line x1="6" x2="6" y1="3" y2="15" />
+													<circle cx="18" cy="6" r="3" />
+													<circle cx="6" cy="18" r="3" />
+													<path d="M18 9a9 9 0 0 1-9 9" />
+												</svg>
+												<span>Origin &amp; lineage</span>
+											</DropdownMenu.Item>
+										{/if}
 										<hr class="border-gray-100 dark:border-gray-800 my-1" />
 										<DropdownMenu.Item
 											class="select-none flex gap-2 items-center px-3 py-1.5 cursor-pointer hover:bg-gray-50 dark:hover:bg-gray-800 rounded-lg"
@@ -1305,6 +1408,11 @@
 										Type (then): {typeLabel(ver.prior_type)}
 									</p>
 								{/if}
+								{#if (ver.prior_title ?? '').trim() !== ''}
+									<p class="text-[10px] text-gray-400 dark:text-gray-500">
+										Title (then): {(ver.prior_title ?? '').trim()}
+									</p>
+								{/if}
 								<p class="text-xs text-gray-700 dark:text-gray-300 whitespace-pre-wrap leading-relaxed">
 									{ver.prior_text_original}
 								</p>
@@ -1321,7 +1429,6 @@
 		{/if}
 
 					</div>
-				</div>
 			</div>
 		</div>
 
@@ -1331,5 +1438,5 @@
 			files={linkedImageFiles}
 			onClose={() => (linkedImagesViewerOpen = false)}
 		/>
-	</li>
+	</svelte:element>
 {/if}

@@ -40,12 +40,12 @@ describe('P132.5 case workspace shell route wiring', () => {
 		expect(n).toBe(1);
 	});
 
-	it('P132.5-02 — wraps Timeline in primary panel with delegated scroll (no new API imports)', () => {
+	it('P132.5-02 — wraps Timeline in primary panel with delegated scroll (no duplicate shell title)', () => {
 		const src = readFileSync(layoutPath, 'utf8');
 		expect(src).toContain("activeSection === 'timeline'");
 		expect(src).toContain('case-workspace-shell-timeline-panel');
 		expect(src).toContain('delegateBodyScroll={true}');
-		expect(src).toContain('P1325_SHELL_TIMELINE_PANEL_TITLE');
+		expect(src).not.toContain('title={P1325_SHELL_TIMELINE_PANEL_TITLE}');
 	});
 
 	it('P132.5-04 — left stack component remains for embedded use; route layout does not mount the left rail', () => {

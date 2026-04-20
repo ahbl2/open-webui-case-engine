@@ -14,6 +14,7 @@ const baseEntry: TimelineEntry = {
 	created_at: '2026-01-02T08:00:00Z',
 	created_by: 'u1',
 	type: 'surveillance',
+	title: 'Subject A sighting',
 	location_text: 'Main St',
 	tags: [],
 	text_original: 'Original line',
@@ -34,6 +35,7 @@ describe('timelineEntryExport', () => {
 		expect(doc).toContain('Entry ID: te-1');
 		expect(doc).toContain('Case ID: c-1');
 		expect(doc).toContain('Type: surveillance');
+		expect(doc).toContain('Title: Subject A sighting');
 		expect(doc).toContain('Location: Main St');
 		expect(doc).toContain('Shown body');
 	});

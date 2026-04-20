@@ -1,0 +1,58 @@
+<script lang="ts">
+	import type { TimelineEntryProvenance } from '$lib/apis/caseEngine';
+
+	export let caseId: string;
+	export let provenance: TimelineEntryProvenance;
+</script>
+
+<p class="italic text-gray-500 dark:text-gray-500">
+	{provenance.lineage_explanation}
+</p>
+{#if provenance.legacy_intake_fallback}
+	<p class="text-amber-700/90 dark:text-amber-400/90" data-testid="timeline-entry-provenance-legacy-fallback">
+		Compatibility only: this row predates or bypassed the standard proposal commit path. New work should
+		use proposals, not this legacy link.
+	</p>
+{/if}
+{#if provenance.committed_via_proposal}
+	<p data-testid="timeline-entry-provenance-proposal-path">
+		Committed through the proposals workflow (review and commit) — not a direct silent write.
+	</p>
+{/if}
+{#if provenance.proposal_payload_unreadable}
+	<p data-testid="timeline-entry-provenance-payload-unreadable">
+		Proposal linkage is recorded, but the saved snapshot could not be parsed for finer classification.
+	</p>
+{/if}
+{#if provenance.source_file_display_name}
+	<p data-testid="timeline-entry-provenance-source-file">
+		<span class="font-medium text-gray-600 dark:text-gray-300">Source file:</span>
+		{provenance.source_file_display_name}
+		<a
+			href="/case/{caseId}/files"
+			class="ds-timeline-entry-provenance-files-link ml-1 text-sky-600 dark:text-sky-400 hover:underline rounded-sm"
+			data-testid="timeline-entry-provenance-files-link"
+		>Open Case Files</a>
+	</p>
+{/if}
+{#if provenance.ai_assisted_draft}
+	<p data-testid="timeline-entry-provenance-ai-draft">
+		Draft text was model-assisted; an investigator still reviewed and committed the official record.
+	</p>
+{/if}
+{#if provenance.implies_chat_context_draft}
+	<p data-testid="timeline-entry-provenance-chat-context">
+		Draft came from case chat intake — not from a document extract.
+	</p>
+{/if}
+{#if provenance.chronology_occurred_at_confidence != null && provenance.chronology_occurred_at_confidence !== ''}
+	<p data-testid="timeline-entry-provenance-chronology" class="text-gray-600 dark:text-gray-300">
+		<span class="font-medium">When confidence (at commit):</span>
+		{provenance.chronology_occurred_at_confidence}
+		{#if provenance.chronology_operator_confirmed === true}
+			<span class="text-gray-500 dark:text-gray-400">
+				— investigator confirmed date/time before commit
+			</span>
+		{/if}
+	</p>
+{/if}

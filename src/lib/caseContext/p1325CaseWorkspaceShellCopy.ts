@@ -1,6 +1,6 @@
 /**
  * P132.5-01 — Structural labels only for the workspace layout shell placeholders (no investigative copy).
- * P132.5-02 — Short shell chrome label for the Timeline primary panel (P124 doctrine copy stays inside the Timeline surface).
+ * P132.5-02 — Timeline route uses `CaseWorkspaceShellPanel` without a shell title (page heading is authoritative).
  * P132.5-03 — Right panel stack title + tab labels (aligned with existing nav short names).
  * P132.5-04 — Left support rail title + compact meta labels (no investigative copy).
  */
