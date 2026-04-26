@@ -105,6 +105,24 @@
 		}
 	});
 
+	// Preserve TextStyle font-size spans (TipTap @tiptap/extension-text-style) in Markdown as inline HTML.
+	turndownService.addRule('textStyleFontSize', {
+		filter: (node) => {
+			if (node.nodeName !== 'SPAN') return false;
+			if ((node as HTMLElement).getAttribute('data-type') === 'mention') return false;
+			const st = (node as HTMLElement).getAttribute('style');
+			return !!(st && /font-size\s*:/i.test(st));
+		},
+		replacement: (content, node) => {
+			const el = node as HTMLElement;
+			const st = el.getAttribute('style') || '';
+			const m = st.match(/font-size:\s*([^;]+)/i);
+			if (!m) return content;
+			const fs = m[1].trim();
+			return `<span style="font-size: ${fs}">${content}</span>`;
+		}
+	});
+
 	import { onMount, onDestroy, tick, getContext } from 'svelte';
 	import { createEventDispatcher } from 'svelte';
 
@@ -119,6 +137,7 @@
 	import { AIAutocompletion } from './RichTextInput/AutoCompletion.js';
 
 	import StarterKit from '@tiptap/starter-kit';
+	import { TextStyle, FontSize } from '@tiptap/extension-text-style';
 
 	// Bubble and Floating menus are currently fixed to v2 due to styling issues in v3
 	// TODO: Update to v3 when styling issues are resolved
@@ -706,6 +725,8 @@
 
 				...(richText
 					? [
+							TextStyle,
+							FontSize,
 							CodeBlockLowlight.configure({
 								lowlight
 							}),

@@ -16,6 +16,7 @@ describe('P124-04 Notes draft identity', () => {
 	it('notes page mounts draft framing and forbids $page.params.id', () => {
 		const src = readFileSync(notesPage, 'utf8');
 		expect(src).toMatch(/CaseNotesDraftFraming/);
+		expect(src).toMatch(/ce-l-notes-shell/);
 		const framingIdx = src.indexOf('<CaseNotesDraftFraming');
 		const arrivalIdx = src.indexOf('case-notes-p99-arrival');
 		expect(framingIdx).toBeGreaterThan(-1);

@@ -93,7 +93,7 @@ describe('entityFocus utils', () => {
 	it('entityEvidenceFocusControlLabel highlights phone rows', () => {
 		expect(entityEvidenceFocusControlLabel('phone')).toBe('Phone evidence focus');
 		expect(entityEvidenceFocusControlLabel('PHONE')).toBe('Phone evidence focus');
-		expect(entityEvidenceFocusControlLabel('person')).toBe('Entity intelligence focus');
+		expect(entityEvidenceFocusControlLabel('person')).toBe('Subjects & Assets focus');
 	});
 
 	it('splits current-case evidence from other-case evidence', () => {

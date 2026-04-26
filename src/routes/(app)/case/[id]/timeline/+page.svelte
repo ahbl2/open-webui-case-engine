@@ -193,6 +193,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 	import OperatorCommandCenterFrame from '$lib/components/operator/OperatorCommandCenterFrame.svelte';
 	import CaseTimelineOccSidebar from '$lib/components/case/CaseTimelineOccSidebar.svelte';
 	import { DropdownMenu } from 'bits-ui';
+	import { CalendarDaysIcon } from 'heroicons-svelte/24/outline';
 	import { flyAndScale } from '$lib/utils/transitions';
 	import { DEFAULT_OPERATIONAL_TIMEZONE } from '$lib/caseTimeline/operationalOccurredAt';
 	import type { TimelineEntryTypeValue } from '$lib/caseTimeline/timelineEntryTypeOptions';
@@ -446,6 +447,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 					}, P97_SYNTHESIS_REVEAL_HIGHLIGHT_MS);
 					navTargetId = null;
 					synthesisRevealBanner = 'idle';
+					stripFocusEntryQueryFromUrl();
 					await clearSynthesisNavState();
 					return;
 				}
@@ -463,6 +465,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			synthesisRevealBanner = 'not_found';
 			synthesisContextPreview = null;
 			navTargetId = null;
+			stripFocusEntryQueryFromUrl();
 			await clearSynthesisNavState();
 		} finally {
 			revealInFlight = false;
@@ -529,6 +532,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		relationshipPendingId = null;
 		relationshipPair = null;
 		followUpEntryIds = new Set();
+		consumedFocusEntryKey = '';
 		navTargetId = null;
 		revealInFlight = false;
 		synthesisHighlightId = null;
@@ -1455,6 +1459,19 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		scrollContainerEl?.scrollTo({ top: 0, behavior: 'smooth' });
 	}
 
+	/** Deep link from Files preview / external refs: strip after reveal so refresh does not re-scroll. */
+	function stripFocusEntryQueryFromUrl(): void {
+		if (!browser) return;
+		const url = new URL(window.location.href);
+		if (!url.searchParams.has('focusEntry')) return;
+		url.searchParams.delete('focusEntry');
+		const next = url.pathname + (url.search ? url.search : '') + url.hash;
+		void goto(next, { replaceState: true, noScroll: true, keepFocus: true });
+	}
+
+	/** Last consumed `?focusEntry=` (avoid re-applying while the param is still in the URL during reveal). */
+	let consumedFocusEntryKey = '';
+
 	// P99-02 — arrival orientation strip (read-only; P99-01 contract only)
 	$: if (browser && caseId) {
 		p99ArrivalSnapshot = nextP99ArrivalSnapshot($page.state, caseId, 'timeline', p99ArrivalSnapshot);
@@ -1500,6 +1517,21 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		}
 	}
 
+	// Deep link: `?focusEntry=<timeline_entries.id>` (e.g. Files → Preview → Links → Open entry)
+	$: if (browser && caseId) {
+		const fe = $page.url.searchParams.get('focusEntry')?.trim();
+		if (!fe) {
+			consumedFocusEntryKey = '';
+		} else {
+			const key = `${$page.url.pathname}?focusEntry=${encodeURIComponent(fe)}`;
+			if (key !== consumedFocusEntryKey && !navTargetId && !revealInFlight) {
+				consumedFocusEntryKey = key;
+				navTargetId = fe;
+				synthesisRevealBanner = 'idle';
+			}
+		}
+	}
+
 	$: if (browser && navTargetId && !loading && !loadError) {
 		void runRevealSequence();
 	}
@@ -1508,6 +1540,7 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 		navTargetId = null;
 		synthesisContextPreview = null;
 		synthesisRevealBanner = 'idle';
+		stripFocusEntryQueryFromUrl();
 		void clearSynthesisNavState();
 	}
 
@@ -1796,8 +1829,11 @@ import TimelineDocumentProposeButton from '$lib/components/case/TimelineDocument
 			<div class="sr-only ce-l-timeline-hero-title">Timeline surface</div>
 			<h2
 				id="case-timeline-mock-hero-title"
-				class="m-0 text-lg font-semibold tracking-tight text-[color:var(--ce-l-text-primary)]"
+				class="m-0 flex items-center gap-2 text-lg font-semibold tracking-tight text-[color:var(--ce-l-text-primary)]"
 			>
+				<span class="ds-occ-kpi-card--blue ds-case-overview-kpi-tile__icon" aria-hidden="true">
+					<CalendarDaysIcon />
+				</span>
 				Timeline
 			</h2>
 			<p class="m-0 max-w-2xl text-xs leading-snug text-[color:var(--ce-l-text-muted)]">

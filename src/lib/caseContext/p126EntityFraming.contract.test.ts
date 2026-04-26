@@ -39,7 +39,7 @@ describe('P126-01 Entity surface framing', () => {
 		expect(boundary).toMatch(/export const P126_ENTITIES_BOUNDARY_DISCIPLINE_LINE/);
 	});
 
-	it('Entities framing uses warning; Timeline neutral; Notes info; Files success (distinct tones)', () => {
+	it('Entities framing uses warning; Timeline neutral; Notes chrome hero; Files success (distinct tones)', () => {
 		const ent = readFileSync(framingPath, 'utf8');
 		const files = readFileSync(filesFraming, 'utf8');
 		const tl = readFileSync(timelineFraming, 'utf8');
@@ -47,7 +47,7 @@ describe('P126-01 Entity surface framing', () => {
 		expect(ent).toMatch(/DS_STATUS_SURFACE_CLASSES\.warning/);
 		expect(files).toMatch(/DS_STATUS_SURFACE_CLASSES\.success/);
 		expect(tl).toMatch(/DS_STATUS_SURFACE_CLASSES\.neutral/);
-		expect(nt).toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);
+		expect(nt).toMatch(/ce-l-notes-hero/);
 		expect(ent).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.success/);
 		expect(ent).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.neutral/);
 		expect(ent).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);

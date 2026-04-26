@@ -1,14 +1,14 @@
 /**
  * P78-16 — Canonical visible labels for case workspace destinations (aligned with
  * `routes/(app)/case/[id]/+layout.svelte` primary tab strip: Overview, AI workspace,
- * Entity intelligence, Proposals). Use these for cross-surface links and matching hints.
+ * Subjects & Assets, Proposals). Use these for cross-surface links and matching hints.
  */
 
 export const CASE_DESTINATION_LABELS = {
 	overview: 'Overview',
 	aiWorkspace: 'AI workspace',
-	entityIntelligence: 'Entity intelligence',
-	/** Sub-mode control on the Entity intelligence route (Entities vs Intelligence). */
+	entityIntelligence: 'Subjects & Assets',
+	/** Sub-mode control on the Subjects & Assets route (Subjects vs Intelligence). */
 	intelligenceMode: 'Intelligence',
 	/** Case Proposals tab (P19) — short link label. */
 	caseProposals: 'Proposals',
@@ -20,9 +20,9 @@ export const CASE_DESTINATION_LABELS = {
 	 * Evidence drill-down to `/case/.../intelligence/entity/...` (non-phone);
 	 * matches `entityEvidenceFocusControlLabel` when type is not phone.
 	 */
-	entityIntelligenceFocusDrillDown: 'Entity intelligence focus',
+	entityIntelligenceFocusDrillDown: 'Subjects & Assets focus',
 	/** Entity focus sub-route eyebrow (matches case shell tab name). */
-	entityIntelligenceFocusEyebrow: 'Entity intelligence · focus'
+	entityIntelligenceFocusEyebrow: 'Subjects & Assets · focus'
 } as const;
 
 export const CASE_DESTINATION_HINTS = {
@@ -33,7 +33,7 @@ export const CASE_DESTINATION_HINTS = {
 	 * Entity focus → hub with Intelligence sub-mode (P78-15 / P78-17 / P78-18).
 	 * Must not read like Entities/board entry.
 	 */
-	backToEntityIntelligence: 'Back to Entity intelligence · Intelligence mode'
+	backToEntityIntelligence: 'Back to Subjects & Assets · Intelligence mode'
 } as const;
 
 export const CASE_DESTINATION_TITLES = {
@@ -44,25 +44,25 @@ export const CASE_DESTINATION_TITLES = {
 	timeline: 'Official committed timeline — not the Workflow planning layer',
 	/** Same intent as Workflow guidance deep link to Notes. */
 	notes: 'Investigator notes — working drafts, not the official Timeline',
-	entityIntelligenceFocusRegion: 'Entity intelligence focus',
+	entityIntelligenceFocusRegion: 'Subjects & Assets focus',
 	caseProposalsOpenPill: 'Open the case Proposals tab (P19 review and commit).',
 	/**
-	 * P78-18 — case shell Entity intelligence tab opens `?mode=entities` (P78-17).
+	 * P78-18 — case shell Subjects & Assets tab opens `?mode=entities` (P78-17).
 	 * Clarifies default entry vs Intelligence sub-tab (search & Ask).
 	 */
 	entityIntelligenceShellTabEntry:
-		'Entity intelligence — opens Entities mode (registries and board first). Intelligence sub-tab for search, Ask, and evidence.'
+		'Subjects & Assets — opens Subjects mode (registries and board first). Intelligence sub-tab for search, Ask, and evidence.'
 } as const;
 
 /**
  * P78-18 — Copy aligned to hub landing mode (P78-17); URLs unchanged.
- * Chat handoff targets Intelligence mode; shell tab targets Entities mode.
+ * Chat handoff targets Intelligence mode; shell tab targets Subjects mode.
  */
 export const INTELLIGENCE_ENTRY_COPY = {
 	chatHandoffLead:
-		'Cross-case analysis: open Entity intelligence in Intelligence mode (search & Ask):',
+		'Cross-case analysis: open Subjects & Assets in Intelligence mode (search & Ask):',
 	chatHandoffNoCaseId:
-		'Cross-case analysis: open Entity intelligence in Intelligence mode (search & Ask): /case/<id>/intelligence?mode=intelligence'
+		'Cross-case analysis: open Subjects & Assets in Intelligence mode (search & Ask): /case/<id>/intelligence?mode=intelligence'
 } as const;
 
 /** P78-15 / P78-17 — URL-stable sub-modes on `/case/:id/intelligence`. */

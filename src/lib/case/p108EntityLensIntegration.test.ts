@@ -13,6 +13,7 @@ const timelinePagePath = join(here, '../../routes/(app)/case/[id]/timeline/+page
 const filesTabPath = join(here, '../components/case/CaseFilesTab.svelte');
 const bannerPath = join(here, '../components/case/CaseEntityLensBanner.svelte');
 const lensPath = join(here, 'p108EntityTimelineLens.ts');
+const lensCopyPath = join(here, 'p108EntityTimelineLensCopy.ts');
 const viewStatePath = join(here, 'p108EntityLensViewState.ts');
 
 describe('P108-04 entity lens integration (timeline + files)', () => {
@@ -65,9 +66,10 @@ describe('P108-04 entity lens integration (timeline + files)', () => {
 		expect(filesSrc).toContain('case-files-entity-lens-empty');
 	});
 
-	it('P108-05 — loaded-count lines use shared doctrine-safe helpers (no inline lens status strings)', () => {
-		expect(timelineSrc).toContain('p108EntityLensTimelineLoadedCountLabel');
-		expect(filesSrc).toContain('p108EntityLensFilesLoadedCountLabel');
+	it('P108-05 — doctrine-safe loaded-count helpers live in shared copy; files lens empty title wired', () => {
+		const copySrc = readFileSync(lensCopyPath, 'utf8');
+		expect(copySrc).toContain('p108EntityLensTimelineLoadedCountLabel');
+		expect(copySrc).toContain('p108EntityLensFilesLoadedCountLabel');
 		expect(filesSrc).toContain('P108_ENTITY_FILES_LENS_EMPTY_TITLE');
 	});
 

@@ -18,7 +18,7 @@ describe('case intelligence shell (P71-09 / P70-05 / P70-06)', () => {
 		expect(pageSource).toContain('ce-l-intelligence-primary-scroll');
 		expect(pageSource).toContain('DS_INTELLIGENCE_CLASSES.primaryInner');
 		expect(pageSource).toContain('data-testid="case-intelligence-primary-scroll"');
-		expect(pageSource).toContain('ce-l-intelligence-intro');
+		expect(pageSource).toContain('data-testid="subjects-assets-workspace-hero"');
 		expect(pageSource).toContain('ce-l-intelligence-segmented');
 	});
 

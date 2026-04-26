@@ -13,7 +13,6 @@
 	import { getContext } from 'svelte';
 	import OccIconHome from '$lib/components/icons/occ/OccIconHome.svelte';
 	import OccIconFolder from '$lib/components/icons/occ/OccIconFolder.svelte';
-	import OccIconCommandCenter from '$lib/components/icons/occ/OccIconCommandCenter.svelte';
 	import OccIconGovernance from '$lib/components/icons/occ/OccIconGovernance.svelte';
 	import OccIconSearch from '$lib/components/icons/occ/OccIconSearch.svelte';
 
@@ -70,24 +69,6 @@
 	</Tooltip>
 
 	<div class="ds-gnav-group-label">Operational</div>
-	<Tooltip
-		className="block w-full"
-		content={$i18n.t('Cross-case visibility (read-only; Phase 131)')}
-		placement="right"
-	>
-		<a
-			href="/command-center"
-			draggable="false"
-			class={linkClass('command_center')}
-			data-gnav-id="command_center"
-			data-testid="detective-gnav-command-center"
-			aria-current={activeId === 'command_center' ? 'page' : undefined}
-			on:click={onItemActivate}
-		>
-			<OccIconCommandCenter className="ds-gnav-link__icon" />
-			<span class="font-primary">Command Center</span>
-		</a>
-	</Tooltip>
 	{#if $governanceNavEligible === true}
 		<Tooltip
 			className="block w-full"

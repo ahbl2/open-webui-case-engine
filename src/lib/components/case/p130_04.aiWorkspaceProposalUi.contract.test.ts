@@ -16,7 +16,7 @@ describe('AIWorkspacePanel P130-04 UI contract', () => {
 		expect(src).toContain('case-ai-workspace-proposal-confirm');
 		expect(src).toContain('case-ai-workspace-proposal-cancel');
 		expect(src).toContain('case-ai-workspace-proposal-success');
-		expect(src).toContain('disabled={!canCreateProposalDraft');
+		expect(src).toContain('disabled={!readyForProposalReview');
 		expect(src).toContain('case-ai-workspace-proposal-include-generated');
 	});
 });

@@ -10,7 +10,7 @@ const panelPath = join(dirname(fileURLToPath(import.meta.url)), 'CommandCenterPa
 const caseListPath = join(dirname(fileURLToPath(import.meta.url)), 'CommandCenterCaseList.svelte');
 const activityFeedPath = join(dirname(fileURLToPath(import.meta.url)), 'CommandCenterActivityFeed.svelte');
 const workflowSnapshotPath = join(dirname(fileURLToPath(import.meta.url)), 'CommandCenterWorkflowSnapshot.svelte');
-const pagePath = join(dirname(fileURLToPath(import.meta.url)), '../../../routes/(app)/command-center/+page.svelte');
+const pagePath = join(dirname(fileURLToPath(import.meta.url)), '../../../routes/(app)/command-center/+page.ts');
 
 describe('Command Center P131-01 UI contract', () => {
 	it('panel exposes framing and mounts case list, activity feed, workflow snapshot', () => {
@@ -56,9 +56,9 @@ describe('Command Center P131-01 UI contract', () => {
 		expect(wfSrc).toContain('navigateCommandCenterToCaseWorkspace');
 	});
 
-	it('route page mounts CommandCenterPanel only', () => {
+	it('legacy command-center route redirects to Home', () => {
 		const src = readFileSync(pagePath, 'utf8');
-		expect(src).toContain('CommandCenterPanel');
-		expect(src).toContain('data-testid="command-center-page"');
+		expect(src).toContain("redirect(308, '/home')");
+		expect(src).not.toContain('CommandCenterPanel');
 	});
 });

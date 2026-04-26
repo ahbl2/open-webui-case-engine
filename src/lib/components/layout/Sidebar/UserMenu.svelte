@@ -28,7 +28,6 @@
 	import QuestionMarkCircle from '$lib/components/icons/QuestionMarkCircle.svelte';
 	import Map from '$lib/components/icons/Map.svelte';
 	import Keyboard from '$lib/components/icons/Keyboard.svelte';
-	import ShortcutsModal from '$lib/components/chat/ShortcutsModal.svelte';
 	import Settings from '$lib/components/icons/Settings.svelte';
 	import UserGroup from '$lib/components/icons/UserGroup.svelte';
 	import SignOut from '$lib/components/icons/SignOut.svelte';
@@ -79,7 +78,6 @@
 	};
 </script>
 
-<ShortcutsModal bind:show={$showShortcuts} />
 <UserStatusModal
 	bind:show={showUserStatusModal}
 	onSave={async () => {

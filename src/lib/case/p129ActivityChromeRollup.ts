@@ -6,12 +6,12 @@
 import type { CaseActivityEvent } from '$lib/apis/caseEngine/caseP129ActivityEventsApi';
 import { p129ActivityDomainTheme, type P129ActivityDomainTheme } from './p129ActivityDomainTheme';
 
-/** Order matches case nav emphasis (Timeline → Notes → Files → Intelligence → …). */
+/** Order matches case nav emphasis (Timeline → Notes → Files → Subjects & Assets → …). */
 export const P129_ACTIVITY_CHROME_ROLLUP_LABELS = [
 	'Timeline',
 	'Notes',
 	'Files',
-	'Intelligence',
+	'Subjects & Assets',
 	'Proposals',
 	'Workflow',
 	'Entities'
@@ -31,8 +31,8 @@ function chromeThemeForLabel(label: string): P129ActivityDomainTheme {
 			return { variant: 'orange', kpiModifierClass: 'ds-occ-kpi-card--orange', domainLabel: 'Notes' };
 		case 'Files':
 			return { variant: 'green', kpiModifierClass: 'ds-occ-kpi-card--green', domainLabel: 'Files' };
-		case 'Intelligence':
-			return { variant: 'cyan', kpiModifierClass: 'ds-occ-kpi-card--cyan', domainLabel: 'Intelligence' };
+		case 'Subjects & Assets':
+			return { variant: 'cyan', kpiModifierClass: 'ds-occ-kpi-card--cyan', domainLabel: 'Subjects & Assets' };
 		case 'Proposals':
 			return { variant: 'rose', kpiModifierClass: 'ds-occ-kpi-card--rose', domainLabel: 'Proposals' };
 		case 'Workflow':

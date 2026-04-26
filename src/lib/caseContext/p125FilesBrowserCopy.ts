@@ -4,6 +4,9 @@
 
 export const P125_FILES_BROWSER_LIST_HEADING = 'Files in this case';
 
+/** Main file list section title (mockup: RECENT FILES). */
+export const P125_FILES_RECENT_SECTION_HEADING = 'RECENT FILES';
+
 export const P125_FILES_LABEL_TYPE = 'Type';
 export const P125_FILES_LABEL_UPLOADED = 'Uploaded';
 export const P125_FILES_LABEL_SIZE = 'Size';

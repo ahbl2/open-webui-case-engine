@@ -1,0 +1,15 @@
+---
+description: Canonical colors and icons for the seven case summary KPI domains — reuse on related pages and list items.
+globs:
+  - src/lib/components/case/**/*
+  - src/routes/(app)/case/**/*
+alwaysApply: false
+---
+
+# Case overview KPI semantics
+
+The **seven** tiles at the top of **case Summary** (`CaseOverviewSummaryCards.svelte`) define the **canonical** accent color (`ds-occ-kpi-card--*`) and **Heroicon outline** per domain.
+
+**Full table:** [docs/CASE_OVERVIEW_KPI_CANON.md](docs/CASE_OVERVIEW_KPI_CANON.md)
+
+**Rule:** When styling sections, nav items, or list rows for **timeline, notes, files, entities, workflow, proposals, or warrants**, align with that row’s **CSS variant + icon** — do not introduce alternate palette slots for the same domain without an explicit design ticket.

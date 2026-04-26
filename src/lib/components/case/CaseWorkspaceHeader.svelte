@@ -242,7 +242,7 @@
 						{#if exportCaseEnabled}
 							<button
 								type="button"
-								class="{DS_BTN_CLASSES.secondary} !min-h-[1.625rem] shrink-0 px-2.5 py-1 text-[length:var(--ds-type-meta-size)] leading-tight"
+								class="{DS_BTN_CLASSES.secondary} !min-h-[1.875rem] shrink-0 px-2.5 py-1 text-[length:var(--ds-type-meta-size)] leading-tight"
 								data-testid="case-export-open"
 								on:click={onExportCase}
 							>
@@ -251,7 +251,7 @@
 						{/if}
 				<details class="group relative">
 					<summary
-						class="{DS_BTN_CLASSES.secondary} !min-h-[1.625rem] list-none cursor-pointer px-2.5 py-1 text-[length:var(--ds-type-meta-size)] leading-tight [&::-webkit-details-marker]:hidden"
+						class="{DS_BTN_CLASSES.secondary} !min-h-[1.875rem] list-none cursor-pointer px-2.5 py-1 text-[length:var(--ds-type-meta-size)] leading-tight [&::-webkit-details-marker]:hidden"
 						data-testid="case-shell-quick-actions-trigger"
 					>
 						Quick actions
@@ -294,7 +294,7 @@
 				</details>
 				<button
 					type="button"
-					class="{DS_BTN_CLASSES.secondary} !min-h-[1.625rem] shrink-0 px-2.5 py-1 text-[length:var(--ds-type-meta-size)] leading-tight"
+					class="{DS_BTN_CLASSES.secondary} !min-h-[1.875rem] shrink-0 px-2.5 py-1 text-[length:var(--ds-type-meta-size)] leading-tight"
 					data-testid="case-shell-edit"
 					on:click={onEdit}
 				>

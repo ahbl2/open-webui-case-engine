@@ -1139,9 +1139,203 @@ export interface CaseFile {
 	file_size_bytes: number;
 	uploaded_by: string;
 	uploaded_at: string;
+	/** Case file folder (Files tab); null = unfiled. */
+	folder_id?: string | null;
 	/** Ticket 25: Evidence tags */
 	tags?: string[];
+	/** Set when PDF text extraction runs (Case Engine). */
+	pdf_page_count?: number | null;
+	/** Reserved for future server-side media probe (e.g. video duration). */
+	duration_ms?: number | null;
 	[key: string]: unknown;
+}
+
+/** GET /cases/:id/files/stats — aggregate counts for the Files KPI strip. */
+export interface CaseFilesAggregateStats {
+	total_files: number;
+	total_bytes: number;
+	extracted_file_count: number;
+	linked_to_timeline_count: number;
+	pending_processing_count: number;
+	/** Files tagged `flagged` (case-insensitive); KPI / review queue. */
+	flagged_file_count: number;
+}
+
+/** Query params align with `GET /cases/:id/files` list filters (KPI strip reflects current scope). */
+export type CaseFilesStatsQuery = {
+	query?: string;
+	mimeCategory?: string;
+	hasTags?: 'true' | 'false' | '';
+	folderId?: string;
+	tag?: string;
+	dateFrom?: string;
+	dateTo?: string;
+};
+
+export async function getCaseFilesStats(
+	caseId: string,
+	token: string,
+	query?: CaseFilesStatsQuery
+): Promise<CaseFilesAggregateStats> {
+	const sp = new URLSearchParams();
+	if (query?.query?.trim()) sp.set('query', query.query.trim());
+	if (query?.mimeCategory?.trim()) sp.set('mimeCategory', query.mimeCategory.trim());
+	if (query?.hasTags === 'true' || query?.hasTags === 'false') sp.set('hasTags', query.hasTags);
+	if (query?.folderId?.trim()) sp.set('folderId', query.folderId.trim());
+	if (query?.tag?.trim()) sp.set('tag', query.tag.trim());
+	if (query?.dateFrom?.trim()) sp.set('dateFrom', query.dateFrom.trim());
+	if (query?.dateTo?.trim()) sp.set('dateTo', query.dateTo.trim());
+	const qs = sp.toString();
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/files/stats${qs ? `?${qs}` : ''}`;
+	const res = await fetch(url, {
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to load file stats (${res.status})`);
+	}
+	return data as CaseFilesAggregateStats;
+}
+
+/** GET /cases/:caseId/files/insights — timeline link + upload activity aggregates */
+export interface CaseFilesInsights {
+	most_timeline_linked_file: {
+		file_id: string;
+		original_filename: string;
+		timeline_link_count: number;
+	} | null;
+	distinct_timeline_linked_files: number;
+	uploads_last_24h: number;
+}
+
+export async function getCaseFilesInsights(caseId: string, token: string): Promise<CaseFilesInsights> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/files/insights`, {
+		headers: {
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to load file insights (${res.status})`);
+	}
+	return data as CaseFilesInsights;
+}
+
+/** GET /cases/:caseId/files/:fileId/timeline-links — timeline entries that attach this file */
+export interface CaseFileTimelineLinkEntry {
+	entry_id: string;
+	occurred_at: string;
+	type: string;
+	text_preview: string | null;
+}
+
+export async function getCaseFileTimelineLinks(
+	caseId: string,
+	fileId: string,
+	token: string
+): Promise<{ entries: CaseFileTimelineLinkEntry[] }> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/files/${encodeURIComponent(fileId)}/timeline-links`,
+		{
+			headers: {
+				Authorization: `Bearer ${token}`
+			}
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to load timeline links (${res.status})`);
+	}
+	return data as { entries: CaseFileTimelineLinkEntry[] };
+}
+
+export interface CaseFileFolder {
+	id: string;
+	case_id: string;
+	name: string;
+	sort_order: number;
+	created_at: string;
+	created_by: string;
+	file_count: number;
+}
+
+export type CaseFileFoldersListResponse = {
+	folders: CaseFileFolder[];
+	unfiled_count: number;
+};
+
+export async function listCaseFileFolders(caseId: string, token: string): Promise<CaseFileFoldersListResponse> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/file-folders`, {
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		}
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to list folders (${res.status})`);
+	}
+	return data as CaseFileFoldersListResponse;
+}
+
+export async function createCaseFileFolder(
+	caseId: string,
+	token: string,
+	body: { name: string }
+): Promise<CaseFileFolder> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/file-folders`, {
+		method: 'POST',
+		headers: {
+			'Content-Type': 'application/json',
+			Authorization: `Bearer ${token}`
+		},
+		body: JSON.stringify(body)
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to create folder (${res.status})`);
+	}
+	return data as CaseFileFolder;
+}
+
+export async function deleteCaseFileFolder(caseId: string, folderId: string, token: string): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/file-folders/${encodeURIComponent(folderId)}`,
+		{
+			method: 'DELETE',
+			headers: { Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to delete folder (${res.status})`);
+	}
+}
+
+export async function moveCaseFileToFolder(
+	caseId: string,
+	fileId: string,
+	token: string,
+	folderId: string | null
+): Promise<void> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/files/${encodeURIComponent(fileId)}`,
+		{
+			method: 'PATCH',
+			headers: {
+				'Content-Type': 'application/json',
+				Authorization: `Bearer ${token}`
+			},
+			body: JSON.stringify({ folder_id: folderId })
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) {
+		throw new Error((data as { error?: string })?.error ?? `Failed to move file (${res.status})`);
+	}
 }
 
 /**
@@ -1163,7 +1357,17 @@ export type CaseFilesListMimeCategory = 'image' | 'video' | 'audio' | 'document'
 export async function listCaseFiles(
 	caseId: string,
 	token: string,
-	options?: { query?: string; mimeCategory?: CaseFilesListMimeCategory; hasTags?: boolean }
+	options?: {
+		query?: string;
+		mimeCategory?: CaseFilesListMimeCategory;
+		hasTags?: boolean;
+		/** `__unfiled__` = no folder; otherwise folder id */
+		folderId?: string;
+		/** Exact tag (tags rail); server applies same filter as paginated list */
+		tag?: string;
+		dateFrom?: string;
+		dateTo?: string;
+	}
 ): Promise<CaseFile[]> {
 	const sp = new URLSearchParams();
 	const q = options?.query?.trim();
@@ -1171,6 +1375,14 @@ export async function listCaseFiles(
 	if (options?.mimeCategory) sp.set('mimeCategory', options.mimeCategory);
 	if (options?.hasTags === true) sp.set('hasTags', 'true');
 	if (options?.hasTags === false) sp.set('hasTags', 'false');
+	if (options?.folderId === '__unfiled__' || options?.folderId === 'unfiled') {
+		sp.set('folderId', '__unfiled__');
+	} else if (options?.folderId) {
+		sp.set('folderId', options.folderId);
+	}
+	if (options?.tag?.trim()) sp.set('tag', options.tag.trim());
+	if (options?.dateFrom?.trim()) sp.set('dateFrom', options.dateFrom.trim());
+	if (options?.dateTo?.trim()) sp.set('dateTo', options.dateTo.trim());
 	const qs = sp.toString();
 	const url = qs
 		? `${CASE_ENGINE_BASE_URL}/cases/${caseId}/files?${qs}`
@@ -1210,6 +1422,11 @@ export async function listCaseFilesPage(
 		query?: string;
 		mimeCategory?: CaseFilesListMimeCategory;
 		hasTags?: boolean;
+		/** `__unfiled__` = no folder; otherwise folder id */
+		folderId?: string;
+		tag?: string;
+		dateFrom?: string;
+		dateTo?: string;
 	}
 ): Promise<ListCaseFilesPageResult> {
 	const sp = new URLSearchParams();
@@ -1220,6 +1437,14 @@ export async function listCaseFilesPage(
 	if (params.mimeCategory) sp.set('mimeCategory', params.mimeCategory);
 	if (params.hasTags === true) sp.set('hasTags', 'true');
 	if (params.hasTags === false) sp.set('hasTags', 'false');
+	if (params.folderId === '__unfiled__' || params.folderId === 'unfiled') {
+		sp.set('folderId', '__unfiled__');
+	} else if (params.folderId) {
+		sp.set('folderId', params.folderId);
+	}
+	if (params.tag?.trim()) sp.set('tag', params.tag.trim());
+	if (params.dateFrom?.trim()) sp.set('dateFrom', params.dateFrom.trim());
+	if (params.dateTo?.trim()) sp.set('dateTo', params.dateTo.trim());
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${caseId}/files?${sp.toString()}`, {
 		headers: {
 			'Content-Type': 'application/json',
@@ -1253,9 +1478,17 @@ export async function deleteCaseFile(caseId: string, fileId: string, token: stri
 	}
 }
 
-export async function uploadCaseFile(caseId: string, file: File, token: string): Promise<CaseFile> {
+export async function uploadCaseFile(
+	caseId: string,
+	file: File,
+	token: string,
+	options?: { folderId?: string | null }
+): Promise<CaseFile> {
 	const form = new FormData();
 	form.append('file', file);
+	if (options?.folderId) {
+		form.append('folder_id', options.folderId);
+	}
 	const res = await fetch(`${CASE_ENGINE_BASE_URL}/cases/${encodeURIComponent(caseId)}/files`, {
 		method: 'POST',
 		headers: {
@@ -1288,13 +1521,44 @@ export async function downloadCaseFile(fileId: string, filename: string, token: 
 	URL.revokeObjectURL(url);
 }
 
+/** Authorized GET /files/:id — raw blob (thumbnails, PDF.js, etc.). */
+export async function fetchCaseFileBlob(
+	fileId: string,
+	token: string,
+	opts?: { fetchPriority?: 'high' | 'low' | 'auto' }
+): Promise<Blob> {
+	const res = await fetch(`${CASE_ENGINE_BASE_URL}/files/${fileId}`, {
+		headers: { Authorization: `Bearer ${token}` },
+		...(opts?.fetchPriority ? { priority: opts.fetchPriority } : {})
+	} as RequestInit);
+	if (!res.ok) throw new Error(`Could not load file (${res.status})`);
+	return res.blob();
+}
+
+/**
+ * Authorized GET /files/:id/preview — server-generated JPEG grid thumbnail when available.
+ * Returns null on 404 so callers can fall back to full `fetchCaseFileBlob` + client pipeline.
+ */
+export async function fetchCaseFileGridPreviewBlob(
+	fileId: string,
+	token: string,
+	opts?: { fetchPriority?: 'high' | 'low' | 'auto' }
+): Promise<Blob | null> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/files/${encodeURIComponent(fileId)}/preview`,
+		{
+			headers: { Authorization: `Bearer ${token}` },
+			...(opts?.fetchPriority ? { priority: opts.fetchPriority } : {})
+		} as RequestInit
+	);
+	if (res.status === 404) return null;
+	if (!res.ok) throw new Error(`Could not load preview (${res.status})`);
+	return res.blob();
+}
+
 /** Authorized GET /files/:id — returns a blob: URL; caller must URL.revokeObjectURL when done. */
 export async function fetchCaseFileObjectUrl(fileId: string, token: string): Promise<string> {
-	const res = await fetch(`${CASE_ENGINE_BASE_URL}/files/${fileId}`, {
-		headers: { Authorization: `Bearer ${token}` }
-	});
-	if (!res.ok) throw new Error(`Could not load file (${res.status})`);
-	const blob = await res.blob();
+	const blob = await fetchCaseFileBlob(fileId, token);
 	return URL.createObjectURL(blob);
 }
 
@@ -3402,6 +3666,146 @@ export async function listWorkflowItems(
 	return Array.isArray(items) ? items : [];
 }
 
+export type WorkflowListViewParam = 'all' | 'hypothesis' | 'gap' | 'completed';
+
+export type WorkflowListAggregates = {
+	count_open: number;
+	count_done: number;
+	count_hypothesis: number;
+	count_gap: number;
+	count_incomplete: number;
+	count_hypothesis_incomplete: number;
+	count_gap_incomplete: number;
+};
+
+function normalizeWorkflowListAggregatesPartial(raw: Partial<WorkflowListAggregates> | null | undefined): WorkflowListAggregates {
+	const num = (v: unknown) => (v == null || v === '' || v === false ? 0 : Number(v)) || 0;
+	return {
+		count_open: num(raw?.count_open),
+		count_done: num(raw?.count_done),
+		count_hypothesis: num(raw?.count_hypothesis),
+		count_gap: num(raw?.count_gap),
+		count_incomplete: num(raw?.count_incomplete),
+		count_hypothesis_incomplete: num(raw?.count_hypothesis_incomplete),
+		count_gap_incomplete: num(raw?.count_gap_incomplete)
+	};
+}
+
+/**
+ * Recompute P13 strip KPIs from rows (mirrors `workflowItemService` aggregate SQL) when the HTTP body
+ * is a list response without `aggregates` — e.g. legacy proxy or misparsed `?aggregates=1`.
+ */
+function computeWorkflowListAggregatesFromItems(
+	items: WorkflowItem[],
+	opts?: { includeDeleted?: boolean }
+): WorkflowListAggregates {
+	const includeDel = Boolean(opts?.includeDeleted);
+	const active = items.filter((i) => includeDel || !i.deleted_at);
+	const openLike = (s: string) => {
+		const u = String(s).toUpperCase();
+		return u === 'OPEN' || u === 'IN_PROGRESS' || u === 'ASSIGNED';
+	};
+	const doneLike = (s: string) => {
+		const u = String(s).toUpperCase();
+		return u === 'CLOSED' || u === 'RESOLVED' || u === 'SUPPORTED' || u === 'REJECTED';
+	};
+	const out: WorkflowListAggregates = {
+		count_open: 0,
+		count_done: 0,
+		count_hypothesis: 0,
+		count_gap: 0,
+		count_incomplete: 0,
+		count_hypothesis_incomplete: 0,
+		count_gap_incomplete: 0
+	};
+	for (const i of active) {
+		const t = String(i.type).toUpperCase();
+		if (t === 'HYPOTHESIS') out.count_hypothesis += 1;
+		if (t === 'GAP') out.count_gap += 1;
+		if (openLike(i.status)) out.count_open += 1;
+		if (doneLike(i.status)) out.count_done += 1;
+		if (!doneLike(i.status)) out.count_incomplete += 1;
+		if (t === 'HYPOTHESIS' && !doneLike(i.status)) out.count_hypothesis_incomplete += 1;
+		if (t === 'GAP' && !doneLike(i.status)) out.count_gap_incomplete += 1;
+	}
+	return out;
+}
+
+export async function getWorkflowListAggregates(
+	caseId: string,
+	token: string,
+	params?: { includeDeleted?: boolean }
+): Promise<WorkflowListAggregates> {
+	const sp = new URLSearchParams();
+	if (params?.includeDeleted) sp.set('includeDeleted', 'true');
+	sp.set('aggregates', '1');
+	const qs = sp.toString();
+	const url = `${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items?${qs}`;
+	const res = await fetch(url, {
+		cache: 'no-store',
+		headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+	});
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to load workflow aggregates (${res.status})`);
+	const payload: Record<string, unknown> = (() => {
+		if (data && typeof data === 'object' && 'success' in (data as object) && (data as { success?: boolean }).success === true) {
+			return unwrapEnvelopeCanonicalFirst<Record<string, unknown>>(data, 'getWorkflowListAggregates');
+		}
+		return data as Record<string, unknown>;
+	})();
+
+	const raw = payload.aggregates as Partial<WorkflowListAggregates> | undefined;
+	if (raw && typeof raw === 'object' && 'count_open' in raw) {
+		return normalizeWorkflowListAggregatesPartial(raw);
+	}
+	const wi = payload.workflow_items;
+	if (Array.isArray(wi) && wi.length > 0) {
+		return computeWorkflowListAggregatesFromItems(wi as WorkflowItem[], params);
+	}
+	return normalizeWorkflowListAggregatesPartial(undefined);
+}
+
+export async function listWorkflowItemsPaginated(
+	caseId: string,
+	token: string,
+	params: {
+		view: WorkflowListViewParam;
+		limit: number;
+		offset: number;
+		q?: string;
+		includeDeleted?: boolean;
+		entityType?: string;
+		entityNormalizedId?: string;
+	}
+): Promise<{ workflow_items: WorkflowItem[]; total: number; has_more: boolean }> {
+	const sp = new URLSearchParams();
+	sp.set('limit', String(params.limit));
+	sp.set('offset', String(params.offset));
+	sp.set('view', params.view);
+	if (params.q) sp.set('q', params.q);
+	if (params.includeDeleted) sp.set('includeDeleted', 'true');
+	if (params.entityType && params.entityNormalizedId) {
+		sp.set('entity_type', params.entityType);
+		sp.set('entity_normalized_id', params.entityNormalizedId);
+	}
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-items?${sp.toString()}`,
+		{
+			cache: 'no-store',
+			headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` }
+		}
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to list workflow items (${res.status})`);
+	return {
+		workflow_items: Array.isArray((data as { workflow_items?: WorkflowItem[] }).workflow_items)
+			? (data as { workflow_items: WorkflowItem[] }).workflow_items
+			: [],
+		total: typeof (data as { total?: number }).total === 'number' ? (data as { total: number }).total : 0,
+		has_more: Boolean((data as { has_more?: boolean }).has_more)
+	};
+}
+
 export async function getWorkflowItem(
 	caseId: string,
 	workflowItemId: string,
@@ -3599,6 +4003,41 @@ export async function listWorkflowProposals(
 	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to list workflow proposals (${res.status})`);
 	const items = (data as { workflow_proposals?: WorkflowProposal[] }).workflow_proposals;
 	return Array.isArray(items) ? items : [];
+}
+
+export async function listWorkflowProposalsPage(
+	caseId: string,
+	token: string,
+	params: { status?: string; q?: string; limit: number; offset: number }
+): Promise<{
+	workflow_proposals: WorkflowProposal[];
+	total: number;
+	has_more: boolean;
+	status_counts: Record<string, number>;
+}> {
+	const sp = new URLSearchParams();
+	sp.set('limit', String(params.limit));
+	sp.set('offset', String(params.offset));
+	if (params.status) sp.set('status', params.status);
+	if (params.q) sp.set('q', params.q);
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/workflow-proposals?${sp.toString()}`,
+		{ headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${token}` } }
+	);
+	const data = await res.json().catch(() => ({}));
+	if (!res.ok) throw new Error((data as { error?: string })?.error ?? `Failed to list workflow proposals (${res.status})`);
+	return {
+		workflow_proposals: Array.isArray((data as { workflow_proposals?: WorkflowProposal[] }).workflow_proposals)
+			? (data as { workflow_proposals: WorkflowProposal[] }).workflow_proposals
+			: [],
+		total: typeof (data as { total?: number }).total === 'number' ? (data as { total: number }).total : 0,
+		has_more: Boolean((data as { has_more?: boolean }).has_more),
+		status_counts:
+			(data as { status_counts?: Record<string, number> }).status_counts &&
+			typeof (data as { status_counts?: Record<string, number> }).status_counts === 'object'
+				? (data as { status_counts: Record<string, number> }).status_counts
+				: {}
+	};
 }
 
 export async function acceptWorkflowProposal(
@@ -5632,6 +6071,23 @@ export async function downloadNoteAttachment(
 	a.click();
 	document.body.removeChild(a);
 	URL.revokeObjectURL(url);
+}
+
+/** Fetch the original note attachment blob for inline previews. Does not trigger a download. */
+export async function fetchNoteAttachmentBlob(
+	caseId: string,
+	attachmentId: string,
+	token: string
+): Promise<Blob> {
+	const res = await fetch(
+		`${CASE_ENGINE_BASE_URL}/cases/${caseId}/note-attachments/${attachmentId}/file`,
+		{ headers: { Authorization: `Bearer ${token}` } }
+	);
+	if (!res.ok) {
+		const data = await res.json().catch(() => ({}));
+		throw new Error((data as { error?: string })?.error ?? `Attachment preview failed (${res.status})`);
+	}
+	return await res.blob();
 }
 
 /**

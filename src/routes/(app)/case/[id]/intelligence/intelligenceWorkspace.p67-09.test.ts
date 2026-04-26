@@ -15,13 +15,13 @@ const modalSource = readFileSync(
 describe('intelligence/+page Entities polish (P67-09 / P69-07)', () => {
 	it('exposes workflow path and board shell landmark', () => {
 		expect(pageSource).toContain('data-testid="intelligence-entities-workflow-path"');
-		expect(pageSource).toContain('Entities overview board');
+		expect(pageSource).toContain('Subjects &amp; Assets overview board');
 		expect(pageSource).toContain('EntitiesOverviewBoardShell');
 	});
 
 	it('keeps tab mode landmarks for automation', () => {
 		expect(pageSource).toContain('data-testid="intelligence-workspace-mode-entities"');
-		expect(pageSource).toContain('Case Intelligence workspace: Entities or Intelligence mode');
+		expect(pageSource).toContain('Case Intelligence workspace: Subjects or Intelligence mode');
 	});
 });
 

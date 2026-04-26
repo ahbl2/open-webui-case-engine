@@ -26,4 +26,9 @@ describe('P38-03 — ProposalReviewPanel refreshOnNav wiring', () => {
 		const window = src.slice(idx, idx + 450);
 		expect(window).toContain('refreshOnNav={true}');
 	});
+
+	it('Case Chat dispatches cross-surface proposal invalidation after creating a proposal', () => {
+		const src = readCaseRoute('chat/+page.svelte');
+		expect(src).toContain('dispatchCaseProposalsInvalidate');
+	});
 });

@@ -172,15 +172,6 @@
 		<div class="flex flex-wrap items-center gap-2 shrink-0">
 			<button
 				type="button"
-				class="text-xs px-2 py-1 rounded border border-gray-300 dark:border-gray-600 hover:bg-gray-50 dark:hover:bg-gray-800 disabled:opacity-50"
-				disabled={loading || !token}
-				data-testid="{testId}-refresh"
-				on:click={() => void load()}
-			>
-				Refresh
-			</button>
-			<button
-				type="button"
 				class="px-3 py-1.5 rounded-md text-xs font-medium border border-blue-600 dark:border-blue-500
 				       bg-blue-50 dark:bg-blue-950/40 text-blue-800 dark:text-blue-200 hover:bg-blue-100 dark:hover:bg-blue-950/70"
 				data-testid="{testId}-add"

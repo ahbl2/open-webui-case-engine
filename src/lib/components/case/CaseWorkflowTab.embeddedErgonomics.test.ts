@@ -25,11 +25,12 @@ describe('CaseWorkflowTab embedded ergonomics (P57-07)', () => {
 		expect(tabSource).toContain('max-h-[min(36vh,12rem)]');
 	});
 
-	it('keeps narrative intro (full + embedded) and core structure for layout modes', () => {
+	it('keeps narrative intro (full: sr-only) + operational dashboard header and core structure for layout modes', () => {
 		expect(tabSource).toContain('{#if !embedded}');
 		expect(tabSource).toContain('data-testid="workflow-narrative-intro"');
 		expect(tabSource).toContain('Workflow is your');
-		expect(tabSource).toContain('Planning (this tab):</span> hypotheses');
+		expect(tabSource).toMatch(/WORKFLOW_DASH_TITLE|ClipboardDocumentListIcon/);
+		expect(tabSource).toContain('P127_WORKFLOW_FRAMING_BODY_PRIMARY');
 		expect(tabSource).toContain('DS_WORKFLOW_CLASSES.workspaceFull');
 		expect(tabSource).toContain('max-h-[min(50vh,36rem)]');
 	});
@@ -37,7 +38,7 @@ describe('CaseWorkflowTab embedded ergonomics (P57-07)', () => {
 	it('Case Tools passes embedded into Workflow; workflow route does not', () => {
 		expect(chatPage).toContain('<CaseWorkflowTab {caseId} token={$caseEngineToken!} {isAdmin} embedded />');
 		expect(chatPage).toContain('min-h-0 overflow-auto flex flex-col');
-		expect(workflowPage).toContain('<CaseWorkflowTab {caseId} token={$caseEngineToken} {isAdmin} />');
+		expect(workflowPage).toContain('<CaseWorkflowTab caseId={routeCaseId} token={$caseEngineToken} {isAdmin} />');
 		expect(workflowPage).not.toMatch(/CaseWorkflowTab[^>]*embedded/);
 	});
 

@@ -42,7 +42,7 @@ describe('CaseWorkflowTab P59-15 vertical layout containment', () => {
 	});
 
 	it('marks shell sections shrink-0 so flex parents do not compress stacked regions', () => {
-		expect(tabSource).toMatch(/workflow-page-header" class=\{embedded \? '[^']*shrink-0/);
+		expect(tabSource).toMatch(/data-testid="workflow-page-header"[\s\S]*?shrink-0/);
 		expect(tabSource).toMatch(/workflow-attention-region"[\s\S]*?shrink-0/);
 		expect(tabSource).toMatch(/workflow-main-work-area"[\s\S]*?shrink-0/);
 		expect(tabSource).toMatch(/workflow-guidance-placeholder"[\s\S]*?shrink-0/);

@@ -20,7 +20,7 @@ describe('CaseWorkflowTab post-accept orientation (P57-08)', () => {
 	it('reconciles filter to All when accepted item is not visible like create flow', () => {
 		expect(tabSource).toContain('acceptedItemId');
 		expect(tabSource).toContain('acceptedType');
-		expect(tabSource).toMatch(/filter = 'all'[\s\S]*await loadItems\(\)/);
+		expect(tabSource).toMatch(/listTab = 'all'[\s\S]*await loadItems\(\)/);
 	});
 
 	it('keeps accept API call and error path intact', () => {

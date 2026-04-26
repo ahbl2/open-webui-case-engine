@@ -28,6 +28,6 @@ describe('Intelligence page (P78-12 phone path acceleration)', () => {
 
 	it('clarifies phone entity search rows without implying board registry parity', () => {
 		expect(pageSource).toContain('data-testid="intelligence-ws-entity-search-phone-note"');
-		expect(pageSource).toContain('not the Entities board phone column');
+		expect(pageSource).toContain('not the Subjects &amp; Assets board phone column');
 	});
 });

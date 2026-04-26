@@ -7,6 +7,7 @@ import type {
 	CaseIntelligenceEntityKind,
 	CaseIntelligencePersonPosture
 } from '$lib/apis/caseEngine';
+import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 
 export type RegistrySortKey = 'name_asc' | 'created_desc';
 
@@ -81,6 +82,108 @@ export function buildRegistrySecondaryLine(
 
 	const line = parts.filter(Boolean).join(' · ');
 	return line.length > 0 ? line : null;
+}
+
+function isoTimestampLine(attrs: Record<string, unknown>, keys: string[], label: string): string | null {
+	const iso = pickAttrString(attrs, keys);
+	if (!iso) return null;
+	return `${label}: ${formatCaseDateTime(iso)}`;
+}
+
+/** Mockup-style POI / role strip for person rows (best-effort from core_attributes). */
+export function personRegistryRowDisplay(ent: CaseIntelligenceCommittedEntity): {
+	showPoiBadge: boolean;
+	roleLine: string | null;
+	dobLine: string | null;
+	demoLine: string | null;
+} {
+	const a = ent.core_attributes ?? {};
+	const poiRaw = pickAttrString(a, ['person_of_interest', 'is_poi', 'poi']);
+	const showPoiBadge =
+		poiRaw === 'true' ||
+		poiRaw === '1' ||
+		poiRaw === 'yes' ||
+		poiRaw?.toLowerCase() === 'person_of_interest';
+
+	const roleCandidate =
+		pickAttrString(a, ['role', 'capacity', 'involvement_role', 'registry_role']) ??
+		personPostureShort(ent.person_identity_posture);
+	const roleLine = showPoiBadge ? null : roleCandidate;
+
+	const dob = pickAttrString(a, ['dob', 'date_of_birth', 'dateOfBirth', 'birth_date']);
+	const age = pickAttrString(a, ['age']);
+	const dobLine =
+		dob && age ? `DOB: ${dob} (${age})` : dob ? `DOB: ${dob}` : null;
+
+	const gender = pickAttrString(a, ['gender', 'sex']);
+	const race = pickAttrString(a, ['race', 'ethnicity']);
+	const demoLine =
+		gender && race ? `${gender} · ${race}` : gender ?? race ?? null;
+
+	return { showPoiBadge, roleLine: roleLine ?? null, dobLine, demoLine };
+}
+
+export function vehicleRegistryRowDisplay(ent: CaseIntelligenceCommittedEntity): {
+	plateLine: string | null;
+	lastSeenLine: string | null;
+	locationLine: string | null;
+} {
+	const a = ent.core_attributes ?? {};
+	const plate = pickAttrString(a, ['plate', 'license_plate', 'registration']);
+	const state = pickAttrString(a, ['plate_state', 'state', 'registration_state']);
+	const plateLine =
+		plate && state ? `Plate: ${plate} (${state})` : plate ? `Plate: ${plate}` : null;
+	const lastSeenLine = isoTimestampLine(
+		a,
+		['last_seen_at', 'last_seen', 'sighting_at'],
+		'Last seen'
+	);
+	const locationLine = pickAttrString(a, ['last_seen_location', 'last_location', 'location_label']);
+	return { plateLine, lastSeenLine, locationLine };
+}
+
+export function locationRegistryRowDisplay(ent: CaseIntelligenceCommittedEntity): {
+	cityLine: string | null;
+	roleLabel: string | null;
+	lastSeenLine: string | null;
+} {
+	const a = ent.core_attributes ?? {};
+	const city = pickAttrString(a, ['city', 'locality']);
+	const region = pickAttrString(a, ['state', 'region', 'province']);
+	const zip = pickAttrString(a, ['zip', 'postal_code', 'postal']);
+	const cityLine =
+		city && region && zip
+			? `${city}, ${region} ${zip}`
+			: city && region
+				? `${city}, ${region}`
+				: city ?? region ?? zip ?? null;
+	const roleLabel = pickAttrString(a, ['location_role', 'role', 'label', 'kind']);
+	const lastSeenLine = isoTimestampLine(
+		a,
+		['last_seen_at', 'last_seen', 'observed_at'],
+		'Last seen'
+	);
+	return { cityLine, roleLabel, lastSeenLine };
+}
+
+export function phoneRegistryRowDisplay(ent: CaseIntelligenceCommittedEntity): {
+	ownerLine: string | null;
+	lastPingLine: string | null;
+} {
+	const a = ent.core_attributes ?? {};
+	const ownerLine = pickAttrString(a, [
+		'owner_name',
+		'owner',
+		'subscriber_name',
+		'linked_person_name',
+		'name'
+	]);
+	const lastPingLine = isoTimestampLine(
+		a,
+		['last_ping_at', 'last_ping', 'last_seen_at', 'last_seen'],
+		'Last ping'
+	);
+	return { ownerLine, lastPingLine };
 }
 
 export function entityPortraitUrl(attrs: Record<string, unknown>): string | null {

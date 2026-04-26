@@ -5852,10 +5852,49 @@
 		flex-shrink: 0;
 		align-items: stretch;
 		flex-wrap: nowrap;
+		gap: 0;
 		overflow-x: auto;
+		padding-inline: var(--ds-space-2);
 		border-bottom: 1px solid var(--ds-border-default);
 		background-color: var(--ds-bg-muted);
 		-webkit-overflow-scrolling: touch;
+	}
+
+	/* P128 page: only tab labels scroll; Create stays right-aligned. */
+	.ds-proposals-tab-strip.ds-proposals-tab-strip--with-end-action {
+		overflow: visible;
+	}
+	.ds-proposals-tab-strip__scroll {
+		display: flex;
+		min-width: 0;
+		flex: 1 1 0;
+		align-items: stretch;
+		flex-wrap: nowrap;
+		overflow-x: auto;
+		-webkit-overflow-scrolling: touch;
+		padding-bottom: 0;
+	}
+	.ds-proposals-tab-strip__end-action {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		align-self: stretch;
+		padding-left: var(--ds-space-2);
+		margin-left: var(--ds-space-1);
+		border-left: 1px solid var(--ds-border-default);
+		background-color: var(--ds-bg-muted);
+	}
+	@media (min-width: 640px) {
+		.ds-proposals-tab-strip__end-action {
+			padding-left: var(--ds-space-3);
+			margin-left: var(--ds-space-2);
+		}
+	}
+
+	@media (min-width: 640px) {
+		.ds-proposals-tab-strip {
+			padding-inline: var(--ds-space-4);
+		}
 	}
 
 	.ds-proposals-tab-divider {
@@ -5873,11 +5912,14 @@
 	}
 
 	.ds-proposals-tab {
-		padding: var(--ds-space-2) var(--ds-space-3);
-		font-size: var(--ds-type-meta-size);
+		padding: var(--ds-space-3) var(--ds-space-3);
+		margin-bottom: -1px;
+		font-size: 0.8125rem;
 		font-weight: 600;
+		line-height: 1.35;
 		white-space: nowrap;
 		border-bottom: 2px solid transparent;
+		min-height: 2.75rem;
 		transition:
 			color 0.15s ease,
 			border-color 0.15s ease;
@@ -5887,6 +5929,13 @@
 		border-left: none;
 		border-right: none;
 		font-family: var(--ds-font-sans);
+	}
+
+	@media (min-width: 640px) {
+		.ds-proposals-tab {
+			padding-inline: var(--ds-space-5);
+			padding-block: 0.875rem 0.75rem;
+		}
 	}
 
 	.ds-proposals-tab:focus-visible {
@@ -5925,9 +5974,15 @@
 		color: var(--ds-status-danger-fg);
 	}
 
+	/* Committed: purple accent (distinct from Accepted green) */
 	.ds-proposals-tab--active-committed {
-		border-bottom-color: var(--ds-status-success-fg);
-		color: var(--ds-status-success-fg);
+		border-bottom-color: #7c3aed;
+		color: #6d28d9;
+	}
+
+	.dark .ds-proposals-tab--active-committed {
+		border-bottom-color: #a78bfa;
+		color: #c4b5fd;
 	}
 
 	.ds-proposals-tab--active-neutral {
@@ -5943,6 +5998,232 @@
 		color: var(--ds-text-secondary);
 		border-bottom: 1px solid var(--ds-border-default);
 		background-color: color-mix(in oklab, var(--ds-bg-surface) 88%, var(--ds-bg-muted));
+	}
+
+	.ds-proposals-authority-banner {
+		flex-shrink: 0;
+		margin: 0;
+		padding: var(--ds-space-2) var(--ds-space-3);
+		font-size: var(--ds-type-meta-size);
+		line-height: 1.4;
+		color: var(--ds-text-secondary);
+		border-bottom: 1px solid var(--ds-border-subtle);
+		background-color: color-mix(in oklab, var(--ds-bg-surface) 90%, var(--ds-bg-muted));
+		border-left: 3px solid var(--ds-accent);
+	}
+
+	.ds-proposals-status-summary {
+		--ds-proposals-purple-fg: #6d28d9;
+		--ds-proposals-purple-icon-bg: color-mix(in oklab, #7c3aed 22%, var(--ds-bg-elevated));
+		--ds-proposals-purple-border: color-mix(in oklab, #7c3aed 38%, var(--ds-border-default));
+
+		flex-shrink: 0;
+		padding: var(--ds-space-4) var(--ds-space-3) var(--ds-space-4);
+		border-bottom: 1px solid var(--ds-border-default);
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklab, var(--ds-bg-muted) 35%, var(--ds-bg-surface)) 0%,
+			var(--ds-bg-surface) 100%
+		);
+	}
+
+	.dark .ds-proposals-status-summary {
+		--ds-proposals-purple-fg: #c4b5fd;
+		--ds-proposals-purple-icon-bg: color-mix(in oklab, #7c3aed 28%, var(--ds-bg-elevated));
+		--ds-proposals-purple-border: color-mix(in oklab, #a78bfa 50%, var(--ds-border-subtle));
+	}
+
+	.ds-proposals-status-summary__grid {
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--ds-space-3);
+	}
+
+	@media (min-width: 900px) {
+		.ds-proposals-status-summary__grid {
+			grid-template-columns: repeat(4, minmax(0, 1fr));
+			gap: var(--ds-space-4);
+		}
+	}
+
+	.ds-proposals-status-summary__card {
+		display: flex;
+		align-items: flex-start;
+		gap: var(--ds-space-3);
+		min-width: 0;
+		border-radius: var(--ds-radius-md);
+		border: 1px solid var(--ds-border-subtle);
+		background-color: var(--ds-bg-elevated);
+		padding: var(--ds-space-4) var(--ds-space-3);
+		min-height: 5.5rem;
+		box-shadow: var(--ds-shadow-sm);
+	}
+
+	.ds-proposals-status-summary__icon {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: center;
+		width: 2.5rem;
+		height: 2.5rem;
+		border-radius: 0.75rem;
+	}
+
+	.ds-proposals-status-summary__icon :global(svg) {
+		width: 1.5rem;
+		height: 1.5rem;
+	}
+
+	.ds-proposals-status-summary__body {
+		display: flex;
+		min-width: 0;
+		flex: 1 1 auto;
+		flex-direction: column;
+		gap: 0.125rem;
+	}
+
+	.ds-proposals-status-summary__label {
+		font-size: 0.75rem;
+		font-weight: 600;
+		letter-spacing: 0.04em;
+		text-transform: uppercase;
+		line-height: 1.2;
+	}
+
+	.ds-proposals-status-summary__count {
+		font-size: 1.75rem;
+		font-weight: 700;
+		line-height: 1.1;
+		font-variant-numeric: tabular-nums;
+		letter-spacing: -0.02em;
+		color: var(--ds-text-primary);
+	}
+
+	.ds-proposals-status-summary__hint {
+		margin: 0.25rem 0 0;
+		font-size: 0.7rem;
+		line-height: 1.35;
+		color: var(--ds-text-secondary);
+	}
+
+	/* Status accents — icon bubble, label, border (body/hints stay calm) */
+	.ds-proposals-status-summary__card--pending {
+		border-color: color-mix(in oklab, var(--ds-status-warning-fg) 30%, var(--ds-border-subtle));
+		background: color-mix(in oklab, var(--ds-status-warning-bg) 55%, var(--ds-bg-elevated));
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 12%, transparent);
+	}
+
+	.ds-proposals-status-summary__card--pending .ds-proposals-status-summary__icon {
+		background: color-mix(in oklab, var(--ds-status-warning-fg) 18%, var(--ds-bg-elevated));
+		color: var(--ds-status-warning-fg);
+	}
+
+	.ds-proposals-status-summary__card--pending .ds-proposals-status-summary__label {
+		color: var(--ds-status-warning-fg);
+	}
+
+	.ds-proposals-status-summary__card--accepted {
+		border-color: color-mix(in oklab, var(--ds-status-success-fg) 30%, var(--ds-border-subtle));
+		background: color-mix(in oklab, var(--ds-status-success-bg) 70%, var(--ds-bg-elevated));
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-status-success-fg) 12%, transparent);
+	}
+
+	.ds-proposals-status-summary__card--accepted .ds-proposals-status-summary__icon {
+		background: color-mix(in oklab, var(--ds-status-success-fg) 16%, var(--ds-bg-elevated));
+		color: var(--ds-status-success-fg);
+	}
+
+	.ds-proposals-status-summary__card--accepted .ds-proposals-status-summary__label {
+		color: var(--ds-status-success-fg);
+	}
+
+	.ds-proposals-status-summary__card--rejected {
+		border-color: color-mix(in oklab, var(--ds-status-danger-fg) 32%, var(--ds-border-subtle));
+		background: color-mix(in oklab, var(--ds-status-danger-bg) 65%, var(--ds-bg-elevated));
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-status-danger-fg) 12%, transparent);
+	}
+
+	.ds-proposals-status-summary__card--rejected .ds-proposals-status-summary__icon {
+		background: color-mix(in oklab, var(--ds-status-danger-fg) 16%, var(--ds-bg-elevated));
+		color: var(--ds-status-danger-fg);
+	}
+
+	.ds-proposals-status-summary__card--rejected .ds-proposals-status-summary__label {
+		color: var(--ds-status-danger-fg);
+	}
+
+	.ds-proposals-status-summary__card--committed {
+		border-color: var(--ds-proposals-purple-border);
+		background: color-mix(
+			in oklab,
+			var(--ds-proposals-purple-icon-bg) 40%,
+			var(--ds-bg-elevated)
+		);
+		box-shadow: 0 0 0 1px color-mix(in oklab, #7c3aed 10%, transparent);
+	}
+
+	.ds-proposals-status-summary__card--committed .ds-proposals-status-summary__icon {
+		background: var(--ds-proposals-purple-icon-bg);
+		color: var(--ds-proposals-purple-fg);
+	}
+
+	.ds-proposals-status-summary__card--committed .ds-proposals-status-summary__label {
+		color: var(--ds-proposals-purple-fg);
+	}
+
+	/* Type + search on one line; input grows, actions stay end-aligned */
+	.ds-proposals-filter-search-row {
+		display: flex;
+		width: 100%;
+		min-width: 0;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--ds-space-2) var(--ds-space-3);
+		padding: var(--ds-space-2) var(--ds-space-3) var(--ds-space-2);
+	}
+
+	@media (min-width: 640px) {
+		.ds-proposals-filter-search-row {
+			flex-wrap: nowrap;
+			gap: var(--ds-space-4);
+		}
+	}
+
+	.ds-proposals-filter-search-row__type {
+		display: flex;
+		min-width: 0;
+		flex: 0 0 auto;
+		align-items: center;
+		gap: var(--ds-space-2);
+	}
+
+	.ds-proposals-filter-search-row__search {
+		display: flex;
+		min-width: 0;
+		flex: 1 1 12rem;
+		align-items: center;
+		gap: var(--ds-space-2);
+	}
+
+	.ds-proposals-filter-search-row__actions {
+		display: flex;
+		min-width: 0;
+		flex: 0 0 auto;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--ds-space-2);
+	}
+
+	.ds-proposals-filter-toolbar {
+		flex-shrink: 0;
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-1);
+		padding: 0 0 var(--ds-space-2);
+		border-bottom: 1px solid var(--ds-border-default);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 40%, var(--ds-bg-surface));
 	}
 
 	.ds-proposals-filter-row {
@@ -6075,19 +6356,11 @@
 		color: var(--ds-text-muted);
 	}
 
+	/* Toolbar width is owned by the files workspace — avoid a hard max that stacks search vs filters */
 	.ds-files-list-controls {
-		display: flex;
-		flex-direction: column;
-		gap: var(--ds-space-2);
-		max-width: 56rem;
-	}
-
-	@media (min-width: 640px) {
-		.ds-files-list-controls {
-			flex-direction: row;
-			flex-wrap: wrap;
-			align-items: flex-end;
-		}
+		width: 100%;
+		max-width: none;
+		min-width: 0;
 	}
 
 	.ds-files-loaded-count {
@@ -7231,15 +7504,8 @@
 		padding-top: var(--ds-space-4);
 	}
 
-	@media (min-width: 768px) {
-		.ds-entity-board-inner {
-			padding-left: 2rem;
-			padding-right: 2rem;
-		}
-	}
-
 	.ds-entity-board-divider {
-		margin-bottom: 2.25rem;
+		margin-bottom: var(--ds-space-4);
 		height: 1px;
 		width: 100%;
 		background: linear-gradient(
@@ -7250,23 +7516,22 @@
 		);
 	}
 
-	@media (min-width: 768px) {
-		.ds-entity-board-divider {
-			margin-bottom: 2.75rem;
-		}
-	}
-
 	.ds-entity-board-grid {
 		display: grid;
 		grid-template-columns: 1fr;
-		gap: 1.75rem;
+		gap: 1rem;
 		grid-auto-rows: minmax(0, 1fr);
 	}
 
-	@media (min-width: 1024px) {
+	@media (min-width: 768px) {
 		.ds-entity-board-grid {
 			grid-template-columns: repeat(2, minmax(0, 1fr));
-			gap: 2rem;
+		}
+	}
+
+	@media (min-width: 1280px) {
+		.ds-entity-board-grid {
+			grid-template-columns: repeat(4, minmax(0, 1fr));
 		}
 	}
 
@@ -7554,64 +7819,139 @@
 			0 0 0 1px color-mix(in oklab, var(--ds-accent) 12%, transparent);
 	}
 
+	/* Vehicle = amber (matches registry rail `text-amber-400`); Location = green (`text-emerald-400`). */
 	.ds-entity-registry-panel--vehicle {
-		border-color: color-mix(in oklab, var(--ds-status-info-fg) 20%, var(--ds-border-default));
-		box-shadow:
-			var(--ds-shadow-sm),
-			0 0 0 1px color-mix(in oklab, var(--ds-status-info-fg) 10%, transparent);
-	}
-
-	.ds-entity-registry-panel--location {
 		border-color: color-mix(in oklab, var(--ds-status-warning-fg) 22%, var(--ds-border-default));
 		box-shadow:
 			var(--ds-shadow-sm),
 			0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 10%, transparent);
 	}
 
-	.ds-entity-registry-panel--phone {
-		border-color: color-mix(in oklab, var(--ds-status-success-fg) 18%, var(--ds-border-default));
+	.ds-entity-registry-panel--location {
+		border-color: color-mix(in oklab, var(--ds-status-success-fg) 22%, var(--ds-border-default));
 		box-shadow:
 			var(--ds-shadow-sm),
-			0 0 0 1px color-mix(in oklab, var(--ds-status-success-fg) 8%, transparent);
+			0 0 0 1px color-mix(in oklab, var(--ds-status-success-fg) 10%, transparent);
+	}
+
+	.ds-entity-registry-panel--phone {
+		border-color: color-mix(in oklab, #a78bfa 26%, var(--ds-border-default));
+		box-shadow:
+			var(--ds-shadow-sm),
+			0 0 0 1px color-mix(in oklab, #a78bfa 12%, transparent);
 	}
 
 	.ds-entity-registry-header {
+		--entity-registry-accent: var(--ds-border-strong);
 		display: flex;
 		flex-shrink: 0;
-		flex-wrap: wrap;
-		align-items: flex-start;
-		justify-content: space-between;
-		gap: var(--ds-space-3);
-		border-bottom: 1px solid var(--ds-border-default);
-		padding: var(--ds-space-4) var(--ds-space-4) var(--ds-space-3);
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0;
+		border-bottom: none;
+		padding: var(--ds-space-3) var(--ds-space-4) var(--ds-space-3);
 		background-color: color-mix(in oklab, var(--ds-bg-muted) 40%, transparent);
-		border-left: 3px solid var(--ds-border-strong);
 	}
 
 	.ds-entity-registry-header--person {
-		border-left-color: color-mix(in oklab, var(--ds-accent) 55%, var(--ds-border-strong));
+		--entity-registry-accent: color-mix(in oklab, var(--ds-accent) 70%, var(--ds-border-strong));
 	}
 
 	.ds-entity-registry-header--vehicle {
-		border-left-color: color-mix(in oklab, var(--ds-status-info-fg) 50%, var(--ds-border-strong));
+		--entity-registry-accent: color-mix(in oklab, var(--ds-status-warning-fg) 65%, var(--ds-border-strong));
 	}
 
 	.ds-entity-registry-header--location {
-		border-left-color: color-mix(in oklab, var(--ds-status-warning-fg) 50%, var(--ds-border-strong));
+		--entity-registry-accent: color-mix(in oklab, var(--ds-status-success-fg) 65%, var(--ds-border-strong));
 	}
 
 	.ds-entity-registry-header--phone {
-		border-left-color: color-mix(in oklab, var(--ds-status-success-fg) 45%, var(--ds-border-strong));
+		--entity-registry-accent: color-mix(in oklab, #a78bfa 70%, var(--ds-border-strong));
+	}
+
+	.ds-entity-registry-header-top {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: var(--ds-space-2) var(--ds-space-3);
+	}
+
+	/* Compact + ADD — lives in header row; full phrase in title/aria. */
+	.ds-entity-registry-header-add {
+		display: inline-flex;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: center;
+		gap: 0.2rem;
+		white-space: nowrap;
+		border-radius: var(--ds-radius-md);
+		border: 1px solid color-mix(in oklab, var(--ds-border-strong) 50%, var(--ds-border-default));
+		background-color: color-mix(in oklab, var(--ds-bg-elevated) 55%, transparent);
+		padding: 0.2rem 0.45rem 0.22rem;
+		font-size: 0.625rem;
+		font-weight: 800;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		color: var(--ds-text-primary);
+		cursor: pointer;
+		user-select: none;
+		-webkit-tap-highlight-color: transparent;
+		transition:
+			border-color 0.15s ease,
+			background-color 0.15s ease;
+	}
+
+	.ds-entity-registry-header-add:hover:not(:disabled) {
+		border-color: var(--ds-border-strong);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 60%, var(--ds-bg-elevated));
+	}
+
+	.ds-entity-registry-header-add:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+	}
+
+	.ds-entity-registry-kind-icon {
+		display: flex;
+		flex-shrink: 0;
+		align-items: center;
+		justify-content: center;
+		color: var(--entity-registry-accent);
+	}
+
+	.ds-entity-registry-header-divider {
+		position: relative;
+		margin-top: var(--ds-space-3);
+		height: 1px;
+		width: 100%;
+		background: linear-gradient(
+			to right,
+			transparent,
+			color-mix(in oklab, var(--ds-border-strong) 45%, transparent),
+			transparent
+		);
+	}
+
+	.ds-entity-registry-header-divider::before {
+		content: '';
+		position: absolute;
+		left: 0;
+		top: 0;
+		width: min(42%, 9rem);
+		height: 100%;
+		background: linear-gradient(to right, var(--entity-registry-accent), transparent);
+		opacity: 0.95;
 	}
 
 	.ds-entity-registry-tile {
 		display: flex;
-		height: 2.5rem;
-		width: 2.5rem;
+		height: 2.75rem;
+		width: 2.75rem;
 		flex-shrink: 0;
 		align-items: center;
 		justify-content: center;
-		border-radius: var(--ds-radius-lg);
+		border-radius: var(--ds-radius-md);
 		border: 1px solid var(--ds-border-default);
 		font-size: var(--ds-type-label-size);
 		font-weight: 700;
@@ -7624,29 +7964,67 @@
 	}
 
 	.ds-entity-registry-tile--vehicle {
-		background-color: color-mix(in oklab, var(--ds-status-info-bg) 55%, var(--ds-bg-elevated));
-		color: var(--ds-status-info-fg);
-	}
-
-	.ds-entity-registry-tile--location {
 		background-color: color-mix(in oklab, var(--ds-status-warning-bg) 50%, var(--ds-bg-elevated));
 		color: var(--ds-status-warning-fg);
 	}
 
-	.ds-entity-registry-tile--phone {
-		background-color: color-mix(in oklab, var(--ds-status-success-bg) 45%, var(--ds-bg-elevated));
+	.ds-entity-registry-tile--location {
+		background-color: color-mix(in oklab, var(--ds-status-success-bg) 50%, var(--ds-bg-elevated));
 		color: var(--ds-status-success-fg);
+	}
+
+	.ds-entity-registry-tile--phone {
+		background-color: color-mix(in oklab, #a78bfa 18%, var(--ds-bg-elevated));
+		color: color-mix(in oklab, #c4b5fd 92%, var(--ds-text-primary));
 	}
 
 	.ds-entity-registry-footer {
 		display: flex;
 		flex-shrink: 0;
+		flex-direction: column;
+		align-items: stretch;
+		gap: var(--ds-space-2);
+		border-top: 1px solid var(--ds-border-default);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 50%, transparent);
+		padding: var(--ds-space-3);
+	}
+
+	.ds-entity-registry-footer-add {
+		display: inline-flex;
+		width: 100%;
+		align-items: center;
+		justify-content: center;
+		gap: var(--ds-space-2);
+		border-radius: var(--ds-radius-lg);
+		border: 1px solid color-mix(in oklab, var(--ds-border-strong) 55%, var(--ds-border-default));
+		background-color: transparent;
+		padding: var(--ds-space-2) var(--ds-space-3);
+		font-size: var(--ds-type-meta-size);
+		font-weight: 700;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+		color: var(--ds-text-primary);
+		cursor: pointer;
+		transition:
+			border-color 0.15s ease,
+			background-color 0.15s ease;
+	}
+
+	.ds-entity-registry-footer-add:hover:not(:disabled) {
+		border-color: var(--ds-border-strong);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 55%, transparent);
+	}
+
+	.ds-entity-registry-footer-add:disabled {
+		cursor: not-allowed;
+		opacity: 0.55;
+	}
+
+	.ds-entity-registry-footer-controls {
+		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
 		gap: var(--ds-space-2) var(--ds-space-1);
-		border-top: 1px solid var(--ds-border-default);
-		background-color: color-mix(in oklab, var(--ds-bg-muted) 50%, transparent);
-		padding: var(--ds-space-2) var(--ds-space-3);
 	}
 
 	.ds-entity-registry-roster {
@@ -7671,7 +8049,7 @@
 		display: flex;
 		flex: 1 1 auto;
 		flex-direction: column;
-		gap: var(--ds-space-2);
+		gap: var(--ds-space-3);
 		min-height: 0;
 	}
 
@@ -7743,14 +8121,15 @@
 
 	.ds-entity-registry-title {
 		margin: 0;
-		font-size: 0.9375rem;
-		font-weight: 700;
-		letter-spacing: -0.01em;
+		font-size: 0.6875rem;
+		font-weight: 800;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
 		color: var(--ds-text-primary);
 		display: flex;
 		flex-wrap: wrap;
 		align-items: center;
-		gap: 0.625rem;
+		gap: 0.5rem;
 	}
 
 	.ds-entity-registry-subtitle {
@@ -7765,9 +8144,9 @@
 	}
 
 	.ds-entity-registry-portrait {
-		height: 2.5rem;
-		width: 2.5rem;
-		border-radius: 9999px;
+		height: 2.75rem;
+		width: 2.75rem;
+		border-radius: var(--ds-radius-md);
 		object-fit: cover;
 		border: 1px solid var(--ds-border-default);
 		background-color: var(--ds-bg-muted);
@@ -7816,11 +8195,35 @@
 	}
 
 	.ds-entity-registry-chevron {
-		flex-shrink: 0;
-		display: flex;
-		align-items: center;
-		color: var(--ds-text-muted);
-		font-size: var(--ds-type-body-size);
+		display: none;
+	}
+
+	.ds-entity-registry-row-meta {
+		margin: 0.125rem 0 0;
+		font-size: 0.625rem;
+		line-height: 1.4;
+		color: var(--ds-text-secondary);
+	}
+
+	.ds-entity-registry-row-role {
+		margin: 0.125rem 0 0;
+		font-size: 0.6875rem;
+		line-height: 1.35;
+		color: color-mix(in oklab, var(--ds-text-secondary) 92%, var(--ds-text-primary));
+	}
+
+	.ds-entity-registry-poi-badge {
+		display: inline-block;
+		margin-top: 0.25rem;
+		padding: 0.2rem 0.4rem;
+		border-radius: 2px;
+		border: 1px solid color-mix(in oklab, var(--ds-status-error-fg) 45%, transparent);
+		background-color: color-mix(in oklab, var(--ds-status-error-bg) 55%, transparent);
+		font-size: 0.5625rem;
+		font-weight: 800;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: color-mix(in oklab, var(--ds-status-error-fg) 92%, var(--ds-text-primary));
 	}
 
 	.ds-entity-registry-row {
@@ -7828,14 +8231,14 @@
 		width: 100%;
 		min-height: 44px;
 		cursor: pointer;
-		align-items: stretch;
+		align-items: flex-start;
 		gap: var(--ds-space-3);
 		border-radius: var(--ds-radius-lg);
-		border: 1px solid var(--ds-border-default);
-		background-color: color-mix(in oklab, var(--ds-bg-muted) 35%, transparent);
-		padding: 0.625rem var(--ds-space-3);
+		border: 1px solid color-mix(in oklab, var(--ds-border-default) 85%, transparent);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 28%, transparent);
+		padding: 0.75rem var(--ds-space-3);
 		text-align: left;
-		box-shadow: var(--ds-shadow-sm);
+		box-shadow: none;
 		transition:
 			border-color 0.2s ease,
 			background-color 0.2s ease,
@@ -7890,8 +8293,12 @@
 	/* —— Focus mode —— */
 	.ds-entity-focus-shell {
 		display: flex;
-		min-height: 480px;
+		min-width: 0;
+		min-height: 0;
+		flex: 1 1 0%;
 		flex-direction: column;
+		gap: var(--ds-space-3);
+		padding: var(--ds-space-3);
 		border-radius: var(--ds-radius-xl);
 		border: 1px solid var(--ds-border-default);
 		background-color: var(--ds-bg-elevated);
@@ -7900,15 +8307,21 @@
 		transition: opacity 0.2s ease;
 	}
 
-	.ds-entity-focus-header {
-		display: flex;
-		flex-shrink: 0;
-		flex-wrap: wrap;
-		align-items: center;
-		gap: var(--ds-space-4);
-		border-bottom: 1px solid var(--ds-border-default);
-		background-color: color-mix(in oklab, var(--ds-bg-muted) 35%, var(--ds-bg-elevated));
-		padding: 0.875rem var(--ds-space-4);
+	@media (max-width: 1023px) {
+		.ds-entity-focus-shell {
+			min-height: min(480px, 100%);
+		}
+	}
+
+	@media (min-width: 1024px) {
+		.ds-entity-focus-shell {
+			display: grid;
+			grid-template-columns: minmax(260px, min(36vw, 340px)) 1fr;
+			grid-template-rows: minmax(0, 1fr);
+			align-items: stretch;
+			gap: var(--ds-space-6);
+			padding: var(--ds-space-4);
+		}
 	}
 
 	.ds-entity-focus-back-btn {
@@ -7935,59 +8348,102 @@
 		background-color: var(--ds-bg-muted);
 	}
 
-	.ds-entity-focus-case-meta {
-		max-width: min(28rem, 50vw);
-		flex: 1 1 auto;
-		overflow: hidden;
-		text-overflow: ellipsis;
-		white-space: nowrap;
-		font-size: var(--ds-type-meta-size);
-		font-weight: 600;
-		color: var(--ds-text-secondary);
-	}
-
-	.ds-entity-focus-body {
+	/* Right column: detail pane — bounded flex child; inner region is the scrollport (P69-08) */
+	.ds-entity-focus-detail-wrap {
 		display: flex;
-		min-height: 0;
-		flex: 1 1 auto;
-		flex-direction: column;
-		gap: 0;
-		padding: var(--ds-space-3);
-	}
-
-	@media (min-width: 1024px) {
-		.ds-entity-focus-body {
-			flex-direction: row;
-			gap: var(--ds-space-6);
-			padding: var(--ds-space-4);
-		}
-	}
-
-	.ds-entity-focus-anchored-col {
-		display: flex;
-		min-height: 0;
-		flex-shrink: 0;
-		flex-direction: column;
-	}
-
-	@media (min-width: 1024px) {
-		.ds-entity-focus-anchored-col {
-			border-right: 1px solid var(--ds-border-default);
-			padding-right: var(--ds-space-2);
-		}
-	}
-
-	.ds-entity-focus-detail-region {
-		display: flex;
-		min-height: 0;
 		min-width: 0;
-		flex: 1 1 auto;
+		min-height: 0;
+		flex: 1 1 0%;
 		flex-direction: column;
 		overflow: hidden;
 		border-radius: var(--ds-radius-xl);
 		border: 1px solid var(--ds-border-default);
 		background-color: color-mix(in oklab, var(--ds-bg-muted) 30%, var(--ds-bg-elevated));
 		box-shadow: inset 0 1px 0 color-mix(in oklab, white 6%, transparent);
+	}
+
+	@media (min-width: 1024px) {
+		.ds-entity-focus-detail-wrap {
+			grid-column: 2;
+			grid-row: 1;
+			align-self: stretch;
+			min-height: 0;
+		}
+	}
+
+	@media (max-width: 1023px) {
+		.ds-entity-focus-detail-wrap {
+			display: contents;
+		}
+	}
+
+	.ds-entity-focus-anchored-col {
+		display: flex;
+		min-height: 0;
+		min-width: 0;
+		flex: 1 1 auto;
+		flex-shrink: 0;
+		flex-direction: column;
+	}
+
+	@media (min-width: 1024px) {
+		.ds-entity-focus-anchored-col {
+			grid-column: 1;
+			grid-row: 1;
+			flex: 1 1 auto;
+			align-self: stretch;
+		}
+	}
+
+	.ds-entity-focus-detail-region {
+		display: flex;
+		min-width: 0;
+		min-height: 0;
+		flex: 1 1 0%;
+		flex-direction: column;
+		overflow-x: hidden;
+		overflow-y: auto;
+		-webkit-overflow-scrolling: touch;
+		scrollbar-width: thin;
+		scrollbar-color: color-mix(in oklab, var(--ds-border-default) 65%, var(--ds-text-muted) 10%) transparent;
+		border-radius: 0;
+		border: 0;
+		background-color: transparent;
+		box-shadow: none;
+	}
+
+	.ds-entity-focus-detail-region::-webkit-scrollbar {
+		width: 0.4rem;
+	}
+
+	.ds-entity-focus-detail-region::-webkit-scrollbar-track {
+		background: transparent;
+	}
+
+	.ds-entity-focus-detail-region::-webkit-scrollbar-thumb {
+		border-radius: 9999px;
+		background: color-mix(in oklab, var(--ds-border-default) 55%, var(--ds-text-muted) 15%);
+		border: 2px solid transparent;
+		background-clip: content-box;
+	}
+
+	/*
+	 * Single scroll column: the detail region scrolls; do not clip header vs panel into nested scrollports
+	 * (PERSON pre-tab + tab strip + panel must stay in one column scroll when content is tall).
+	 */
+	.ds-entity-focus-detail-region .ds-entity-detail-workspace {
+		flex: 0 0 auto;
+		width: 100%;
+		min-width: 0;
+		height: auto;
+		min-height: 0;
+		overflow: visible;
+	}
+
+	.ds-entity-focus-detail-region .ds-entity-detail-panel-body {
+		flex: 0 0 auto;
+		min-height: 0;
+		overflow: visible;
 	}
 
 	.ds-entity-focus-dirty-gate-overlay {
@@ -8149,13 +8605,18 @@
 	}
 
 	/*
-	 * P77-12 — Entity detail workspace (`EntityDetailWorkspace` in Intelligence focus).
+	 * P77-12 — Entity detail workspace (Intelligence focus shell only).
+	 * Natural column height: scroll is owned by `.ds-entity-focus-detail-region` so tabs + pre-tab
+	 * are reachable (workspace must not `flex:1`+`overflow:hidden` or the scrollport has no overflow).
 	 */
 	.ds-entity-detail-workspace {
 		display: flex;
-		height: 100%;
+		width: 100%;
+		min-width: 0;
 		min-height: 0;
+		flex: 0 0 auto;
 		flex-direction: column;
+		overflow: visible;
 		color: var(--ds-text-on-canvas);
 	}
 
@@ -8172,16 +8633,1627 @@
 	}
 
 	.ds-entity-detail-header {
-		flex-shrink: 0;
-		border-bottom: 1px solid var(--ds-border-default);
+		flex: 0 0 auto;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-accent) 18%, var(--ds-border-default));
 		background: linear-gradient(
-			to right,
-			color-mix(in oklab, var(--ds-bg-elevated) 96%, var(--ds-bg-app)),
-			color-mix(in oklab, var(--ds-bg-muted) 35%, var(--ds-bg-elevated)),
-			color-mix(in oklab, var(--ds-bg-elevated) 96%, var(--ds-bg-app))
+			165deg,
+			color-mix(in oklab, var(--ds-bg-elevated) 92%, #0a1628) 0%,
+			color-mix(in oklab, var(--ds-bg-muted) 55%, #070d18) 55%,
+			color-mix(in oklab, var(--ds-bg-elevated) 88%, #0c1424) 100%
 		);
-		padding: var(--ds-space-5);
-		box-shadow: inset 0 -1px 0 color-mix(in oklab, white 4%, transparent);
+		padding: 0;
+		box-shadow: inset 0 -1px 0 color-mix(in oklab, white 5%, transparent);
+	}
+
+	.ds-entity-detail-chrome-bar {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: space-between;
+		gap: var(--ds-space-3);
+		border-bottom: 1px solid color-mix(in oklab, white 8%, var(--ds-border-default));
+		padding: var(--ds-space-3) var(--ds-space-4);
+		background-color: color-mix(in oklab, black 22%, transparent);
+	}
+
+	.ds-entity-detail-chrome-title {
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--ds-space-3);
+		min-width: 0;
+	}
+
+	.ds-entity-detail-chrome-status-pill {
+		display: inline-flex;
+		align-items: center;
+		border-radius: 9999px;
+		padding: 0.2rem 0.55rem;
+		font-size: 0.5625rem;
+		font-weight: 800;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+	}
+
+	.ds-entity-detail-chrome-status-pill--active {
+		border: 1px solid color-mix(in oklab, var(--ds-status-success-fg) 45%, var(--ds-border-default));
+		background-color: color-mix(in oklab, var(--ds-status-success-bg) 55%, transparent);
+		color: color-mix(in oklab, var(--ds-status-success-fg) 95%, white);
+	}
+
+	.ds-entity-detail-chrome-status-pill--retired {
+		border: 1px solid color-mix(in oklab, var(--ds-status-warning-fg) 45%, var(--ds-border-default));
+		background-color: color-mix(in oklab, var(--ds-status-warning-bg) 45%, transparent);
+		color: var(--ds-status-warning-fg);
+	}
+
+	.ds-entity-detail-chrome-toolbar {
+		position: relative;
+		display: inline-flex;
+		flex-wrap: wrap;
+		align-items: center;
+		justify-content: flex-end;
+		gap: var(--ds-space-2);
+	}
+
+	.ds-entity-detail-chrome-edit-btn {
+		display: inline-flex;
+		align-items: center;
+		gap: 0.35rem;
+		border-radius: var(--ds-radius-lg);
+		border: 1px solid var(--ds-border-default);
+		background-color: color-mix(in oklab, var(--ds-bg-elevated) 70%, transparent);
+		padding: 0.35rem 0.65rem;
+		font-size: var(--ds-type-meta-size);
+		font-weight: 600;
+		color: var(--ds-text-secondary);
+		cursor: not-allowed;
+		opacity: 0.85;
+	}
+
+	/* Entity detail workspace: same control height / padding / type scale as chrome Edit. */
+	.entity-detail-workspace .ds-entity-focus-back-btn {
+		padding: 0.35rem 0.65rem;
+		font-size: var(--ds-type-meta-size);
+		font-weight: 600;
+		line-height: 1.2;
+		box-shadow: none;
+	}
+
+	.ds-entity-detail-chrome-more-btn {
+		cursor: pointer;
+		list-style: none;
+		border-radius: var(--ds-radius-lg);
+		border: 1px solid var(--ds-border-default);
+		background-color: color-mix(in oklab, var(--ds-bg-elevated) 70%, transparent);
+		padding: 0.35rem 0.55rem;
+		font-size: 1rem;
+		font-weight: 700;
+		line-height: 1;
+		color: var(--ds-text-primary);
+	}
+
+	.ds-entity-detail-chrome-more-btn::-webkit-details-marker {
+		display: none;
+	}
+
+	.ds-entity-detail-chrome-more-btn:hover {
+		background-color: var(--ds-bg-muted);
+	}
+
+	.ds-entity-detail-profile-panel {
+		padding: var(--ds-space-5) var(--ds-space-4);
+	}
+
+	/* PERSON focus header: layout tuning only (photo | identity + alerts | record-details) */
+	.ds-entity-detail-profile-panel:has(.ds-entity-detail-person-header-layout) {
+		padding: var(--ds-space-4) var(--ds-space-5) var(--ds-space-5);
+	}
+
+	/* PERSON pre-tab two-row summary — dashboard composition (EntityDetailWorkspace) */
+	.ds-entity-detail-person-pretab-summary {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		gap: var(--ds-space-4);
+	}
+
+	@media (min-width: 900px) {
+		.ds-entity-detail-person-pretab-summary {
+			gap: var(--ds-space-5);
+		}
+	}
+
+	/* Contact & residency | Investigative links */
+	.ds-entity-detail-person-pretab-row-2 {
+		display: grid;
+		min-width: 0;
+		grid-template-columns: 1fr;
+		gap: var(--ds-space-3);
+	}
+
+	@media (min-width: 640px) {
+		.ds-entity-detail-person-pretab-row-2 {
+			grid-template-columns: 1fr 1fr;
+			gap: var(--ds-space-4);
+		}
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-summary-card {
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklab, var(--ds-bg-elevated) 92%, #060a12) 0%,
+			color-mix(in oklab, var(--ds-bg-muted) 32%, var(--ds-bg-elevated)) 100%
+		);
+		border-color: color-mix(in oklab, var(--ds-accent) 10%, var(--ds-border-default));
+		box-shadow:
+			0 1px 0 color-mix(in oklab, var(--ds-accent) 2.5%, transparent),
+			0 2px 10px color-mix(in oklab, black 40%, transparent);
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-summary-card .ds-entity-detail-section-label {
+		font-size: 0.8125rem;
+		font-weight: 800;
+		letter-spacing: 0.1em;
+		line-height: 1.35;
+	}
+
+	/* P132 — PERSON pre-tab: integrated 4-col surface (portrait | identity | physical | record), blue / info accent */
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-dashboard.ds-entity-detail-person-header-layout {
+		box-sizing: border-box;
+		display: grid;
+		grid-template-columns:
+			minmax(9.25rem, 1.05fr) minmax(0, 1.2fr) minmax(0, 0.95fr) minmax(0, 0.95fr);
+		grid-template-rows: auto;
+		gap: 0;
+		align-items: stretch;
+		border-radius: var(--ds-radius-xl);
+		border: 1px solid color-mix(in oklab, var(--ds-status-info-fg) 22%, var(--ds-border-default));
+		background: linear-gradient(
+			168deg,
+			color-mix(in oklab, var(--ds-status-info-fg) 4%, var(--ds-bg-elevated)) 0%,
+			color-mix(in oklab, #070b14 92%, var(--ds-bg-muted)) 100%
+		);
+		box-shadow:
+			0 1px 0 color-mix(in oklab, var(--ds-status-info-fg) 9%, transparent),
+			0 10px 28px color-mix(in oklab, black 42%, transparent),
+			inset 0 1px 0 color-mix(in oklab, var(--ds-status-info-fg) 6%, transparent);
+		overflow: hidden;
+	}
+
+	@media (min-width: 1100px) {
+		.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-dashboard.ds-entity-detail-person-header-layout {
+			grid-template-columns:
+				minmax(10rem, 1.1fr) minmax(0, 1.25fr) minmax(0, 1fr) minmax(0, 1fr);
+		}
+	}
+
+	.ds-entity-detail-person-pretab-portrait-card {
+		position: relative;
+		isolation: isolate;
+		display: grid;
+		place-items: center;
+		grid-template: 1fr / 1fr;
+		box-sizing: border-box;
+		width: 100%;
+		max-width: 10.75rem;
+		aspect-ratio: 3 / 4;
+		overflow: hidden;
+		border-radius: var(--ds-radius-lg);
+		border: 1px solid color-mix(in oklab, var(--ds-accent) 20%, var(--ds-border-default));
+		background:
+			radial-gradient(120% 90% at 15% 8%, color-mix(in oklab, var(--ds-accent) 12%, transparent) 0%, transparent 55%),
+			radial-gradient(100% 80% at 90% 95%, color-mix(in oklab, var(--ds-status-info-fg) 5%, transparent) 0%, transparent 50%),
+			linear-gradient(
+				165deg,
+				color-mix(in oklab, var(--ds-bg-elevated) 46%, var(--ds-bg-app)) 0%,
+				color-mix(in oklab, var(--ds-bg-elevated) 24%, var(--ds-bg-app)) 100%
+			);
+		box-shadow:
+			0 0 0 1px color-mix(in oklab, var(--ds-accent) 6%, transparent),
+			0 4px 18px color-mix(in oklab, black 52%, transparent),
+			inset 0 1px 0 color-mix(in oklab, white 5%, transparent);
+	}
+
+	/* Integrated pretab: portrait edge + glow use info / blue token family (values remain neutral) */
+	.ds-entity-detail-person-pretab-dashboard .ds-entity-detail-person-pretab-portrait-card {
+		border: 1px solid color-mix(in oklab, var(--ds-status-info-fg) 28%, var(--ds-border-default));
+		background:
+			radial-gradient(120% 90% at 15% 8%, color-mix(in oklab, var(--ds-status-info-fg) 10%, transparent) 0%, transparent 55%),
+			radial-gradient(100% 80% at 90% 95%, color-mix(in oklab, var(--ds-status-info-fg) 4%, transparent) 0%, transparent 50%),
+			linear-gradient(
+				165deg,
+				color-mix(in oklab, var(--ds-bg-elevated) 46%, var(--ds-bg-app)) 0%,
+				color-mix(in oklab, var(--ds-bg-elevated) 24%, var(--ds-bg-app)) 100%
+			);
+		box-shadow:
+			0 0 0 1px color-mix(in oklab, var(--ds-status-info-fg) 7%, transparent),
+			0 4px 18px color-mix(in oklab, black 52%, transparent),
+			inset 0 1px 0 color-mix(in oklab, var(--ds-status-info-fg) 4%, transparent);
+	}
+
+	.ds-entity-detail-person-pretab-col {
+		box-sizing: border-box;
+		min-width: 0;
+		padding: 0.95rem 0.95rem 1rem;
+		border-right: 1px solid color-mix(in oklab, var(--ds-border-default) 65%, transparent);
+	}
+
+	.ds-entity-detail-person-pretab-col:last-of-type {
+		border-right: none;
+	}
+
+	.ds-entity-detail-person-pretab-col--media {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.75rem;
+		padding: 0.95rem 1rem 1rem;
+		border-right: 1px solid color-mix(in oklab, var(--ds-border-default) 70%, transparent);
+		background: color-mix(in oklab, var(--ds-status-info-fg) 5%, #050a14);
+	}
+
+	.ds-entity-detail-person-pretab-col--identity {
+		padding: 0.95rem 1rem 1rem 0.85rem;
+	}
+
+	.ds-entity-detail-person-pretab-section-title {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0 0 0.8rem 0;
+		font-size: 0.8125rem;
+		font-weight: 800;
+		letter-spacing: 0.1em;
+		line-height: 1.35;
+		text-transform: uppercase;
+		color: color-mix(in oklab, var(--ds-status-info-fg) 36%, var(--ds-text-secondary));
+	}
+
+	.ds-entity-detail-person-pretab-section-accent {
+		display: inline-block;
+		width: 0.4rem;
+		height: 0.4rem;
+		flex-shrink: 0;
+		border-radius: 9999px;
+		background: linear-gradient(
+			145deg,
+			color-mix(in oklab, var(--ds-status-info-fg) 88%, transparent),
+			color-mix(in oklab, var(--ds-status-info-fg) 42%, var(--ds-bg-app))
+		);
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-status-info-fg) 42%, transparent);
+	}
+
+	.ds-entity-detail-person-pretab-rows {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.ds-entity-detail-person-pretab-row {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.7rem 0.85rem;
+		padding: 0.55rem 0.1rem 0.6rem 0.1rem;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-subtle) 55%, transparent);
+	}
+
+	.ds-entity-detail-person-pretab-row:last-child {
+		border-bottom: none;
+		padding-bottom: 0.15rem;
+	}
+
+	.ds-entity-detail-person-pretab-label {
+		flex: 0 0 auto;
+		max-width: 44%;
+		padding-top: 0.12em;
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		line-height: 1.4;
+		text-transform: uppercase;
+		color: var(--ds-text-muted);
+	}
+
+	.ds-entity-detail-person-pretab-value {
+		flex: 1 1 auto;
+		min-width: 0;
+		max-width: 100%;
+		text-align: right;
+		font-size: 0.96875rem;
+		font-weight: 500;
+		line-height: 1.42;
+		letter-spacing: 0.01em;
+		color: var(--ds-text-primary);
+		overflow-wrap: break-word;
+		word-wrap: break-word;
+	}
+
+	.ds-entity-detail-person-pretab-record-scope {
+		margin-top: 0.4rem;
+		font-size: 0.625rem;
+		line-height: 1.4;
+		opacity: 0.92;
+	}
+
+	@media (max-width: 1100px) {
+		.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-dashboard.ds-entity-detail-person-header-layout {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			grid-template-rows: auto;
+		}
+
+		.ds-entity-detail-person-pretab-col--media {
+			grid-column: 1 / -1;
+			border-right: none;
+			border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 60%, transparent);
+		}
+
+		.ds-entity-detail-person-pretab-col--record {
+			grid-column: 1 / -1;
+			border-right: none;
+			border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 50%, transparent);
+		}
+	}
+
+	@media (max-width: 640px) {
+		.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-dashboard.ds-entity-detail-person-header-layout {
+			grid-template-columns: 1fr;
+		}
+
+		.ds-entity-detail-person-pretab-col {
+			border-right: none;
+			border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 50%, transparent);
+		}
+
+		.ds-entity-detail-person-pretab-col--media {
+			border-top: none;
+		}
+	}
+
+	.ds-entity-detail-person-pretab-portrait-card::before {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		pointer-events: none;
+		border-radius: inherit;
+		background:
+			radial-gradient(ellipse 90% 70% at 50% 40%, color-mix(in oklab, var(--ds-accent) 9%, transparent) 0%, transparent 60%),
+			linear-gradient(180deg, color-mix(in oklab, white 4%, transparent) 0%, transparent 38%),
+			repeating-linear-gradient(
+				-18deg,
+				transparent 0 11px,
+				color-mix(in oklab, white 2.2%, transparent) 11px 12px
+			);
+		opacity: 0.55;
+	}
+
+	.ds-entity-detail-person-pretab-portrait-card::after {
+		content: '';
+		position: absolute;
+		inset: 0;
+		z-index: 0;
+		pointer-events: none;
+		border-radius: inherit;
+		box-shadow: inset 0 0 28px color-mix(in oklab, black 55%, transparent);
+		opacity: 0.5;
+	}
+
+	.ds-entity-detail-person-pretab-portrait-card > * {
+		position: relative;
+		z-index: 1;
+		grid-area: 1 / 1;
+		min-width: 0;
+		min-height: 0;
+		align-self: stretch;
+		justify-self: stretch;
+	}
+
+	/* Legacy 3-up layout (if ever reused without the integrated pretab dashboard) */
+	.ds-entity-detail-person-header-layout:not(.ds-entity-detail-person-pretab-dashboard) {
+		display: grid;
+		grid-template-columns: minmax(5.75rem, auto) minmax(0, 1.05fr) minmax(9.5rem, 12rem);
+		gap: var(--ds-space-3) var(--ds-space-2);
+		align-items: start;
+	}
+
+	@media (min-width: 1100px) {
+		.ds-entity-detail-person-header-layout:not(.ds-entity-detail-person-pretab-dashboard) {
+			grid-template-columns: minmax(6rem, auto) minmax(0, 1.08fr) minmax(9.5rem, 12rem);
+			gap: var(--ds-space-3) var(--ds-space-3);
+		}
+	}
+
+	@media (max-width: 900px) {
+		.ds-entity-detail-person-header-layout:not(.ds-entity-detail-person-pretab-dashboard) {
+			grid-template-columns: minmax(5.5rem, auto) minmax(0, 1fr);
+		}
+	}
+
+	.ds-entity-detail-person-header-layout .ds-entity-detail-portrait--square,
+	.ds-entity-detail-person-header-layout .ds-entity-detail-portrait-fallback--square {
+		height: 5.75rem;
+		width: 5.75rem;
+	}
+
+	@media (min-width: 1100px) {
+		.ds-entity-detail-person-header-layout .ds-entity-detail-portrait--square,
+		.ds-entity-detail-person-header-layout .ds-entity-detail-portrait-fallback--square {
+			height: 6.125rem;
+			width: 6.125rem;
+		}
+	}
+
+	.ds-entity-detail-person-header-photo {
+		display: flex;
+		flex-shrink: 0;
+		align-items: flex-start;
+		justify-content: flex-start;
+	}
+
+	.ds-entity-detail-person-header-center {
+		display: flex;
+		min-width: 0;
+		flex: 1 1 auto;
+		flex-direction: column;
+		align-items: stretch;
+		padding-top: 0.05rem;
+	}
+
+	.ds-entity-detail-person-header-center .ds-entity-detail-hero-title {
+		margin: 0 0 0.35rem 0;
+		font-size: clamp(1.2rem, 1.1rem + 0.7vw, 1.65rem);
+		font-weight: 800;
+		line-height: 1.2;
+		letter-spacing: -0.03em;
+		color: var(--ds-text-primary);
+	}
+
+	.ds-entity-detail-person-header-identity-stack {
+		display: flex;
+		flex-direction: column;
+		gap: 0;
+		margin: 0;
+	}
+
+	.ds-entity-detail-person-header-identity-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.28rem 0.65rem;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 65%, transparent);
+		padding: 0.2rem 0 0.22rem 0;
+		font-size: 0.75rem;
+		line-height: 1.3;
+	}
+
+	.ds-entity-detail-person-header-identity-row:last-of-type {
+		border-bottom: none;
+		padding-bottom: 0.1rem;
+	}
+
+	.ds-entity-detail-person-header-identity-label {
+		min-width: 2.1rem;
+		flex: 0 0 auto;
+		font-size: 0.65625rem;
+		font-weight: 600;
+		letter-spacing: 0.05em;
+		text-transform: uppercase;
+		color: var(--ds-text-muted);
+	}
+
+	.ds-entity-detail-person-header-identity-value {
+		flex: 1 1 auto;
+		min-width: 0;
+		font-size: 0.875rem;
+		font-weight: 500;
+		line-height: 1.32;
+		color: var(--ds-text-primary);
+	}
+
+	.ds-entity-detail-person-header-alert-row {
+		margin-top: 0.1rem;
+		padding-top: 0.16rem;
+		border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 50%, transparent);
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: 0.3rem 0.5rem;
+	}
+
+	.ds-entity-detail-person-header-alert-row .ds-entity-detail-role-badge,
+	.ds-entity-detail-person-header-alert-row .ds-entity-detail-role-badge--vehicle,
+	.ds-entity-detail-person-header-alert-row .ds-entity-detail-role-badge--location {
+		margin-top: 0;
+	}
+
+	.ds-entity-detail-person-header-risk-cluster {
+		gap: 0.35rem 0.45rem;
+	}
+
+	.ds-entity-detail-person-header-record-card {
+		box-sizing: border-box;
+		min-width: 0;
+		max-width: 12rem;
+		width: 100%;
+		align-self: start;
+		justify-self: end;
+		border-radius: var(--ds-radius-lg);
+		border: 1px solid var(--ds-border-default);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 30%, var(--ds-bg-elevated));
+		padding: 0.5rem 0.65rem 0.6rem;
+	}
+
+	.ds-entity-detail-person-header-record-card .ds-entity-detail-section-label {
+		margin: 0 0 0.3rem 0;
+		font-size: 0.625rem;
+		font-weight: 700;
+		letter-spacing: 0.1em;
+		line-height: 1.2;
+		color: var(--ds-text-muted);
+	}
+
+	.ds-entity-detail-person-header-record-card .ds-entity-detail-attr-grid {
+		margin-top: 0.25rem;
+		gap: 0.1rem 0;
+		grid-template-columns: 1fr;
+	}
+
+	.ds-entity-detail-person-header-record-card .ds-entity-detail-attr-dt {
+		font-size: 0.625rem;
+		font-weight: 600;
+		color: var(--ds-text-muted);
+	}
+
+	.ds-entity-detail-person-header-record-card .ds-entity-detail-attr-dd {
+		font-size: 0.75rem;
+		line-height: 1.35;
+	}
+
+	.ds-entity-detail-person-header-record-card .ds-entity-detail-scope-line {
+		margin-top: 0.3rem;
+		font-size: 0.5625rem;
+	}
+
+	.ds-entity-detail-person-header-record-card p.ds-type-meta {
+		margin-top: 0.25rem;
+		font-size: 0.6875rem;
+		line-height: 1.35;
+	}
+
+	/* Ticket 3 — PERSON entity-detail-header: surface polish (structure unchanged) */
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) {
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-accent) 12%, var(--ds-border-default));
+		box-shadow:
+			inset 0 -1px 0 color-mix(in oklab, var(--ds-accent) 5%, transparent),
+			0 1px 0 color-mix(in oklab, black 35%, transparent);
+	}
+
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) .ds-entity-detail-chrome-bar {
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-accent) 10%, var(--ds-border-default));
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklab, var(--ds-bg-elevated) 82%, #060a12) 0%,
+			color-mix(in oklab, black 8%, #080d18) 100%
+		);
+		box-shadow: inset 0 1px 0 color-mix(in oklab, var(--ds-accent) 3.5%, transparent);
+	}
+
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) .ds-entity-detail-chrome-edit-btn {
+		border-color: color-mix(in oklab, var(--ds-accent) 22%, var(--ds-border-default));
+		background-color: color-mix(in oklab, #0b101c 18%, var(--ds-bg-elevated));
+		color: color-mix(in oklab, #e9e0ff 8%, var(--ds-text-secondary));
+		opacity: 0.92;
+		box-shadow: 0 1px 0 color-mix(in oklab, white 4%, transparent);
+	}
+
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) .ds-entity-detail-chrome-edit-btn > span[aria-hidden='true'] {
+		color: color-mix(in oklab, #a78bfa 48%, var(--ds-accent-muted, var(--ds-accent)));
+		font-size: 0.9em;
+		line-height: 1;
+	}
+
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) .ds-entity-detail-chrome-more-btn {
+		border-color: color-mix(in oklab, var(--ds-accent) 22%, var(--ds-border-default));
+		background-color: color-mix(in oklab, #0b101c 18%, var(--ds-bg-elevated));
+		color: color-mix(in oklab, #c4b5fd 22%, var(--ds-text-primary));
+		box-shadow: 0 1px 0 color-mix(in oklab, white 3.5%, transparent);
+	}
+
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) .ds-entity-detail-chrome-more-btn:hover {
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 60%, #0c1220);
+	}
+
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) .ds-entity-focus-back-btn {
+		border-color: color-mix(in oklab, var(--ds-accent) 20%, var(--ds-border-default));
+		background-color: color-mix(in oklab, #0a101c 20%, var(--ds-bg-elevated));
+		box-shadow: 0 1px 0 color-mix(in oklab, white 3.5%, transparent);
+	}
+
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) .ds-entity-focus-back-btn:hover {
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 50%, #0c1424);
+	}
+
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) .ds-entity-detail-retired-banner {
+		border-color: color-mix(in oklab, var(--ds-status-warning-fg) 32%, var(--ds-border-default));
+		background-color: color-mix(in oklab, var(--ds-status-warning-bg) 38%, #0a0e16);
+	}
+
+	.ds-entity-detail-profile-panel:has(.ds-entity-detail-person-header-layout) {
+		background: linear-gradient(180deg, transparent, color-mix(in oklab, black 6%, transparent));
+	}
+
+	.ds-entity-detail-person-header-layout .ds-entity-detail-portrait--square,
+	.ds-entity-detail-person-header-layout .ds-entity-detail-portrait-fallback--square {
+		border-color: color-mix(in oklab, var(--ds-accent) 18%, var(--ds-border-default));
+		box-shadow:
+			0 0 0 1px color-mix(in oklab, var(--ds-accent) 8%, transparent),
+			0 2px 10px color-mix(in oklab, black 48%, transparent),
+			inset 0 1px 0 color-mix(in oklab, white 7%, transparent);
+	}
+
+	.ds-entity-detail-person-header-center .ds-entity-detail-hero-title {
+		color: color-mix(in oklab, white 2%, var(--ds-text-primary));
+		text-shadow: 0 1px 3px color-mix(in oklab, black 55%, transparent);
+	}
+
+	.ds-entity-detail-person-header-identity-row {
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 30%, #020508);
+	}
+
+	.ds-entity-detail-person-header-identity-label {
+		color: color-mix(in oklab, var(--ds-text-muted) 88%, #94a3b8);
+	}
+
+	.ds-entity-detail-person-header-identity-value {
+		font-weight: 500;
+		color: color-mix(in oklab, var(--ds-text-primary) 97%, #e2e8f0);
+	}
+
+	.ds-entity-detail-person-header-alert-row {
+		border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 32%, #020508);
+	}
+
+	.ds-entity-detail-person-header-alert-row .ds-entity-detail-role-badge,
+	.ds-entity-detail-person-header-alert-row .ds-entity-detail-role-badge--vehicle,
+	.ds-entity-detail-person-header-alert-row .ds-entity-detail-role-badge--location {
+		border-color: color-mix(in oklab, #f87171 45%, #450a0a);
+		background: linear-gradient(
+			180deg,
+			color-mix(in oklab, #7f1d1d 45%, #1a0a0a) 0%,
+			color-mix(in oklab, #0f0a0a 88%, #2a0c0c) 100%
+		);
+		box-shadow: 0 1px 0 color-mix(in oklab, #f87171 8%, transparent);
+		color: #fecdd3;
+	}
+
+	.ds-entity-detail-person-header-risk-cluster .ds-entity-detail-risk-diamond--high {
+		box-shadow: 0 0 6px color-mix(in oklab, #ef4444 32%, transparent);
+	}
+
+	.ds-entity-detail-person-header-risk-cluster .ds-entity-detail-risk-diamond--med,
+	.ds-entity-detail-person-header-risk-cluster .ds-entity-detail-risk-diamond--low {
+		opacity: 0.95;
+	}
+
+	.ds-entity-detail-person-header-record-card {
+		border: 1px solid color-mix(in oklab, var(--ds-accent) 9%, var(--ds-border-default));
+		background: linear-gradient(
+			170deg,
+			color-mix(in oklab, #0c101c 22%, var(--ds-bg-elevated)) 0%,
+			color-mix(in oklab, #060a12 20%, var(--ds-bg-muted)) 100%
+		);
+		box-shadow:
+			0 1px 2px color-mix(in oklab, black 40%, transparent),
+			inset 0 1px 0 color-mix(in oklab, var(--ds-accent) 1.2%, transparent);
+	}
+
+	.ds-entity-detail-person-header-record-card .ds-entity-detail-section-label {
+		color: color-mix(in oklab, var(--ds-text-muted) 93%, #94a3b8);
+	}
+
+	.ds-entity-detail-person-header-record-card .ds-entity-detail-attr-dt {
+		color: color-mix(in oklab, var(--ds-text-muted) 88%, #64748b);
+	}
+
+	.ds-entity-detail-person-header-record-card .ds-entity-detail-attr-dd {
+		color: color-mix(in oklab, var(--ds-text-primary) 94%, #e2e8f0);
+	}
+
+	.ds-entity-detail-person-header-record-card .ds-entity-detail-scope-line {
+		color: color-mix(in oklab, var(--ds-text-muted) 95%, #64748b);
+	}
+
+	/* PERSON pre-tab: hierarchy + record summary (wins over Ticket 3 polish above) */
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-header-center {
+		padding: 0.15rem 0.5rem 0 0.15rem;
+		min-width: 0;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-header-center .ds-entity-detail-hero-title {
+		margin: 0 0 0.75rem 0;
+		font-size: clamp(1.8rem, 1.35rem + 1.1vw, 2.1rem);
+		font-weight: 800;
+		line-height: 1.08;
+		letter-spacing: -0.035em;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-header-identity-stack {
+		padding: 0.2rem 0.15rem 0.35rem 0;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 50%, var(--ds-bg-app));
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-header-identity-row {
+		padding: 0.5rem 0.12rem 0.5rem 0;
+		margin: 0;
+		border: none;
+		border-radius: 0;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 50%, var(--ds-bg-app));
+		background: transparent;
+		gap: 0.55rem 0.95rem;
+		font-size: 0.875rem;
+		line-height: 1.42;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-header-identity-row:last-of-type {
+		padding-bottom: 0.38rem;
+		border-bottom: none;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-header-identity-label {
+		min-width: 2.6rem;
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		text-transform: uppercase;
+		line-height: 1.4;
+		color: var(--ds-text-muted);
+		opacity: 0.95;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-header-identity-value {
+		font-size: 0.96875rem;
+		font-weight: 600;
+		line-height: 1.42;
+		letter-spacing: 0.01em;
+		font-variant-numeric: tabular-nums;
+		color: var(--ds-text-primary);
+	}
+
+	/* DOB + AGE as two field pairs, spaced apart */
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-header-identity-dob-with-age {
+		display: flex;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: flex-end;
+		column-gap: 1.75rem;
+		row-gap: 0.4rem;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-header-identity-field-pair {
+		display: flex;
+		min-width: 0;
+		flex: 0 1 auto;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: baseline;
+		gap: 0.4rem 0.75rem;
+	}
+
+	.ds-entity-detail-person-pretab-tactical-strip.ds-entity-detail-person-header-alert-row {
+		margin-top: 0.55rem;
+		padding: 0.45rem 0.15rem 0.35rem 0.05rem;
+		border: none;
+		border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 45%, var(--ds-bg-app));
+		border-radius: 0;
+		gap: 0.5rem 0.75rem;
+		background: transparent;
+		box-shadow: none;
+	}
+
+	@media (min-width: 1100px) {
+		.ds-entity-detail-person-pretab-tactical-strip.ds-entity-detail-person-header-alert-row {
+			padding: 0.5rem 0.2rem 0.38rem 0.05rem;
+		}
+	}
+
+	/* Row 2: dashboard summary rows (align with VEHICLE pre-tab row rhythm) */
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-row-2 .ds-entity-detail-attr-grid {
+		margin-top: 0.45rem;
+		gap: 0;
+		grid-template-columns: 1fr;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-row-2 .ds-entity-detail-section-label {
+		font-size: 0.8125rem;
+		font-weight: 800;
+		letter-spacing: 0.1em;
+		line-height: 1.35;
+	}
+
+	.ds-entity-detail-person-pretab-summary
+		.ds-entity-detail-person-pretab-row-2
+		.ds-entity-detail-person-pretab-summary-card.ds-intelligence-panel {
+		padding: 1rem 1.1rem 1.1rem;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-row-2 .ds-entity-detail-attr-cell {
+		display: flex;
+		flex-direction: row;
+		flex-wrap: wrap;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.35rem 0.75rem;
+		border: none;
+		border-radius: 0;
+		background: transparent;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-subtle) 55%, var(--ds-bg-app));
+		padding: 0.5rem 0.08rem 0.55rem 0.05rem;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-row-2 .ds-entity-detail-attr-cell:last-of-type {
+		border-bottom: none;
+		padding-bottom: 0.25rem;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-row-2 .ds-entity-detail-attr-dt {
+		flex: 0 1 auto;
+		max-width: 44%;
+		margin: 0;
+		padding-top: 0.1em;
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		line-height: 1.4;
+		color: var(--ds-text-muted);
+		text-transform: uppercase;
+	}
+
+	.ds-entity-detail-person-pretab-summary .ds-entity-detail-person-pretab-row-2 .ds-entity-detail-attr-dd {
+		flex: 1 1 12rem;
+		min-width: 0;
+		margin: 0;
+		text-align: right;
+		font-size: 0.96875rem;
+		font-weight: 500;
+		line-height: 1.42;
+		letter-spacing: 0.01em;
+		color: var(--ds-text-primary);
+		overflow-wrap: break-word;
+	}
+
+	.ds-entity-detail-header:has(.ds-entity-detail-person-header-layout) [data-testid='entity-detail-entity-focus-affordance'] {
+		border-color: color-mix(in oklab, var(--ds-accent) 16%, var(--ds-border-subtle, var(--ds-border-default)));
+		background: color-mix(in oklab, #0b1220 55%, var(--ds-bg-elevated));
+		box-shadow: inset 0 1px 0 color-mix(in oklab, var(--ds-accent) 2.5%, transparent);
+	}
+
+	.ds-entity-detail-profile-hero {
+		display: grid;
+		grid-template-columns: auto 1fr;
+		gap: var(--ds-space-4);
+		align-items: start;
+	}
+
+	@media (max-width: 520px) {
+		.ds-entity-detail-profile-hero {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	/* P132 — Unified `EntityPretabSummary` media-grid — VEHICLE shell (warning accent) */
+	.ds-entity-pretab-dashboard[data-entity-kind='VEHICLE'] {
+		box-sizing: border-box;
+		display: grid;
+		grid-template-columns: minmax(12rem, 1.3fr) minmax(0, 0.95fr) minmax(0, 1.15fr) minmax(0, 0.68fr);
+		grid-template-rows: auto auto;
+		gap: 0;
+		align-items: stretch;
+		border-radius: var(--ds-radius-xl);
+		border: 1px solid color-mix(in oklab, var(--ds-status-warning-fg) 22%, var(--ds-border-default));
+		background: linear-gradient(
+			165deg,
+			color-mix(in oklab, var(--ds-status-warning-fg) 4%, var(--ds-bg-elevated)) 0%,
+			color-mix(in oklab, #070b14 92%, var(--ds-bg-muted)) 100%
+		);
+		box-shadow:
+			0 1px 0 color-mix(in oklab, var(--ds-status-warning-fg) 10%, transparent),
+			0 10px 28px color-mix(in oklab, black 42%, transparent),
+			inset 0 1px 0 color-mix(in oklab, var(--ds-status-warning-fg) 7%, transparent);
+		overflow: hidden;
+	}
+
+	/* LOCATION shell (teal accent) */
+	.ds-entity-pretab-dashboard[data-entity-kind='LOCATION'] {
+		box-sizing: border-box;
+		display: grid;
+		grid-template-columns: minmax(11.5rem, 1.15fr) minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 0.95fr);
+		grid-template-rows: auto auto;
+		gap: 0;
+		align-items: stretch;
+		border-radius: var(--ds-radius-xl);
+		border: 1px solid color-mix(in oklab, #14b8a6 20%, var(--ds-border-default));
+		background: linear-gradient(
+			168deg,
+			color-mix(in oklab, #0a1218 90%, var(--ds-bg-elevated)) 0%,
+			color-mix(in oklab, #061018 92%, var(--ds-bg-muted)) 100%
+		);
+		box-shadow:
+			0 1px 0 color-mix(in oklab, #5eead4 8%, transparent),
+			0 10px 28px color-mix(in oklab, black 42%, transparent),
+			inset 0 1px 0 color-mix(in oklab, #14b8a6 5%, transparent);
+		overflow: hidden;
+	}
+
+	/* PHONE shell (restrained neutral — not neon white) */
+	.ds-entity-pretab-dashboard[data-entity-kind='PHONE'] {
+		box-sizing: border-box;
+		display: grid;
+		grid-template-columns: minmax(11.5rem, 1.15fr) minmax(0, 1fr) minmax(0, 1.05fr) minmax(0, 0.95fr);
+		grid-template-rows: auto auto;
+		gap: 0;
+		align-items: stretch;
+		border-radius: var(--ds-radius-xl);
+		border: 1px solid color-mix(in oklab, var(--ds-text-secondary) 16%, var(--ds-border-default));
+		background: linear-gradient(
+			168deg,
+			color-mix(in oklab, var(--ds-bg-elevated) 94%, #080c14) 0%,
+			color-mix(in oklab, #070b14 92%, var(--ds-bg-muted)) 100%
+		);
+		box-shadow:
+			0 1px 0 color-mix(in oklab, white 3%, transparent),
+			0 10px 28px color-mix(in oklab, black 42%, transparent),
+			inset 0 1px 0 color-mix(in oklab, var(--ds-text-secondary) 4%, transparent);
+		overflow: hidden;
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-col--media {
+		display: flex;
+		min-width: 0;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.75rem;
+		padding: 0.95rem 1rem 1rem;
+		border-right: 1px solid color-mix(in oklab, var(--ds-border-default) 70%, transparent);
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='VEHICLE'] .ds-entity-pretab-col--media {
+		background: color-mix(in oklab, var(--ds-status-warning-fg) 5%, #050a14);
+	}
+
+	.ds-entity-pretab-media-landscape {
+		display: flex;
+		width: 100%;
+		min-width: 0;
+		flex-direction: column;
+		align-items: stretch;
+		gap: 0.75rem;
+	}
+
+	.ds-entity-pretab-aspect {
+		position: relative;
+		width: 100%;
+		aspect-ratio: 16 / 9;
+		min-height: 7.5rem;
+		max-height: 14rem;
+		border-radius: var(--ds-radius-lg);
+		overflow: hidden;
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='VEHICLE'] .ds-entity-pretab-aspect {
+		border: 1px solid color-mix(in oklab, var(--ds-status-warning-fg) 30%, var(--ds-border-default));
+		background: color-mix(in oklab, #0c1424 55%, var(--ds-bg-muted));
+	}
+
+	.ds-entity-pretab-landscape-photo {
+		display: block;
+		width: 100%;
+		height: 100%;
+		object-fit: cover;
+		object-position: center;
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='VEHICLE'] .ds-entity-pretab-fallback {
+		display: flex;
+		width: 100%;
+		height: 100%;
+		min-height: 6.5rem;
+		align-items: center;
+		justify-content: center;
+		background: radial-gradient(
+			ellipse at 50% 40%,
+			color-mix(in oklab, var(--ds-status-warning-fg) 16%, transparent),
+			color-mix(in oklab, #0a0f18 95%, transparent)
+		);
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-fallback {
+		display: flex;
+		width: 100%;
+		height: 100%;
+		min-height: 6.5rem;
+		align-items: center;
+		justify-content: center;
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='VEHICLE'] .ds-entity-pretab-fallback :is(svg) {
+		color: color-mix(in oklab, var(--ds-status-warning-fg) 88%, var(--ds-text-muted));
+	}
+
+	.ds-entity-pretab-kind-badge {
+		align-self: center;
+		margin-top: 0;
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-col {
+		box-sizing: border-box;
+		min-width: 0;
+		padding: 0.95rem 0.95rem 1rem;
+		border-right: 1px solid color-mix(in oklab, var(--ds-border-default) 65%, transparent);
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-col:last-of-type {
+		border-right: none;
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-section-title {
+		display: flex;
+		align-items: center;
+		gap: 0.5rem;
+		margin: 0 0 0.8rem 0;
+		font-size: 0.8125rem;
+		font-weight: 800;
+		letter-spacing: 0.1em;
+		line-height: 1.35;
+		text-transform: uppercase;
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='VEHICLE'] .ds-entity-pretab-section-title {
+		color: color-mix(in oklab, var(--ds-status-warning-fg) 38%, var(--ds-text-secondary));
+	}
+
+	.ds-entity-pretab-section-accent {
+		display: inline-block;
+		width: 0.4rem;
+		height: 0.4rem;
+		flex-shrink: 0;
+		border-radius: 9999px;
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='VEHICLE'] .ds-entity-pretab-section-accent {
+		background: linear-gradient(
+			145deg,
+			color-mix(in oklab, var(--ds-status-warning-fg) 90%, transparent),
+			color-mix(in oklab, var(--ds-status-warning-fg) 40%, var(--ds-bg-app))
+		);
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-status-warning-fg) 45%, transparent);
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-rows {
+		display: flex;
+		flex-direction: column;
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-row {
+		display: flex;
+		align-items: flex-start;
+		justify-content: space-between;
+		gap: 0.7rem 0.85rem;
+		padding: 0.55rem 0.1rem 0.6rem 0.1rem;
+		border-bottom: 1px solid color-mix(in oklab, var(--ds-border-subtle) 55%, transparent);
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-row:last-child {
+		border-bottom: none;
+		padding-bottom: 0.15rem;
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-label {
+		flex: 0 0 auto;
+		max-width: 44%;
+		padding-top: 0.12em;
+		font-size: 0.75rem;
+		font-weight: 700;
+		letter-spacing: 0.08em;
+		line-height: 1.4;
+		text-transform: uppercase;
+		color: var(--ds-text-muted);
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-value {
+		flex: 1 1 auto;
+		min-width: 0;
+		max-width: 100%;
+		text-align: right;
+		font-size: 0.96875rem;
+		font-weight: 500;
+		line-height: 1.42;
+		letter-spacing: 0.01em;
+		color: var(--ds-text-primary);
+		overflow-wrap: break-word;
+		word-wrap: break-word;
+	}
+
+	/* VIN: tabular/mono, intentional wraps (avoid single-glyph orphans) */
+	.ds-entity-pretab-value--vin {
+		font-size: 0.95rem;
+		font-weight: 600;
+		font-family:
+			ui-monospace,
+			'Cascadia Code',
+			'Source Code Pro',
+			Menlo,
+			Consolas,
+			'DejaVu Sans Mono',
+			monospace;
+		font-variant-numeric: tabular-nums;
+		font-feature-settings: 'tnum' 1;
+		line-height: 1.45;
+		letter-spacing: 0.04em;
+		overflow-wrap: anywhere;
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-notes {
+		margin: 0;
+		font-size: 0.9375rem;
+		font-weight: 500;
+		line-height: 1.45;
+		color: var(--ds-text-primary);
+		white-space: pre-wrap;
+		overflow-wrap: break-word;
+		word-wrap: break-word;
+	}
+
+	.ds-entity-pretab-summary:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		)
+		.ds-entity-pretab-notes--placeholder {
+		font-size: 0.9rem;
+		font-weight: 500;
+		font-style: italic;
+		color: color-mix(in oklab, var(--ds-text-muted) 92%, var(--ds-text-primary));
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='VEHICLE'] .ds-entity-pretab-foot {
+		grid-column: 1 / -1;
+		margin: 0;
+		padding: 0.4rem 0.85rem 0.75rem;
+		border-top: 1px solid color-mix(in oklab, var(--ds-status-warning-fg) 14%, var(--ds-border-default));
+		background: color-mix(in oklab, var(--ds-status-warning-fg) 4%, #050a12);
+	}
+
+	@media (max-width: 1100px) {
+		.ds-entity-pretab-dashboard:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		) {
+			grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+			grid-template-rows: auto;
+		}
+
+		.ds-entity-pretab-summary:where(
+				[data-entity-kind='VEHICLE'],
+				[data-entity-kind='LOCATION'],
+				[data-entity-kind='PHONE']
+			)
+			.ds-entity-pretab-col--media {
+			grid-column: 1 / -1;
+			border-right: none;
+			border-bottom: 1px solid color-mix(in oklab, var(--ds-border-default) 60%, transparent);
+		}
+
+		.ds-entity-pretab-summary:where(
+				[data-entity-kind='VEHICLE'],
+				[data-entity-kind='LOCATION'],
+				[data-entity-kind='PHONE']
+			)
+			.ds-entity-pretab-col--field {
+			border-right: 1px solid color-mix(in oklab, var(--ds-border-default) 55%, transparent);
+		}
+
+		.ds-entity-pretab-summary:where(
+				[data-entity-kind='VEHICLE'],
+				[data-entity-kind='LOCATION'],
+				[data-entity-kind='PHONE']
+			)
+			.ds-entity-pretab-col--notes {
+			grid-column: 1 / -1;
+			border-right: none;
+			border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 50%, transparent);
+		}
+
+		.ds-entity-pretab-summary:where(
+				[data-entity-kind='LOCATION'],
+				[data-entity-kind='PHONE']
+			)
+			.ds-entity-pretab-col--record {
+			grid-column: 1 / -1;
+			border-right: none;
+			border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 50%, transparent);
+		}
+	}
+
+	@media (max-width: 640px) {
+		.ds-entity-pretab-dashboard:where(
+			[data-entity-kind='VEHICLE'],
+			[data-entity-kind='LOCATION'],
+			[data-entity-kind='PHONE']
+		) {
+			grid-template-columns: 1fr;
+		}
+
+		.ds-entity-pretab-summary:where(
+				[data-entity-kind='VEHICLE'],
+				[data-entity-kind='LOCATION'],
+				[data-entity-kind='PHONE']
+			)
+			.ds-entity-pretab-col--field,
+		.ds-entity-pretab-summary:where(
+				[data-entity-kind='VEHICLE'],
+				[data-entity-kind='LOCATION'],
+				[data-entity-kind='PHONE']
+			)
+			.ds-entity-pretab-col--notes,
+		.ds-entity-pretab-summary:where(
+				[data-entity-kind='LOCATION'],
+				[data-entity-kind='PHONE']
+			)
+			.ds-entity-pretab-col--record {
+			border-right: none;
+			border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 50%, transparent);
+		}
+
+		.ds-entity-pretab-summary:where(
+				[data-entity-kind='VEHICLE'],
+				[data-entity-kind='LOCATION'],
+				[data-entity-kind='PHONE']
+			)
+			.ds-entity-pretab-col--media {
+			border-top: none;
+		}
+	}
+
+	/* LOCATION: theme overrides (shared `ds-entity-pretab-*` structure) */
+	.ds-entity-pretab-summary[data-entity-kind='LOCATION'] .ds-entity-pretab-col--media {
+		background: color-mix(in oklab, #040f14 50%, transparent);
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='LOCATION'] .ds-entity-pretab-aspect {
+		border: 1px solid color-mix(in oklab, #14b8a6 32%, var(--ds-border-default));
+		background: color-mix(in oklab, #0a1820 70%, var(--ds-bg-muted));
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='LOCATION'] .ds-entity-pretab-fallback {
+		background: radial-gradient(
+			ellipse at 50% 40%,
+			color-mix(in oklab, #0f3d34 45%, transparent),
+			color-mix(in oklab, #040c10 96%, transparent)
+		);
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='LOCATION'] .ds-entity-pretab-fallback :is(svg) {
+		color: color-mix(in oklab, #5eead4 72%, var(--ds-text-muted));
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='LOCATION'] .ds-entity-pretab-section-title {
+		color: color-mix(in oklab, #5eead4 75%, var(--ds-text-secondary));
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='LOCATION'] .ds-entity-pretab-section-accent {
+		background: linear-gradient(
+			145deg,
+			color-mix(in oklab, #2dd4bf 95%, transparent),
+			color-mix(in oklab, #0d9488 90%, transparent)
+		);
+		box-shadow: 0 0 0 1px color-mix(in oklab, #14b8a6 50%, transparent);
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='LOCATION'] .ds-entity-pretab-foot {
+		grid-column: 1 / -1;
+		margin: 0;
+		padding: 0.4rem 0.85rem 0.75rem;
+		border-top: 1px solid color-mix(in oklab, var(--ds-border-default) 60%, transparent);
+		background: color-mix(in oklab, #040c10 35%, transparent);
+	}
+
+	/* PHONE: neutral / restrained */
+	.ds-entity-pretab-summary[data-entity-kind='PHONE'] .ds-entity-pretab-col--media {
+		background: color-mix(in oklab, var(--ds-text-secondary) 5%, #050a14);
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='PHONE'] .ds-entity-pretab-aspect {
+		border: 1px solid color-mix(in oklab, var(--ds-text-secondary) 22%, var(--ds-border-default));
+		background: color-mix(in oklab, #0a0f16 60%, var(--ds-bg-muted));
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='PHONE'] .ds-entity-pretab-fallback {
+		background: radial-gradient(
+			ellipse at 50% 40%,
+			color-mix(in oklab, var(--ds-text-secondary) 10%, transparent),
+			color-mix(in oklab, #0a0f18 95%, transparent)
+		);
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='PHONE'] .ds-entity-pretab-fallback :is(svg) {
+		color: color-mix(in oklab, var(--ds-text-primary) 55%, var(--ds-text-muted));
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='PHONE'] .ds-entity-pretab-section-title {
+		color: color-mix(in oklab, var(--ds-text-secondary) 55%, var(--ds-text-primary));
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='PHONE'] .ds-entity-pretab-section-accent {
+		background: linear-gradient(
+			145deg,
+			color-mix(in oklab, var(--ds-text-primary) 22%, var(--ds-bg-elevated)),
+			color-mix(in oklab, var(--ds-text-secondary) 15%, var(--ds-bg-app))
+		);
+		box-shadow: 0 0 0 1px color-mix(in oklab, var(--ds-text-secondary) 20%, var(--ds-border-default));
+	}
+
+	.ds-entity-pretab-summary[data-entity-kind='PHONE'] .ds-entity-pretab-foot {
+		grid-column: 1 / -1;
+		margin: 0;
+		padding: 0.4rem 0.85rem 0.75rem;
+		border-top: 1px solid color-mix(in oklab, var(--ds-border-subtle) 50%, var(--ds-border-default));
+		background: color-mix(in oklab, #06080f 30%, transparent);
+	}
+
+	.ds-entity-pretab-value--coord {
+		font-size: 0.9rem;
+		font-weight: 500;
+		font-family:
+			ui-monospace,
+			'Cascadia Code',
+			Menlo,
+			Consolas,
+			monospace;
+		font-variant-numeric: tabular-nums;
+		line-height: 1.45;
+		overflow-wrap: anywhere;
+	}
+
+	.ds-entity-detail-role-badge {
+		display: inline-flex;
+		margin-top: var(--ds-space-2);
+		border-radius: 9999px;
+		border: 1px solid color-mix(in oklab, #f87171 55%, var(--ds-border-default));
+		background: linear-gradient(
+			to bottom,
+			color-mix(in oklab, #ef4444 22%, var(--ds-bg-muted)),
+			color-mix(in oklab, #b91c1c 12%, var(--ds-bg-muted))
+		);
+		padding: 0.2rem 0.65rem;
+		font-size: 0.5625rem;
+		font-weight: 800;
+		letter-spacing: 0.1em;
+		text-transform: uppercase;
+		color: #fecaca;
+	}
+
+	.ds-entity-detail-role-badge--vehicle {
+		border-color: color-mix(in oklab, var(--ds-status-info-fg) 45%, var(--ds-border-default));
+		background: linear-gradient(
+			to bottom,
+			color-mix(in oklab, var(--ds-status-info-bg) 55%, var(--ds-bg-muted)),
+			color-mix(in oklab, var(--ds-status-info-fg) 15%, var(--ds-bg-muted))
+		);
+		color: var(--ds-status-info-fg);
+	}
+
+	.ds-entity-detail-role-badge--location {
+		border-color: color-mix(in oklab, var(--ds-status-warning-fg) 45%, var(--ds-border-default));
+		background: linear-gradient(
+			to bottom,
+			color-mix(in oklab, var(--ds-status-warning-bg) 50%, var(--ds-bg-muted)),
+			color-mix(in oklab, var(--ds-status-warning-fg) 12%, var(--ds-bg-muted))
+		);
+		color: var(--ds-status-warning-fg);
+	}
+
+	/* PHONE future pretab — restrained neutral, not bright white. */
+	.ds-entity-detail-role-badge--phone {
+		border-color: color-mix(in oklab, var(--ds-text-secondary) 32%, var(--ds-border-default));
+		background: linear-gradient(
+			to bottom,
+			color-mix(in oklab, var(--ds-bg-elevated) 55%, var(--ds-bg-muted)),
+			color-mix(in oklab, var(--ds-text-muted) 8%, var(--ds-bg-muted))
+		);
+		color: color-mix(in oklab, var(--ds-text-primary) 85%, var(--ds-text-secondary));
+	}
+
+	.ds-entity-detail-profile-meta-grid {
+		margin-top: var(--ds-space-4);
+		display: grid;
+		grid-template-columns: repeat(2, minmax(0, 1fr));
+		gap: var(--ds-space-2) var(--ds-space-6);
+	}
+
+	@media (max-width: 640px) {
+		.ds-entity-detail-profile-meta-grid {
+			grid-template-columns: 1fr;
+		}
+	}
+
+	.ds-entity-detail-portrait--square {
+		height: 4.5rem;
+		width: 4.5rem;
+		border-radius: var(--ds-radius-xl);
+	}
+
+	.ds-entity-detail-portrait-fallback--square {
+		height: 4.5rem;
+		width: 4.5rem;
+		border-radius: var(--ds-radius-xl);
+	}
+
+	.ds-entity-detail-overview-story {
+		margin: 0;
+		font-size: var(--ds-type-body-size);
+		line-height: 1.55;
+		color: var(--ds-text-secondary);
+	}
+
+	.ds-entity-detail-risk-block {
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-2);
+	}
+
+	.ds-entity-detail-risk-row {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--ds-space-2);
+	}
+
+	.ds-entity-detail-risk-diamond {
+		display: inline-block;
+		height: 0.5rem;
+		width: 0.5rem;
+		transform: rotate(45deg);
+		border-radius: 1px;
+	}
+
+	.ds-entity-detail-risk-diamond--high {
+		background: #ef4444;
+		box-shadow: 0 0 10px color-mix(in oklab, #ef4444 55%, transparent);
+	}
+
+	.ds-entity-detail-risk-diamond--med {
+		background: #f97316;
+	}
+
+	.ds-entity-detail-risk-diamond--low {
+		background: #22c55e;
+	}
+
+	.ds-entity-detail-risk-level-pill {
+		margin-left: auto;
+		border-radius: 9999px;
+		padding: 0.1rem 0.45rem;
+		font-size: 0.5625rem;
+		font-weight: 800;
+		letter-spacing: 0.06em;
+		text-transform: uppercase;
+	}
+
+	.ds-entity-detail-risk-level-pill--high {
+		border: 1px solid color-mix(in oklab, #ef4444 55%, transparent);
+		background: color-mix(in oklab, #ef4444 18%, transparent);
+		color: #fecaca;
+	}
+
+	.ds-entity-detail-risk-level-pill--med {
+		border: 1px solid color-mix(in oklab, #f97316 55%, transparent);
+		background: color-mix(in oklab, #f97316 18%, transparent);
+		color: #ffedd5;
+	}
+
+	.ds-entity-detail-risk-level-pill--low {
+		border: 1px solid color-mix(in oklab, #22c55e 55%, transparent);
+		background: color-mix(in oklab, #22c55e 16%, transparent);
+		color: #dcfce7;
+	}
+
+	.ds-entity-detail-tag-block {
+		display: flex;
+		flex-wrap: wrap;
+		align-items: center;
+		gap: var(--ds-space-2);
+	}
+
+	.ds-entity-detail-tag-pill {
+		border-radius: 9999px;
+		border: 1px solid var(--ds-border-default);
+		background-color: color-mix(in oklab, var(--ds-bg-muted) 65%, transparent);
+		padding: 0.2rem 0.55rem;
+		font-size: var(--ds-type-meta-size);
+		font-weight: 600;
+		color: var(--ds-text-primary);
+	}
+
+	.ds-entity-detail-tag-add-btn {
+		display: inline-flex;
+		height: 1.75rem;
+		width: 1.75rem;
+		align-items: center;
+		justify-content: center;
+		border-radius: var(--ds-radius-lg);
+		border: 1px dashed var(--ds-border-default);
+		background: transparent;
+		font-size: 1rem;
+		font-weight: 600;
+		line-height: 1;
+		color: var(--ds-text-muted);
+		cursor: not-allowed;
+	}
+
+	.ds-entity-detail-shortcuts-strip {
+		margin-top: var(--ds-space-4);
+		display: flex;
+		flex-direction: column;
+		gap: var(--ds-space-2);
+		padding-top: var(--ds-space-3);
+		border-top: 1px dashed color-mix(in oklab, var(--ds-border-default) 80%, transparent);
 	}
 
 	.ds-entity-detail-retired-banner {
@@ -8236,6 +10308,46 @@
 		font-weight: 700;
 		color: var(--ds-text-primary);
 		box-shadow: var(--ds-shadow-sm);
+	}
+
+	/* PERSON pre-tab: large rectangular hero image (overrides default circular .ds-entity-detail-portrait) */
+	.ds-entity-detail-portrait--pretab-hero {
+		display: block;
+		height: 100%;
+		width: 100%;
+		max-width: none;
+		max-height: none;
+		flex: none;
+		border-radius: 0;
+		box-shadow: none;
+		object-fit: cover;
+		object-position: center 12%;
+	}
+
+	.ds-entity-detail-portrait-fallback--pretab-hero {
+		display: flex;
+		height: 100%;
+		width: 100%;
+		min-width: 0;
+		min-height: 0;
+		flex: none;
+		align-items: center;
+		justify-content: center;
+		border-radius: 0;
+		box-shadow: none;
+		font-size: clamp(1.6rem, 1rem + 2.5vw, 2.35rem);
+		font-weight: 800;
+		letter-spacing: 0.02em;
+	}
+
+	.ds-entity-detail-person-pretab-portrait-card .ds-entity-detail-portrait-fallback--pretab-hero {
+		font-size: clamp(1.65rem, 0.95rem + 2.4vw, 2.35rem);
+		font-weight: 800;
+		letter-spacing: 0.05em;
+		color: color-mix(in oklab, var(--ds-accent) 20%, var(--ds-text-primary));
+		text-shadow:
+			0 1px 0 color-mix(in oklab, white 6%, transparent),
+			0 2px 14px color-mix(in oklab, black 58%, transparent);
 	}
 
 	.ds-entity-detail-kind-tile--vehicle,
@@ -8337,7 +10449,10 @@
 
 	.ds-entity-detail-actions-wrap {
 		position: relative;
+		display: flex;
 		flex-shrink: 0;
+		align-items: flex-start;
+		gap: var(--ds-space-2);
 	}
 
 	.ds-entity-detail-actions-summary {
@@ -8487,32 +10602,33 @@
 
 	.ds-entity-detail-tabstrip {
 		display: flex;
-		flex-shrink: 0;
+		flex: 0 0 auto;
 		gap: var(--ds-space-1);
 		overflow-x: auto;
-		border-bottom: 1px solid var(--ds-border-default);
-		background-color: color-mix(in oklab, var(--ds-bg-elevated) 88%, var(--ds-bg-app));
-		padding: var(--ds-space-3) var(--ds-space-3) 0;
+		border-bottom: 1px solid color-mix(in oklab, white 10%, var(--ds-border-default));
+		background-color: color-mix(in oklab, var(--ds-bg-elevated) 75%, #050a12);
+		padding: var(--ds-space-2) var(--ds-space-4) 0;
 		backdrop-filter: blur(10px);
-		box-shadow: inset 0 1px 0 color-mix(in oklab, white 4%, transparent);
 	}
 
 	.ds-entity-detail-tab {
 		flex-shrink: 0;
+		position: relative;
 		border: none;
-		border-bottom: 3px solid transparent;
-		border-radius: var(--ds-radius-lg) var(--ds-radius-lg) 0 0;
+		border-bottom: 2px solid transparent;
+		border-radius: 0;
 		background: transparent;
-		padding: var(--ds-space-2) var(--ds-space-3);
+		padding: var(--ds-space-3) var(--ds-space-2);
 		font-size: var(--ds-type-meta-size);
-		font-weight: 700;
-		letter-spacing: 0.04em;
-		text-transform: uppercase;
+		font-weight: 600;
+		letter-spacing: 0.02em;
+		text-transform: none;
+		color: var(--ds-text-muted);
 		cursor: pointer;
 		transition:
 			color 0.15s ease,
-			background-color 0.15s ease,
 			border-color 0.15s ease;
+		white-space: nowrap;
 	}
 
 	.ds-entity-detail-tab:focus-visible {
@@ -8521,10 +10637,8 @@
 	}
 
 	.ds-entity-detail-tab--active {
-		border-bottom-color: color-mix(in oklab, var(--ds-accent) 70%, var(--ds-border-strong));
-		background-color: color-mix(in oklab, var(--ds-bg-muted) 55%, transparent);
+		border-bottom-color: color-mix(in oklab, #22d3ee 75%, var(--ds-accent));
 		color: var(--ds-text-primary);
-		box-shadow: inset 0 1px 0 color-mix(in oklab, var(--ds-accent) 18%, transparent);
 	}
 
 	.ds-entity-detail-tab--inactive {
@@ -8532,15 +10646,15 @@
 	}
 
 	.ds-entity-detail-tab--inactive:hover {
-		background-color: color-mix(in oklab, var(--ds-bg-muted) 35%, transparent);
 		color: var(--ds-text-secondary);
 	}
 
+	/* Scrollport is `.ds-entity-focus-detail-region` (P69) — do not create a nested panel scroll. */
 	.ds-entity-detail-panel-body {
-		flex: 1 1 auto;
+		flex: 0 0 auto;
 		min-height: 0;
 		overflow-x: hidden;
-		overflow-y: auto;
+		overflow-y: visible;
 		background: linear-gradient(
 			to bottom,
 			color-mix(in oklab, var(--ds-bg-muted) 20%, transparent),
@@ -8881,8 +10995,8 @@
 		gap: 0.375rem;
 		width: 100%;
 		max-width: 28rem;
-		/* P131.7-03 — compact search control */
-		min-height: 1.625rem;
+		/* P131.7-03 — search control (slightly taller target than legacy 1.625rem) */
+		min-height: 1.875rem;
 		padding: 0 0.5rem;
 		border-radius: var(--ds-radius-md);
 		border: 1px solid var(--ds-border-default);
@@ -8917,7 +11031,7 @@
 		width: 100%;
 		max-width: 28rem;
 		box-sizing: border-box;
-		min-height: calc(1.625rem / var(--app-text-scale, 1));
+		min-height: calc(1.875rem / var(--app-text-scale, 1));
 		padding: 0 0.5rem;
 		border-radius: var(--ds-radius-md);
 		border: 1px solid var(--ds-border-default);
@@ -8964,7 +11078,7 @@
 		width: 100%;
 		max-width: 28rem;
 		box-sizing: border-box;
-		min-height: calc(1.625rem / var(--app-text-scale, 1));
+		min-height: calc(1.875rem / var(--app-text-scale, 1));
 		padding: 0 0.5rem;
 		border-radius: var(--ds-radius-md);
 		border: 1px solid var(--ds-border-default);

@@ -2,6 +2,7 @@
  * Canonical case datetime formatting utilities.
  *
  * formatCaseDateTime       — YYYY-MM-DD HH:mm  (minute precision, general use)
+ * formatCaseDateOnly       — YYYY-MM-DD  (date-only, e.g. file grid cards)
  * formatCaseDateTimeWithSeconds — YYYY-MM-DD HH:mm:ss  (second precision, evidence-critical timestamps)
  *
  * Both:
@@ -32,6 +33,20 @@ export function formatCaseDateTime(iso: string): string {
 		const hh = String(d.getHours()).padStart(2, '0');
 		const min = String(d.getMinutes()).padStart(2, '0');
 		return `${yyyy}-${mm}-${dd} ${hh}:${min}`;
+	} catch {
+		return iso;
+	}
+}
+
+/** Local calendar date only (YYYY-MM-DD), e.g. compact file list rows without time-of-day. */
+export function formatCaseDateOnly(iso: string): string {
+	try {
+		const d = new Date(iso);
+		if (isNaN(d.getTime())) return iso;
+		const yyyy = d.getFullYear();
+		const mm = String(d.getMonth() + 1).padStart(2, '0');
+		const dd = String(d.getDate()).padStart(2, '0');
+		return `${yyyy}-${mm}-${dd}`;
 	} catch {
 		return iso;
 	}
@@ -106,4 +121,55 @@ export function formatActivityFeedTimeContext(iso: string): string {
 	} catch {
 		return iso;
 	}
+}
+
+const MAX_SANE_AGE = 130;
+
+/**
+ * Best-effort parse of a date-of-birth string to a local calendar Date. Prefer
+ * unambiguous YYYY-MM-DD; avoids `new Date("YYYY-MM-DD")` UTC midnight issues.
+ */
+function tryParseDobToLocalDate(s: string): Date | null {
+	const t = s.trim();
+	if (!t) return null;
+	const m = t.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+	if (m) {
+		const y = parseInt(m[1]!, 10);
+		const mo = parseInt(m[2]!, 10) - 1;
+		const d = parseInt(m[3]!, 10);
+		const dt = new Date(y, mo, d);
+		if (dt.getFullYear() === y && dt.getMonth() === mo && dt.getDate() === d) return dt;
+	}
+	const p = Date.parse(t);
+	if (!Number.isNaN(p)) {
+		const dt = new Date(p);
+		if (!isNaN(dt.getTime())) return dt;
+	}
+	return null;
+}
+
+/**
+ * Full years from birth to reference date (default: today) in the browser’s local
+ * calendar, or null if unparseable, future DOB, or result outside 0..130.
+ */
+export function ageInFullYearsToReference(birth: Date, ref: Date = new Date()): number | null {
+	if (isNaN(birth.getTime()) || isNaN(ref.getTime())) return null;
+	const b0 = new Date(birth.getFullYear(), birth.getMonth(), birth.getDate());
+	const r0 = new Date(ref.getFullYear(), ref.getMonth(), ref.getDate());
+	if (b0.getTime() > r0.getTime()) return null;
+	let age = r0.getFullYear() - b0.getFullYear();
+	if (r0.getMonth() < b0.getMonth() || (r0.getMonth() === b0.getMonth() && r0.getDate() < b0.getDate())) {
+		age -= 1;
+	}
+	if (age < 0 || age > MAX_SANE_AGE) return null;
+	return age;
+}
+
+/**
+ * Integer age in years from a best-effort DOB string, or null if not computable.
+ */
+export function ageInYearsFromDobString(dob: string, ref: Date = new Date()): number | null {
+	const birth = tryParseDobToLocalDate(dob);
+	if (!birth) return null;
+	return ageInFullYearsToReference(birth, ref);
 }

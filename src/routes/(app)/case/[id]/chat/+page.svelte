@@ -38,11 +38,14 @@
 		listCaseThreadAssociations,
 		upsertCaseThreadAssociation,
 		resolveBrowserAuthOnce,
+		getCaseFilesInsights,
 		type CaseThreadAssociation,
+		type CaseFilesInsights,
 		createProposal,
 		type ProposalType
 	} from '$lib/apis/caseEngine';
 	import { classifyBindError, bindErrorMessage } from '$lib/utils/threadScopeBinding';
+	import { dispatchCaseProposalsInvalidate } from '$lib/utils/caseProposalsInvalidate';
 	import CaseThreadList, { type ThreadListItem } from '$lib/components/case/CaseThreadList.svelte';
 	import { activeUiThread } from '$lib/stores/activeUiThread';
 
@@ -67,6 +70,30 @@
 	import ProposalReviewPanel from '$lib/components/proposals/ProposalReviewPanel.svelte';
 
 	$: caseId = $page.params.id;
+
+	/** Case Files insights strip (same aggregates as /case/:id/files) */
+	let caseInsights: CaseFilesInsights | null = null;
+	let caseInsightsLoading = true;
+
+	async function loadCaseFilesInsights(): Promise<void> {
+		if (!caseId || !$caseEngineToken) {
+			caseInsights = null;
+			caseInsightsLoading = false;
+			return;
+		}
+		caseInsightsLoading = true;
+		try {
+			caseInsights = await getCaseFilesInsights(caseId, $caseEngineToken);
+		} catch {
+			caseInsights = null;
+		} finally {
+			caseInsightsLoading = false;
+		}
+	}
+
+	$: if (caseId && $caseEngineToken) {
+		void loadCaseFilesInsights();
+	}
 
 	// ── Thread list ──────────────────────────────────────────────────────────
 	let threads: CaseThreadAssociation[] = [];
@@ -290,6 +317,7 @@
 				},
 				$caseEngineToken
 			);
+		dispatchCaseProposalsInvalidate(caseId);
 		proposalSuccess = 'Proposal created and saved for review.';
 		proposalContent = '';
 		proposalOccurredAt = '';
@@ -662,7 +690,13 @@
 					data-testid="proposals-panel"
 				/>
 				{:else if activeTool === 'files'}
-					<CaseFilesTab {caseId} token={$caseEngineToken!} />
+					<CaseFilesTab
+						{caseId}
+						token={$caseEngineToken!}
+						{caseInsights}
+						caseInsightsLoading={caseInsightsLoading}
+						onFilesMutated={() => void loadCaseFilesInsights()}
+					/>
 				{:else if activeTool === 'ask'}
 					<CaseAiAskTab {caseId} token={$caseEngineToken!} />
 				{:else if activeTool === 'export'}

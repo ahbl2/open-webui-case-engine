@@ -37,15 +37,12 @@ describe('CaseWorkflowTab P78-23 empty-state link order', () => {
 		);
 	});
 
-	it('orders Proposals → Timeline → Notes in the fully empty workflow proposal queue branch', () => {
+	it('no longer interleaves P→T→N link chips in the fully empty workflow proposal queue (create-first empty branch)', () => {
 		const start = tabSource.indexOf('data-testid="workflow-queue-empty-next-steps"');
 		expect(start).toBeGreaterThan(-1);
-		expectProposalsBeforeTimelineBeforeNotes(
-			tabSource.slice(start, start + 2500),
-			'workflow-queue-empty-link-proposals',
-			'workflow-queue-empty-link-timeline',
-			'workflow-queue-empty-link-notes'
-		);
+		const slice = tabSource.slice(start, start + 800);
+		expect(slice).toContain('data-testid="workflow-queue-empty-create"');
+		expect(slice).not.toContain('data-testid="workflow-queue-empty-link-proposals"');
 	});
 
 	it('orders Proposals → Timeline → Notes in the no-pending workflow proposal queue branch', () => {

@@ -1,7 +1,8 @@
 /**
  * P75-04 — Primary app sidebar (GNAV) active-state resolution.
  * P75-08 — Wave 2 routing handoff: same resolver drives GNAV across `/home`, `/cases`, `/case/*`,
- * `/search`, and `showSearch` (modal). `/home` is OCC ownership (no alternate command-center URL).
+ * `/search`, and `showSearch` (modal). `/home` is OCC ownership; legacy `/command-center`
+ * redirects there and resolves as Home while in flight.
  * `/search` is a real route that opens `SearchModal` — modal-open still wins active state.
  * P75-09: `SearchModal` adds shell modes (Search / Jump / Command / Workspace) inside this same modal — no second surface.
  * Case workspace chrome stays under `/case/:id/...` only (no app-level case tab strip).
@@ -15,12 +16,11 @@
  * Primary ids:
  * - `home` — /home (desktop hub)
  * - `cases` — /cases or inside /case/* (contextual “in case” highlights Cases per spec)
- * - `command_center` — /command-center (P131 cross-case visibility; read-only)
  * - `governance` — /governance (P132-05 read-only governance listing; server-gated)
  * - `search` — global search modal open (accelerator; takes precedence while open), or pathname /search
  * - `null` — /admin and other unified-shell routes where no Core item applies
  */
-export type DetectiveGnavPrimaryId = 'home' | 'cases' | 'command_center' | 'governance' | 'search' | null;
+export type DetectiveGnavPrimaryId = 'home' | 'cases' | 'governance' | 'search' | null;
 
 export function resolveDetectiveGnavPrimaryActive(
 	pathname: string,
@@ -36,7 +36,7 @@ export function resolveDetectiveGnavPrimaryActive(
 
 	if (p === '/cases' || p.startsWith('/cases/')) return 'cases';
 
-	if (p === '/command-center' || p.startsWith('/command-center/')) return 'command_center';
+	if (p === '/command-center' || p.startsWith('/command-center/')) return 'home';
 
 	if (p === '/governance' || p.startsWith('/governance/')) return 'governance';
 

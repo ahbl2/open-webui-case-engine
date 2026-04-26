@@ -249,7 +249,8 @@ html {
 	 * P71-05 — Timeline tab shell (P70-06 S1 internal scroll + W1 width; P70-04 B operational hero).
 	 * Root: canvas; hero + toolbar fixed; list column (`.ce-l-timeline-primary-scroll`) scrolls independently.
 	 */
-	.ce-l-timeline-shell {
+	.ce-l-timeline-shell,
+	.ce-l-notes-shell {
 		display: flex;
 		flex-direction: column;
 		flex: 1 1 0%;
@@ -261,7 +262,8 @@ html {
 	}
 
 	/* P124-03 — surface controls band: more padding, top-align wrapped actions */
-	.ce-l-timeline-hero {
+	.ce-l-timeline-hero,
+	.ce-l-notes-hero {
 		flex-shrink: 0;
 		display: flex;
 		align-items: flex-start;
@@ -272,7 +274,8 @@ html {
 		background-color: var(--ce-l-chrome);
 	}
 
-	.ce-l-timeline-hero-title {
+	.ce-l-timeline-hero-title,
+	.ce-l-notes-hero-title {
 		color: var(--ce-l-text-primary);
 	}
 
@@ -611,6 +614,7 @@ html {
  * Hero/toolbar chrome bands stay opaque; primary scroll sees the wash through transparent shell bg.
  */
 html.dark .ce-l-timeline-shell,
+html.dark .ce-l-notes-shell,
 html.dark .ce-l-files-shell,
 html.dark .ce-l-proposals-shell,
 html.dark .ce-l-tasks-shell,

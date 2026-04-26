@@ -8,13 +8,14 @@ import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const panelPath = join(here, '../components/operator/CommandCenterPanel.svelte');
-const pagePath = join(here, '../../routes/(app)/command-center/+page.svelte');
+const pagePath = join(here, '../../routes/(app)/command-center/+page.ts');
 const copyPath = join(here, 'p131CommandCenterCopy.ts');
 const gnavPath = join(here, '../components/layout/DetectiveGnavPrimaryNav.svelte');
 
 describe('P131-01 Command Center guardrails (source)', () => {
-	it('route page does not touch Case Engine, fetch, or browser guards', () => {
+	it('legacy route redirects to Home without data access', () => {
 		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toContain("redirect(308, '/home')");
 		expect(src).not.toMatch(/\$lib\/apis\/caseEngine/);
 		expect(src).not.toMatch(/\bfetch\s*\(/);
 		expect(src).not.toMatch(/\$app\/environment/);
@@ -37,9 +38,9 @@ describe('P131-01 Command Center guardrails (source)', () => {
 		expect(src).not.toMatch(/\/entries/);
 	});
 
-	it('GNAV links to /command-center with stable test id', () => {
+	it('GNAV no longer exposes a standalone Command Center entry', () => {
 		const src = readFileSync(gnavPath, 'utf8');
-		expect(src).toContain('href="/command-center"');
-		expect(src).toContain('data-testid="detective-gnav-command-center"');
+		expect(src).not.toContain('href="/command-center"');
+		expect(src).not.toContain('data-testid="detective-gnav-command-center"');
 	});
 });

@@ -10,14 +10,13 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab P78-07 orientation default visibility', () => {
-	it('defaults guidance and narrative expanded so journey + next-step links are in the initial view', () => {
-		expect(tabSource).toMatch(/let guidanceExpanded = true/);
-		expect(tabSource).toMatch(/let narrativeExpanded = true/);
+	it('defaults guidance collapsed so the operational dashboard is first; operators expand when needed', () => {
+		expect(tabSource).toMatch(/let guidanceExpanded = false/);
 	});
 
-	it('resets orientation to expanded on case switch (no stale collapsed state across cases)', () => {
+	it('resets guidance to collapsed on case switch (no stale expanded state across cases)', () => {
 		expect(tabSource).toMatch(
-			/caseId !== prevWorkflowCaseId[\s\S]*?guidanceExpanded = true[\s\S]*?narrativeExpanded = true[\s\S]*?clearPostAcceptHighlight/s
+			/caseId !== prevWorkflowCaseId[\s\S]*?guidanceExpanded = false[\s\S]*?aboutSurfaceOpen = false[\s\S]*?clearPostAcceptHighlight/s
 		);
 	});
 

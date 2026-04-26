@@ -30,15 +30,18 @@ describe('CaseWorkflowTab P59-02 workspace shell layout', () => {
 		expect(guid).toBeGreaterThan(panel);
 	});
 
-	it('nests only toolbar + items list inside main; proposal queue is a sibling section after main closes (P59-13)', () => {
+	it('nests only items list (+ legacy/P127 + support dock) inside main; toolbar before main; proposal queue after main (P59-13)', () => {
+		const tb = tabSource.indexOf('data-testid="workflow-items-toolbar"');
 		const mainOpen = tabSource.indexOf('data-testid="workflow-main-work-area"');
 		const panelOpen = tabSource.indexOf('data-testid="workflow-proposals-panel"');
+		expect(tb).toBeGreaterThan(-1);
 		expect(mainOpen).toBeGreaterThan(-1);
+		expect(tb).toBeLessThan(mainOpen);
 		expect(panelOpen).toBeGreaterThan(mainOpen);
 		const mainOnly = tabSource.slice(mainOpen, panelOpen);
-		expect(mainOnly).toContain('data-testid="workflow-items-toolbar"');
 		expect(mainOnly).toContain('data-testid="workflow-items-list-section"');
 		expect(mainOnly).not.toContain('data-testid="workflow-proposals-panel"');
+		expect(mainOnly).not.toContain('data-testid="workflow-items-toolbar"');
 	});
 
 	it('applies embedded sizing hooks to attention and guidance shells', () => {
@@ -51,7 +54,7 @@ describe('CaseWorkflowTab P59-02 workspace shell layout', () => {
 			/data-testid="workflow-main-work-area"[\s\S]*?embedded \? 'flex-1/
 		);
 		expect(tabSource).toMatch(
-			/data-testid="workflow-main-work-area"[\s\S]*?embedded \? 'gap-2\.5' : 'gap-5'/
+			/data-testid="workflow-main-work-area"[\s\S]*?embedded \? 'gap-2' : 'gap-3'/
 		);
 		expect(tabSource).toMatch(/data-testid="workflow-main-work-area"[\s\S]*?shrink-0/);
 		expect(tabSource).toMatch(/data-testid="workflow-main-work-area"[\s\S]*?min-w-0/);

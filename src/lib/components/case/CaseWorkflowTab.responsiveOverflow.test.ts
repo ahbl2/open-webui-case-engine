@@ -10,10 +10,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab responsive overflow (P57-06)', () => {
-	it('wraps workflow items table in horizontal + vertical scroll container', () => {
+	it('wraps workflow item cards in a bounded vertical scroll container (legacy test id: table-scroll)', () => {
 		expect(tabSource).toContain('data-testid="workflow-items-table-scroll"');
-		expect(tabSource).toContain('DS_WORKFLOW_CLASSES.tableScroll');
-		expect(tabSource).toContain('DS_WORKFLOW_CLASSES.table');
+		expect(tabSource).toContain('overflow-y-auto');
+		expect(tabSource).toContain('{#each displayItems as item (item.id)}');
 	});
 
 	it('uses min-w-0 + shrink-0 on list section so the table cannot be overlapped by the next flex sibling', () => {
@@ -31,7 +31,7 @@ describe('CaseWorkflowTab responsive overflow (P57-06)', () => {
 	});
 
 	it('preserves table body and proposal iteration', () => {
-		expect(tabSource).toContain('{#each items as item (item.id)}');
+		expect(tabSource).toContain('{#each displayItems as item (item.id)}');
 		expect(tabSource).toContain('{#each pendingProposals as p (p.id)}');
 		expect(tabSource).toContain('on:click={() => openEdit(item)}');
 		expect(tabSource).toContain('on:click={() => openAccept(p)}');

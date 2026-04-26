@@ -101,12 +101,11 @@ describe('Case Notes workflow UI (+page.svelte)', () => {
 		expect(src).not.toMatch(/Structured draft trace \(dev\)/);
 	});
 
-	it('Case Notes sidebar header is Case Notes only (no working-drafts disclaimer)', () => {
+	it('Case Notes notebook chrome presents draft identity without legacy sidebar copy', () => {
 		const src = readFileSync(pagePath, 'utf8');
-		expect(src).toMatch(
-			/<h2 class="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">\s*Case Notes\s*<\/h2>/
-		);
-		expect(src).not.toMatch(/Working drafts only/);
+		expect(src).toMatch(/P124_NOTES_SURFACE_TITLE/);
+		expect(src).toMatch(/P124_NOTES_LIST_HEADING\.toUpperCase\(\)/);
+		expect(src).toMatch(/P124_NOTES_LIST_SUBLINE/);
 		expect(src).not.toMatch(/case-notes-disclaimer/);
 	});
 
@@ -159,10 +158,38 @@ describe('Case Notes workflow UI (+page.svelte)', () => {
 
 	it('stabilization: attachment hints mention drop zone; create empty-state copy uses Save note', () => {
 		const src = readFileSync(pagePath, 'utf8');
-		expect(src).toMatch(/drop files on the note area/);
-		expect(src).toMatch(
-			/Use 📎 or drop files on the note area to attach\. Process to extract text, then insert into the draft\. <span class="font-medium not-italic">Save note<\/span>/
-		);
+		expect(src).toMatch(/Drag and drop files here or click to attach/);
+		expect(src).toMatch(/Images, documents, audio, video up to 250MB each/);
+		expect(src).toMatch(/\+ Add file/);
+	});
+
+	it('empty attachment drop zones use explicit click pickers, not label-only hidden inputs', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(/data-testid="case-note-edit-empty-attach-zone"/);
+		expect(src).toMatch(/on:click=\{openNoteAttachmentPicker\}/);
+		expect(src).toMatch(/bind:this=\{noteAttachmentPickerInput\}/);
+		expect(src).toMatch(/noteAttachmentPickerInput\?\.click\(\)/);
+		expect(src).toMatch(/data-testid="case-note-draft-empty-attach-zone"/);
+	});
+
+	it('saved note attachments render as preview cards while edit mode keeps processing workflow cards', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).toMatch(/CaseNoteAttachmentPreviewCard/);
+		expect(src).toMatch(/data-testid="note-attachment-list"/);
+		expect(src).toMatch(/grid gap-3 sm:grid-cols-2 xl:grid-cols-3/);
+		expect(src).toMatch(/statusLabel=\{attachmentStatusInfo\.label\}/);
+		expect(src).toMatch(/data-testid="note-edit-attachment-list"/);
+		expect(src).toMatch(/Process attachment/);
+	});
+
+	it('left note rail paginates visible rows while search/filter still use the full loaded collection', () => {
+		const src = readFileSync(pagePath, 'utf8');
+		expect(src).not.toMatch(/View all notes/);
+		expect(src).toMatch(/const NOTES_LIST_PAGE_SIZE = 20/);
+		expect(src).toMatch(/visibleFilteredNotes = filteredNotes\.slice\(0, notesListVisibleCount\)/);
+		expect(src).toMatch(/visibleNotesAfterCreatorFilter = notesAfterCreatorFilter\.slice\(0, notesListVisibleCount\)/);
+		expect(src).toMatch(/on:scroll=\{handleNotesListScroll\}/);
+		expect(src).toMatch(/data-testid="case-notes-load-more"/);
 	});
 
 	it('tooltip audit: aligned overflow menus, Structure Note, attach clip, dictation mic, insert/process hints', () => {

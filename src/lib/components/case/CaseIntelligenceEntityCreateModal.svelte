@@ -191,16 +191,25 @@
 		dispatch('close');
 	}
 
+	/* Defer showModal to after the current gesture (avoids the opening click
+	 * being eaten by the top layer / dialog in some browsers, which can leave
+	 * the app non-interactive until reload). */
 	$: if (dialogEl !== null) {
 		const el = dialogEl;
 		const shouldOpen = open;
 		void tick().then(() => {
-			if (!el.isConnected) return;
-			if (shouldOpen) {
-				if (!el.open) el.showModal();
-			} else {
-				if (el.open) el.close();
-			}
+			requestAnimationFrame(() => {
+				if (!el.isConnected) return;
+				try {
+					if (shouldOpen) {
+						if (!el.open) el.showModal();
+					} else {
+						if (el.open) el.close();
+					}
+				} catch (e) {
+					console.error('CaseIntelligenceEntityCreateModal: dialog show/close failed', e);
+				}
+			});
 		});
 	}
 

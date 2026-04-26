@@ -11,10 +11,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab pending proposals discoverability (P57-05 / P59-11)', () => {
-	it('surfaces pending count in Attention (not a duplicate top banner)', () => {
+	it('surfaces pending count in the summary dashboard (not a duplicate top banner)', () => {
 		expect(tabSource).toContain('data-testid="workflow-attention-pending-count"');
 		expect(tabSource).toContain('{proposalCount}');
-		expect(tabSource).toContain('data-testid="workflow-attention-pending-chip"');
+		expect(tabSource).toContain('Pending Review');
 		expect(tabSource).not.toContain('data-testid="workflow-proposals-banner"');
 	});
 

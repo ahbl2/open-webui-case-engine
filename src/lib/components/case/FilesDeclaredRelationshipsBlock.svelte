@@ -9,13 +9,17 @@
 
 	export let caseId: string;
 	export let fileId: string;
+	/** No top rule / extra vertical gap (e.g. Files list row already has tags above). */
+	export let compact = false;
 
 	$: p = caseFileDeclaredRelationshipsPresentation(caseId, fileId);
 </script>
 
 {#if p.show}
 	<div
-		class="mt-2 pt-2 border-t border-gray-100/90 dark:border-gray-800/80"
+		class="{compact
+			? ''
+			: 'mt-2 border-t border-gray-100/90 pt-2 dark:border-gray-800/80'}"
 		data-testid="case-files-p98-declared-relationships"
 		aria-label={P98_DECLARED_RELATIONSHIP_REGION_ARIA}
 	></div>

@@ -90,6 +90,7 @@
 	import { DS_APP_SHELL_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import { isDetectiveWave2AppShellEnabled } from '$lib/case/detectiveWave2Shell';
 	import SettingsModal from '$lib/components/chat/SettingsModal.svelte';
+	import ShortcutsModal from '$lib/components/chat/ShortcutsModal.svelte';
 	import AccountPending from '$lib/components/layout/Overlay/AccountPending.svelte';
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { Shortcut, shortcuts } from '$lib/shortcuts';
@@ -103,8 +104,6 @@
 	$: isDetectiveWorkspace =
 		$page.url.pathname === '/home' ||
 		$page.url.pathname === '/cases' ||
-		$page.url.pathname === '/command-center' ||
-		$page.url.pathname.startsWith('/command-center/') ||
 		$page.url.pathname === '/governance' ||
 		$page.url.pathname.startsWith('/governance/') ||
 		$page.url.pathname === '/search' ||
@@ -606,6 +605,7 @@
 </script>
 
 <SettingsModal bind:show={$showSettings} />
+<ShortcutsModal bind:show={$showShortcuts} />
 
 {#if $user}
 	<div class="app relative">

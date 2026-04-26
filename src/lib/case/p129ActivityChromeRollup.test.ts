@@ -17,13 +17,13 @@ function ev(partial: Partial<CaseActivityEvent>): CaseActivityEvent {
 }
 
 describe('buildP129ActivityChromeRollup', () => {
-	it('includes Notes and Intelligence with zero when no matching events', () => {
+	it('includes Notes and Subjects & Assets with zero when no matching events', () => {
 		const rows = buildP129ActivityChromeRollup([ev({}), ev({ event_id: 'e2' })]);
 		const labels = rows.map((r) => r.label);
 		expect(labels).toContain('Notes');
-		expect(labels).toContain('Intelligence');
+		expect(labels).toContain('Subjects & Assets');
 		expect(rows.find((r) => r.label === 'Notes')?.count).toBe(0);
-		expect(rows.find((r) => r.label === 'Intelligence')?.count).toBe(0);
+		expect(rows.find((r) => r.label === 'Subjects & Assets')?.count).toBe(0);
 		expect(rows.find((r) => r.label === 'Timeline')?.count).toBe(2);
 	});
 
@@ -63,6 +63,6 @@ describe('buildP129ActivityChromeRollup', () => {
 	it('exposes a stable label order for the base set', () => {
 		expect(P129_ACTIVITY_CHROME_ROLLUP_LABELS[0]).toBe('Timeline');
 		expect(P129_ACTIVITY_CHROME_ROLLUP_LABELS).toContain('Notes');
-		expect(P129_ACTIVITY_CHROME_ROLLUP_LABELS).toContain('Intelligence');
+		expect(P129_ACTIVITY_CHROME_ROLLUP_LABELS).toContain('Subjects & Assets');
 	});
 });

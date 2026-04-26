@@ -14,7 +14,9 @@ describe('CaseWorkflowTab P59-14 lower shell visual separation', () => {
 		const panelOpen = tabSource.indexOf('data-testid="workflow-proposals-panel"');
 		const guidOpen = tabSource.indexOf('data-testid="workflow-guidance-placeholder"');
 		const slice = tabSource.slice(panelOpen, guidOpen);
-		expect(slice).toMatch(/Workflow proposal queue[\s\S]*?border-b border-\[var\(--ds-border-default\)\]/);
+		expect(slice).toMatch(
+			/border-b border-\[var\(--ds-border-default\)\][\s\S]*?Workflow proposal queue<\/h3>/
+		);
 		expect(slice).toMatch(/embedded \? 'mb-1\.5' : 'mb-2\.5'/);
 	});
 

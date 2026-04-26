@@ -8,12 +8,15 @@ import { describe, expect, it } from 'vitest';
 
 const here = dirname(fileURLToPath(import.meta.url));
 const panelPath = join(here, '../components/case/AIWorkspacePanel.svelte');
+const proposalClientPath = join(here, 'aiWorkspaceCaseProposalClient.ts');
 
 describe('P130-04 AI Workspace proposal guardrails (source)', () => {
-	it('AIWorkspacePanel uses createCaseProposalManual only (no timeline entry POST)', () => {
+	it('AIWorkspacePanel uses the manual proposal client only (no timeline entry POST)', () => {
 		const src = readFileSync(panelPath, 'utf8');
-		expect(src).toContain('createCaseProposalManual');
-		expect(src).toContain('$lib/apis/caseEngine/caseProposalsApi');
+		const client = readFileSync(proposalClientPath, 'utf8');
+		expect(src).toContain("from '$lib/case/aiWorkspaceCaseProposalClient'");
+		expect(client).toContain('createCaseProposalManual');
+		expect(client).toContain('$lib/apis/caseEngine/caseProposalsApi');
 		expect(src).toContain("proposal_type: 'timeline_entry'");
 		expect(src).toContain("creation_mode: 'manual'");
 		expect(src).not.toMatch(/\/cases\/[^\s"']+\/entries/);
@@ -21,18 +24,18 @@ describe('P130-04 AI Workspace proposal guardrails (source)', () => {
 		expect(src).not.toMatch(/proposal_records/);
 	});
 
-	it('await createCaseProposalManual appears only after confirmProposalSubmit (explicit handler)', () => {
+	it('await submitManualCaseProposal appears only after confirmProposalSubmit (explicit handler)', () => {
 		const src = readFileSync(panelPath, 'utf8');
 		const confirmIdx = src.indexOf('async function confirmProposalSubmit');
-		const awaitIdx = src.indexOf('await createCaseProposalManual');
+		const awaitIdx = src.indexOf('await submitManualCaseProposal');
 		expect(confirmIdx).toBeGreaterThan(-1);
 		expect(awaitIdx).toBeGreaterThan(-1);
 		expect(awaitIdx > confirmIdx).toBe(true);
 	});
 
-	it('Create Proposal Draft button is gated by canCreateProposalDraft', () => {
+	it('Create Proposal Draft button is gated by readyForProposalReview', () => {
 		const src = readFileSync(panelPath, 'utf8');
-		expect(src).toContain('disabled={!canCreateProposalDraft');
+		expect(src).toContain('disabled={!readyForProposalReview');
 		expect(src).toContain('case-ai-workspace-proposal-create-button');
 	});
 

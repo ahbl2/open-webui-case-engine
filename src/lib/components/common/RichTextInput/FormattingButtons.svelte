@@ -4,6 +4,28 @@
 
 	export let editor = null;
 
+	/** Show H1 / H2 / H3 toggles (e.g. chat composer). Case Notes uses font size instead. */
+	export let showHeadings = true;
+
+	/** Inline font-size control (requires `TextStyle` + `FontSize` on the editor). */
+	export let showFontSize = false;
+
+	/** `{ label, value }` where `value` is a CSS length (e.g. `14px`) or `''` for default. */
+	export let fontSizePresets = [
+		{ label: 'Default', value: '' },
+		{ label: '10px', value: '10px' },
+		{ label: '11px', value: '11px' },
+		{ label: '12px', value: '12px' },
+		{ label: '13px', value: '13px' },
+		{ label: '14px', value: '14px' },
+		{ label: '16px', value: '16px' },
+		{ label: '18px', value: '18px' },
+		{ label: '20px', value: '20px' },
+		{ label: '24px', value: '24px' },
+		{ label: '28px', value: '28px' },
+		{ label: '36px', value: '36px' }
+	];
+
 	import Bold from '$lib/components/icons/Bold.svelte';
 	import CodeBracket from '$lib/components/icons/CodeBracket.svelte';
 	import H1 from '$lib/components/icons/H1.svelte';
@@ -19,46 +41,82 @@
 	import CheckBox from '$lib/components/icons/CheckBox.svelte';
 	import ArrowLeftTag from '$lib/components/icons/ArrowLeftTag.svelte';
 	import ArrowRightTag from '$lib/components/icons/ArrowRightTag.svelte';
+
+	$: currentFontSize = editor ? editor.getAttributes('textStyle')?.fontSize ?? '' : '';
+
+	$: fontSizeSelectOptions = (() => {
+		const base = [...fontSizePresets];
+		if (currentFontSize && !base.some((o) => o.value === currentFontSize)) {
+			base.push({ label: currentFontSize, value: currentFontSize });
+		}
+		return base;
+	})();
+
+	function onFontSizeChange(e) {
+		const v = e.currentTarget.value;
+		if (!editor) return;
+		if (!v) {
+			editor.chain().focus().unsetFontSize().run();
+		} else {
+			editor.chain().focus().setFontSize(v).run();
+		}
+	}
 </script>
 
 <div
-	class="flex gap-0.5 p-0.5 rounded-xl shadow-lg bg-white text-gray-800 dark:text-white dark:bg-gray-850 min-w-fit border border-gray-100 dark:border-gray-800"
+	class="flex min-w-0 flex-wrap items-center gap-0.5 rounded-xl border border-gray-100 bg-white p-0.5 text-gray-800 shadow-lg dark:border-gray-800 dark:bg-gray-850 dark:text-white min-w-fit"
 >
-	<Tooltip placement="top" content={$i18n.t('H1')}>
-		<button
-			on:click={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
-			class="{editor?.isActive('heading', { level: 1 })
-				? 'bg-gray-50 dark:bg-gray-700'
-				: ''} hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all"
-			type="button"
+	{#if showFontSize}
+		<label class="sr-only" for="rich-text-font-size">{$i18n.t('Font size')}</label>
+		<select
+			id="rich-text-font-size"
+			class="max-w-[7.5rem] shrink-0 rounded-lg border border-gray-200 bg-white px-1.5 py-1 text-[11px] font-medium text-gray-800 dark:border-gray-600 dark:bg-gray-900 dark:text-gray-100"
+			value={currentFontSize}
+			on:change={onFontSizeChange}
 		>
-			<H1 />
-		</button>
-	</Tooltip>
+			{#each fontSizeSelectOptions as opt (opt.value === '' ? 'default' : opt.value)}
+				<option value={opt.value}>{opt.label}</option>
+			{/each}
+		</select>
+	{/if}
 
-	<Tooltip placement="top" content={$i18n.t('H2')}>
-		<button
-			on:click={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
-			class="{editor?.isActive('heading', { level: 2 })
-				? 'bg-gray-50 dark:bg-gray-700'
-				: ''} hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all"
-			type="button"
-		>
-			<H2 />
-		</button>
-	</Tooltip>
+	{#if showHeadings}
+		<Tooltip placement="top" content={$i18n.t('H1')}>
+			<button
+				on:click={() => editor?.chain().focus().toggleHeading({ level: 1 }).run()}
+				class="{editor?.isActive('heading', { level: 1 })
+					? 'bg-gray-50 dark:bg-gray-700'
+					: ''} hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all"
+				type="button"
+			>
+				<H1 />
+			</button>
+		</Tooltip>
 
-	<Tooltip placement="top" content={$i18n.t('H3')}>
-		<button
-			on:click={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
-			class="{editor?.isActive('heading', { level: 3 })
-				? 'bg-gray-50 dark:bg-gray-700'
-				: ''} hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all"
-			type="button"
-		>
-			<H3 />
-		</button>
-	</Tooltip>
+		<Tooltip placement="top" content={$i18n.t('H2')}>
+			<button
+				on:click={() => editor?.chain().focus().toggleHeading({ level: 2 }).run()}
+				class="{editor?.isActive('heading', { level: 2 })
+					? 'bg-gray-50 dark:bg-gray-700'
+					: ''} hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all"
+				type="button"
+			>
+				<H2 />
+			</button>
+		</Tooltip>
+
+		<Tooltip placement="top" content={$i18n.t('H3')}>
+			<button
+				on:click={() => editor?.chain().focus().toggleHeading({ level: 3 }).run()}
+				class="{editor?.isActive('heading', { level: 3 })
+					? 'bg-gray-50 dark:bg-gray-700'
+					: ''} hover:bg-gray-50 dark:hover:bg-gray-700 rounded-lg p-1.5 transition-all"
+				type="button"
+			>
+				<H3 />
+			</button>
+		</Tooltip>
+	{/if}
 
 	{#if editor?.isActive('bulletList') || editor?.isActive('orderedList') || editor?.isActive('taskList')}
 		<Tooltip placement="top" content={$i18n.t('Lift List')}>

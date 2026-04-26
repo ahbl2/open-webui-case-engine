@@ -11,9 +11,9 @@ const source = readFileSync(join(__dirname, 'EntitiesFocusModeShell.svelte'), 'u
 const panel = readFileSync(join(__dirname, 'EntitiesRegistryPanel.svelte'), 'utf8');
 
 describe('EntitiesFocusModeShell (P69-08)', () => {
-	it('exposes focus landmarks, back affordance, and P69-09 detail workspace + dirty gate', () => {
+	it('exposes focus landmarks, close affordance via detail workspace, and P69-09 dirty gate', () => {
 		expect(source).toContain('data-testid="entities-focus-mode-shell"');
-		expect(source).toContain('data-testid="entities-focus-back-to-board"');
+		expect(source).toContain('onCloseDetails={handleBackRequest}');
 		expect(source).toContain('data-testid="entities-focus-anchored-column"');
 		expect(source).toContain('EntityDetailWorkspace');
 		expect(source).toContain('data-testid="entity-detail-dirty-gate"');

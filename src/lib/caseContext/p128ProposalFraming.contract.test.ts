@@ -22,6 +22,7 @@ function assertNoTaboo(lower: string): void {
 describe('p128ProposalFramingCopy (P128-01)', () => {
 	it('is static exports only; taboo-free', () => {
 		const src = readFileSync(copyPath, 'utf8');
+		expect(src).toMatch(/P128_PROPOSALS_HERO_TITLE/);
 		expect(src).toMatch(/P128_PROPOSALS_SURFACE_TITLE/);
 		expect(src).toMatch(/P128_PROPOSALS_FRAMING_BODY_ACCEPTANCE/);
 		assertNoTaboo(src.toLowerCase());
@@ -34,6 +35,7 @@ describe('CaseProposalFraming (P128-01)', () => {
 	const src = readFileSync(framingPath, 'utf8');
 
 	it('is presentational only', () => {
+		expect(src).toMatch(/P128_PROPOSALS_HERO_TITLE/);
 		expect(src).toMatch(/data-testid="case-proposals-p128-intake-framing"/);
 		expect(src).not.toMatch(/\$page/);
 		expect(src).not.toMatch(/localStorage|sessionStorage/);

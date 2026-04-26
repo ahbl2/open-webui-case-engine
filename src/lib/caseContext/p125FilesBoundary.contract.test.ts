@@ -21,20 +21,20 @@ describe('P125-05 Files boundary enforcement', () => {
 		expect(src).not.toMatch(/localStorage|sessionStorage/);
 	});
 
-	it('CaseFilesTab mounts boundary discipline line', () => {
+	it('CaseFilesTab does not duplicate P125 boundary under upload (hero + nav carry framing)', () => {
 		const src = readFileSync(tabPath, 'utf8');
-		expect(src).toMatch(/case-files-boundary-discipline/);
-		expect(src).toMatch(/P125_FILES_BOUNDARY_DISCIPLINE_LINE/);
+		expect(src).not.toMatch(/case-files-boundary-discipline/);
+		expect(src).not.toMatch(/P125_FILES_BOUNDARY_DISCIPLINE_LINE/);
 		expect(src).not.toMatch(/\$page\.params\.id/);
 	});
 
-	it('Files framing stays success-toned; Timeline neutral; Notes info (no surface blend)', () => {
+	it('Files framing stays success-toned; Timeline neutral; Notes chrome hero (no ds-status blend)', () => {
 		const files = readFileSync(filesFraming, 'utf8');
 		const tl = readFileSync(timelineFraming, 'utf8');
 		const nt = readFileSync(notesFraming, 'utf8');
 		expect(files).toMatch(/DS_STATUS_SURFACE_CLASSES\.success/);
 		expect(tl).toMatch(/DS_STATUS_SURFACE_CLASSES\.neutral/);
-		expect(nt).toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);
+		expect(nt).toMatch(/ce-l-notes-hero/);
 		expect(files).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.neutral/);
 		expect(files).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);
 	});

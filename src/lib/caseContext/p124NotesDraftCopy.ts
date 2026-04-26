@@ -8,7 +8,7 @@ export const P124_NOTES_SURFACE_TITLE = 'Notes — Working drafts';
  * Separation from Timeline; save semantics — no automatic promotion.
  */
 export const P124_NOTES_DRAFT_BODY =
-	'Private working notes for this case — not the committed timeline. Saving keeps content in this notebook until you use the governed proposal flow where your process requires it.';
+	'Private working notes for this case — not the committed timeline. Saving keeps content in this notebook until you use the governed proposal flow.';
 
 /** Left list chrome — scannability without implying official record status. */
 export const P124_NOTES_LIST_HEADING = 'Draft notes';

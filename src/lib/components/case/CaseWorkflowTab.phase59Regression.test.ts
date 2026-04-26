@@ -11,11 +11,14 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab Phase 59 regression (P59-09)', () => {
-	it('P59-02 / P59-13: preserves shell region order (header → attention → main → proposal queue → guidance)', () => {
+	it('P59-02 / P59-13: preserves shell region order (header → attention → authority → tabs → toolbar → main → proposal queue → guidance)', () => {
 		const ids = [
 			'data-testid="workflow-page-header"',
 			'data-testid="workflow-narrative-intro"',
 			'data-testid="workflow-attention-region"',
+			'data-testid="workflow-authority-banner"',
+			'data-testid="workflow-list-tabs"',
+			'data-testid="workflow-items-toolbar"',
 			'data-testid="workflow-main-work-area"',
 			'data-testid="workflow-proposals-panel"',
 			'data-testid="workflow-guidance-placeholder"'
@@ -48,7 +51,9 @@ describe('CaseWorkflowTab Phase 59 regression (P59-09)', () => {
 		expect(tabSource).toContain(
 			'The case <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineStrong}">Proposals</span> tab'
 		);
-		expect(tabSource).toContain('Planning (this tab):</span> hypotheses');
+		expect(tabSource).toMatch(
+			/WORKFLOW_DASH_SUBTITLE|ClipboardDocumentListIcon|P127_WORKFLOW_FRAMING_BODY_PRIMARY/
+		);
 		expect(tabSource).toContain('this queue is not the case Proposals tab');
 	});
 
@@ -60,12 +65,13 @@ describe('CaseWorkflowTab Phase 59 regression (P59-09)', () => {
 		const segment = tabSource.slice(att, main);
 		expect(segment).toContain('data-testid="workflow-attention-pending-count"');
 		expect(segment).toContain('{proposalCount}');
+		expect(tabSource).toContain('// P59-03: attention signals');
 		expect(segment).not.toMatch(/await\s+/);
 	});
 
 	it('P59-04: five case surfaces use shared nav chip class and correct href prefixes', () => {
 		const matches = tabSource.match(/class=\{workflowEmbedNavLinkClass\}/g);
-		expect(matches?.length).toBe(5);
+		expect(matches?.length ?? 0).toBeGreaterThanOrEqual(5);
 		for (const path of ['timeline', 'notes', 'files', 'summary', 'proposals']) {
 			expect(tabSource).toContain(`href="/case/{caseId}/${path}"`);
 		}

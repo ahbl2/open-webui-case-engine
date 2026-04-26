@@ -303,10 +303,12 @@
 				class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
 				data-testid="case-shell-occ-body-scroll"
 			>
-			<!-- Activity route: hide right stack so the main Activity tab is not duplicated beside itself. -->
-			<CaseWorkspaceLayoutShell
-				hideRightRail={activeSection === 'summary' || activeSection === 'activity' || activeSection === 'timeline'}
-			>
+			<!--
+				Hide the shell right rail (Case Activity & Tools) on every case route.
+				It duplicated Activity / AI / Proposals beside primary surfaces (Notes, Files, …)
+				and could appear stuck after client navigations. Use the dedicated tabs instead.
+			-->
+			<CaseWorkspaceLayoutShell hideRightRail={true}>
 		<svelte:fragment slot="center">
 			<div class={caseShellBodyClass} data-region={wave3CaseShellEnabled ? 'case-shell-body' : undefined}>
 				<div

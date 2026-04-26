@@ -15,11 +15,21 @@
 		committedEntityMatchesSearch,
 		entityPortraitUrl,
 		initialsFromDisplayLabel,
+		locationRegistryRowDisplay,
+		personRegistryRowDisplay,
+		phoneRegistryRowDisplay,
 		sortCommittedEntities,
-		type RegistrySortKey
+		type RegistrySortKey,
+		vehicleRegistryRowDisplay
 	} from '$lib/utils/caseIntelligenceEntityRegistry';
 	import {
-		DS_BADGE_CLASSES,
+		DevicePhoneMobileIcon,
+		MapPinIcon,
+		PlusIcon,
+		TruckIcon,
+		UserIcon
+	} from 'heroicons-svelte/24/outline';
+	import {
 		DS_BTN_CLASSES,
 		DS_ENTITY_BOARD_CLASSES,
 		DS_INTELLIGENCE_CLASSES,
@@ -30,7 +40,7 @@
 		EntitiesRegistryKind,
 		EntitiesRegistryPanelMode
 	} from '$lib/utils/entitiesBoardTypes';
-	import { tick } from 'svelte';
+	import { onMount, tick } from 'svelte';
 
 	export let caseId: string;
 	export let token: string;
@@ -49,6 +59,12 @@
 	export let onAddRequest: ((detail: { entityKind: CaseIntelligenceEntityKind }) => void) | undefined =
 		undefined;
 	export let onViewAllChange: ((detail: { expanded: boolean }) => void) | undefined = undefined;
+	/** Workspace-level search (Subjects & Assets filter bar) — combined with panel search. */
+	export let globalSearchFilter = '';
+	/** When set, overrides panel Active / Include retired (filter bar). `null` = panel-local scope. */
+	export let workspaceStatusFilter: 'all' | 'active' | 'retired' | null = null;
+	/** Person identity posture filter (`''` = all); non-PERSON rows excluded when set. */
+	export let workspaceTagFilter = '';
 	/** P69-08 — focus anchored column: full-height rail, roster + footer controls, seeded from board snapshot. */
 	export let layoutVariant: 'board' | 'anchored' = 'board';
 	export let seedPanelState: EntitiesBoardPanelState | null = null;
@@ -57,19 +73,23 @@
 	let loadError = '';
 	let loading = false;
 	let loadCompletedOnce = false;
-	let prevCaseId: string | null = null;
 	let loadId = 0;
 	let lastAppliedRefreshNonce = -1;
-
-	let searchQuery = '';
-	let listScopeMode: 'active_only' | 'include_retired' = 'active_only';
+	/** Match `SubjectsAssetsRegistryRail`: empty string so first real caseId differs and load runs. */
+	let prevCaseId = '';
+	/** Reload when auth token first arrives or rotates (case block alone can miss token-after-case ordering). */
+	let prevToken = '';
+	let prevIncludeRetiredSnapshot: boolean | undefined = undefined;
+	/** When workspace status filter defers to panels (`null`), controls `includeRetired` on list fetch. */
+	let panelIncludeRetired = false;
 	let sortKey: RegistrySortKey = 'name_asc';
 	let portraitFailedIds = new Set<string>();
 	let expanded = false;
 	let panelBodyEl: HTMLDivElement | null = null;
 	let pendingListScrollTop: number | undefined = undefined;
 
-	$: includeRetired = listScopeMode === 'include_retired';
+	$: includeRetired =
+		workspaceStatusFilter === null ? panelIncludeRetired : workspaceStatusFilter !== 'active';
 	$: isPlaceholder = panelMode === 'placeholder';
 	$: apiKind =
 		entityKind === 'PHONE' ? null : (entityKind as CaseIntelligenceEntityKind);
@@ -92,26 +112,25 @@
 					? 'locations'
 					: 'phone numbers';
 
-	$: filterHelp =
-		includeRetired === false
-			? 'Active committed entities only (Case Engine). Toggle to include retired rows.'
-			: 'Retired entities included. List from Case Engine.';
-
-	$: filteredRows = rawRows.filter((e) => committedEntityMatchesSearch(e, searchQuery));
+	$: filteredRows = rawRows.filter((e) => {
+		if (!committedEntityMatchesSearch(e, globalSearchFilter)) {
+			return false;
+		}
+		if (workspaceStatusFilter === 'retired') return !!e.deleted_at;
+		if (workspaceStatusFilter === 'active') return !e.deleted_at;
+		if (workspaceTagFilter.trim()) {
+			if (e.entity_kind !== 'PERSON') return false;
+			if ((e.person_identity_posture ?? '') !== workspaceTagFilter) return false;
+		}
+		return true;
+	});
 	$: sortedRows = sortCommittedEntities(filteredRows, sortKey);
 	$: displayRows = expanded ? sortedRows : sortedRows.slice(0, previewLimit);
 	$: hasMoreRows = sortedRows.length > previewLimit;
 
-	$: searchPlaceholder =
-		entityKind === 'PERSON'
-			? 'Search people…'
-			: entityKind === 'VEHICLE'
-				? 'Search vehicles…'
-				: entityKind === 'LOCATION'
-					? 'Search locations…'
-					: 'Search numbers…';
-
-	function requestDirectCreate(): void {
+	function requestDirectCreate(e?: MouseEvent): void {
+		e?.preventDefault();
+		e?.stopPropagation();
 		if (isPlaceholder || !apiKind) return;
 		onAddRequest?.({ entityKind: apiKind });
 	}
@@ -168,10 +187,6 @@
 		}
 	}
 
-	function onFilterChange(): void {
-		void load();
-	}
-
 	function onRetry(): void {
 		void load();
 	}
@@ -180,39 +195,47 @@
 		portraitFailedIds = new Set(portraitFailedIds).add(id);
 	}
 
-	$: if (caseId && token && caseId !== prevCaseId) {
-		prevCaseId = caseId;
-		rawRows = [];
-		loadError = '';
-		portraitFailedIds = new Set();
-		lastAppliedRefreshNonce = refreshNonce;
-		loadCompletedOnce = isPlaceholder;
-		if (layoutVariant === 'anchored') {
-			expanded = true;
-			if (seedPanelState) {
-				searchQuery = seedPanelState.searchQuery ?? '';
-				sortKey =
-					seedPanelState.sortKey === 'created_desc' || seedPanelState.sortKey === 'name_asc'
-						? (seedPanelState.sortKey as RegistrySortKey)
-						: 'name_asc';
-				listScopeMode = seedPanelState.includeRetired ? 'include_retired' : 'active_only';
-				pendingListScrollTop =
-					typeof seedPanelState.scrollTop === 'number' ? seedPanelState.scrollTop : undefined;
+	$: if (caseId && token && (caseId !== prevCaseId || token !== prevToken)) {
+		if (caseId !== prevCaseId) {
+			prevCaseId = caseId;
+			rawRows = [];
+			loadError = '';
+			portraitFailedIds = new Set();
+			lastAppliedRefreshNonce = refreshNonce;
+			prevIncludeRetiredSnapshot = undefined;
+			loadCompletedOnce = isPlaceholder;
+			if (layoutVariant === 'anchored') {
+				expanded = true;
+				if (seedPanelState) {
+					sortKey =
+						seedPanelState.sortKey === 'created_desc' || seedPanelState.sortKey === 'name_asc'
+							? (seedPanelState.sortKey as RegistrySortKey)
+							: 'name_asc';
+					panelIncludeRetired = Boolean(seedPanelState.includeRetired);
+					pendingListScrollTop =
+						typeof seedPanelState.scrollTop === 'number' ? seedPanelState.scrollTop : undefined;
+				} else {
+					panelIncludeRetired = false;
+					sortKey = 'name_asc';
+					pendingListScrollTop = undefined;
+				}
 			} else {
-				searchQuery = '';
-				listScopeMode = 'active_only';
+				panelIncludeRetired = false;
 				sortKey = 'name_asc';
+				expanded = false;
 				pendingListScrollTop = undefined;
 			}
-		} else {
-			searchQuery = '';
-			listScopeMode = 'active_only';
-			sortKey = 'name_asc';
-			expanded = false;
-			pendingListScrollTop = undefined;
 		}
-		if (!isPlaceholder) void load();
+		prevToken = token;
+		if (!isPlaceholder && apiKind) void load();
 	}
+
+	/** Safety net if reactive ordering ever skips the first fetch (token + case already stable on mount). */
+	onMount(() => {
+		if (caseId && token && !isPlaceholder && apiKind && !loadCompletedOnce && !loading) {
+			void load();
+		}
+	});
 
 	$: if (layoutVariant === 'anchored') expanded = true;
 
@@ -227,6 +250,13 @@
 		void load();
 	}
 
+	$: if (caseId && token && prevCaseId === caseId && loadCompletedOnce && !isPlaceholder) {
+		if (prevIncludeRetiredSnapshot !== undefined && prevIncludeRetiredSnapshot !== includeRetired) {
+			void load();
+		}
+		prevIncludeRetiredSnapshot = includeRetired;
+	}
+
 	$: countBadgeText = (() => {
 		if (isPlaceholder) return '';
 		if (!loadCompletedOnce && loading) return '';
@@ -234,7 +264,7 @@
 		if (!loadCompletedOnce) return '';
 		const filtered = sortedRows.length;
 		const loaded = rawRows.length;
-		if (!searchQuery.trim()) return `${filtered}`;
+		if (!globalSearchFilter.trim()) return `${filtered}`;
 		return `${filtered} / ${loaded}`;
 	})();
 
@@ -244,7 +274,7 @@
 
 	export function getPanelState() {
 		return {
-			searchQuery,
+			searchQuery: '',
 			sortKey: sortKey as string,
 			includeRetired,
 			expanded,
@@ -255,11 +285,10 @@
 	export async function applyPanelState(
 		partial: Partial<ReturnType<typeof getPanelState>>
 	): Promise<void> {
-		if (typeof partial.searchQuery === 'string') searchQuery = partial.searchQuery;
 		if (partial.sortKey === 'name_asc' || partial.sortKey === 'created_desc')
 			sortKey = partial.sortKey as RegistrySortKey;
 		if (typeof partial.includeRetired === 'boolean') {
-			listScopeMode = partial.includeRetired ? 'include_retired' : 'active_only';
+			panelIncludeRetired = partial.includeRetired;
 		}
 		if (layoutVariant !== 'anchored' && typeof partial.expanded === 'boolean') expanded = partial.expanded;
 		await load();
@@ -279,13 +308,6 @@
 						? DS_ENTITY_BOARD_CLASSES.registryTileLocation
 						: DS_ENTITY_BOARD_CLASSES.registryTilePhone;
 		return `${DS_ENTITY_BOARD_CLASSES.registryTile} ${k}`;
-	}
-
-	function leadingAbbrev(kind: EntitiesRegistryKind): string {
-		if (kind === 'PERSON') return 'P';
-		if (kind === 'VEHICLE') return 'V';
-		if (kind === 'LOCATION') return 'L';
-		return 'Ph';
 	}
 
 	/** P69-11-FU1 — kind identity + depth; DS entity board surfaces (P77-11). */
@@ -318,7 +340,7 @@
 	}
 
 	function rosterBodyClass(): string {
-		const parts = [DS_ENTITY_BOARD_CLASSES.registryRoster];
+		const parts: string[] = [DS_ENTITY_BOARD_CLASSES.registryRoster];
 		if (layoutVariant === 'anchored') parts.push(DS_ENTITY_BOARD_CLASSES.registryRosterAnchored);
 		else if (expanded) parts.push(DS_ENTITY_BOARD_CLASSES.registryRosterExpanded);
 		return parts.join(' ');
@@ -333,50 +355,77 @@
 	data-layout-variant={layoutVariant}
 	aria-labelledby="{testId}-title"
 >
-	<header class="shrink-0 flex flex-wrap items-start justify-between gap-3 {headerChromeClass(entityKind)}">
-		<div class="min-w-0 flex-1">
-			<h2 id="{testId}-title" class="{DS_ENTITY_BOARD_CLASSES.registryTitle}">
-				<span>{heading}</span>
-				{#if !isPlaceholder}
-					{#if loadCompletedOnce && !loadError && countBadgeText}
-						<span class="{DS_BADGE_CLASSES.neutral} tabular-nums" data-testid="{testId}-count">
-							{countBadgeText}{#if searchQuery.trim()}
-								<span class="font-normal opacity-80"> loaded</span>{/if}
-						</span>
-					{:else if loading && !loadCompletedOnce}
-						<span
-							class="{DS_SKELETON_CLASSES.base} {DS_SKELETON_CLASSES.shimmer} inline-block h-4 w-10 max-w-[2.5rem]"
-							aria-hidden="true"
-							data-testid="{testId}-count-skeleton"
-						></span>
+	<header class="shrink-0 {headerChromeClass(entityKind)}">
+		<div class="{DS_ENTITY_BOARD_CLASSES.registryHeaderTop}">
+			<div class="flex min-w-0 flex-1 items-start gap-2.5">
+				<span class="{DS_ENTITY_BOARD_CLASSES.registryKindIcon}" aria-hidden="true">
+					{#if entityKind === 'PERSON'}
+						<UserIcon class="h-5 w-5" />
+					{:else if entityKind === 'LOCATION'}
+						<MapPinIcon class="h-5 w-5" />
+					{:else if entityKind === 'VEHICLE'}
+						<TruckIcon class="h-5 w-5" />
+					{:else}
+						<DevicePhoneMobileIcon class="h-5 w-5" />
 					{/if}
+				</span>
+				<div class="min-w-0 flex-1">
+					<h2 id="{testId}-title" class="{DS_ENTITY_BOARD_CLASSES.registryTitle}">
+						<span>{heading}</span>
+						{#if !isPlaceholder}
+							{#if loadCompletedOnce && !loadError && countBadgeText}
+								<span class="tabular-nums text-[color:var(--ds-text-secondary)]" data-testid="{testId}-count">
+									{countBadgeText}{#if globalSearchFilter.trim()}
+										<span class="font-normal opacity-80"> / loaded</span>{/if}
+								</span>
+							{:else if loading && !loadCompletedOnce}
+								<span
+									class="{DS_SKELETON_CLASSES.base} {DS_SKELETON_CLASSES.shimmer} inline-block h-3.5 w-8 max-w-[2rem]"
+									aria-hidden="true"
+									data-testid="{testId}-count-skeleton"
+								></span>
+							{/if}
+						{/if}
+					</h2>
+					<p
+						class="{DS_ENTITY_BOARD_CLASSES.registrySubtitle} {layoutVariant === 'board' ? 'sr-only' : ''}"
+						title={subheader}
+					>
+						{subheader}
+					</p>
+				</div>
+			</div>
+			<div
+				class="flex min-w-0 shrink-0 flex-wrap items-center justify-end gap-1.5"
+				data-testid="{testId}-toolbar"
+			>
+				{#if !isPlaceholder}
+					<button
+						type="button"
+						class="{DS_ENTITY_BOARD_CLASSES.registryHeaderAdd}"
+						data-testid="{testId}-add"
+						disabled={!token}
+						title={addLabel}
+						aria-label={addLabel}
+						on:click|stopPropagation|preventDefault={requestDirectCreate}
+					>
+						<PlusIcon class="h-3.5 w-3.5 shrink-0" aria-hidden="true" />
+						<span aria-hidden="true">ADD</span>
+					</button>
 				{/if}
-			</h2>
-			<p class="{DS_ENTITY_BOARD_CLASSES.registrySubtitle}" title={subheader}>{subheader}</p>
+				{#if layoutVariant !== 'anchored' && hasMoreRows && loadCompletedOnce && !loadError && sortedRows.length > 0}
+					<button
+						type="button"
+						class="{DS_ENTITY_BOARD_CLASSES.registryViewAll} {DS_BTN_CLASSES.ghost} !px-2 !py-1 !text-[10px] !font-semibold !uppercase !tracking-wide !text-[color:var(--ds-text-muted)] hover:!text-[color:var(--ds-text-secondary)]"
+						data-testid="{testId}-view-all"
+						on:click={toggleExpanded}
+					>
+						{expanded ? 'Preview' : 'View all'}
+					</button>
+				{/if}
+			</div>
 		</div>
-		<div class="flex flex-wrap items-center gap-2 shrink-0">
-			<button
-				type="button"
-				class="{DS_BTN_CLASSES.ghost} !px-3 !py-1.5 !text-xs"
-				disabled={loading || !token || isPlaceholder}
-				data-testid="{testId}-refresh"
-				on:click={() => void load()}
-			>
-				Refresh
-			</button>
-			<button
-				type="button"
-				class="{DS_BTN_CLASSES.primary} !px-3.5 !py-1.5 !text-xs !font-bold !tracking-wide !uppercase"
-				data-testid="{testId}-add"
-				disabled={isPlaceholder || loading || !token}
-				title={isPlaceholder
-					? 'Phone registry pending Case Engine capability (P69-10).'
-					: `Register committed ${emptyKindWord.slice(0, -1)} in Case Engine`}
-				on:click={requestDirectCreate}
-			>
-				{addLabel}
-			</button>
-		</div>
+		<div class="{DS_ENTITY_BOARD_CLASSES.registryHeaderDivider}" aria-hidden="true"></div>
 	</header>
 
 	<div class="flex flex-col flex-1 min-h-0">
@@ -421,15 +470,9 @@
 			{:else if rawRows.length === 0}
 				<div class="{DS_ENTITY_BOARD_CLASSES.registryEmpty}" data-testid="{testId}-empty">
 					<p class="ds-type-body font-medium">No {emptyKindWord} on the board yet.</p>
-					<p class="ds-type-meta mt-1 opacity-90">Register with Add, or use intake below for staging first.</p>
-					<button
-						type="button"
-						class="{DS_INTELLIGENCE_CLASSES.inlineLink} mt-2 text-xs font-semibold"
-						data-testid="{testId}-empty-add"
-						on:click={requestDirectCreate}
-					>
-						{addLabel}
-					</button>
+					<p class="ds-type-meta mt-1 opacity-90">
+						Use <span class="font-semibold">+ ADD</span> in the card title, or use intake below for staging first.
+					</p>
 				</div>
 			{:else if sortedRows.length === 0}
 				<div class="{DS_ENTITY_BOARD_CLASSES.registryFilteredEmpty}" data-testid="{testId}-filtered-empty">
@@ -439,7 +482,7 @@
 						class="{DS_INTELLIGENCE_CLASSES.inlineLink} mt-1.5 text-[11px] font-medium"
 						data-testid="{testId}-clear-search"
 						on:click={() => {
-							searchQuery = '';
+							globalSearchFilter = '';
 						}}
 					>
 						Clear search
@@ -448,10 +491,13 @@
 			{:else}
 				<ul class="{DS_ENTITY_BOARD_CLASSES.registryList}" role="list" data-testid="{testId}-list">
 				{#each displayRows as ent (ent.id)}
-					{@const secondary = buildRegistrySecondaryLine(ent.entity_kind, ent)}
-					{@const portrait = ent.entity_kind === 'PERSON' ? entityPortraitUrl(ent.core_attributes ?? {}) : null}
+					{@const portrait = entityKind === 'PERSON' ? entityPortraitUrl(ent.core_attributes ?? {}) : null}
 					{@const showPortrait = portrait && !portraitFailedIds.has(ent.id)}
 					{@const isSelected = selectedEntityId === ent.id}
+					{@const personRow = entityKind === 'PERSON' ? personRegistryRowDisplay(ent) : null}
+					{@const vehicleRow = entityKind === 'VEHICLE' ? vehicleRegistryRowDisplay(ent) : null}
+					{@const locationRow = entityKind === 'LOCATION' ? locationRegistryRowDisplay(ent) : null}
+					{@const phoneRow = entityKind === 'PHONE' ? phoneRegistryRowDisplay(ent) : null}
 					<li>
 						<div
 							role="button"
@@ -465,45 +511,94 @@
 							on:click={() => onRowClick(ent)}
 							on:keydown={(e) => onRowKeydown(e, ent)}
 						>
-							<div class="shrink-0 flex items-center">
-								{#if ent.entity_kind === 'PERSON'}
-									{#if showPortrait}
-										<img
-											src={portrait}
-											alt=""
-											class="{DS_ENTITY_BOARD_CLASSES.registryPortrait}"
-											loading="lazy"
-											on:error={() => markPortraitFailed(ent.id)}
-										/>
+							<div class="flex w-full min-w-0 items-start gap-3">
+								<div class="flex shrink-0 items-start pt-0.5">
+									{#if entityKind === 'PERSON'}
+										{#if showPortrait}
+											<img
+												src={portrait}
+												alt=""
+												class="{DS_ENTITY_BOARD_CLASSES.registryPortrait}"
+												loading="lazy"
+												on:error={() => markPortraitFailed(ent.id)}
+											/>
+										{:else}
+											<span
+												class="{leadingTileClasses('PERSON')} !flex !h-11 !w-11 !items-center !justify-center !rounded-md !text-[11px]"
+												aria-hidden="true"
+											>
+												{initialsFromDisplayLabel(ent.display_label)}
+											</span>
+										{/if}
+									{:else if entityKind === 'VEHICLE'}
+										<span class="{leadingTileClasses('VEHICLE')} !flex !h-11 !w-11 !items-center !justify-center !p-0" aria-hidden="true">
+											<TruckIcon class="h-5 w-5" />
+										</span>
+									{:else if entityKind === 'LOCATION'}
+										<span class="{leadingTileClasses('LOCATION')} !flex !h-11 !w-11 !items-center !justify-center !p-0" aria-hidden="true">
+											<MapPinIcon class="h-5 w-5" />
+										</span>
 									{:else}
-										<span
-											class="{leadingTileClasses('PERSON')} !h-10 !w-10 rounded-full !text-[11px]"
-											aria-hidden="true"
-										>
-											{initialsFromDisplayLabel(ent.display_label)}
+										<span class="{leadingTileClasses('PHONE')} !flex !h-11 !w-11 !items-center !justify-center !p-0" aria-hidden="true">
+											<DevicePhoneMobileIcon class="h-5 w-5" />
 										</span>
 									{/if}
-								{:else}
-									<span class={leadingTileClasses(ent.entity_kind)} aria-hidden="true">
-										{leadingAbbrev(ent.entity_kind)}
-									</span>
-								{/if}
-							</div>
-							<div class="min-w-0 flex-1 py-0.5">
-								<div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-									<span class="{DS_ENTITY_BOARD_CLASSES.registryRowLabel}">{ent.display_label}</span>
-									{#if ent.deleted_at}
-										<span class="{DS_ENTITY_BOARD_CLASSES.registryRetiredPill}">Retired</span>
-									{/if}
 								</div>
-								{#if secondary}
-									<p class="{DS_ENTITY_BOARD_CLASSES.registryRowSecondary}">{secondary}</p>
-								{/if}
-								<p class="{DS_ENTITY_BOARD_CLASSES.registryRowId}" title={ent.id}>
-									{ent.id}
-								</p>
+								<div class="min-w-0 flex-1">
+									<div class="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
+										<span class="{DS_ENTITY_BOARD_CLASSES.registryRowLabel}">{ent.display_label}</span>
+										{#if ent.deleted_at}
+											<span class="{DS_ENTITY_BOARD_CLASSES.registryRetiredPill}">Retired</span>
+										{/if}
+									</div>
+									{#if entityKind === 'PERSON' && personRow}
+										{#if personRow.showPoiBadge}
+											<span class="{DS_ENTITY_BOARD_CLASSES.registryPoiBadge}">Person of interest</span>
+										{:else if personRow.roleLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowRole}">{personRow.roleLine}</p>
+										{/if}
+										{#if personRow.dobLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowMeta}">{personRow.dobLine}</p>
+										{/if}
+										{#if personRow.demoLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowMeta}">{personRow.demoLine}</p>
+										{/if}
+									{:else if entityKind === 'VEHICLE' && vehicleRow}
+										{#if vehicleRow.plateLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowRole}">{vehicleRow.plateLine}</p>
+										{/if}
+										{#if vehicleRow.lastSeenLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowMeta}">{vehicleRow.lastSeenLine}</p>
+										{/if}
+										{#if vehicleRow.locationLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowMeta}">{vehicleRow.locationLine}</p>
+										{/if}
+									{:else if entityKind === 'LOCATION' && locationRow}
+										{#if locationRow.cityLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowRole}">{locationRow.cityLine}</p>
+										{/if}
+										{#if locationRow.roleLabel}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowMeta}">{locationRow.roleLabel}</p>
+										{/if}
+										{#if locationRow.lastSeenLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowMeta}">{locationRow.lastSeenLine}</p>
+										{/if}
+									{:else if entityKind === 'PHONE' && phoneRow}
+										{#if phoneRow.ownerLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowRole}">{phoneRow.ownerLine}</p>
+										{/if}
+										{#if phoneRow.lastPingLine}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowMeta}">{phoneRow.lastPingLine}</p>
+										{/if}
+									{:else}
+										{@const secondary = buildRegistrySecondaryLine(ent.entity_kind, ent)}
+										{#if secondary}
+											<p class="{DS_ENTITY_BOARD_CLASSES.registryRowSecondary}">{secondary}</p>
+										{/if}
+									{/if}
+									<span class="sr-only" title={ent.id}>ID {ent.id}</span>
+								</div>
 							</div>
-							<div class="{DS_ENTITY_BOARD_CLASSES.registryChevron}" aria-hidden="true">›</div>
 						</div>
 					</li>
 				{/each}
@@ -511,52 +606,5 @@
 			{/if}
 		</div>
 
-		{#if !isPlaceholder}
-			<footer class="{DS_ENTITY_BOARD_CLASSES.registryFooter}" data-testid="{testId}-toolbar">
-				<input
-					id="{testId}-search"
-					type="search"
-					class="{DS_ENTITY_BOARD_CLASSES.registryFooterSearch}"
-					placeholder={searchPlaceholder}
-					aria-label="Search loaded roster rows"
-					title="Client-side filter on rows already loaded in this panel"
-					data-testid="{testId}-search"
-					bind:value={searchQuery}
-					autocomplete="off"
-				/>
-				<select
-					id="{testId}-filter"
-					class="{DS_ENTITY_BOARD_CLASSES.registryFooterSelect} w-[7.25rem] min-w-[6.5rem] sm:w-auto"
-					aria-label="List scope"
-					title={filterHelp}
-					data-testid="{testId}-filter"
-					bind:value={listScopeMode}
-					on:change={onFilterChange}
-				>
-					<option value="active_only">Active only</option>
-					<option value="include_retired">Include retired</option>
-				</select>
-				<select
-					id="{testId}-sort"
-					class="{DS_ENTITY_BOARD_CLASSES.registryFooterSelect} w-[7.5rem]"
-					aria-label="Sort roster"
-					data-testid="{testId}-sort"
-					bind:value={sortKey}
-				>
-					<option value="name_asc">Name (A–Z)</option>
-					<option value="created_desc">Newest first</option>
-				</select>
-				{#if layoutVariant !== 'anchored' && hasMoreRows && loadCompletedOnce && !loadError && sortedRows.length > 0}
-					<button
-						type="button"
-						class="{DS_ENTITY_BOARD_CLASSES.registryViewAll} ml-auto sm:ml-0"
-						data-testid="{testId}-view-all"
-						on:click={toggleExpanded}
-					>
-						{expanded ? 'Preview' : 'View all'}
-					</button>
-				{/if}
-			</footer>
-		{/if}
 	</div>
 </section>

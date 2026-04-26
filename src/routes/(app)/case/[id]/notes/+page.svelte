@@ -50,7 +50,8 @@
 	 * P124-04 — Draft identity banner + list chrome; presentation only (no persistence/authority change).
 	 *
 	 * Note browser search (P28-28):
-	 *   `browserSearch` drives a reactive `filteredNotes` derived from `notes`.
+	 *   `browserCreatorFilter` narrows `notes` to `notesAfterCreatorFilter` (by creator).
+	 *   `browserSearch` drives a reactive `filteredNotes` from that narrowed list.
 	 *   Filter is client-side, case-insensitive; matches title and note content.
 	 *   Results are ranked: title/both matches before content-only. Each result
 	 *   carries a reason ('title' | 'content' | 'both') shown as a badge.
@@ -64,7 +65,7 @@
 	import { page } from '$app/stores';
 	import { beforeNavigate, goto } from '$app/navigation';
 	import { toast } from 'svelte-sonner';
-	import { caseEngineToken, caseEngineUser, models, settings, config } from '$lib/stores';
+	import { caseEngineToken, caseEngineUser, user, models, settings, config } from '$lib/stores';
 	import { generateOpenAIChatCompletion } from '$lib/apis/openai';
 	import { WEBUI_BASE_URL } from '$lib/constants';
 	import { DropdownMenu } from 'bits-ui';
@@ -74,6 +75,7 @@
 	import Download from '$lib/components/icons/Download.svelte';
 	import EllipsisVertical from '$lib/components/icons/EllipsisVertical.svelte';
 	import ClockRotateRight from '$lib/components/icons/ClockRotateRight.svelte';
+	import Note from '$lib/components/icons/Note.svelte';
 	// P30-24: upgraded action icons for desktop clarity
 	import Clip from '$lib/components/icons/Clip.svelte';
 	import MicSolid from '$lib/components/icons/MicSolid.svelte';
@@ -115,6 +117,7 @@
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import CaseNoteEditor from '$lib/components/case/CaseNoteEditor.svelte';
+	import CaseNoteAttachmentPreviewCard from '$lib/components/case/CaseNoteAttachmentPreviewCard.svelte';
 	import CaseStructuredNotesReviewPanel from '$lib/components/case/CaseStructuredNotesReviewPanel.svelte';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
@@ -138,11 +141,12 @@
 	import { computeStructuredDraftHydration } from '$lib/caseNotes/structuredNotesDraftEditorHydration';
 	import { renderNotesCleanText } from '$lib/caseNotes/structuredNotesCleanText';
 	import CaseWorkspaceRouteSurfacePlaceholder from '$lib/components/case/CaseWorkspaceRouteSurfacePlaceholder.svelte';
-	import CaseNotesDraftFraming from '$lib/components/case/CaseNotesDraftFraming.svelte';
 	import {
 		P124_NOTES_IDLE_EMPTY_HINT,
 		P124_NOTES_LIST_HEADING,
-		P124_NOTES_LIST_SUBLINE
+		P124_NOTES_LIST_SUBLINE,
+		P124_NOTES_DRAFT_BODY,
+		P124_NOTES_SURFACE_TITLE
 	} from '$lib/caseContext/p124NotesDraftCopy';
 	import { getRouteCaseId } from '$lib/caseContext/routeCaseContext';
 	// ── Route-reuse case-switch guard (P28-46) ─────────────────────────────────
@@ -206,6 +210,8 @@
 	// draft_session_id generated once per create session; stable across retries
 	let draftSessionId = '';
 	let draftAttachments: NoteAttachment[] = [];
+	let draftAttachmentPickerInput: HTMLInputElement | null = null;
+	let noteAttachmentPickerInput: HTMLInputElement | null = null;
 
 	// ── Extraction state (P30-03) ──────────────────────────────────────────────
 	// Map of attachment_id → ExtractionRecord (or null if not yet extracted)
@@ -484,6 +490,11 @@
 		attachmentUploading = false;
 	}
 
+	function openNoteAttachmentPicker(): void {
+		if (attachmentUploading) return;
+		noteAttachmentPickerInput?.click();
+	}
+
 	async function handleAttachFileToDraft(files: FileList | null): Promise<void> {
 		if (!files || files.length === 0) return;
 		if (!draftSessionId) draftSessionId = generateDraftSessionId();
@@ -510,6 +521,11 @@
 		if (draftAttachments.length > 0) {
 			await loadDraftAttachmentIngestionState(draftAttachments.map((a) => a.id)).catch(() => {});
 		}
+	}
+
+	function openDraftAttachmentPicker(): void {
+		if (attachmentUploading) return;
+		draftAttachmentPickerInput?.click();
 	}
 
 	let composerDropTargetActive = false;
@@ -1473,8 +1489,20 @@
 
 	function exportNoteContent(format: 'txt' | 'pdf'): void {
 		if (!selectedNote || mode !== 'view') return;
-		const createdBy = attributionLabel(selectedNote.created_by_name, selectedNote.created_by) ?? selectedNote.created_by;
-		const updatedBy = attributionLabel(selectedNote.updated_by_name, selectedNote.updated_by) ?? selectedNote.updated_by;
+		const createdBy = displayNameForNoteUserId(
+			selectedNote.created_by,
+			'created',
+			notes,
+			get(caseEngineUser),
+			get(user)
+		);
+		const updatedBy = displayNameForNoteUserId(
+			selectedNote.updated_by,
+			'updated',
+			notes,
+			get(caseEngineUser),
+			get(user)
+		);
 		const content = buildNotebookNoteExportTxtContent(selectedNote, createdBy, updatedBy);
 		const slug = safeFileSlug(selectedNote.title);
 
@@ -1526,6 +1554,84 @@
 	// Untitled notes (title === null) have an effective title of '' and will not
 	// match any non-empty search term.
 	let browserSearch = '';
+	/** Empty string = all creators; otherwise `NotebookNote.created_by`, or {@link CREATOR_FILTER_UNKNOWN}. */
+	let browserCreatorFilter = '';
+	const CREATOR_FILTER_UNKNOWN = '__unknown__';
+	const NOTES_LIST_PAGE_SIZE = 20;
+	let notesListVisibleCount = NOTES_LIST_PAGE_SIZE;
+	let notesListQueryKey = '';
+
+	function attributionValue(value: string | null | undefined): string | null {
+		if (typeof value !== 'string') return null;
+		const trimmed = value.trim();
+		return trimmed.length > 0 ? trimmed : null;
+	}
+
+	/**
+	 * Resolve a stable display name for a user id referenced on notes: prefer API
+	 * `created_by_name` / `updated_by_name` from any note row, then Case Engine /
+	 * OWUI session names — avoid raw ids when a name exists.
+	 */
+	function displayNameForNoteUserId(
+		userId: string,
+		kind: 'created' | 'updated',
+		allNotes: NotebookNote[],
+		ceUser: { id: string; name: string } | null | undefined,
+		owuiUser: { id: string; name: string } | undefined
+	): string {
+		for (const n of allNotes) {
+			if (kind === 'created') {
+				if (n.created_by !== userId) continue;
+				const t = n.created_by_name?.trim();
+				if (t) return t;
+			} else {
+				if (n.updated_by !== userId) continue;
+				const t = n.updated_by_name?.trim();
+				if (t) return t;
+			}
+		}
+		const ceName = ceUser?.id === userId ? ceUser.name?.trim() : '';
+		if (ceName) return ceName;
+		const owuiName = owuiUser?.id === userId ? owuiUser.name?.trim() : '';
+		if (owuiName) return owuiName;
+		return userId;
+	}
+
+	/** Version rows: prefer `created_by_name` on any version row, then note-level resolution. */
+	function displayNameForVersionAuthor(
+		createdBy: string,
+		versions: NotebookNoteVersion[],
+		allNotes: NotebookNote[],
+		ceUser: { id: string; name: string } | null | undefined,
+		owuiUser: { id: string; name: string } | undefined
+	): string {
+		for (const v of versions) {
+			if (v.created_by !== createdBy) continue;
+			const t = v.created_by_name?.trim();
+			if (t) return t;
+		}
+		return displayNameForNoteUserId(createdBy, 'created', allNotes, ceUser, owuiUser);
+	}
+
+	/**
+	 * Sidebar creator filter label (same rules as {@link displayNameForNoteUserId} for `created`).
+	 */
+	function displayNameForNotebookCreator(
+		createdById: string,
+		allNotes: NotebookNote[],
+		ceUser: { id: string; name: string } | null | undefined,
+		owuiUser: { id: string; name: string } | undefined
+	): string {
+		return displayNameForNoteUserId(createdById, 'created', allNotes, ceUser, owuiUser);
+	}
+
+	/** Selected note header/footer: resolved names for Created / Updated lines. */
+	$: selectedNoteCreatedByDisplay = selectedNote
+		? displayNameForNoteUserId(selectedNote.created_by, 'created', notes, $caseEngineUser, $user)
+		: '';
+	$: selectedNoteUpdatedByDisplay = selectedNote
+		? displayNameForNoteUserId(selectedNote.updated_by, 'updated', notes, $caseEngineUser, $user)
+		: '';
 
 	/** Match reason for a note row in a search result. null = no active search. */
 	type NoteMatchReason = 'title' | 'content' | 'both' | null;
@@ -1540,12 +1646,45 @@
 	 *
 	 * When search is empty, all notes are returned with reason=null and no reordering.
 	 */
+	$: notesAfterCreatorFilter = (() => {
+		const f = browserCreatorFilter;
+		if (!f) return notes;
+		if (f === CREATOR_FILTER_UNKNOWN) {
+			return notes.filter((n) => !attributionValue(n.created_by));
+		}
+		return notes.filter((n) => n.created_by === f);
+	})();
+
+	$: sidebarCreatorFilterOptions = (() => {
+		type Opt = { value: string; label: string };
+		const byId = new Map<string, Opt>();
+		const ce = $caseEngineUser;
+		const owui = $user;
+		for (const n of notes) {
+			const id = attributionValue(n.created_by);
+			if (!id) {
+				if (!byId.has(CREATOR_FILTER_UNKNOWN)) {
+					byId.set(CREATOR_FILTER_UNKNOWN, { value: CREATOR_FILTER_UNKNOWN, label: 'Unknown' });
+				}
+				continue;
+			}
+			if (byId.has(id)) continue;
+			byId.set(id, {
+				value: id,
+				label: displayNameForNotebookCreator(id, notes, ce, owui)
+			});
+		}
+		const opts = [...byId.values()];
+		opts.sort((a, b) => a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }));
+		return opts;
+	})();
+
 	$: filteredNotes = (() => {
 		const q = browserSearch.trim().toLowerCase();
-		if (!q) return notes.map((n) => ({ note: n, reason: null as NoteMatchReason }));
+		if (!q) return notesAfterCreatorFilter.map((n) => ({ note: n, reason: null as NoteMatchReason }));
 
 		const results: Array<{ note: typeof notes[number]; reason: NoteMatchReason }> = [];
-		for (const n of notes) {
+		for (const n of notesAfterCreatorFilter) {
 			const titleMatch = (n.title ?? '').toLowerCase().includes(q);
 			const contentMatch = (n.current_text ?? '').toLowerCase().includes(q);
 			if (!titleMatch && !contentMatch) continue;
@@ -1560,6 +1699,28 @@
 		});
 		return results;
 	})();
+
+	$: currentNotesListQueryKey = `${browserSearch.trim().toLowerCase()}::${browserCreatorFilter}`;
+	$: if (currentNotesListQueryKey !== notesListQueryKey) {
+		notesListQueryKey = currentNotesListQueryKey;
+		notesListVisibleCount = NOTES_LIST_PAGE_SIZE;
+	}
+	$: notesListTotalCount = browserSearch.trim() ? filteredNotes.length : notesAfterCreatorFilter.length;
+	$: notesListHasMore = notesListVisibleCount < notesListTotalCount;
+	$: visibleFilteredNotes = filteredNotes.slice(0, notesListVisibleCount);
+	$: visibleNotesAfterCreatorFilter = notesAfterCreatorFilter.slice(0, notesListVisibleCount);
+
+	function loadMoreNotesListRows(): void {
+		if (!notesListHasMore) return;
+		notesListVisibleCount = Math.min(notesListVisibleCount + NOTES_LIST_PAGE_SIZE, notesListTotalCount);
+	}
+
+	function handleNotesListScroll(event: Event): void {
+		const el = event.currentTarget as HTMLElement;
+		if (el.scrollTop + el.clientHeight >= el.scrollHeight - 80) {
+			loadMoreNotesListRows();
+		}
+	}
 
 	/**
 	 * P30-26 — Group notes into relative-time buckets for sidebar display.
@@ -1590,7 +1751,7 @@
 		const last30: NotebookNote[] = [];
 		const olderMap = new Map<string, NotebookNote[]>();
 
-		for (const note of notes) {
+		for (const note of visibleNotesAfterCreatorFilter) {
 			const d = new Date(note.updated_at);
 			if (d >= todayStart) {
 				today.push(note);
@@ -1618,6 +1779,13 @@
 		return groups;
 	})();
 
+	// Drop stale creator filter when the loaded note set no longer supports it.
+	$: if (browserCreatorFilter === CREATOR_FILTER_UNKNOWN) {
+		if (!notes.some((n) => !attributionValue(n.created_by))) browserCreatorFilter = '';
+	} else if (browserCreatorFilter && !notes.some((n) => n.created_by === browserCreatorFilter)) {
+		browserCreatorFilter = '';
+	}
+
 	/**
 	 * Extract a short content snippet around the first occurrence of the query.
 	 * Returns empty string if query not found in text.
@@ -1633,17 +1801,13 @@
 		return (start > 0 ? '…' : '') + text.slice(start, end).replace(/\n/g, ' ') + (end < text.length ? '…' : '');
 	}
 
-	function attributionValue(value: string | null | undefined): string | null {
-		if (typeof value !== 'string') return null;
-		const trimmed = value.trim();
-		return trimmed.length > 0 ? trimmed : null;
+	function notePreview(text: string | null | undefined): string {
+		const flat = String(text ?? '').replace(/\s+/g, ' ').trim();
+		return flat.length > 0 ? flat.slice(0, 110) + (flat.length > 110 ? '…' : '') : 'No note body yet.';
 	}
 
-	function attributionLabel(
-		nameValue: string | null | undefined,
-		idValue: string | null | undefined
-	): string | null {
-		return attributionValue(nameValue) ?? attributionValue(idValue);
+	function noteToolsPlaceholder(label: string): void {
+		toast.info(`${label} is not wired yet. Use Structure Note or the governed proposal flow when ready.`);
 	}
 
 	function resetVersionHistoryState(): void {
@@ -1743,6 +1907,7 @@
 		restoreFeedback = null;
 		resetVersionHistoryState();
 		browserSearch = '';
+		browserCreatorFilter = '';
 		showDiscardConfirm = false;
 		pendingDiscardAction = null;
 		showDeleteConfirm = false;
@@ -2041,6 +2206,7 @@
 				createEditorRenderKey = 0;
 				resetDictationState();
 				browserSearch = '';
+				browserCreatorFilter = '';
 				selectedNote = note;
 				mode = 'view';
 				if (draftSessionId && draftAttachments.length > 0) {
@@ -2094,6 +2260,7 @@
 			createEditorRenderKey = 0;
 			resetDictationState();
 			browserSearch = '';
+			browserCreatorFilter = '';
 			selectedNote = note;
 			mode = 'view';
 			// Claim any draft attachments uploaded during this create session
@@ -2280,7 +2447,9 @@
 			const searchActive = browserSearch.trim().length > 0;
 			let visibleBeforeDelete: NotebookNote[] = searchActive
 				? filteredNotes.map((r) => r.note)
-				: notesBeforeDelete.slice();
+				: browserCreatorFilter
+					? notesAfterCreatorFilter
+					: notesBeforeDelete.slice();
 			let deleteVisibleIndex = visibleBeforeDelete.findIndex((n) => n.id === noteToDelete.id);
 			if (deleteVisibleIndex < 0) {
 				visibleBeforeDelete = notesBeforeDelete.slice();
@@ -2288,6 +2457,7 @@
 			}
 			notes = notesBeforeDelete.filter((n) => n.id !== noteToDelete.id);
 			browserSearch = '';
+			browserCreatorFilter = '';
 			if (wasSelected) {
 				resetDictationState();
 				resetVersionHistoryState();
@@ -2332,6 +2502,7 @@
 			await restoreCaseNotebookNote(activeCaseId, noteToRestore.id, $caseEngineToken);
 			if (caseId !== activeCaseId) return;
 			browserSearch = '';
+			browserCreatorFilter = '';
 			await loadNotes();
 			recentlyDeletedNote = null;
 			restoreFeedback = { kind: 'success', message: 'Note restored.' };
@@ -2356,32 +2527,95 @@
 	<CaseWorkspaceRouteSurfacePlaceholder surface="Notes" testId="case-notes-placeholder" />
 {:else}
 <CaseWorkspaceContentRegion testId="case-notes-page">
-<CaseNotesDraftFraming />
+<div class="ce-l-notes-shell notes-intel-workspace">
+<section
+	class="ce-l-notes-hero shrink-0 border-b border-cyan-500/15 bg-[color:var(--ce-l-surface-elevated)] px-4 py-3"
+	aria-labelledby="case-notes-p124-draft-title"
+	data-testid="case-notes-p124-draft-framing"
+	data-p124-notes-draft-framing="true"
+>
+	<div class="flex min-w-0 flex-1 flex-col gap-1">
+		<div class="flex min-w-0 items-center justify-between gap-3">
+			<h2
+				id="case-notes-p124-draft-title"
+				class="m-0 flex items-center gap-2 text-lg font-semibold tracking-tight text-[color:var(--ce-l-text-primary)]"
+			>
+				<span class="ds-occ-kpi-card--cyan ds-case-overview-kpi-tile__icon" aria-hidden="true">
+					<Note className="h-4 w-4" strokeWidth="1.9" />
+				</span>
+				{P124_NOTES_SURFACE_TITLE}
+			</h2>
+			<div class="ml-auto flex shrink-0 flex-wrap items-center justify-end gap-2">
+				<button
+					type="button"
+					class="rounded-lg border border-cyan-500/45 bg-cyan-950/30 px-3 py-1.5 text-xs font-semibold text-cyan-100 hover:bg-cyan-900/35"
+					on:click={startNewNote}
+					data-testid="case-notes-new-note-header-btn"
+				>
+					+ New Note
+				</button>
+				<button
+					type="button"
+					class="rounded-lg border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)] px-3 py-1.5 text-xs font-medium text-[color:var(--ce-l-text-primary)] hover:border-cyan-500/35"
+					on:click={() => noteToolsPlaceholder('Import / Attach')}
+				>
+					Import / Attach
+				</button>
+				<DropdownMenu.Root>
+					<DropdownMenu.Trigger>
+						<button
+							type="button"
+							class="inline-flex h-8 w-8 items-center justify-center rounded-lg border border-[color:var(--ce-l-border-default)] text-[color:var(--ce-l-text-muted)] hover:border-cyan-500/35 hover:text-[color:var(--ce-l-text-primary)]"
+							aria-label="More Notes actions"
+						>
+							<EllipsisVertical className="h-4 w-4" />
+						</button>
+					</DropdownMenu.Trigger>
+					<DropdownMenu.Content
+						class="w-full max-w-[190px] rounded-xl border border-gray-100 bg-white px-1 py-1 text-sm shadow-lg z-50 dark:border-gray-800 dark:bg-gray-850 dark:text-white"
+						sideOffset={4}
+						side="bottom"
+						align="end"
+						transition={flyAndScale}
+					>
+						<DropdownMenu.Item
+							class="select-none rounded-lg px-3 py-1.5 hover:bg-gray-50 dark:hover:bg-gray-800"
+							on:click={() => noteToolsPlaceholder('Notes overflow action')}
+						>
+							Notebook options
+						</DropdownMenu.Item>
+					</DropdownMenu.Content>
+				</DropdownMenu.Root>
+			</div>
+		</div>
+		<p class="m-0 max-w-4xl text-xs leading-snug text-[color:var(--ce-l-text-muted)]">
+			{P124_NOTES_DRAFT_BODY}
+		</p>
+	</div>
+</section>
 <CaseArrivalOrientationBlock context={p99NoteArrivalContext} testId="case-notes-p99-arrival" />
-<div class="flex flex-1 min-w-0 min-h-0 overflow-hidden">
+<div class="grid flex-1 min-w-0 min-h-0 grid-cols-[20rem_minmax(0,1fr)_18rem] overflow-hidden">
 
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
 	<!-- LEFT PANEL — Note Browser                                             -->
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
 	<div
-		class="w-56 shrink-0 flex flex-col min-h-0 border-r border-gray-200 dark:border-gray-800 overflow-hidden"
+		class="flex min-h-0 min-w-0 flex-col overflow-hidden border-r border-cyan-500/15 bg-[color:var(--ce-l-surface-muted)]/35"
 	>
 		<!-- Browser header -->
-		<div class="shrink-0 px-3 py-2 border-b border-gray-200 dark:border-gray-800">
+		<div class="shrink-0 border-b border-[color:var(--ce-l-border-default)] px-3 py-3">
 			<div class="flex items-center justify-between gap-2">
 				<div class="min-w-0">
-					<h2 class="text-xs font-semibold text-gray-700 dark:text-gray-300 truncate">
-						{P124_NOTES_LIST_HEADING}
+					<h2 class="m-0 truncate text-[11px] font-semibold uppercase tracking-wide text-cyan-100/90">
+						{P124_NOTES_LIST_HEADING.toUpperCase()}
 					</h2>
-					<p class="m-0 mt-0.5 text-[10px] leading-tight text-gray-400 dark:text-gray-500">
+					<p class="m-0 mt-1 text-[10px] leading-tight text-[color:var(--ce-l-text-muted)]">
 						{P124_NOTES_LIST_SUBLINE}
 					</p>
 				</div>
 				<button
 					type="button"
-					class="shrink-0 text-xs font-medium px-2 py-1 rounded
-					       bg-gray-800 dark:bg-gray-200 text-white dark:text-gray-900
-					       hover:bg-gray-700 dark:hover:bg-gray-300 transition"
+					class="shrink-0 rounded-md border border-cyan-500/45 bg-cyan-950/30 px-2.5 py-1 text-xs font-semibold text-cyan-100 hover:bg-cyan-900/35"
 					on:click={startNewNote}
 					data-testid="case-notes-new-btn"
 				>
@@ -2391,24 +2625,36 @@
 		</div>
 
 		<!-- Search input -->
-		<div class="shrink-0 px-2.5 py-2 border-b border-gray-200 dark:border-gray-800">
+		<div class="shrink-0 border-b border-[color:var(--ce-l-border-default)] px-2.5 py-2">
 			<input
 				type="search"
 				bind:value={browserSearch}
-				placeholder="Search notes…"
-				class="w-full text-xs bg-gray-50 dark:bg-gray-900
-				       text-gray-700 dark:text-gray-300
-				       placeholder-gray-400 dark:placeholder-gray-600
-				       border border-gray-200 dark:border-gray-700
-				       rounded-md px-2.5 py-1.5
-				       focus:outline-none focus:ring-1 focus:ring-gray-300 dark:focus:ring-gray-600
-				       transition"
+				placeholder="Search notes..."
+				class="w-full rounded-lg border border-cyan-500/20 bg-[color:var(--ce-l-surface-raised)] px-2.5 py-2 text-xs text-[color:var(--ce-l-text-primary)] placeholder:text-[color:var(--ce-l-text-muted)] focus:border-cyan-500/45 focus:outline-none focus:ring-2 focus:ring-cyan-500/20"
 				data-testid="case-notes-search"
 			/>
+			{#if notes.length > 0}
+				<label class="sr-only" for="case-notes-creator-filter">Filter by creator</label>
+				<select
+					id="case-notes-creator-filter"
+					bind:value={browserCreatorFilter}
+					class="mt-2 w-full rounded-lg border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)] px-2 py-2 text-xs text-[color:var(--ce-l-text-primary)] focus:border-cyan-500/45 focus:outline-none"
+					data-testid="case-notes-creator-filter"
+				>
+					<option value="">All notes</option>
+					{#each sidebarCreatorFilterOptions as opt (opt.value)}
+						<option value={opt.value}>{opt.label}</option>
+					{/each}
+				</select>
+			{/if}
 		</div>
 
 		<!-- Note list -->
-		<div class="flex-1 overflow-y-auto p-1.5" data-testid="case-notes-list">
+		<div class="flex-1 overflow-y-auto p-2" data-testid="case-notes-list" on:scroll={handleNotesListScroll}>
+			<div class="flex items-center justify-between px-1 pb-2">
+				<p class="m-0 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">Recent notes</p>
+				<span class="h-2 w-2 rounded-full bg-cyan-400/70" aria-hidden="true"></span>
+			</div>
 			{#if loading}
 				<CaseLoadingState label="Loading…" testId="case-notes-loading" />
 			{:else if loadError}
@@ -2422,17 +2668,23 @@
 					class="text-xs text-gray-400 dark:text-gray-500 text-center px-3 py-6"
 					data-testid="case-notes-no-match"
 				>
-					No notes match this search.
+					{#if browserSearch.trim() && browserCreatorFilter}
+						No notes match this search for the selected creator.
+					{:else if browserSearch.trim()}
+						No notes match this search.
+					{:else}
+						No notes for the selected creator.
+					{/if}
 				</p>
 		{:else}
 			{#if browserSearch.trim()}
 				<!-- Search active: flat filtered results with match badges + snippets -->
-				{#each filteredNotes as { note, reason } (note.id)}
+				{#each visibleFilteredNotes as { note, reason } (note.id)}
 					<div
-						class="w-full flex items-stretch mb-0.5 rounded-md transition border-l-2
+						class="mb-2 flex w-full items-stretch rounded-xl border transition
 						       {selectedNote?.id === note.id
-							       ? 'bg-gray-100 dark:bg-gray-800 border-gray-500 dark:border-gray-400'
-							       : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-850'}"
+							       ? 'border-cyan-400/70 bg-cyan-950/25 shadow-[0_0_0_1px_rgba(34,211,238,0.12)]'
+							       : 'border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)]/80 hover:border-cyan-500/35'}"
 						data-testid="case-note-item"
 						data-note-id={note.id}
 					>
@@ -2464,6 +2716,9 @@
 							>{reason === 'both' ? 'Title + Content' : reason === 'title' ? 'Title' : 'Content'}</span>
 						{/if}
 					</div>
+					<p class="mt-1 line-clamp-2 text-[11px] leading-snug text-[color:var(--ce-l-text-muted)]">
+						{notePreview(note.current_text)}
+					</p>
 					{#if (reason === 'content' || reason === 'both') && browserSearch.trim()}
 						{@const snippet = contentSnippet(note.current_text ?? '', browserSearch.trim().toLowerCase())}
 						{#if snippet}
@@ -2476,9 +2731,9 @@
 					<p class="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5 truncate">
 						{formatCaseDateTime(note.updated_at)}
 					</p>
-					{#if attributionLabel(note.updated_by_name, note.updated_by)}
+					{#if attributionValue(note.updated_by)}
 						<p class="text-[9px] text-gray-400 dark:text-gray-600 truncate">
-							{attributionLabel(note.updated_by_name, note.updated_by)}
+							{displayNameForNoteUserId(note.updated_by, 'updated', notes, $caseEngineUser, $user)}
 						</p>
 					{/if}
 					</button>
@@ -2535,10 +2790,10 @@
 					</p>
 					{#each group.notes as note (note.id)}
 						<div
-							class="w-full flex items-stretch mb-0.5 rounded-md transition border-l-2
+							class="mb-2 flex w-full items-stretch rounded-xl border transition
 							       {selectedNote?.id === note.id
-								       ? 'bg-gray-100 dark:bg-gray-800 border-gray-500 dark:border-gray-400'
-								       : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-850'}"
+								       ? 'border-cyan-400/70 bg-cyan-950/25 shadow-[0_0_0_1px_rgba(34,211,238,0.12)]'
+								       : 'border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)]/80 hover:border-cyan-500/35'}"
 							data-testid="case-note-item"
 							data-note-id={note.id}
 						>
@@ -2559,13 +2814,16 @@
 								</p>
 							{/if}
 						</div>
+						<p class="mt-1 line-clamp-2 text-[11px] leading-snug text-[color:var(--ce-l-text-muted)]">
+							{notePreview(note.current_text)}
+						</p>
 						<!-- P30-27: metadata slightly reduced in visual weight -->
 						<p class="text-[10px] text-gray-400 dark:text-gray-600 mt-0.5 truncate">
 							{formatCaseDateTime(note.updated_at)}
 						</p>
-						{#if attributionLabel(note.updated_by_name, note.updated_by)}
+						{#if attributionValue(note.updated_by)}
 							<p class="text-[9px] text-gray-400 dark:text-gray-600 truncate">
-								{attributionLabel(note.updated_by_name, note.updated_by)}
+								{displayNameForNoteUserId(note.updated_by, 'updated', notes, $caseEngineUser, $user)}
 							</p>
 						{/if}
 						</button>
@@ -2617,6 +2875,18 @@
 			{/each}
 		{/if}
 	{/if}
+			{#if !loading && !loadError && notes.length > 0 && notesListHasMore}
+				<div class="px-2 py-3 text-center">
+					<button
+						type="button"
+						class="rounded-lg border border-cyan-500/25 px-3 py-1.5 text-xs font-medium text-cyan-100 hover:bg-cyan-950/20"
+						on:click={loadMoreNotesListRows}
+						data-testid="case-notes-load-more"
+					>
+						Load more notes
+					</button>
+				</div>
+			{/if}
 		</div>
 	</div>
 
@@ -2624,7 +2894,7 @@
 	<!-- RIGHT PANEL — Focused Workspace (draft editor; P124-04 visual band)      -->
 	<!-- ══════════════════════════════════════════════════════════════════════ -->
 	<div
-		class="flex flex-1 flex-col min-w-0 min-h-0 overflow-hidden border-l border-dashed border-gray-200/90 dark:border-gray-700/90 bg-slate-50/40 dark:bg-gray-950/30"
+		class="flex min-h-0 min-w-0 flex-col overflow-hidden bg-[color:var(--ce-l-surface-raised)]"
 		data-notes-draft-workspace-column="true"
 	>
 		{#if recentlyDeletedNote && !notesNarrativeFullWorkspaceActive}
@@ -2849,7 +3119,7 @@
 				{/if}
 				{#if draftAttachments.length > 0}
 					<div class="flex items-center justify-between mb-2">
-						<span class="text-xs font-semibold text-gray-700 dark:text-gray-200">Attachments</span>
+						<span class="text-xs font-semibold text-gray-700 dark:text-gray-200">ATTACHMENTS</span>
 					</div>
 					<ul class="space-y-3" data-testid="note-draft-attachment-list">
 					{#each draftAttachments as att (att.id)}
@@ -2881,7 +3151,7 @@
 								<span class="shrink-0 mt-0.5">{mimeTypeIcon(att.mime_type)}</span>
 								<div class="min-w-0">
 									<div class="font-medium text-gray-800 dark:text-gray-100 truncate" title={att.original_filename}>{att.original_filename}</div>
-									<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{formatBytes(att.file_size_bytes)}</div>
+									<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{formatBytes(att.file_size_bytes)} · {formatCaseDateTime(att.created_at)}</div>
 								</div>
 							</div>
 							<div class="flex items-center gap-2 shrink-0">
@@ -3020,12 +3290,42 @@
 						</li>
 					{/each}
 				</ul>
+				<label class="mt-2 inline-flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-cyan-500/35 px-3 py-2 text-xs font-medium text-cyan-100 hover:bg-cyan-950/20">
+					+ Add file
+					<input
+						type="file"
+						multiple
+						class="hidden"
+						disabled={attachmentUploading}
+						on:change={(e) => void handleAttachFileToDraft((e.target as HTMLInputElement).files)}
+					/>
+				</label>
 
 			{:else if !attachmentUploadError}
 				<!-- Empty hint — invite user to attach files for the ingestion workflow -->
-				<p class="text-[11px] text-gray-400 dark:text-gray-500 italic">
-					Use 📎 or drop files on the note area to attach. Process to extract text, then insert into the draft. <span class="font-medium not-italic">Save note</span> commits the final note.
-				</p>
+				<button
+					type="button"
+					class="block w-full cursor-pointer rounded-xl border border-dashed border-cyan-500/35 bg-cyan-950/10 px-4 py-4 text-center hover:bg-cyan-950/20 disabled:cursor-not-allowed disabled:opacity-60"
+					disabled={attachmentUploading}
+					on:click={openDraftAttachmentPicker}
+					data-testid="case-note-draft-empty-attach-zone"
+				>
+					<span class="block text-sm font-medium text-cyan-100">Drag and drop files here or click to attach</span>
+					<span class="mt-1 block text-[11px] text-[color:var(--ce-l-text-muted)]">Images, documents, audio, video up to 250MB each</span>
+				</button>
+				<input
+					bind:this={draftAttachmentPickerInput}
+					type="file"
+					multiple
+					class="sr-only"
+					disabled={attachmentUploading}
+					tabindex="-1"
+					on:change={(e) => {
+						const input = e.target as HTMLInputElement;
+						void handleAttachFileToDraft(input.files);
+						input.value = '';
+					}}
+				/>
 				{/if}
 			</div>
 				{#if saveIntegrityExplain}
@@ -3178,19 +3478,21 @@
 					{:else}
 					<!-- View: header with title + actions -->
 					<div
-						class="shrink-0 flex items-start justify-between gap-3 px-5 pt-4 pb-3
-						       border-b border-gray-200 dark:border-gray-800"
+						class="shrink-0 flex items-start justify-between gap-3 border-b border-cyan-500/15 bg-[color:var(--ce-l-surface-elevated)] px-5 pb-4 pt-4"
 					>
 					<!-- P30-27: improved title area with structured metadata + attachment jump -->
 					<div class="min-w-0 flex-1">
 						<!-- Title row: title + attachment count chip (jump-to-attachments) -->
 						<div class="flex items-start gap-2 min-w-0">
+							<span class="mt-0.5 inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-cyan-500/25 bg-cyan-950/20 text-cyan-100" aria-hidden="true">
+								<Note className="h-4 w-4" strokeWidth="1.9" />
+							</span>
 							{#if selectedNote.title}
-								<h2 class="flex-1 text-base font-semibold text-gray-900 dark:text-gray-100 truncate">
+								<h2 class="flex-1 truncate text-lg font-semibold tracking-tight text-[color:var(--ce-l-text-primary)]">
 									{selectedNote.title}
 								</h2>
 							{:else}
-								<h2 class="flex-1 text-base font-semibold italic text-gray-400 dark:text-gray-500">
+								<h2 class="flex-1 text-lg font-semibold italic text-[color:var(--ce-l-text-muted)]">
 									Untitled
 								</h2>
 							{/if}
@@ -3209,17 +3511,22 @@
 							{/if}
 						</div>
 						<!-- P30-27: structured Created / Updated metadata lines -->
-						<div class="mt-1.5 space-y-0.5 text-[11px] text-gray-400 dark:text-gray-500">
+						<div class="mt-2 space-y-0.5 text-[11px] text-[color:var(--ce-l-text-muted)]">
 							<p>
 								<span class="font-medium text-gray-500 dark:text-gray-400">Created:</span>
-								{formatCaseDateTime(selectedNote.created_at)}{#if attributionLabel(selectedNote.created_by_name, selectedNote.created_by)} · {attributionLabel(selectedNote.created_by_name, selectedNote.created_by)}{/if}
+								{formatCaseDateTime(selectedNote.created_at)}{#if attributionValue(selectedNote.created_by)} · {selectedNoteCreatedByDisplay}{/if}
 							</p>
 							{#if selectedNote.updated_at !== selectedNote.created_at}
 								<p>
 									<span class="font-medium text-gray-500 dark:text-gray-400">Updated:</span>
-									{formatCaseDateTime(selectedNote.updated_at)}{#if attributionLabel(selectedNote.updated_by_name, selectedNote.updated_by)} · {attributionLabel(selectedNote.updated_by_name, selectedNote.updated_by)}{/if}
+									{formatCaseDateTime(selectedNote.updated_at)}{#if attributionValue(selectedNote.updated_by)} · {selectedNoteUpdatedByDisplay}{/if}
 								</p>
 							{/if}
+						</div>
+						<div class="mt-2 flex flex-wrap gap-1.5">
+							<span class="rounded-full border border-cyan-500/25 bg-cyan-950/20 px-2 py-0.5 text-[10px] font-medium text-cyan-100">Working draft</span>
+							<span class="rounded-full border border-slate-500/25 bg-slate-950/20 px-2 py-0.5 text-[10px] font-medium text-slate-200">Private</span>
+							<span class="rounded-full border border-amber-500/25 bg-amber-950/20 px-2 py-0.5 text-[10px] font-medium text-amber-100">No timeline impact</span>
 						</div>
 					</div>
 					<!-- P30-19: Note action bar refactored to Edit + kebab menu.
@@ -3363,9 +3670,15 @@
 													<span>Version {version.version_number}</span>
 													<span>{formatCaseDateTime(version.created_at)}</span>
 												</div>
-												{#if attributionLabel(version.created_by_name, version.created_by)}
+												{#if attributionValue(version.created_by)}
 													<div class="mt-0.5 text-[11px] text-gray-500 dark:text-gray-400">
-														Saved by {attributionLabel(version.created_by_name, version.created_by)}
+														Saved by {displayNameForVersionAuthor(
+															version.created_by,
+															versionHistory,
+															notes,
+															$caseEngineUser,
+															$user
+														)}
 													</div>
 												{/if}
 											</button>
@@ -3440,14 +3753,14 @@
 			<!-- P30-27: id="note-view-attachments" used by the jump-to-attachments chip in the header. -->
 			<div id="note-view-attachments" class="mx-5 mb-3 mt-2 shrink-0">
 					<div class="mb-2 flex items-center justify-between">
-						<span class="text-xs font-semibold text-gray-700 dark:text-gray-200">Attachments</span>
+						<span class="text-xs font-semibold text-gray-700 dark:text-gray-200">ATTACHMENTS</span>
 					</div>
 					{#if attachmentsLoading}
 						<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
 					{:else if noteAttachments.length === 0}
 						<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Enter edit mode to add files.</div>
 						{:else}
-							<ul class="space-y-3" data-testid="note-attachment-list">
+							<ul class="grid gap-3 sm:grid-cols-2 xl:grid-cols-3" data-testid="note-attachment-list">
 							{#each noteAttachments as att (att.id)}
 								{@const extraction = extractionsByAttachmentId.get(att.id) ?? null}
 								{@const isExtracting = extractingIds.has(att.id)}
@@ -3468,26 +3781,17 @@
 							if (ocr?.status === 'no_text_found' || (extraction?.status === 'no_text_found' && !ocrEligible)) return { label: 'No text found', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
 							return { label: 'Ready', cls: 'bg-gray-100 dark:bg-gray-800 text-gray-600 dark:text-gray-400' };
 						})()}
-						<li class="rounded-lg border border-gray-200/90 dark:border-gray-700/90 bg-gray-50/90 dark:bg-gray-900/50 text-xs text-gray-700 dark:text-gray-300 p-3 shadow-sm">
-							<div class="flex items-start justify-between gap-2">
-								<div class="min-w-0 flex items-start gap-2 flex-1">
-									<span class="shrink-0 mt-0.5">{mimeTypeIcon(att.mime_type)}</span>
-									<div class="min-w-0">
-										<div class="font-medium text-gray-800 dark:text-gray-100 truncate" title={att.original_filename}>{att.original_filename}</div>
-										<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{formatBytes(att.file_size_bytes)}</div>
-									</div>
-								</div>
-								<div class="flex flex-col items-end gap-1.5 shrink-0 sm:flex-row sm:items-center">
-									<span class="text-[10px] font-medium px-2 py-0.5 rounded-md {attachmentStatusInfo.cls}">{attachmentStatusInfo.label}</span>
-									<button
-										type="button"
-										class="shrink-0 rounded-md px-2 py-1 text-[11px] font-medium text-blue-700 dark:text-blue-300 bg-blue-50/90 dark:bg-blue-950/40 hover:bg-blue-100 dark:hover:bg-blue-900/50 transition"
-										title="Download {att.original_filename}"
-										aria-label="Download {att.original_filename}"
-										on:click={() => void downloadNoteAttachment(caseId, att.id, att.original_filename, $caseEngineToken ?? '')}
-									>Download</button>
-								</div>
-							</div>
+						<li>
+							<CaseNoteAttachmentPreviewCard
+								attachment={att}
+								{caseId}
+								token={$caseEngineToken ?? ''}
+								statusLabel={attachmentStatusInfo.label}
+								statusClass={attachmentStatusInfo.cls}
+								formatBytes={formatBytes}
+								formatDateTime={formatCaseDateTime}
+								onDownload={() => void downloadNoteAttachment(caseId, att.id, att.original_filename, $caseEngineToken ?? '')}
+							/>
 						</li>
 							{/each}
 						</ul>
@@ -3701,7 +4005,7 @@
 		     P30-23: "Add file" text button removed from header — use the 📎 in the footer. -->
 		<div class="mx-5 mb-2 mt-2">
 			<div class="mb-2 flex items-center justify-between">
-				<span class="text-xs font-semibold text-gray-700 dark:text-gray-200">Attachments</span>
+				<span class="text-xs font-semibold text-gray-700 dark:text-gray-200">ATTACHMENTS</span>
 			</div>
 			{#if attachmentUploadError}
 				<div class="mb-1.5 text-xs text-red-600 dark:text-red-400">{attachmentUploadError}</div>
@@ -3709,7 +4013,29 @@
 			{#if attachmentsLoading}
 				<div class="text-xs text-gray-400 dark:text-gray-500">Loading attachments…</div>
 			{:else if noteAttachments.length === 0}
-				<div class="text-xs text-gray-400 dark:text-gray-500 italic">No attachments. Use 📎 or drop files on the note area to attach.</div>
+				<button
+					type="button"
+					class="block w-full cursor-pointer rounded-xl border border-dashed border-cyan-500/35 bg-cyan-950/10 px-4 py-4 text-center hover:bg-cyan-950/20 disabled:cursor-not-allowed disabled:opacity-60"
+					disabled={attachmentUploading}
+					on:click={openNoteAttachmentPicker}
+					data-testid="case-note-edit-empty-attach-zone"
+				>
+					<span class="block text-sm font-medium text-cyan-100">Drag and drop files here or click to attach</span>
+					<span class="mt-1 block text-[11px] text-[color:var(--ce-l-text-muted)]">Images, documents, audio, video up to 250MB each</span>
+				</button>
+				<input
+					bind:this={noteAttachmentPickerInput}
+					type="file"
+					multiple
+					class="sr-only"
+					disabled={attachmentUploading}
+					tabindex="-1"
+					on:change={(e) => {
+						const input = e.target as HTMLInputElement;
+						void handleAttachFileToNote(input.files);
+						input.value = '';
+					}}
+				/>
 				{:else}
 					<ul class="space-y-3" data-testid="note-edit-attachment-list">
 					{#each noteAttachments as att (att.id)}
@@ -3741,7 +4067,7 @@
 								<span class="shrink-0 mt-0.5">{mimeTypeIcon(att.mime_type)}</span>
 								<div class="min-w-0">
 									<div class="font-medium text-gray-800 dark:text-gray-100 truncate" title={att.original_filename}>{att.original_filename}</div>
-									<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{formatBytes(att.file_size_bytes)}</div>
+									<div class="text-[10px] text-gray-500 dark:text-gray-400 mt-0.5">{formatBytes(att.file_size_bytes)} · {formatCaseDateTime(att.created_at)}</div>
 								</div>
 							</div>
 							<div class="flex items-center gap-2 shrink-0">
@@ -3889,6 +4215,16 @@
 					</li>
 					{/each}
 					</ul>
+					<label class="mt-2 inline-flex cursor-pointer items-center justify-center rounded-xl border border-dashed border-cyan-500/35 px-3 py-2 text-xs font-medium text-cyan-100 hover:bg-cyan-950/20">
+						+ Add file
+						<input
+							type="file"
+							multiple
+							class="hidden"
+							disabled={attachmentUploading}
+							on:change={(e) => void handleAttachFileToNote((e.target as HTMLInputElement).files)}
+						/>
+					</label>
 				{/if}
 		</div>
 					</div>
@@ -3989,6 +4325,68 @@
 	{/if}
 
 	</div>
+	<aside
+		class="flex min-h-0 min-w-0 flex-col gap-3 overflow-y-auto border-l border-cyan-500/15 bg-[color:var(--ce-l-surface-muted)]/45 px-3 py-3"
+		aria-label="Note tools and details"
+	>
+		<section class="rounded-xl border border-cyan-500/20 bg-cyan-950/10 p-3">
+			<h3 class="m-0 text-[11px] font-semibold uppercase tracking-wide text-cyan-100/90">Note Assistant</h3>
+			<div class="mt-2 flex flex-col gap-1.5">
+				<button type="button" class="rounded-lg border border-cyan-500/25 bg-cyan-950/15 px-2.5 py-2 text-left text-[11px] font-medium text-cyan-100 hover:border-cyan-400/50" on:click={() => noteToolsPlaceholder('Summarize this note')}>
+					Summarize this note
+				</button>
+				<button type="button" class="rounded-lg border border-cyan-500/25 bg-cyan-950/15 px-2.5 py-2 text-left text-[11px] font-medium text-cyan-100 hover:border-cyan-400/50" on:click={() => noteToolsPlaceholder('Extract key leads')}>
+					Extract key leads
+				</button>
+				<button type="button" class="rounded-lg border border-cyan-500/25 bg-cyan-950/15 px-2.5 py-2 text-left text-[11px] font-medium text-cyan-100 hover:border-cyan-400/50" on:click={() => noteToolsPlaceholder('Identify subjects & vehicles')}>
+					Identify subjects &amp; vehicles
+				</button>
+				<button type="button" class="rounded-lg border border-amber-500/25 bg-amber-950/15 px-2.5 py-2 text-left text-[11px] font-medium text-amber-100 hover:border-amber-400/50" on:click={() => noteToolsPlaceholder('Draft timeline entry from this')}>
+					Draft timeline entry from this
+				</button>
+			</div>
+		</section>
+
+		<section class="rounded-xl border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)] p-3">
+			<h3 class="m-0 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-secondary)]">Link to Case Data</h3>
+			<div class="mt-2 grid gap-1.5">
+				<button type="button" class="rounded-lg border border-[color:var(--ce-l-border-default)] px-2.5 py-2 text-left text-[11px] text-[color:var(--ce-l-text-primary)] hover:border-cyan-500/35" on:click={() => noteToolsPlaceholder('Link to subject')}>Link to subject</button>
+				<button type="button" class="rounded-lg border border-[color:var(--ce-l-border-default)] px-2.5 py-2 text-left text-[11px] text-[color:var(--ce-l-text-primary)] hover:border-cyan-500/35" on:click={() => noteToolsPlaceholder('Link to vehicle')}>Link to vehicle</button>
+				<button type="button" class="rounded-lg border border-[color:var(--ce-l-border-default)] px-2.5 py-2 text-left text-[11px] text-[color:var(--ce-l-text-primary)] hover:border-cyan-500/35" on:click={() => noteToolsPlaceholder('Link to address / place')}>Link to address / place</button>
+				<button type="button" class="rounded-lg border border-[color:var(--ce-l-border-default)] px-2.5 py-2 text-left text-[11px] text-[color:var(--ce-l-text-primary)] hover:border-cyan-500/35" on:click={() => noteToolsPlaceholder('Link to file')}>Link to file</button>
+			</div>
+		</section>
+
+		<section class="rounded-xl border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)] p-3">
+			<h3 class="m-0 text-[11px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-secondary)]">Note Details</h3>
+			<dl class="m-0 mt-2 grid gap-1.5 text-[11px]">
+				<div class="flex justify-between gap-3">
+					<dt class="text-[color:var(--ce-l-text-muted)]">Owner</dt>
+					<dd class="m-0 truncate text-right text-[color:var(--ce-l-text-primary)]">{selectedNote ? selectedNoteCreatedByDisplay || 'Current investigator' : 'Current investigator'}</dd>
+				</div>
+				<div class="flex justify-between gap-3">
+					<dt class="text-[color:var(--ce-l-text-muted)]">Visibility</dt>
+					<dd class="m-0 text-right text-[color:var(--ce-l-text-primary)]">Private</dd>
+				</div>
+				<div class="flex justify-between gap-3">
+					<dt class="text-[color:var(--ce-l-text-muted)]">Status</dt>
+					<dd class="m-0 text-right text-cyan-100">Working draft</dd>
+				</div>
+				<div class="flex justify-between gap-3">
+					<dt class="text-[color:var(--ce-l-text-muted)]">Last updated</dt>
+					<dd class="m-0 truncate text-right text-[color:var(--ce-l-text-primary)]">{selectedNote ? formatCaseDateTime(selectedNote.updated_at) : '—'}</dd>
+				</div>
+			</dl>
+		</section>
+
+		<section class="rounded-xl border border-amber-500/25 bg-amber-950/15 p-3">
+			<h3 class="m-0 text-[11px] font-semibold uppercase tracking-wide text-amber-100">Authority reminder</h3>
+			<p class="m-0 mt-2 text-[11px] leading-relaxed text-amber-100/85">
+				These are working notes only. Nothing here is official until accepted through the proposal process.
+			</p>
+		</section>
+	</aside>
+</div>
 </div>
 </CaseWorkspaceContentRegion>
 {/if}
@@ -4032,6 +4430,21 @@
 </ConfirmDialog>
 
 <style>
+	.notes-intel-workspace :global(#case-note-editor-body) {
+		padding: 1rem 1.25rem;
+	}
+
+	.notes-intel-workspace :global(.input-prose-sm) {
+		max-width: 52rem;
+		font-size: 0.96rem;
+		line-height: 1.72;
+		color: var(--ce-l-text-primary);
+	}
+
+	.notes-intel-workspace :global(.input-prose-sm p) {
+		margin-block: 0.65rem;
+	}
+
 	/* Teal sheen for Structure Note button (subtle motion; respects reduced-motion below). */
 	.notes-workflow-shimmer {
 		position: absolute;

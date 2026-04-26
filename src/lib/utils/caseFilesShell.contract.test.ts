@@ -9,15 +9,16 @@ import { describe, expect, it } from 'vitest';
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const pagePath = join(__dirname, '../../routes/(app)/case/[id]/files/+page.svelte');
 const pageSource = readFileSync(pagePath, 'utf8');
+const chatPagePath = join(__dirname, '../../routes/(app)/case/[id]/chat/+page.svelte');
+const chatPageSource = readFileSync(chatPagePath, 'utf8');
 
 describe('case files shell (P71-06 / P70-06)', () => {
 	it('uses CaseWorkspaceContentRegion and Tier L Files shell classes', () => {
 		expect(pageSource).toContain('CaseWorkspaceContentRegion');
 		expect(pageSource).toContain('testId="case-files-page"');
 		expect(pageSource).toContain('ce-l-files-shell');
-		expect(pageSource).toContain('ce-l-files-hero');
-		expect(pageSource).toContain('ce-l-files-hero-title');
-		expect(pageSource).toContain('ce-l-files-hero-meta');
+		expect(pageSource).toContain('CaseFilesWorkspaceHero');
+		expect(pageSource).toContain('CaseFilesTagsRail');
 		expect(pageSource).toContain('ce-l-files-primary-scroll');
 	});
 
@@ -28,7 +29,22 @@ describe('case files shell (P71-06 / P70-06)', () => {
 		expect(afterScroll).toContain('<CaseFilesTab');
 	});
 
+	it('loads file insights for CaseFilesTab (server-backed strip)', () => {
+		expect(pageSource).toContain('getCaseFilesInsights');
+		expect(pageSource).toContain('caseInsights={caseInsights}');
+		expect(pageSource).toContain('caseInsightsLoading={caseInsightsLoading}');
+	});
+
 	it('does not use page-root overflow-y-auto on the route (avoid double scroll with shell)', () => {
 		expect(pageSource).not.toMatch(/class="[^"]*overflow-y-auto[^"]*"/);
+	});
+});
+
+describe('case chat embedded Files tool', () => {
+	it('passes the same file insights wiring as the Files route', () => {
+		expect(chatPageSource).toContain('getCaseFilesInsights');
+		expect(chatPageSource).toContain('{caseInsights}');
+		expect(chatPageSource).toContain('caseInsightsLoading={caseInsightsLoading}');
+		expect(chatPageSource).toContain('onFilesMutated={() => void loadCaseFilesInsights()}');
 	});
 });

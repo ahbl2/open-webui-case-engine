@@ -19,11 +19,12 @@ describe('CaseWorkflowTab hierarchy and filter grouping (P57-03)', () => {
 		expect(tabSource).toContain('data-testid="workflow-proposals-panel"');
 	});
 
-	it('groups filter controls inside workflow-filter-cluster with unchanged filter actions', () => {
+	it('groups filter controls inside workflow-filter-cluster with list tab + type select actions', () => {
 		expect(tabSource).toContain('data-testid="workflow-filter-cluster"');
-		expect(tabSource).toMatch(/filter === 'all'[\s\S]*?All/);
-		expect(tabSource).toMatch(/filter === 'HYPOTHESIS'[\s\S]*?Hypotheses/);
-		expect(tabSource).toMatch(/filter === 'GAP'[\s\S]*?Gaps/);
+		expect(tabSource).toMatch(/listTab === 'all'[\s\S]*?All Items/);
+		expect(tabSource).toMatch(/listTab === 'hypothesis'[\s\S]*?Hypotheses/);
+		expect(tabSource).toMatch(/listTab === 'gap'[\s\S]*?Gaps/);
+		expect(tabSource).toMatch(/listTab === 'completed'[\s\S]*?Completed/);
 		expect(tabSource).toContain('bind:checked={includeDeleted}');
 		expect(tabSource).toContain('Create workflow item');
 		expect(tabSource).toContain('on:click={openCreate}');
@@ -32,7 +33,7 @@ describe('CaseWorkflowTab hierarchy and filter grouping (P57-03)', () => {
 	it('does not remove list or proposal render paths', () => {
 		expect(tabSource).toContain('workflowListViewState === \'loading\'');
 		expect(tabSource).toContain('workflowListViewState === \'empty\'');
-		expect(tabSource).toContain('{#each items as item (item.id)}');
+		expect(tabSource).toContain('{#each displayItems as item (item.id)}');
 		expect(tabSource).toContain('{#each pendingProposals as p (p.id)}');
 		expect(tabSource).toContain('async function loadProposals()');
 	});

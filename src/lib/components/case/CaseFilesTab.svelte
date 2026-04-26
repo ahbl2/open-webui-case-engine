@@ -8,7 +8,7 @@
 	/** P125-02 — Explicit per-row metadata labels + uniform type display (same API fields; no new list semantics). */
 	/** P125-03 — Read-only view modal: identity + optional image/PDF preview + extracted text (raw) framing. */
 	/** P125-04 — Case-scoped search uses GET /cases/:id/files?query= only; Case Engine order (no client rescoring). */
-	/** P125-05 — Boundary discipline line + shared nav copy alignment (Files ≠ Timeline ≠ Notes; no logic change). */
+	/** P125-05 — Shared nav copy alignment (Files ≠ Timeline ≠ Notes) lives in P124/P125 copy modules; no duplicate doctrine under upload. */
 	import { onDestroy, tick } from 'svelte';
 	import { get } from 'svelte/store';
 	import { browser, dev } from '$app/environment';
@@ -42,9 +42,13 @@
 	import Spinner from '$lib/components/common/Spinner.svelte';
 	import { getCaseEntityDetail } from '$lib/apis/caseEngine/caseEntitiesApi';
 	import {
+		fetchCaseFileBlob,
 		fetchCaseFileObjectUrl,
+		getCaseFilesStats,
 		listCaseFiles,
 		listCaseFilesPage,
+		listCaseFileFolders,
+		moveCaseFileToFolder,
 		uploadCaseFile,
 		downloadCaseFile,
 		deleteCaseFile,
@@ -54,13 +58,20 @@
 		removeFileTag,
 		proposeTimelineEntriesFromCaseFile,
 		type CaseFile,
-		type CaseFilesListMimeCategory
+		type CaseFileFolder,
+		type CaseFilesAggregateStats,
+		type CaseFilesInsights,
+		type CaseFilesListMimeCategory,
+		type CaseFilesStatsQuery
 	} from '$lib/apis/caseEngine';
 	import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 	import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
 	import FilesDeclaredRelationshipsBlock from '$lib/components/case/FilesDeclaredRelationshipsBlock.svelte';
+	import CaseFilesInsightsStrip from '$lib/components/case/CaseFilesInsightsStrip.svelte';
+	import CaseFilesPreviewPane from '$lib/components/case/CaseFilesPreviewPane.svelte';
+	import CaseFileGridThumb from '$lib/components/case/CaseFileGridThumb.svelte';
 	import SynthesisNavigationContextPreview from '$lib/components/case/SynthesisNavigationContextPreview.svelte';
 	import { dataTransferHasFiles } from '$lib/components/case/caseFilesDrop';
 	import {
@@ -74,26 +85,26 @@
 		filterCaseFilesToEntityLinkedOnly,
 		parseEntityLensEntityIdFromSearchParams
 	} from '$lib/case/p108EntityTimelineLens';
+	import { P108_ENTITY_FILES_LENS_EMPTY, P108_ENTITY_FILES_LENS_EMPTY_TITLE } from '$lib/case/p108EntityTimelineLensCopy';
 	import {
-		P108_ENTITY_FILES_LENS_EMPTY,
-		P108_ENTITY_FILES_LENS_EMPTY_TITLE,
-		p108EntityLensFilesLoadedCountLabel
-	} from '$lib/case/p108EntityTimelineLensCopy';
-	import {
+		clearEvidenceSelection,
 		ensureEvidenceSelectionCaseScope,
 		toggleEvidenceSelection,
 		isEvidenceSelected,
 		evidenceSelection,
+		evidenceSelectionCounts,
 		pruneEvidenceSelectionAfterFilesSync,
 		removeEvidenceSelectionKey
 	} from '$lib/case/p109EvidenceSelection';
 	import { isCaseFileSelectableForEvidence } from '$lib/case/p109EvidenceSelectionGates';
-	import { P109_EVIDENCE_SELECTION_FILE_TOGGLE_TITLE } from '$lib/case/p109EvidenceSelectionCopy';
-	import CaseEvidenceSelectionStatusBar from '$lib/components/case/CaseEvidenceSelectionStatusBar.svelte';
-	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
-	import { formatCaseDateTime } from '$lib/utils/formatDateTime';
 	import {
-		P125_FILES_BROWSER_LIST_HEADING,
+		P109_EVIDENCE_SELECTION_CLEAR,
+		P109_EVIDENCE_SELECTION_FILE_TOGGLE_TITLE
+	} from '$lib/case/p109EvidenceSelectionCopy';
+	import { P109_EVIDENCE_SETS_FILES_TAB_OPEN_LINK } from '$lib/case/p109EvidenceSetsCopy';
+	import { isStaleTimelineLoadMoreAppend } from '$lib/caseTimeline/timelineLoadMoreStaleGuard';
+	import { formatCaseDateTime, formatCaseDateOnly } from '$lib/utils/formatDateTime';
+	import {
 		P125_FILES_EMPTY_DESCRIPTION,
 		P125_FILES_EMPTY_FILTERED_DESCRIPTION,
 		P125_FILES_EMPTY_FILTERED_TITLE,
@@ -119,7 +130,6 @@
 		P125_FILE_SEARCH_ACTIVE_FRAMING,
 		P125_FILE_SEARCH_EMPTY_DESCRIPTION
 	} from '$lib/caseContext/p125FileSearchCopy';
-	import { P125_FILES_BOUNDARY_DISCIPLINE_LINE } from '$lib/caseContext/p125FilesBoundaryCopy';
 	import {
 		DS_BTN_CLASSES,
 		DS_FILES_CLASSES,
@@ -127,6 +137,17 @@
 		DS_STATUS_TEXT_CLASSES,
 		DS_TYPE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
+	import {
+		PhotoIcon,
+		FilmIcon,
+		MusicalNoteIcon,
+		DocumentTextIcon,
+		TableCellsIcon,
+		DocumentIcon,
+		EllipsisVerticalIcon,
+		LinkIcon,
+		MagnifyingGlassIcon
+	} from 'heroicons-svelte/24/outline';
 
 	type ProposeWorkflowState =
 		| { step: 'idle' }
@@ -160,8 +181,60 @@
 	$: entityLensEntityId = parseEntityLensEntityIdFromSearchParams($page.url.searchParams);
 	let entityLensLabel = '';
 
+	/**
+	 * Files workspace folder filter: `null` = all files; `__unfiled__` = no folder; else folder id.
+	 * Set by parent (`Files` route left rail).
+	 */
+	export let folderFilter: string | null = null;
+
+	/** `list` | `grid` — browser layout (grid is compact cards). Internal UI state. */
+	let filesLayout: 'list' | 'grid' = 'grid';
+
+	/** Upload date filters (YYYY-MM-DD); combined with tag rail → full-list client filter path. */
+	let dateFrom = '';
+	let dateTo = '';
+
+	let fileSort: 'newest' | 'oldest' | 'name' = 'newest';
+
+	/** Filters popover (details/summary). */
+	let filtersPanelOpen = false;
+
+	/** Desktop preview column (image/PDF blob preview). */
+	let paneFileId: string | null = null;
+	let panePreviewObjectUrl: string | null = null;
+	let panePreviewHtml: string | null = null;
+	let panePreviewPhase: 'off' | 'loading' | 'ready' | 'unsupported' | 'error' = 'off';
+	let panePreviewKind: 'none' | 'image' | 'pdf' | 'docx' = 'none';
+
+	/** Parent increments to refresh lists (e.g. after hero upload). */
+	export let reloadTick = 0;
+	/** Parent increments when folders change (e.g. new folder in rail) so move-folder dropdowns refetch. */
+	export let folderListEpoch = 0;
+	export let caseInsights: CaseFilesInsights | null = null;
+	export let caseInsightsLoading = false;
+
+	/** Optional notify after upload/delete so parent can refresh folder rail / KPIs. */
+	export let onFilesMutated: (() => void) | undefined = undefined;
+
+	/** Files route: drive `CaseFilesKpiStrip` counts from current list filters (server + rail). */
+	export let onKpiStatsChange: ((stats: CaseFilesAggregateStats | null, loading: boolean) => void) | undefined =
+		undefined;
+
+	/** When true, hide the in-tab upload dropzone (route uses hero upload only). */
+	export let hideUploadSection = false;
+
+	/** Tags rail: exact tag filter; applied on the server with the same pagination as search/filters. */
+	export let tagFilter: string | null = null;
+
+	/** Clear tag rail selection when user hits “Clear filters” in the tab toolbar. */
+	export let onClearExternalFilters: (() => void) | undefined = undefined;
+
 	/** P109-01 — shared manual selection is case-scoped (same store as Timeline). */
 	$: if (caseId) ensureEvidenceSelectionCaseScope(caseId);
+
+	/** P109 — files in this case marked for evidence packaging (toolbar hint). */
+	$: p109FileSelectionCount =
+		caseId && $evidenceSelection.caseId === caseId ? evidenceSelectionCounts($evidenceSelection).files : 0;
 
 	function filesListHasMorePages(): boolean {
 		return totalFiles > 0 && files.length < totalFiles;
@@ -196,21 +269,24 @@
 	/** GET /files/:id/text `status` for modal framing (P125-03). */
 	let viewTextExtractStatus: string | null = null;
 	let viewPreviewObjectUrl: string | null = null;
+	let viewPreviewHtml: string | null = null;
 	let viewPreviewPhase: 'off' | 'loading' | 'ready' | 'unsupported' | 'error' = 'off';
-	let viewPreviewKind: 'none' | 'image' | 'pdf' = 'none';
+	let viewPreviewKind: 'none' | 'image' | 'pdf' | 'docx' = 'none';
 
 	$: viewTextFileMeta = viewTextFileId ? (files.find((x) => x.id === viewTextFileId) ?? null) : null;
+	$: paneFileMeta = paneFileId ? (files.find((x) => x.id === paneFileId) ?? null) : null;
 
 	function revokeViewPreviewObjectUrl(): void {
 		if (viewPreviewObjectUrl) {
 			URL.revokeObjectURL(viewPreviewObjectUrl);
 			viewPreviewObjectUrl = null;
 		}
+		viewPreviewHtml = null;
 		viewPreviewPhase = 'off';
 		viewPreviewKind = 'none';
 	}
 
-	/** P125-03 — image/PDF blob preview only; otherwise explicit unsupported (read-only; Case Engine GET). */
+	/** P125-03 — image/PDF/DOCX preview when available; otherwise explicit unsupported (read-only; Case Engine GET). */
 	async function prepareViewFilePreview(fileId: string, meta: CaseFile | undefined): Promise<void> {
 		revokeViewPreviewObjectUrl();
 		if (!meta) {
@@ -221,8 +297,25 @@
 		const name = meta.original_filename ?? '';
 		const isImg = mime.startsWith('image/');
 		const isPdf = mime === 'application/pdf' || /\.pdf$/i.test(name);
-		if (!isImg && !isPdf) {
+		const isDocx =
+			mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+			/\.docx$/i.test(name);
+		if (!isImg && !isPdf && !isDocx) {
 			viewPreviewPhase = 'unsupported';
+			return;
+		}
+		if (isDocx) {
+			viewPreviewKind = 'docx';
+			viewPreviewPhase = 'loading';
+			try {
+				const blob = await fetchCaseFileBlob(fileId, token);
+				const ab = await blob.arrayBuffer();
+				const { docxArrayBufferToSanitizedHtml } = await import('./caseFileOfficeSnapshot');
+				viewPreviewHtml = await docxArrayBufferToSanitizedHtml(ab);
+				viewPreviewPhase = 'ready';
+			} catch {
+				viewPreviewPhase = 'error';
+			}
 			return;
 		}
 		viewPreviewKind = isImg ? 'image' : 'pdf';
@@ -233,6 +326,159 @@
 		} catch {
 			viewPreviewPhase = 'error';
 		}
+	}
+
+	function revokePanePreview(): void {
+		if (panePreviewObjectUrl) {
+			URL.revokeObjectURL(panePreviewObjectUrl);
+			panePreviewObjectUrl = null;
+		}
+		panePreviewHtml = null;
+		panePreviewPhase = 'off';
+		panePreviewKind = 'none';
+	}
+
+	async function primePanePreview(meta: CaseFile): Promise<void> {
+		revokePanePreview();
+		const mime = meta.mime_type ?? '';
+		const name = meta.original_filename ?? '';
+		const isImg = mime.startsWith('image/');
+		const isPdf = mime === 'application/pdf' || /\.pdf$/i.test(name);
+		const isDocx =
+			mime === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+			/\.docx$/i.test(name);
+		if (!isImg && !isPdf && !isDocx) {
+			panePreviewPhase = 'unsupported';
+			return;
+		}
+		if (isDocx) {
+			panePreviewKind = 'docx';
+			panePreviewPhase = 'loading';
+			try {
+				const blob = await fetchCaseFileBlob(meta.id, token);
+				const ab = await blob.arrayBuffer();
+				const { docxArrayBufferToSanitizedHtml } = await import('./caseFileOfficeSnapshot');
+				panePreviewHtml = await docxArrayBufferToSanitizedHtml(ab);
+				panePreviewPhase = 'ready';
+			} catch {
+				panePreviewPhase = 'error';
+			}
+			return;
+		}
+		panePreviewKind = isImg ? 'image' : 'pdf';
+		panePreviewPhase = 'loading';
+		try {
+			panePreviewObjectUrl = await fetchCaseFileObjectUrl(meta.id, token);
+			panePreviewPhase = 'ready';
+		} catch {
+			panePreviewPhase = 'error';
+		}
+	}
+
+	function selectPreviewPane(f: CaseFile): void {
+		paneFileId = f.id;
+		void primePanePreview(f);
+	}
+
+	function closePreviewPane(): void {
+		paneFileId = null;
+		revokePanePreview();
+	}
+
+	function openPreviewInNewTab(): void {
+		if (panePreviewKind === 'docx' && panePreviewHtml) {
+			const doc = `<!DOCTYPE html><html><head><meta charset="utf-8"/><meta name="viewport" content="width=device-width,initial-scale=1"/><style>
+				body{font:15px/1.5 system-ui,Segoe UI,sans-serif;padding:20px;max-width:52rem;margin:0 auto;color:#111;background:#fff;}
+				img{max-width:100%;height:auto;}
+			</style></head><body>${panePreviewHtml}</body></html>`;
+			const u = URL.createObjectURL(new Blob([doc], { type: 'text/html;charset=utf-8' }));
+			window.open(u, '_blank', 'noopener,noreferrer');
+			setTimeout(() => URL.revokeObjectURL(u), 120_000);
+			return;
+		}
+		if (!panePreviewObjectUrl) return;
+		window.open(panePreviewObjectUrl, '_blank', 'noopener,noreferrer');
+	}
+
+	function gridFolderLabel(f: CaseFile): string {
+		const fid = (f.folder_id as string | null | undefined) ?? null;
+		if (!fid) return 'Unfiled';
+		return moveFolders.find((mf) => mf.id === fid)?.name ?? 'Folder';
+	}
+
+	/** Category chip on grid thumb (mockup: REPORT, BODY CAM, …). */
+	function gridCategoryLabel(f: CaseFile): string {
+		const raw = (f.tags ?? [])[0];
+		if (raw && raw.trim()) return raw.trim().replace(/\s+/g, ' ').toUpperCase();
+		return gridFolderLabel(f).toUpperCase();
+	}
+
+	function gridExtBadgeClass(k: FileThumbKind): string {
+		switch (k) {
+			case 'pdf':
+				return 'bg-rose-600/95 text-white shadow-sm';
+			case 'video':
+				return 'bg-sky-600/95 text-white shadow-sm';
+			case 'image':
+				return 'bg-emerald-600/95 text-white shadow-sm';
+			case 'audio':
+				return 'bg-violet-600/95 text-white shadow-sm';
+			case 'sheet':
+				return 'bg-amber-600/95 text-white shadow-sm';
+			case 'doc':
+				return 'bg-blue-600/95 text-white shadow-sm';
+			default:
+				return 'bg-slate-600/95 text-white shadow-sm';
+		}
+	}
+
+	$: if (
+		paneFileId &&
+		!loading &&
+		!entityLensEntityId &&
+		files.length > 0 &&
+		!files.some((x) => x.id === paneFileId)
+	) {
+		closePreviewPane();
+	}
+
+	function sortFilesClient(rows: CaseFile[]): CaseFile[] {
+		const copy = [...rows];
+		if (fileSort === 'name') {
+			copy.sort((a, b) => a.original_filename.localeCompare(b.original_filename));
+		} else if (fileSort === 'oldest') {
+			copy.sort(
+				(a, b) => Date.parse(String(a.uploaded_at ?? '')) - Date.parse(String(b.uploaded_at ?? ''))
+			);
+		} else {
+			copy.sort(
+				(a, b) => Date.parse(String(b.uploaded_at ?? '')) - Date.parse(String(a.uploaded_at ?? ''))
+			);
+		}
+		return copy;
+	}
+
+	function folderListParam(): string | undefined {
+		if (!entityLensEntityId && folderFilter === '__unfiled__') return '__unfiled__';
+		if (!entityLensEntityId && folderFilter && folderFilter.length > 0) return folderFilter;
+		return undefined;
+	}
+
+	function clearWorkspaceFilters(): void {
+		fileSearchDraft = '';
+		fileSearchApplied = '';
+		mimeCategoryFilter = '';
+		hasTagsFilter = 'all';
+		dateFrom = '';
+		dateTo = '';
+		fileSort = 'newest';
+		filtersPanelOpen = false;
+		onClearExternalFilters?.();
+		void loadFiles();
+	}
+
+	function onFileSortChange(): void {
+		files = sortFilesClient(files);
 	}
 
 	async function handleDownloadFromViewModal(): Promise<void> {
@@ -263,12 +509,42 @@
 		'medical',       // medical records or autopsy report
 		'court',         // court filings, subpoenas, legal orders
 		'other',         // general / uncategorised reference
+		'flagged'        // review queue / KPI
 	] as const;
+
+	type FileThumbKind = 'image' | 'video' | 'audio' | 'pdf' | 'sheet' | 'doc' | 'other';
+
+	function fileThumbKind(f: CaseFile): FileThumbKind {
+		const m = (f.mime_type ?? '').toLowerCase();
+		if (m.startsWith('image/')) return 'image';
+		if (m.startsWith('video/')) return 'video';
+		if (m.startsWith('audio/')) return 'audio';
+		if (m === 'application/pdf' || m.endsWith('/pdf')) return 'pdf';
+		if (
+			m.includes('spreadsheet') ||
+			m.includes('excel') ||
+			m === 'text/csv' ||
+			m.includes('ms-excel')
+		) {
+			return 'sheet';
+		}
+		if (
+			m.includes('word') ||
+			m.includes('opendocument.text') ||
+			m === 'application/rtf' ||
+			m.includes('msword')
+		) {
+			return 'doc';
+		}
+		return 'other';
+	}
 
 	/** Sentinel value in the <select> that switches to a free-text fallback. */
 	const CUSTOM_SENTINEL = '__custom__';
 
 	let addingTagFileId: string | null = null;
+	/** Grid folder `<details>`: which file’s folder picker is open (single-flight). */
+	let gridFolderPickerOpenFor: string | null = null;
 	let newTagInput = '';
 	/** True when the user chose "Custom…" in the dropdown and is typing a free-form tag. */
 	let newTagIsCustom = false;
@@ -292,6 +568,60 @@
 	let filesLoadMoreEpoch = 0;
 	/** P60-05: avoid repeated scroll for the same `focusFileId`. */
 	let lastScrolledFocusFileId: string | null = null;
+
+	/** Folder picker for per-row move (non–entity-lens list only). */
+	let moveFolders: CaseFileFolder[] = [];
+	let moveFolderListLoading = false;
+	let movingFileId: string | null = null;
+
+	async function loadMoveFolderOptions(): Promise<void> {
+		if (!caseId || !token || entityLensEntityId) return;
+		moveFolderListLoading = true;
+		try {
+			const r = await listCaseFileFolders(caseId, token);
+			moveFolders = r.folders;
+		} catch {
+			moveFolders = [];
+		} finally {
+			moveFolderListLoading = false;
+		}
+	}
+
+	$: if (caseId && token && prevLoadedCaseId === caseId && !entityLensEntityId) {
+		void reloadTick;
+		void folderListEpoch;
+		void loadMoveFolderOptions();
+	}
+
+	async function onMoveFileFolderSelect(f: CaseFile, ev: Event): Promise<void> {
+		const sel = ev.currentTarget as HTMLSelectElement;
+		const v = sel.value;
+		const nextFolder = v === '' ? null : v;
+		const cur = (f.folder_id as string | null | undefined) ?? null;
+		if (nextFolder === cur) {
+			if (gridFolderPickerOpenFor === f.id) gridFolderPickerOpenFor = null;
+			return;
+		}
+		movingFileId = f.id;
+		try {
+			await moveCaseFileToFolder(caseId, f.id, token, nextFolder);
+			toast.success(nextFolder ? 'File moved to folder' : 'File moved to Unfiled');
+			await loadFiles();
+			onFilesMutated?.();
+			await loadMoveFolderOptions();
+			if (gridFolderPickerOpenFor === f.id) gridFolderPickerOpenFor = null;
+		} catch (e: unknown) {
+			toast.error(e instanceof Error ? e.message : 'Could not move file');
+			sel.value = cur ?? '';
+		} finally {
+			movingFileId = null;
+		}
+	}
+
+	function closeGridFileKebab(ev: Event): void {
+		const d = (ev.currentTarget as HTMLElement | null)?.closest('details');
+		if (d) d.open = false;
+	}
 
 	// P97-03 — synthesis → Files supporting surface (read-only; ephemeral)
 	// P97-04 — orientation preview (cleared with highlight; not persisted)
@@ -358,6 +688,9 @@
 		}
 		proposeWorkflow = { step: 'idle' };
 		fileDragDepth = 0;
+		moveFolders = [];
+		moveFolderListLoading = false;
+		movingFileId = null;
 		filesFilterUploadHintShown = false;
 		lastScrolledFocusFileId = null;
 		navTargetId = null;
@@ -376,6 +709,10 @@
 		viewTextSpanRange = null;
 		p99ArrivalSnapshot = null;
 		p99ArrivalFilesCaseKey = '';
+		dateFrom = '';
+		dateTo = '';
+		fileSort = 'newest';
+		closePreviewPane();
 	}
 
 	$: if (focusFileId && files.length > 0 && focusFileId !== lastScrolledFocusFileId) {
@@ -443,13 +780,17 @@
 		void clearSynthesisNavigationPageState(get(page));
 	}
 
-	/** P42-05 — shared list params for initial + load-more (search + filters + pagination). */
+	/** P42-05 — shared list params for initial + load-more (search + filters + pagination; server-scoped total set). */
 	function listPageFetchParams(offset: number): {
 		limit: number;
 		offset: number;
 		query?: string;
 		mimeCategory?: CaseFilesListMimeCategory;
 		hasTags?: boolean;
+		folderId?: string;
+		tag?: string;
+		dateFrom?: string;
+		dateTo?: string;
 	} {
 		const q = fileSearchApplied.trim();
 		const p: {
@@ -458,6 +799,10 @@
 			query?: string;
 			mimeCategory?: CaseFilesListMimeCategory;
 			hasTags?: boolean;
+			folderId?: string;
+			tag?: string;
+			dateFrom?: string;
+			dateTo?: string;
 		} = {
 			limit: CASE_FILES_PAGE_SIZE,
 			offset
@@ -466,14 +811,121 @@
 		if (mimeCategoryFilter) p.mimeCategory = mimeCategoryFilter;
 		if (hasTagsFilter === 'with') p.hasTags = true;
 		if (hasTagsFilter === 'without') p.hasTags = false;
+		if (!entityLensEntityId && folderFilter === '__unfiled__') {
+			p.folderId = '__unfiled__';
+		} else if (!entityLensEntityId && folderFilter && folderFilter.length > 0) {
+			p.folderId = folderFilter;
+		}
+		if (!entityLensEntityId && tagFilter && tagFilter.length > 0) p.tag = tagFilter;
+		const df = dateFrom.trim();
+		const dt = dateTo.trim();
+		if (df) p.dateFrom = df;
+		if (dt) p.dateTo = dt;
 		return p;
+	}
+
+	function computeKpiFromFileRows(rows: CaseFile[]): CaseFilesAggregateStats {
+		let total_bytes = 0;
+		let extracted = 0;
+		let pending = 0;
+		let flagged = 0;
+		for (const f of rows) {
+			const sz =
+				typeof f.file_size_bytes === 'number' && Number.isFinite(f.file_size_bytes) ? f.file_size_bytes : 0;
+			total_bytes += sz;
+			const es = String((f as { extraction_status?: string }).extraction_status ?? '').toLowerCase();
+			if (es === 'extracted') extracted++;
+			else pending++;
+			const tags = f.tags ?? [];
+			if (tags.some((t) => String(t).trim().toLowerCase() === 'flagged')) flagged++;
+		}
+		return {
+			total_files: rows.length,
+			total_bytes,
+			extracted_file_count: extracted,
+			pending_processing_count: pending,
+			linked_to_timeline_count: -1,
+			flagged_file_count: flagged
+		};
+	}
+
+	function buildStatsQueryFromToolbar(): CaseFilesStatsQuery {
+		const p = listPageFetchParams(0);
+		const q: CaseFilesStatsQuery = {};
+		if (p.query) q.query = p.query;
+		if (p.mimeCategory) q.mimeCategory = p.mimeCategory;
+		if (p.hasTags === true) q.hasTags = 'true';
+		if (p.hasTags === false) q.hasTags = 'false';
+		if (p.folderId) q.folderId = p.folderId;
+		if (p.tag) q.tag = p.tag;
+		if (p.dateFrom) q.dateFrom = p.dateFrom;
+		if (p.dateTo) q.dateTo = p.dateTo;
+		return q;
+	}
+
+	let kpiStatsGeneration = 0;
+	/**
+	 * Refresh KPI strip for the **current** toolbar filters (server `/files/stats` or entity-lens rollup).
+	 * Do not gate on `loadId === activeLoadId`: a newer `loadFiles()` can bump `activeLoadId` before this
+	 * runs from the prior load’s `finally`, which would skip KPI entirely while the list already reflects
+	 * the new filters. Stale async completions are dropped via `kpiStatsGeneration` only.
+	 *
+	 * When the **full** filtered file set is in memory (first page holds the entire result), Indexed /
+	 * Pending / Flagged / Total / bytes are rolled up from those rows so the
+	 * strip matches the list. Timeline link counts still come from the filtered `/files/stats` aggregate.
+	 */
+	async function pushKpiStatsAfterLoad(_loadId: number): Promise<void> {
+		if (!onKpiStatsChange) return;
+		const gen = ++kpiStatsGeneration;
+		onKpiStatsChange(null, true);
+		if (!caseId || !token) {
+			if (gen === kpiStatsGeneration) onKpiStatsChange(null, false);
+			return;
+		}
+		if (entityLensEntityId) {
+			const s = computeKpiFromFileRows(files);
+			if (gen === kpiStatsGeneration) onKpiStatsChange(s, false);
+			return;
+		}
+
+		const q = buildStatsQueryFromToolbar();
+		const snapFiles = files;
+		const snapTotal = totalFiles;
+		/** Full filtered result is loaded into `files` (not a partial first page). */
+		const haveAllRowsInMemory = snapFiles.length === snapTotal;
+
+		try {
+			const server = await getCaseFilesStats(caseId, token, q);
+			if (gen !== kpiStatsGeneration) return;
+
+			if (haveAllRowsInMemory) {
+				const local = computeKpiFromFileRows(snapFiles);
+				const merged: CaseFilesAggregateStats = {
+					...local,
+					linked_to_timeline_count: server.linked_to_timeline_count
+				};
+				onKpiStatsChange(merged, false);
+				return;
+			}
+
+			const aligned: CaseFilesAggregateStats = {
+				...server,
+				total_files: snapTotal
+			};
+			onKpiStatsChange(aligned, false);
+		} catch {
+			if (gen === kpiStatsGeneration) onKpiStatsChange(null, false);
+		}
 	}
 
 	$: hasActiveListConstraints =
 		!entityLensEntityId &&
 		(fileSearchApplied.trim().length > 0 ||
 			mimeCategoryFilter !== '' ||
-			hasTagsFilter !== 'all');
+			hasTagsFilter !== 'all' ||
+			(tagFilter !== null && tagFilter.length > 0) ||
+			dateFrom.trim().length > 0 ||
+			dateTo.trim().length > 0);
 
 	$: hasOnlySearchAsListConstraint =
 		!entityLensEntityId &&
@@ -523,6 +975,7 @@
 				pruneEvidenceSelectionAfterFilesSync(caseId, [], false);
 			} finally {
 				if (loadId === activeLoadId) loading = false;
+				void pushKpiStatsAfterLoad(loadId);
 			}
 			return;
 		}
@@ -533,7 +986,7 @@
 				listPageFetchParams(0)
 			);
 			if (loadId !== activeLoadId) return;
-			files = page;
+			files = sortFilesClient(page);
 			totalFiles = total;
 			pruneEvidenceSelectionAfterFilesSync(caseId, files, filesListHasMorePages());
 		} catch (e: any) {
@@ -544,6 +997,7 @@
 			pruneEvidenceSelectionAfterFilesSync(caseId, [], false);
 		} finally {
 			if (loadId === activeLoadId) loading = false;
+			void pushKpiStatsAfterLoad(loadId);
 		}
 	}
 
@@ -568,7 +1022,7 @@
 			}
 			const existingIds = new Set(files.map((f) => f.id));
 			const fresh = more.filter((f) => !existingIds.has(f.id));
-			files = [...files, ...fresh];
+			files = sortFilesClient([...files, ...fresh]);
 			totalFiles = total;
 			pruneEvidenceSelectionAfterFilesSync(caseId, files, filesListHasMorePages());
 		} catch (e: unknown) {
@@ -580,6 +1034,24 @@
 				isLoadingMore = false;
 			}
 		}
+	}
+
+	/** Infinite scroll: load next page when the sentinel nears the viewport (shared by grid + list layouts). */
+	function observeLoadMoreForFiles(node: HTMLDivElement) {
+		if (!browser) return {};
+		const io = new IntersectionObserver(
+			(entries) => {
+				if (!entries.some((e) => e.isIntersecting)) return;
+				void loadMoreFiles();
+			},
+			{ root: null, rootMargin: '280px', threshold: 0 }
+		);
+		io.observe(node);
+		return {
+			destroy() {
+				io.disconnect();
+			}
+		};
 	}
 
 	/** P103-03 — citation → case file (+ optional explicit text span in extracted text modal). Read-only. */
@@ -749,6 +1221,11 @@
 	/** P108-02 — reload when `entityLens` query changes (same case). */
 	$: if (caseId && token && prevLoadedCaseId === caseId) {
 		void entityLensEntityId;
+		void folderFilter;
+		void reloadTick;
+		void tagFilter;
+		void dateFrom;
+		void dateTo;
 		void loadFiles();
 	}
 
@@ -791,14 +1268,19 @@
 			return;
 		}
 		uploading = true;
+		const uploadOpts =
+			folderFilter && folderFilter !== '__unfiled__' && folderFilter.length > 0
+				? { folderId: folderFilter }
+				: undefined;
 		try {
-			const uploaded = await uploadCaseFile(caseId, input.files[0], token);
+			const uploaded = await uploadCaseFile(caseId, input.files[0], token, uploadOpts);
 			toastUploadSuccessWithOptionalFilterHint(
 				'File uploaded — select a tag',
 				'It may be hidden by current search or filters.'
 			);
 			input.value = '';
 			await loadFiles();
+			onFilesMutated?.();
 			// Auto-open the tag picker so the user is prompted to categorise immediately.
 			startAddTag(uploaded);
 		} catch (e: any) {
@@ -814,15 +1296,19 @@
 		uploading = true;
 		try {
 			let ok = 0;
+			const uploadOpts =
+				folderFilter && folderFilter !== '__unfiled__' && folderFilter.length > 0
+					? { folderId: folderFilter }
+					: undefined;
 			for (const file of dropped) {
 				try {
-					await uploadCaseFile(caseId, file, token);
+					await uploadCaseFile(caseId, file, token, uploadOpts);
 					ok += 1;
 				} catch (e: any) {
 					toast.error(e?.message ?? `Upload failed: ${file.name}`);
 				}
 			}
-			if (ok > 0) {
+				if (ok > 0) {
 				const filterDesc =
 					ok === 1
 						? 'It may be hidden by current search or filters.'
@@ -838,6 +1324,7 @@
 					);
 				}
 				await loadFiles();
+				onFilesMutated?.();
 			}
 		} finally {
 			uploading = false;
@@ -845,6 +1332,7 @@
 	}
 
 	function onFilesZoneDragEnter(e: DragEvent) {
+		if (hideUploadSection) return;
 		if (!dataTransferHasFiles(e.dataTransfer)) return;
 		e.preventDefault();
 		e.stopPropagation();
@@ -852,6 +1340,7 @@
 	}
 
 	function onFilesZoneDragOver(e: DragEvent) {
+		if (hideUploadSection) return;
 		if (!dataTransferHasFiles(e.dataTransfer)) return;
 		e.preventDefault();
 		e.stopPropagation();
@@ -859,6 +1348,7 @@
 	}
 
 	function onFilesZoneDragLeave(e: DragEvent) {
+		if (hideUploadSection) return;
 		if (!dataTransferHasFiles(e.dataTransfer)) return;
 		e.preventDefault();
 		e.stopPropagation();
@@ -867,6 +1357,7 @@
 	}
 
 	async function onFilesZoneDrop(e: DragEvent) {
+		if (hideUploadSection) return;
 		if (!dataTransferHasFiles(e.dataTransfer)) return;
 		e.preventDefault();
 		e.stopPropagation();
@@ -1140,6 +1631,7 @@
 		}
 		if (synthesisHighlightTimer) clearTimeout(synthesisHighlightTimer);
 		revokeViewPreviewObjectUrl();
+		revokePanePreview();
 		if (proposeWorkflow.step === 'processing') {
 			proposeRequestGeneration += 1;
 			proposeWorkflow.abort.abort();
@@ -1180,6 +1672,7 @@
 				totalFiles = Math.max(0, totalFiles - 1);
 			}
 			toast.success('File removed');
+			onFilesMutated?.();
 		} catch (e: unknown) {
 			toast.error(e instanceof Error ? e.message : 'Delete failed');
 		} finally {
@@ -1197,9 +1690,8 @@
 	onConfirm={executeDeleteFile}
 />
 
-<div class="{DS_FILES_CLASSES.workspace}">
+<div class="{DS_FILES_CLASSES.workspace} flex min-h-0 flex-1 flex-col overflow-hidden">
 	<CaseArrivalOrientationBlock context={p99ArrivalSnapshot} testId="case-files-p99-arrival" />
-	<CaseEvidenceSelectionStatusBar />
 	{#if entityLensEntityId}
 		<CaseEntityLensBanner
 			surface="files"
@@ -1209,100 +1701,265 @@
 			onClear={clearEntityFilesLens}
 		/>
 	{/if}
-	<!-- P42-09 — upload section label -->
-	<div class="flex flex-col gap-1.5 -mx-1">
-		<h3 class="{DS_FILES_CLASSES.sectionLabel}">Add file to case</h3>
-	<!-- P38-04: drop target shares uploadCaseFile path with picker (Notes-style entry parity) -->
-	<div
-		class="{DS_FILES_CLASSES.dropzone} {fileDragDepth > 0 ? DS_FILES_CLASSES.dropzoneActive : ''}"
-		role="region"
-		aria-label="Case file upload"
-		data-testid="case-files-upload-dropzone"
-		on:dragenter={onFilesZoneDragEnter}
-		on:dragover={onFilesZoneDragOver}
-		on:dragleave={onFilesZoneDragLeave}
-		on:drop={onFilesZoneDrop}
-	>
-		{#if fileDragDepth > 0}
-			<p class="{DS_FILES_CLASSES.dropzoneHint}" aria-live="polite">
-				Drop files to upload to this case
-			</p>
-		{/if}
-		<!-- Upload form -->
-		<form
-			class="flex flex-col gap-2 sm:flex-row sm:items-center"
-			on:submit|preventDefault={() => handleUpload()}
-		>
-			<input
-				type="file"
-				bind:this={fileInput}
-				class="{DS_FILES_CLASSES.nativeFileInput}"
-			/>
-			<button
-				type="submit"
-				disabled={uploading}
-				class="{DS_BTN_CLASSES.primary}"
+	{#if !hideUploadSection}
+		<!-- P42-09 — upload section label -->
+		<div class="flex flex-col gap-1.5 -mx-1">
+			<h3 class="{DS_FILES_CLASSES.sectionLabel}">Add file to case</h3>
+			<!-- P38-04: drop target shares uploadCaseFile path with picker (Notes-style entry parity) -->
+			<div
+				class="{DS_FILES_CLASSES.dropzone} {fileDragDepth > 0 ? DS_FILES_CLASSES.dropzoneActive : ''}"
+				role="region"
+				aria-label="Case file upload"
+				data-testid="case-files-upload-dropzone"
+				on:dragenter={onFilesZoneDragEnter}
+				on:dragover={onFilesZoneDragOver}
+				on:dragleave={onFilesZoneDragLeave}
+				on:drop={onFilesZoneDrop}
 			>
-				{uploading ? 'Uploading...' : 'Upload'}
-			</button>
-		</form>
-	</div>
-	</div>
-
-	<!-- Files list — P42-11: lighter help line + margin so it reads apart from search row and count line -->
-	<div class="{DS_FILES_CLASSES.doctrineHelp}" data-testid="case-files-extraction-help">
-		Text extraction supported for: <span class="{DS_TYPE_CLASSES.mono}" data-testid="case-files-supported-extract-types"
-			>{CASE_FILES_SUPPORTED_EXTRACT_TYPES_LABEL}</span
-		>
-		<span
-			class="mt-1.5 block text-[11px] leading-snug text-[color:var(--ce-l-text-muted)]"
-			data-testid="case-files-boundary-discipline"
-			>{P125_FILES_BOUNDARY_DISCIPLINE_LINE}</span
-		>
-	</div>
-
-	<div class="{DS_FILES_CLASSES.listControls}" data-testid="case-files-list-controls">
-		<div class="min-w-[12rem] flex-1">
-			<input
-				type="search"
-				bind:value={fileSearchDraft}
-				on:input={onFileSearchInput}
-				disabled={!!entityLensEntityId}
-				placeholder="Search this case (name, type, tag, extracted text)"
-				aria-label="Search files in this case — name, type, tag, or stored extracted text"
-				autocomplete="off"
-				data-testid="case-files-search-input"
-				class="w-full {DS_FILES_CLASSES.formControl} disabled:opacity-50 disabled:cursor-not-allowed"
-			/>
+				{#if fileDragDepth > 0}
+					<p class="{DS_FILES_CLASSES.dropzoneHint}" aria-live="polite">
+						Drop files to upload to this case
+					</p>
+				{/if}
+				<form
+					class="flex flex-col gap-2 sm:flex-row sm:items-center"
+					on:submit|preventDefault={() => handleUpload()}
+				>
+					<input
+						type="file"
+						bind:this={fileInput}
+						class="{DS_FILES_CLASSES.nativeFileInput}"
+					/>
+					<button
+						type="submit"
+						disabled={uploading}
+						class="{DS_BTN_CLASSES.primary}"
+					>
+						{uploading ? 'Uploading...' : 'Upload'}
+					</button>
+				</form>
+			</div>
 		</div>
-		<div class="flex flex-wrap items-center gap-2">
-			<select
-				bind:value={mimeCategoryFilter}
-				on:change={onListFiltersChange}
-				disabled={!!entityLensEntityId}
-				aria-label="Filter by file type category"
-				data-testid="case-files-filter-mime-category"
-				class="min-w-[9rem] {DS_FILES_CLASSES.formControl} py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+	{/if}
+
+	<div
+		class="{DS_FILES_CLASSES.listControls} border-b border-[color:var(--ce-l-border-subtle)] pb-2.5"
+		data-testid="case-files-list-controls"
+	>
+		<div class="flex w-full min-w-0 flex-nowrap items-end gap-2 sm:gap-3">
+			<div
+				role="group"
+				aria-label="Search"
+				class="flex min-h-[2.75rem] min-w-0 flex-1 flex-nowrap items-end gap-2 overflow-x-auto overflow-y-hidden overscroll-x-contain pb-px [-webkit-overflow-scrolling:touch] sm:gap-3"
 			>
-				<option value="">All types</option>
-				<option value="image">Image</option>
-				<option value="video">Video</option>
-				<option value="audio">Audio</option>
-				<option value="document">Document</option>
-				<option value="other">Other</option>
-			</select>
-			<select
-				bind:value={hasTagsFilter}
-				on:change={onListFiltersChange}
-				disabled={!!entityLensEntityId}
-				aria-label="Filter by tags"
-				data-testid="case-files-filter-has-tags"
-				class="min-w-[9rem] {DS_FILES_CLASSES.formControl} py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+				<div class="w-[min(100%,20rem)] min-w-[11rem] shrink-0 sm:min-w-[12rem]">
+					<label
+						class="mb-0.5 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ce-l-text-muted)]"
+						for="case-files-search-input">Search</label
+					>
+					<div class="relative">
+						<MagnifyingGlassIcon
+							class="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-[color:var(--ce-l-text-muted)]"
+							aria-hidden="true"
+						/>
+						<input
+							id="case-files-search-input"
+							type="search"
+							bind:value={fileSearchDraft}
+							on:input={onFileSearchInput}
+							disabled={!!entityLensEntityId}
+							placeholder="Search files, content, or tags..."
+							aria-label="Search files in this case — name, type, tag, or stored extracted text"
+							autocomplete="off"
+							data-testid="case-files-search-input"
+							class="w-full pl-9 {DS_FILES_CLASSES.formControl} disabled:opacity-50 disabled:cursor-not-allowed"
+						/>
+					</div>
+				</div>
+			</div>
+			<div
+				class="flex shrink-0 flex-nowrap items-center gap-2 self-end border-l border-[color:var(--ce-l-border-subtle)] pl-2 sm:pl-3"
+				role="toolbar"
+				aria-label="Files list tools"
 			>
-				<option value="all">All files</option>
-				<option value="with">With tags</option>
-				<option value="without">Without tags</option>
-			</select>
+				<div class="relative">
+					<details bind:open={filtersPanelOpen} class="group relative">
+						<summary
+							class="flex cursor-pointer list-none items-center rounded-md px-3 py-2 text-sm font-medium [&::-webkit-details-marker]:hidden {filtersPanelOpen
+								? DS_BTN_CLASSES.primary
+								: DS_BTN_CLASSES.secondary}"
+							data-testid="case-files-filters-toggle"
+							aria-expanded={filtersPanelOpen}
+							aria-controls="case-files-filter-fields"
+						>
+							Filters
+						</summary>
+						<div
+							id="case-files-filter-fields"
+							class="absolute right-0 top-full z-[50] mt-1 w-[min(calc(100vw-2rem),22rem)] max-h-[min(70vh,32rem)] overflow-y-auto rounded-lg border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-surface-elevated)] p-3 shadow-xl"
+							data-testid="case-files-filter-fields"
+							on:click|stopPropagation
+						>
+							<p class="m-0 mb-2 text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-muted)]">
+								Refine list
+							</p>
+							<div class="flex flex-col gap-3">
+								<fieldset class="m-0 border-0 p-0">
+									<legend
+										class="mb-1 block w-max text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ce-l-text-muted)]"
+									>
+										Date range
+									</legend>
+									<div class="flex flex-wrap items-center gap-2">
+										<input
+											type="date"
+											bind:value={dateFrom}
+											on:change={onListFiltersChange}
+											disabled={!!entityLensEntityId}
+											class="min-h-[2.25rem] w-full min-w-[10rem] flex-1 {DS_FILES_CLASSES.formControl} py-1.5 text-sm disabled:opacity-50"
+											data-testid="case-files-filter-date-from"
+											aria-label="Date from"
+										/>
+										<span class="shrink-0 text-xs text-[color:var(--ce-l-text-muted)]" aria-hidden="true">→</span>
+										<input
+											type="date"
+											bind:value={dateTo}
+											on:change={onListFiltersChange}
+											disabled={!!entityLensEntityId}
+											class="min-h-[2.25rem] w-full min-w-[10rem] flex-1 {DS_FILES_CLASSES.formControl} py-1.5 text-sm disabled:opacity-50"
+											data-testid="case-files-filter-date-to"
+											aria-label="Date to"
+										/>
+									</div>
+								</fieldset>
+								<div class="min-w-0">
+									<span
+										class="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ce-l-text-muted)]"
+										>Type</span
+									>
+									<select
+										bind:value={mimeCategoryFilter}
+										on:change={onListFiltersChange}
+										disabled={!!entityLensEntityId}
+										aria-label="Filter by file type category"
+										data-testid="case-files-filter-mime-category"
+										class="min-h-[2.25rem] w-full {DS_FILES_CLASSES.formControl} py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+									>
+										<option value="">All types</option>
+										<option value="image">Image</option>
+										<option value="video">Video</option>
+										<option value="audio">Audio</option>
+										<option value="document">Document</option>
+										<option value="other">Other</option>
+									</select>
+								</div>
+								<div class="min-w-0">
+									<span
+										class="mb-1 block text-[10px] font-semibold uppercase tracking-[0.14em] text-[color:var(--ce-l-text-muted)]"
+										>Tags</span
+									>
+									<select
+										bind:value={hasTagsFilter}
+										on:change={onListFiltersChange}
+										disabled={!!entityLensEntityId}
+										aria-label="Filter by tags"
+										data-testid="case-files-filter-has-tags"
+										class="min-h-[2.25rem] w-full {DS_FILES_CLASSES.formControl} py-1.5 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
+									>
+										<option value="all">All tags</option>
+										<option value="with">With tags</option>
+										<option value="without">Without tags</option>
+									</select>
+								</div>
+							</div>
+						</div>
+					</details>
+				</div>
+				<button
+					type="button"
+					class="{DS_BTN_CLASSES.ghost} py-2 text-sm font-medium text-[color:var(--ce-l-text-muted)] hover:text-[color:var(--ce-l-text-primary)]"
+					disabled={!!entityLensEntityId}
+					data-testid="case-files-clear-filters"
+					on:click={clearWorkspaceFilters}
+				>
+					Clear
+				</button>
+				{#if !entityLensEntityId && p109FileSelectionCount > 0}
+					<div
+						class="flex max-w-full flex-wrap items-center gap-1.5"
+						role="group"
+						aria-label="Manual file selection for evidence grouping"
+						data-testid="case-files-p109-selection-actions"
+					>
+						<span
+							class="inline-flex max-w-[min(100%,14rem)] items-center truncate rounded-full border border-sky-500/35 bg-sky-500/[0.09] px-2.5 py-1 text-[11px] font-medium text-sky-900 dark:border-sky-400/35 dark:bg-sky-400/10 dark:text-sky-100"
+							role="status"
+							data-testid="case-files-p109-selection-hint"
+							title="Marked for manual evidence packaging (this session). Save a grouping on the Evidence sets page."
+						>
+							{p109FileSelectionCount}
+							{p109FileSelectionCount === 1 ? ' file' : ' files'} for evidence
+						</span>
+						<a
+							href={`/case/${caseId}/evidence-sets`}
+							class="{DS_BTN_CLASSES.secondary} shrink-0 whitespace-nowrap px-2.5 py-1 text-xs font-semibold"
+							data-testid="case-files-p109-open-evidence-sets"
+							data-sveltekit-preload-data="hover"
+							title="Name your grouping and create a saved set from the current selection (session picks plus any timeline rows you selected)."
+						>
+							{P109_EVIDENCE_SETS_FILES_TAB_OPEN_LINK}
+						</a>
+						<button
+							type="button"
+							class="{DS_BTN_CLASSES.ghost} shrink-0 whitespace-nowrap px-2 py-1 text-xs font-medium text-[color:var(--ce-l-text-muted)] hover:text-[color:var(--ce-l-text-primary)]"
+							data-testid="case-files-p109-clear-selection"
+							on:click={() => clearEvidenceSelection()}
+						>
+							{P109_EVIDENCE_SELECTION_CLEAR}
+						</button>
+					</div>
+				{/if}
+				<label class="m-0 flex items-center gap-1.5 text-xs text-[color:var(--ce-l-text-muted)]">
+					<span class="whitespace-nowrap">Sort</span>
+					<select
+						bind:value={fileSort}
+						on:change={onFileSortChange}
+						disabled={!!entityLensEntityId}
+						aria-label="Sort files"
+						data-testid="case-files-sort"
+						class="rounded border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-surface-elevated)] py-1 pl-1.5 pr-6 text-xs font-medium text-[color:var(--ce-l-text-primary)] disabled:opacity-50"
+					>
+						<option value="newest">Newest</option>
+						<option value="oldest">Oldest</option>
+						<option value="name">Name</option>
+					</select>
+				</label>
+				<div
+					class="inline-flex rounded-full border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-surface-elevated)]/60 p-1"
+					role="group"
+					aria-label="File browser layout"
+					data-testid="case-files-layout-toggle"
+				>
+					<button
+						type="button"
+						class="rounded-full px-3 py-1.5 text-xs font-semibold transition {filesLayout === 'list'
+							? 'bg-[color:var(--ce-l-surface-elevated)] text-[color:var(--ce-l-text-primary)] shadow-sm'
+							: 'text-[color:var(--ce-l-text-muted)] hover:text-[color:var(--ce-l-text-primary)]'}"
+						aria-pressed={filesLayout === 'list'}
+						on:click={() => (filesLayout = 'list')}
+					>List</button
+					>
+					<button
+						type="button"
+						class="rounded-full px-3 py-1.5 text-xs font-semibold transition {filesLayout === 'grid'
+							? 'bg-[color:var(--ce-l-surface-elevated)] text-[color:var(--ce-l-text-primary)] shadow-sm'
+							: 'text-[color:var(--ce-l-text-muted)] hover:text-[color:var(--ce-l-text-primary)]'}"
+						aria-pressed={filesLayout === 'grid'}
+						on:click={() => (filesLayout = 'grid')}
+					>Grid</button
+					>
+				</div>
+			</div>
 		</div>
 	</div>
 
@@ -1356,29 +2013,16 @@
 		</div>
 	{/if}
 
-	{#if !loadError && !loading && (entityLensEntityId || files.length > 0 || totalFiles > 0)}
-		<p class="{DS_FILES_CLASSES.loadedCount}" data-testid="case-files-loaded-count">
-			{#if entityLensEntityId}
-				{p108EntityLensFilesLoadedCountLabel(files.length)}
-			{:else}
-				{files.length} of {totalFiles} files loaded
-			{/if}
-		</p>
-	{/if}
-
+	<div
+		class="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row"
+		data-testid="case-files-main-split"
+	>
+		<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-y-auto">
 	{#if loading}
 		<CaseLoadingState label="Loading files…" />
 	{:else if loadError}
 		<CaseErrorState title="Failed to load files" message={loadError} onRetry={loadFiles} />
 	{:else}
-		{#if !entityLensEntityId && files.length > 0}
-			<h3
-				class="{DS_FILES_CLASSES.sectionLabel} mb-2"
-				data-testid="case-files-browser-list-heading"
-			>
-				{P125_FILES_BROWSER_LIST_HEADING}
-			</h3>
-		{/if}
 		{#if files.length === 0}
 			{#if entityLensEntityId}
 				<CaseEmptyState
@@ -1397,11 +2041,25 @@
 				/>
 			{/if}
 		{:else}
-		<div class="flex flex-col gap-4">
+		<div
+			class={filesLayout === 'grid'
+				? 'grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4'
+				: 'flex flex-col gap-4'}
+			data-files-layout={filesLayout}
+		>
 			{#each files as f (f.id)}
+				{@const thumbK = fileThumbKind(f)}
+				{@const extBadge = caseFileExtLabel(f.original_filename, f.mime_type).toUpperCase()}
+				{@const fileEvidenceOn = isEvidenceSelected($evidenceSelection, 'file', f.id)}
 				<div
 					id={`ce-case-file-${f.id}`}
-					class="{DS_FILES_CLASSES.fileCard}{synthesisHighlightId === f.id ? ' ds-p97-synthesis-nav-reveal' : ''}"
+					class="{filesLayout === 'grid'
+						? 'group/card relative flex min-h-0 flex-col overflow-hidden rounded-xl border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-elevated)] shadow-md'
+						: DS_FILES_CLASSES.fileCard}{synthesisHighlightId === f.id ? ' ds-p97-synthesis-nav-reveal' : ''}{paneFileId === f.id
+						? ' ring-2 ring-[color:var(--ce-l-border-strong)] ring-offset-2 ring-offset-[color:var(--ce-l-surface-raised)]'
+						: ''}{fileEvidenceOn
+						? ' transition-shadow [box-shadow:0_0_0_2px_rgba(56,189,248,0.5),0_0_22px_-4px_rgba(59,130,246,0.35)]'
+						: ''}"
 				>
 				{#if synthesisNavigationEnabled && synthesisHighlightId === f.id && synthesisContextPreview}
 					<SynthesisNavigationContextPreview
@@ -1411,109 +2069,470 @@
 						lines={synthesisContextPreview.lines}
 					/>
 				{/if}
-				<!-- P125-02 — one row per file; explicit Type / Uploaded / Size (uniform; no extractability styling on type). -->
-				<div class="flex flex-col gap-2 sm:flex-row sm:items-start sm:gap-3">
-					{#if isCaseFileSelectableForEvidence(f)}
-						<label
-							class="inline-flex shrink-0 cursor-pointer items-center pt-0.5"
-							title={P109_EVIDENCE_SELECTION_FILE_TOGGLE_TITLE}
-							data-testid="case-file-manual-evidence-select"
-						>
-							<input
-								type="checkbox"
-								class="rounded border-gray-300 dark:border-gray-600 size-3.5 text-slate-600 focus:ring-slate-500"
-								checked={isEvidenceSelected($evidenceSelection, 'file', f.id)}
-								aria-label="Select this file for manual evidence packaging (this session only)"
-								on:click|stopPropagation
-								on:change|stopPropagation={() =>
-									toggleEvidenceSelection('file', f.id, caseId)}
-							/>
-						</label>
-					{/if}
+				{#if filesLayout === 'grid'}
+				<div class="relative px-2.5 pt-2">
 					<button
 						type="button"
-						class="min-w-0 flex-1 flex flex-col gap-2 rounded-md border border-transparent p-1 text-left transition hover:bg-black/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ce-l-border-strong)] dark:hover:bg-white/[0.06]"
+						class="relative z-0 block w-full overflow-hidden rounded-xl text-left transition hover:opacity-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ce-l-border-strong)]"
 						data-testid="case-file-row-open-view"
-						on:click={() => void loadExtractedTextIntoModal(f.id)}
+						on:click={() => selectPreviewPane(f)}
 					>
-						<p class="m-0 min-w-0 truncate text-sm font-medium {DS_TYPE_CLASSES.section}" data-testid="case-file-row-name">
-							{f.original_filename}
-						</p>
-						<dl
-							class="m-0 grid max-w-lg grid-cols-[5.5rem_1fr] gap-x-2 gap-y-1 text-xs {DS_TYPE_CLASSES.meta}"
-							data-testid="case-file-row-metadata"
-						>
-							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_TYPE}</dt>
-							<dd class="m-0 {DS_TYPE_CLASSES.mono}" title={f.mime_type ?? undefined}>
-								{caseFileExtLabel(f.original_filename, f.mime_type)}
-							</dd>
-							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_UPLOADED}</dt>
-							<dd class="m-0">{formatCaseDateTime(String(f.uploaded_at ?? ''))}</dd>
-							<dt class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_SIZE}</dt>
-							<dd class="m-0 {DS_TYPE_CLASSES.mono}">{formatCaseFileSizeDisplay(f.file_size_bytes)}</dd>
-						</dl>
+						<CaseFileGridThumb
+							fileId={f.id}
+							{token}
+							thumbKind={thumbK}
+							fetchEnabled={!entityLensEntityId && !!token}
+							durationMsHint={thumbK === 'video' ? (f.duration_ms ?? null) : null}
+						/>
+						<span
+							class="pointer-events-none absolute left-[3.25rem] top-2 z-10 rounded px-1.5 py-0.5 text-[10px] font-bold uppercase tracking-wide {gridExtBadgeClass(thumbK)}"
+							aria-hidden="true"
+						>{extBadge}</span>
+						<div
+							class="pointer-events-none absolute bottom-0 left-0 right-0 bg-gradient-to-t from-black/75 via-black/25 to-transparent px-2 pb-2 pt-12"
+							aria-hidden="true"
+						></div>
+						{#if !entityLensEntityId}
+							<span
+								class="pointer-events-none absolute bottom-2 left-2 z-10 max-w-[calc(100%-2.75rem)] truncate rounded border border-white/25 bg-black/50 px-1.5 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white backdrop-blur-[2px]"
+								title={gridCategoryLabel(f)}
+							>
+								{gridCategoryLabel(f)}
+							</span>
+							<span class="pointer-events-none absolute bottom-2 right-2 z-10 text-white/95" aria-hidden="true">
+								<LinkIcon class="h-4 w-4 drop-shadow-md" />
+							</span>
+						{/if}
 					</button>
+					<!-- On-picture controls: sibling layer above thumb so z-index + pointer-events stay predictable -->
+					<div
+						class="pointer-events-none absolute inset-0 z-[32] flex items-start justify-between gap-2 p-1.5 sm:p-2"
+					>
+						{#if isCaseFileSelectableForEvidence(f)}
+							<label
+								class="pointer-events-auto flex min-h-[2.75rem] min-w-[2.75rem] cursor-pointer touch-manipulation select-none items-center justify-center rounded-xl border p-1.5 shadow-[0_2px_12px_rgba(0,0,0,0.45)] backdrop-blur-[3px] transition {fileEvidenceOn
+									? 'opacity-100 border-sky-400/60 bg-black/50 ring-2 ring-sky-400/35'
+									: 'border-white/25 bg-black/55 ring-1 ring-black/40 opacity-0 transition-opacity duration-150 group-hover/card:opacity-100 has-[:focus-visible]:opacity-100 [@media(hover:none)]:opacity-100'}"
+								title={P109_EVIDENCE_SELECTION_FILE_TOGGLE_TITLE}
+								data-testid="case-file-manual-evidence-select"
+							>
+								<input
+									type="checkbox"
+									class="ce-case-file-evidence-marker ce-case-file-evidence-marker--grid"
+									checked={fileEvidenceOn}
+									data-p109-selected={fileEvidenceOn ? 'true' : 'false'}
+									aria-label="Select this file for manual evidence packaging (this session only)"
+									on:click|stopPropagation={(e) => {
+										e.preventDefault();
+										toggleEvidenceSelection('file', f.id, caseId);
+									}}
+								/>
+							</label>
+						{:else}
+							<span class="pointer-events-none min-h-0 min-w-0 shrink-0" aria-hidden="true"></span>
+						{/if}
+						<details
+							class="group pointer-events-auto relative z-[33] opacity-0 transition-opacity duration-150 group-hover/card:opacity-100 open:opacity-100 [@media(hover:none)]:opacity-100"
+						>
+							<summary
+								class="flex h-10 w-10 cursor-pointer list-none items-center justify-center rounded-lg border border-white/25 bg-black/35 text-white shadow-md backdrop-blur-sm transition hover:bg-black/50 [&::-webkit-details-marker]:hidden"
+								aria-label="File actions"
+								on:click|stopPropagation
+							>
+								<EllipsisVerticalIcon class="h-6 w-6 shrink-0 drop-shadow-md" aria-hidden="true" />
+							</summary>
+							<div
+								class="absolute right-0 top-full z-[40] mt-1 min-w-[12rem] rounded-lg border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-surface-elevated)] py-1 shadow-lg"
+								role="menu"
+								on:click|stopPropagation
+							>
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+									on:click={(e) => {
+										handleDownload(f);
+										closeGridFileKebab(e);
+									}}
+								>
+									Download
+								</button>
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] text-red-600 dark:text-red-400 dark:hover:bg-white/[0.06]"
+									disabled={deletingFileId === f.id}
+									data-testid="case-file-delete-btn"
+									on:click={(e) => {
+										closeGridFileKebab(e);
+										requestDeleteFile(f);
+									}}
+								>
+									{deletingFileId === f.id ? 'Deleting…' : 'Delete'}
+								</button>
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+									disabled={!isCaseFileLikelyExtractable(f.original_filename, f.mime_type) || extractingId === f.id}
+									on:click={(e) => {
+										closeGridFileKebab(e);
+										handleExtract(f);
+									}}
+								>
+									{extractingId === f.id ? 'Extracting…' : 'Extract text'}
+								</button>
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+									on:click={(e) => {
+										closeGridFileKebab(e);
+										handleViewText(f);
+									}}
+								>
+									View extracted text
+								</button>
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+									disabled={isFileProposeLocked(f) || f.extraction_status !== 'extracted'}
+									data-testid="propose-timeline-from-file-btn"
+									on:click={(e) => {
+										closeGridFileKebab(e);
+										runProposeTimeline(f, false);
+									}}
+								>
+									{isFileProposeLocked(f)
+										? proposeWorkflow.step === 'processing' && proposingFileId === f.id
+											? 'Proposing…'
+											: 'Pending…'
+										: 'Propose timeline entries'}
+								</button>
+							</div>
+						</details>
+					</div>
+				</div>
+				<div class="min-w-0 px-2.5 pb-1 pt-2.5">
+					<p
+						class="m-0 truncate text-sm font-semibold leading-tight text-[color:var(--ce-l-text-primary)]"
+						data-testid="case-file-row-name"
+					>
+						{f.original_filename}
+					</p>
+					<div
+						class="m-0 mt-1 flex min-w-0 flex-wrap items-baseline justify-between gap-x-2 gap-y-0.5"
+					>
+						<p class="m-0 min-w-0 flex-1 text-[11px] tabular-nums text-[color:var(--ce-l-text-muted)]">
+							{formatCaseDateOnly(String(f.uploaded_at ?? ''))} · {formatCaseFileSizeDisplay(f.file_size_bytes)}
+						</p>
+						{#if !entityLensEntityId}
+							<details
+								class="relative shrink-0"
+								open={gridFolderPickerOpenFor === f.id}
+								on:toggle={(e) => {
+									const el = e.currentTarget as HTMLDetailsElement;
+									gridFolderPickerOpenFor = el.open ? f.id : null;
+								}}
+							>
+								<summary
+									class="{DS_BTN_CLASSES.ghost} inline-flex max-w-[11rem] min-h-0 list-none items-center truncate px-1 py-0 text-[11px] font-medium leading-none text-[color:var(--ce-l-text-muted)] hover:text-[color:var(--ce-l-text-primary)] [&::-webkit-details-marker]:hidden"
+									data-testid="case-file-grid-folder-trigger"
+									on:click|stopPropagation
+								>
+									{#if !(f.folder_id as string | undefined)}
+										+ folder
+									{:else}
+										{gridFolderLabel(f)}
+									{/if}
+								</summary>
+								<div
+									class="absolute right-0 top-full z-40 mt-0.5 min-w-[12rem] rounded-lg border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-surface-elevated)] p-2 shadow-lg"
+									on:click|stopPropagation
+								>
+									<select
+										class="w-full min-w-0 {DS_FILES_CLASSES.formControl} py-1 text-xs disabled:opacity-50"
+										disabled={movingFileId === f.id || moveFolderListLoading}
+										value={(f.folder_id as string | undefined) ?? ''}
+										aria-label="Move file to folder"
+										data-testid="case-file-move-folder-select"
+										data-file-id={f.id}
+										on:click|stopPropagation
+										on:change|stopPropagation={(e) => void onMoveFileFolderSelect(f, e)}
+									>
+										<option value="">Unfiled</option>
+										{#each moveFolders as mf (mf.id)}
+											<option value={mf.id}>{mf.name}</option>
+										{/each}
+									</select>
+								</div>
+							</details>
+						{/if}
+					</div>
 				</div>
 				<FilesDeclaredRelationshipsBlock {caseId} fileId={f.id} />
-				<div class="flex flex-wrap items-center gap-x-2 gap-y-1">
-					<button
-						type="button"
-						class="{DS_FILES_CLASSES.actionLink}"
-						on:click={() => handleDownload(f)}
-					>
-						Download
-					</button>
-					<span class="{DS_FILES_CLASSES.actionsDivider}" aria-hidden="true"></span>
-					<button
-						type="button"
-						class="{DS_FILES_CLASSES.actionLink} {DS_FILES_CLASSES.actionLinkDanger}"
-						disabled={deletingFileId === f.id}
-						data-testid="case-file-delete-btn"
-						on:click={() => requestDeleteFile(f)}
-					>
-						{deletingFileId === f.id ? 'Deleting…' : 'Delete'}
-					</button>
-					<span class="{DS_FILES_CLASSES.actionsDivider} mx-0.5" aria-hidden="true"></span>
-					<span class="flex flex-wrap items-center gap-x-2 gap-y-1">
-					<button
-						type="button"
-						class="{DS_FILES_CLASSES.actionLink}"
-						disabled={!isCaseFileLikelyExtractable(f.original_filename, f.mime_type) || extractingId === f.id}
-						title={!isCaseFileLikelyExtractable(f.original_filename, f.mime_type)
-							? 'Text extraction is not supported for this file type'
-							: undefined}
-						on:click={() => handleExtract(f)}
-					>
-						{extractingId === f.id ? 'Extracting...' : 'Extract text'}
-					</button>
-					<button
-						type="button"
-						class="{DS_FILES_CLASSES.actionLink}"
-						on:click={() => handleViewText(f)}
-					>
-						View extracted text
-					</button>
-					<button
-						type="button"
-						class="{DS_FILES_CLASSES.actionLink} {DS_FILES_CLASSES.actionLinkPropose}"
-						disabled={isFileProposeLocked(f) || f.extraction_status !== 'extracted'}
-						title={f.extraction_status !== 'extracted'
-							? 'Extract text first, then propose timeline entries'
-							: 'Create pending timeline proposals (review in Proposals tab)'}
-						data-testid="propose-timeline-from-file-btn"
-						on:click={() => runProposeTimeline(f, false)}
-					>
-						{isFileProposeLocked(f)
-							? proposeWorkflow.step === 'processing' && proposingFileId === f.id
-								? 'Proposing…'
-								: 'Pending…'
-							: 'Propose timeline entries'}
-					</button>
-					</span>
+				{:else}
+				<!-- P125-02 — list row: kebab under checkbox, type pill top-right, size only; folder + row actions in menu -->
+				<div class="flex gap-2 sm:gap-3">
+					<div class="relative flex w-9 shrink-0 flex-col items-center gap-1 pt-0.5">
+						{#if isCaseFileSelectableForEvidence(f)}
+							<label
+								class="inline-flex cursor-pointer items-center"
+								title={P109_EVIDENCE_SELECTION_FILE_TOGGLE_TITLE}
+								data-testid="case-file-manual-evidence-select"
+							>
+								<input
+									type="checkbox"
+									class="ce-case-file-evidence-marker ce-case-file-evidence-marker--list"
+									checked={fileEvidenceOn}
+									data-p109-selected={fileEvidenceOn ? 'true' : 'false'}
+									aria-label="Select this file for manual evidence packaging (this session only)"
+									on:click|stopPropagation={(e) => {
+										e.preventDefault();
+										toggleEvidenceSelection('file', f.id, caseId);
+									}}
+								/>
+							</label>
+						{/if}
+						<details class="group z-20">
+							<summary
+								class="flex h-8 w-8 cursor-pointer list-none items-center justify-center rounded-md border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-raised)] text-[color:var(--ce-l-text-muted)] shadow-sm hover:bg-black/[0.05] dark:hover:bg-white/[0.06] [&::-webkit-details-marker]:hidden"
+								aria-label="File actions"
+								data-testid="case-file-list-actions-menu"
+								on:click|stopPropagation
+							>
+								<EllipsisVerticalIcon class="h-5 w-5 shrink-0" aria-hidden="true" />
+							</summary>
+							<div
+								class="absolute left-0 top-full z-30 mt-1 min-w-[14rem] rounded-lg border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-surface-elevated)] py-1 shadow-lg"
+								role="menu"
+								on:click|stopPropagation
+							>
+								{#if !entityLensEntityId}
+									<div
+										class="border-b border-[color:var(--ce-l-border-subtle)] px-3 py-2"
+										role="none"
+										on:click|stopPropagation
+									>
+										<span
+											class="mb-1 block text-[10px] font-semibold uppercase tracking-wide text-[color:var(--ce-l-text-muted)]"
+											>Folder</span
+										>
+										<select
+											class="w-full min-w-0 {DS_FILES_CLASSES.formControl} py-1 text-xs disabled:opacity-50"
+											disabled={movingFileId === f.id || moveFolderListLoading}
+											value={(f.folder_id as string | undefined) ?? ''}
+											aria-label="Move file to folder"
+											data-testid="case-file-move-folder-select"
+											data-file-id={f.id}
+											on:click|stopPropagation
+											on:change|stopPropagation={(e) => void onMoveFileFolderSelect(f, e)}
+										>
+											<option value="">Unfiled</option>
+											{#each moveFolders as mf (mf.id)}
+												<option value={mf.id}>{mf.name}</option>
+											{/each}
+										</select>
+									</div>
+								{/if}
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+									on:click={(e) => {
+										handleDownload(f);
+										closeGridFileKebab(e);
+									}}
+								>
+									Download
+								</button>
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] text-red-600 dark:text-red-400 dark:hover:bg-white/[0.06]"
+									disabled={deletingFileId === f.id}
+									data-testid="case-file-delete-btn"
+									on:click={(e) => {
+										closeGridFileKebab(e);
+										requestDeleteFile(f);
+									}}
+								>
+									{deletingFileId === f.id ? 'Deleting…' : 'Delete'}
+								</button>
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+									disabled={!isCaseFileLikelyExtractable(f.original_filename, f.mime_type) || extractingId === f.id}
+									title={!isCaseFileLikelyExtractable(f.original_filename, f.mime_type)
+										? 'Text extraction is not supported for this file type'
+										: undefined}
+									on:click={(e) => {
+										closeGridFileKebab(e);
+										handleExtract(f);
+									}}
+								>
+									{extractingId === f.id ? 'Extracting…' : 'Extract text'}
+								</button>
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] dark:hover:bg-white/[0.06]"
+									on:click={(e) => {
+										closeGridFileKebab(e);
+										handleViewText(f);
+									}}
+								>
+									View extracted text
+								</button>
+								<button
+									type="button"
+									role="menuitem"
+									class="block w-full px-3 py-1.5 text-left text-xs hover:bg-black/[0.04] disabled:opacity-50 dark:hover:bg-white/[0.06]"
+									disabled={isFileProposeLocked(f) || f.extraction_status !== 'extracted'}
+									title={f.extraction_status !== 'extracted'
+										? 'Extract text first, then propose timeline entries'
+										: 'Create pending timeline proposals (review in Proposals tab)'}
+									data-testid="propose-timeline-from-file-btn"
+									on:click={(e) => {
+										closeGridFileKebab(e);
+										runProposeTimeline(f, false);
+									}}
+								>
+									{isFileProposeLocked(f)
+										? proposeWorkflow.step === 'processing' && proposingFileId === f.id
+											? 'Proposing…'
+											: 'Pending…'
+										: 'Propose timeline entries'}
+								</button>
+							</div>
+						</details>
 					</div>
-				<!-- Tags — required categorisation for every file -->
-				<div class="{DS_FILES_CLASSES.tagRow}">
-					<span class="shrink-0 text-xs font-semibold {DS_TYPE_CLASSES.label}">Tags:</span>
+					<div class="flex min-w-0 flex-1 flex-col gap-1">
+						<div class="flex items-start justify-between gap-2">
+							<button
+								type="button"
+								class="min-w-0 flex-1 rounded-md border border-transparent p-1.5 text-left transition hover:bg-black/[0.04] focus:outline-none focus-visible:ring-2 focus-visible:ring-[color:var(--ce-l-border-strong)] dark:hover:bg-white/[0.06]"
+								data-testid="case-file-row-open-view"
+								aria-label="Open preview for {f.original_filename}"
+								on:click={() => selectPreviewPane(f)}
+							>
+								<p
+									class="m-0 min-w-0 truncate text-sm font-medium {DS_TYPE_CLASSES.section}"
+									data-testid="case-file-row-name"
+								>
+									{f.original_filename}
+								</p>
+								<p
+									class="m-0 mt-1 flex flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs tabular-nums {DS_TYPE_CLASSES.meta}"
+									data-testid="case-file-row-metadata"
+								>
+									<span>
+										<span class="text-[color:var(--ce-l-text-muted)]">{P125_FILES_LABEL_SIZE}</span>
+										<span class="ml-1 {DS_TYPE_CLASSES.mono}">{formatCaseFileSizeDisplay(f.file_size_bytes)}</span>
+									</span>
+									<time
+										class="text-[color:var(--ce-l-text-muted)]"
+										datetime={String(f.uploaded_at ?? '')}
+										title={P125_FILES_LABEL_UPLOADED}
+									>
+										{formatCaseDateTime(String(f.uploaded_at ?? ''))}
+									</time>
+								</p>
+							</button>
+							<div class="flex min-w-0 max-w-[min(100%,20rem)] shrink-0 flex-col items-end gap-1">
+								<span
+									class="shrink-0 rounded px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide {gridExtBadgeClass(
+										thumbK
+									)}"
+									title={f.mime_type ?? caseFileExtLabel(f.original_filename, f.mime_type)}
+								>
+									{extBadge}
+								</span>
+								<div
+									class="{DS_FILES_CLASSES.tagRow} flex w-full flex-row flex-wrap items-center justify-end gap-x-2 gap-y-1"
+								>
+									<div class="flex min-w-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
+								{#each f.tags ?? [] as tag (tag)}
+									<span class="{DS_FILES_CLASSES.tagChip}">
+										{tag}
+										<button
+											type="button"
+											class="{DS_FILES_CLASSES.tagChipRemove}"
+											on:click={() => handleRemoveTag(f, tag)}
+											aria-label="Remove tag {tag}"
+										>×</button>
+									</span>
+								{/each}
+
+								{#if addingTagFileId === f.id}
+									<form
+										class="inline-flex flex-wrap items-center gap-1"
+										on:submit|preventDefault={() => submitAddTag(f)}
+									>
+										{#if newTagIsCustom}
+											<input
+												type="text"
+												bind:value={newTagInput}
+												placeholder="Type custom tag"
+												class="w-28 {DS_FILES_CLASSES.formControl} px-1.5 py-0.5 text-xs"
+												on:keydown={(e) => e.key === 'Escape' && cancelAddTag()}
+											/>
+										{:else}
+											<select
+												class="{DS_FILES_CLASSES.formControl} px-1.5 py-0.5 text-xs"
+												value={newTagInput || ''}
+												on:change={onTagSelectChange}
+											>
+												<option value="" disabled>Select tag…</option>
+												{#each FILE_TAGS as t}
+													<option value={t} disabled={(f.tags ?? []).includes(t)}>{t}</option>
+												{/each}
+												<option value={CUSTOM_SENTINEL}>Custom…</option>
+											</select>
+										{/if}
+										<button
+											type="submit"
+											disabled={!newTagInput.trim()}
+											class="{DS_FILES_CLASSES.actionLink} disabled:opacity-40"
+										>Add</button>
+										<button type="button" class="{DS_BTN_CLASSES.ghost} min-h-0 px-1 py-0 text-xs" on:click={cancelAddTag}>Cancel</button>
+									</form>
+								{:else if (f.tags?.length ?? 0) === 0}
+									<button
+										type="button"
+										class="{DS_BTN_CLASSES.ghost} inline-flex min-h-0 items-center gap-0.5 px-1 py-0 text-xs font-semibold {DS_STATUS_TEXT_CLASSES.warning}"
+										title="Tag required — select a category for this file"
+										on:click={() => startAddTag(f)}
+									>
+										⚠ Tag required
+									</button>
+								{:else}
+									<button
+										type="button"
+										class="{DS_BTN_CLASSES.ghost} min-h-0 px-1 py-0 text-xs {DS_TYPE_CLASSES.meta}"
+										on:click={() => startAddTag(f)}
+									>
+										+ tag
+									</button>
+								{/if}
+									</div>
+								</div>
+							</div>
+						</div>
+					</div>
+				<div class="min-w-0 pl-11 sm:pl-12">
+					<FilesDeclaredRelationshipsBlock {caseId} fileId={f.id} compact />
+				</div>
+				</div>
+				{/if}
+				<!-- Tags — grid only; list shows tags under the type pill -->
+				{#if filesLayout === 'grid'}
+				<div
+					class="{DS_FILES_CLASSES.tagRow} border-t border-[color:var(--ce-l-border-subtle)] px-2.5 pb-2.5 pt-2"
+				>
+					<div class="flex min-w-0 flex-1 flex-wrap items-center gap-x-2 gap-y-1">
 					{#each f.tags ?? [] as tag (tag)}
 						<span class="{DS_FILES_CLASSES.tagChip}">
 							{tag}
@@ -1579,13 +2598,23 @@
 							+ tag
 						</button>
 					{/if}
+					</div>
 				</div>
+				{/if}
 				</div>
 			{/each}
 			{#if loadMoreError}
 				<p class="px-1 text-xs {DS_STATUS_TEXT_CLASSES.danger}" data-testid="case-files-load-more-error">
 					{loadMoreError}
 				</p>
+			{/if}
+			{#if !entityLensEntityId && files.length > 0 && files.length < totalFiles}
+				<div
+					class="h-2 w-full shrink-0"
+					aria-hidden="true"
+					data-testid="case-files-scroll-load-sentinel"
+					use:observeLoadMoreForFiles
+				></div>
 			{/if}
 			{#if files.length < totalFiles}
 				<div class="flex justify-center pt-2">
@@ -1602,7 +2631,28 @@
 			{/if}
 		</div>
 		{/if}
+			<CaseFilesInsightsStrip {files} {caseInsights} {caseInsightsLoading} />
 	{/if}
+		</div>
+		<CaseFilesPreviewPane
+			{caseId}
+			{token}
+			file={paneFileMeta}
+			previewPhase={panePreviewPhase}
+			previewObjectUrl={panePreviewObjectUrl}
+			previewHtml={panePreviewHtml}
+			previewKind={panePreviewKind}
+			formatSize={formatCaseFileSizeDisplay}
+			onClose={closePreviewPane}
+			onOpenInNewTab={openPreviewInNewTab}
+			onDownload={() => {
+				if (paneFileMeta) void handleDownload(paneFileMeta);
+			}}
+			onOpenFullView={() => {
+				if (paneFileId) void loadExtractedTextIntoModal(paneFileId);
+			}}
+		/>
+	</div>
 </div>
 
 <!-- P40-01 bulk confirm + P41-14 processing (same modal shell). P41-16: explicit steps so idle never renders an empty overlay. -->
@@ -1771,14 +2821,21 @@
 					</h3>
 					{#if viewPreviewPhase === 'loading'}
 						<p class="m-0 text-xs {DS_TYPE_CLASSES.meta}">{P125_FILE_VIEW_PREVIEW_LOADING}</p>
-					{:else if viewPreviewPhase === 'ready' && viewPreviewObjectUrl}
-						{#if viewPreviewKind === 'image'}
+					{:else if viewPreviewPhase === 'ready' && (viewPreviewObjectUrl || (viewPreviewKind === 'docx' && viewPreviewHtml))}
+						{#if viewPreviewKind === 'docx' && viewPreviewHtml}
+							<div
+								class="max-h-80 overflow-y-auto rounded border border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-surface-elevated)] px-3 py-3 text-left text-[13px] leading-relaxed text-[color:var(--ce-l-text-primary)] [overflow-wrap:anywhere] [&_img]:max-h-48 [&_img]:max-w-full [&_p]:my-2 [&_p:first-child]:mt-0 [&_h1]:mb-2 [&_h1]:text-base [&_h1]:font-semibold [&_h2]:mb-2 [&_h2]:text-sm [&_h2]:font-semibold [&_ul]:my-2 [&_ol]:my-2 [&_li]:my-0.5 [&_table]:w-full [&_table]:text-xs [&_table]:border-collapse [&_td]:border [&_td]:border-[color:var(--ce-l-border-subtle)] [&_td]:p-1.5"
+								data-testid="case-file-view-docx-html"
+							>
+								{@html viewPreviewHtml}
+							</div>
+						{:else if viewPreviewKind === 'image' && viewPreviewObjectUrl}
 							<img
 								src={viewPreviewObjectUrl}
 								alt={P125_FILE_VIEW_PREVIEW_IMG_ALT}
 								class="max-h-72 max-w-full rounded border border-[color:var(--ce-l-border-strong)] object-contain"
 							/>
-						{:else if viewPreviewKind === 'pdf'}
+						{:else if viewPreviewKind === 'pdf' && viewPreviewObjectUrl}
 							<iframe
 								title={P125_FILE_VIEW_PREVIEW_HEADING}
 								class="h-80 w-full rounded border border-[color:var(--ce-l-border-strong)]"
@@ -1837,3 +2894,72 @@
 		</div>
 	</div>
 {/if}
+
+<style>
+	/* P109 — custom file selection markers: solid fill when on (no ✓ glyph); grid = on frosted chip over thumb, list = raised row */
+	:global(input.ce-case-file-evidence-marker[type='checkbox']) {
+		flex-shrink: 0;
+		margin: 0;
+		cursor: pointer;
+		appearance: none;
+		-webkit-appearance: none;
+		width: 1.25rem;
+		height: 1.25rem;
+		border-radius: 0.375rem;
+		border-width: 2px;
+		border-style: solid;
+		background-clip: padding-box;
+		transition:
+			background-color 0.12s ease,
+			border-color 0.12s ease,
+			box-shadow 0.12s ease;
+	}
+	/*
+	 * Global `tailwind.css` adds `input[type=checkbox]::after` with a checkmark SVG that fills
+	 * the box when checked — it sits above our fill and hides the blue “inner square” look.
+	 */
+	:global(input.ce-case-file-evidence-marker[type='checkbox']::after) {
+		content: none !important;
+		display: none !important;
+	}
+	:global(input.ce-case-file-evidence-marker[type='checkbox']:focus-visible) {
+		outline: 2px solid rgb(56 189 248 / 0.95);
+		outline-offset: 2px;
+	}
+	/* Grid: white frame + dark interior (off); same frame + solid blue fill (on) — matches Files mockups. */
+	:global(input.ce-case-file-evidence-marker--grid[type='checkbox']) {
+		width: 1.375rem;
+		height: 1.375rem;
+		border-radius: 0.3125rem;
+		border-width: 2px;
+		border-color: rgb(255 255 255 / 0.98);
+		background-color: rgb(38 38 42);
+		box-shadow: 0 1px 2px rgb(0 0 0 / 0.35);
+	}
+	/* Selected visuals follow `data-p109-selected` (store), not only native :checked — avoids preventDefault / paint mismatch. */
+	:global(input.ce-case-file-evidence-marker--grid[type='checkbox']:hover[data-p109-selected='false']) {
+		border-color: rgb(255 255 255 / 1);
+		background-color: rgb(48 48 52);
+	}
+	:global(input.ce-case-file-evidence-marker--grid[type='checkbox'][data-p109-selected='true']) {
+		background-color: rgb(14 165 233);
+		border-color: rgb(255 255 255 / 0.98);
+		background-image: none !important;
+		box-shadow:
+			inset 0 1px 0 rgb(255 255 255 / 0.28),
+			0 1px 3px rgb(0 0 0 / 0.4);
+	}
+	:global(input.ce-case-file-evidence-marker--grid[type='checkbox'][data-p109-selected='true']:hover) {
+		background-color: rgb(2 132 199);
+		border-color: rgb(255 255 255 / 1);
+	}
+	:global(input.ce-case-file-evidence-marker--list[type='checkbox']) {
+		border-color: var(--ce-l-border-strong);
+		background-color: var(--ce-l-surface-elevated);
+	}
+	:global(input.ce-case-file-evidence-marker--list[type='checkbox'][data-p109-selected='true']) {
+		background-color: rgb(2 132 199);
+		border-color: rgb(14 165 233);
+		background-image: none !important;
+	}
+</style>

@@ -70,18 +70,22 @@
 		color: theme(--color-gray-400);
 	}
 
-	input[type='checkbox'] {
+	/*
+	 * Case Files P109 evidence pickers use `.ce-case-file-evidence-marker` + component CSS (solid fill, no ✓ overlay).
+	 * Exclude them here so base-layer `::after` + `:checked` colors cannot override by cascade order.
+	 */
+	input[type='checkbox']:not(.ce-case-file-evidence-marker) {
 		@apply appearance-none size-3.5 align-middle bg-white border border-gray-300 rounded transition cursor-pointer focus:ring-2 focus:ring-blue-500 focus:outline-none dark:bg-gray-800 dark:border-gray-600 self-center;
 		/* Center the custom mark */
 		display: inline-block;
 		position: relative;
 	}
 
-	input[type='checkbox']:checked {
+	input[type='checkbox']:not(.ce-case-file-evidence-marker):checked {
 		@apply bg-blue-600 border-blue-600;
 	}
 
-	input[type='checkbox']:after {
+	input[type='checkbox']:not(.ce-case-file-evidence-marker):after {
 		content: '';
 		display: block;
 		width: 100%;
@@ -98,7 +102,7 @@
 			center/80% no-repeat;
 	}
 
-	input[type='checkbox']:checked:after {
+	input[type='checkbox']:not(.ce-case-file-evidence-marker):checked:after {
 		opacity: 1;
 	}
 }

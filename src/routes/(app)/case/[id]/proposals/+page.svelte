@@ -25,11 +25,13 @@
 </script>
 
 <CaseWorkspaceContentRegion testId="case-proposals-page">
-	<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-		<!-- P128-01 — Identity framing: always first; visible for no-token, loading, empty, and populated. -->
+	<div
+		class="ce-l-proposals-shell flex min-h-0 flex-1 flex-col overflow-hidden"
+		data-route-case-id={routeCaseId || undefined}
+	>
+		<!-- P128-01 — Hero + doctrine: always first; visible for no-token, loading, empty, and populated. -->
 		<CaseProposalFraming />
-		<div class="ce-l-proposals-shell">
-			<div class="ce-l-proposals-workspace px-2 sm:px-3 pb-2">
+		<div class="ce-l-proposals-workspace min-h-0 min-w-0 flex-1 overflow-hidden px-2 pb-2 sm:px-3">
 				{#if $caseEngineToken && routeCaseId}
 					<ProposalReviewPanel
 						caseId={routeCaseId}
@@ -48,7 +50,6 @@
 						</p>
 					</div>
 				{/if}
-			</div>
 		</div>
 	</div>
 </CaseWorkspaceContentRegion>

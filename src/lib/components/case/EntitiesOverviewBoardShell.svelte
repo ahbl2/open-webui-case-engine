@@ -7,13 +7,13 @@
 		CaseIntelligenceCommittedEntity,
 		CaseIntelligenceEntityKind
 	} from '$lib/apis/caseEngine';
-	import EntitiesBoardToolbar from '$lib/components/case/EntitiesBoardToolbar.svelte';
 	import EntitiesConnectionsSummary from '$lib/components/case/EntitiesConnectionsSummary.svelte';
 	import EntitiesIntakeSubordinate from '$lib/components/case/EntitiesIntakeSubordinate.svelte';
 	import EntitiesRegistryPanel from '$lib/components/case/EntitiesRegistryPanel.svelte';
 	import CaseIntelligenceStage1Panel from '$lib/components/case/CaseIntelligenceStage1Panel.svelte';
 	import CaseIntelligenceAssociationsPanel from '$lib/components/case/CaseIntelligenceAssociationsPanel.svelte';
-	import { DS_ENTITY_BOARD_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
+	import SubjectsAssetsFilterBar from '$lib/components/case/SubjectsAssetsFilterBar.svelte';
+	import { DS_ENTITY_BOARD_CLASSES, DS_TYPE_CLASSES } from '$lib/case/detectivePrimitiveFoundation';
 	import {
 		resolvePhonePanelMode,
 		type EntitiesBoardSnapshot,
@@ -22,8 +22,6 @@
 
 	export let caseId: string;
 	export let token: string;
-	export let caseTitle = '';
-	export let caseNumber = '';
 	/** Optional override; default placeholder until P69-10 (P69-04 §3.7). */
 	export let phonePanelMode: EntitiesRegistryPanelMode | undefined = undefined;
 	export let selectedEntityId: string | null = null;
@@ -44,7 +42,14 @@
 	export let onAddRequest: ((detail: { entityKind: CaseIntelligenceEntityKind }) => void) | undefined =
 		undefined;
 
-	let intakeExpanded = false;
+	/** Intake strip — toggled from route hero (`/case/:id/intelligence`). */
+	export let intakeExpanded = false;
+	/** Mockup-aligned workspace search + cards / table / graph switcher. */
+	let globalSearchFilter = '';
+	let registryLayoutView: 'cards' | 'table' | 'graph' = 'cards';
+	let typeFilter: 'all' | 'PERSON' | 'VEHICLE' | 'LOCATION' | 'PHONE' = 'all';
+	let statusFilter: 'all' | 'active' | 'retired' = 'active';
+	let tagFilter = '';
 	let boardScrollEl: HTMLDivElement | null = null;
 	let connectionsComp: EntitiesConnectionsSummary;
 
@@ -61,12 +66,24 @@
 	}
 
 	export async function refreshAllPanels(): Promise<void> {
-		await Promise.all([
-			personPanel?.refreshPanel(),
-			vehiclePanel?.refreshPanel(),
-			locationPanel?.refreshPanel(),
-			phonePanel?.refreshPanel()
-		]);
+		const jobs: Promise<void>[] = [];
+		if (typeFilter === 'all' || typeFilter === 'PERSON') {
+			const p = personPanel?.refreshPanel();
+			if (p) jobs.push(p);
+		}
+		if (typeFilter === 'all' || typeFilter === 'VEHICLE') {
+			const p = vehiclePanel?.refreshPanel();
+			if (p) jobs.push(p);
+		}
+		if (typeFilter === 'all' || typeFilter === 'LOCATION') {
+			const p = locationPanel?.refreshPanel();
+			if (p) jobs.push(p);
+		}
+		if (typeFilter === 'all' || typeFilter === 'PHONE') {
+			const p = phonePanel?.refreshPanel();
+			if (p) jobs.push(p);
+		}
+		await Promise.all(jobs);
 		connectionsComp?.refreshConnections?.();
 	}
 
@@ -115,79 +132,114 @@
 		data-testid="entities-board-scroll"
 	>
 		<div class="{DS_ENTITY_BOARD_CLASSES.inner}">
-			<EntitiesBoardToolbar
-				{caseId}
-				{caseTitle}
-				{caseNumber}
-				{intakeExpanded}
-				addMenuDisabled={!token}
-				onRefreshAll={() => void refreshAllPanels()}
-				onAddPerson={() => onAddRequest?.({ entityKind: 'PERSON' })}
-				onAddVehicle={() => onAddRequest?.({ entityKind: 'VEHICLE' })}
-				onAddLocation={() => onAddRequest?.({ entityKind: 'LOCATION' })}
-				onToggleIntake={() => (intakeExpanded = !intakeExpanded)}
+			<SubjectsAssetsFilterBar
+				bind:globalSearch={globalSearchFilter}
+				bind:layoutView={registryLayoutView}
+				bind:typeFilter
+				bind:statusFilter
+				bind:tagFilter
 			/>
 
 			<div class="{DS_ENTITY_BOARD_CLASSES.divider}" aria-hidden="true"></div>
 
-			<div class="{DS_ENTITY_BOARD_CLASSES.grid} auto-rows-fr [&>*]:min-h-0" data-testid="entities-registry-grid">
-				<EntitiesRegistryPanel
-					bind:this={personPanel}
-					{caseId}
-					{token}
-					entityKind="PERSON"
-					panelMode="live"
-					heading="People"
-					subheader="Committed people — Case Engine registry; Add registers directly."
-					testId="entities-registry-people"
-					{refreshNonce}
-					{selectedEntityId}
-					onRowActivate={handleRowActivate}
-					onAddRequest={(d) => onAddRequest?.(d)}
-				/>
-				<EntitiesRegistryPanel
-					bind:this={vehiclePanel}
-					{caseId}
-					{token}
-					entityKind="VEHICLE"
-					panelMode="live"
-					heading="Vehicles"
-					subheader="Committed vehicles — Case Engine registry; Add registers directly."
-					testId="entities-registry-vehicles"
-					{refreshNonce}
-					{selectedEntityId}
-					onRowActivate={handleRowActivate}
-					onAddRequest={(d) => onAddRequest?.(d)}
-				/>
-				<EntitiesRegistryPanel
-					bind:this={locationPanel}
-					{caseId}
-					{token}
-					entityKind="LOCATION"
-					panelMode="live"
-					heading="Locations"
-					subheader="Committed locations — Case Engine registry; Add registers directly."
-					testId="entities-registry-locations"
-					{refreshNonce}
-					{selectedEntityId}
-					onRowActivate={handleRowActivate}
-					onAddRequest={(d) => onAddRequest?.(d)}
-				/>
-				<EntitiesRegistryPanel
-					bind:this={phonePanel}
-					{caseId}
-					{token}
-					entityKind="PHONE"
-					panelMode={resolvedPhoneMode}
-					heading="Phone numbers"
-					subheader="Placeholder — no committed phone list here yet (P69-10). For phone evidence focus, use Intelligence mode search, not this column."
-					testId="entities-registry-phone"
-					{refreshNonce}
-					{selectedEntityId}
-					onRowActivate={handleRowActivate}
-					onAddRequest={(d) => onAddRequest?.(d)}
-				/>
-			</div>
+			{#if registryLayoutView === 'graph'}
+				<div
+					class="rounded-xl border border-dashed border-[color:var(--ce-l-border-strong)] bg-[color:var(--ce-l-surface-elevated)]/60 px-6 py-14 text-center shadow-inner"
+					data-testid="subjects-assets-graph-placeholder"
+					role="region"
+					aria-label="Graph view placeholder"
+				>
+					<p class="m-0 text-sm font-semibold text-[color:var(--ce-l-text-primary)]">Relationship graph</p>
+					<p class="mx-auto mt-2 max-w-md text-sm {DS_TYPE_CLASSES.meta}">
+						Interactive graph visualization is not available yet. Use Cards or Table to browse committed subjects.
+					</p>
+				</div>
+			{:else}
+				<div
+					class="{registryLayoutView === 'table'
+						? 'grid grid-cols-1 gap-4 auto-rows-fr md:grid-cols-2 xl:grid-cols-4 [&>*]:min-h-0'
+						: `${DS_ENTITY_BOARD_CLASSES.grid} auto-rows-fr [&>*]:min-h-0`}"
+					data-testid="entities-registry-grid"
+					data-registry-layout={registryLayoutView}
+				>
+					{#if typeFilter === 'all' || typeFilter === 'PERSON'}
+						<EntitiesRegistryPanel
+							bind:this={personPanel}
+							{caseId}
+							{token}
+							entityKind="PERSON"
+							panelMode="live"
+							heading="People"
+							subheader="Committed people — Case Engine registry; Add registers directly."
+							testId="entities-registry-people"
+							{refreshNonce}
+							{selectedEntityId}
+							bind:globalSearchFilter
+							workspaceStatusFilter={statusFilter}
+							workspaceTagFilter={tagFilter}
+							onRowActivate={handleRowActivate}
+							onAddRequest={(d) => onAddRequest?.(d)}
+						/>
+					{/if}
+					{#if typeFilter === 'all' || typeFilter === 'VEHICLE'}
+						<EntitiesRegistryPanel
+							bind:this={vehiclePanel}
+							{caseId}
+							{token}
+							entityKind="VEHICLE"
+							panelMode="live"
+							heading="Vehicles"
+							subheader="Committed vehicles — Case Engine registry; Add registers directly."
+							testId="entities-registry-vehicles"
+							{refreshNonce}
+							{selectedEntityId}
+							bind:globalSearchFilter
+							workspaceStatusFilter={statusFilter}
+							workspaceTagFilter={tagFilter}
+							onRowActivate={handleRowActivate}
+							onAddRequest={(d) => onAddRequest?.(d)}
+						/>
+					{/if}
+					{#if typeFilter === 'all' || typeFilter === 'LOCATION'}
+						<EntitiesRegistryPanel
+							bind:this={locationPanel}
+							{caseId}
+							{token}
+							entityKind="LOCATION"
+							panelMode="live"
+							heading="Locations"
+							subheader="Committed locations — Case Engine registry; Add registers directly."
+							testId="entities-registry-locations"
+							{refreshNonce}
+							{selectedEntityId}
+							bind:globalSearchFilter
+							workspaceStatusFilter={statusFilter}
+							workspaceTagFilter={tagFilter}
+							onRowActivate={handleRowActivate}
+							onAddRequest={(d) => onAddRequest?.(d)}
+						/>
+					{/if}
+					{#if typeFilter === 'all' || typeFilter === 'PHONE'}
+						<EntitiesRegistryPanel
+							bind:this={phonePanel}
+							{caseId}
+							{token}
+							entityKind="PHONE"
+							panelMode={resolvedPhoneMode}
+							heading="Phone numbers"
+							subheader="Placeholder — no committed phone list here yet (P69-10). For phone evidence focus, use Intelligence mode search, not this column."
+							testId="entities-registry-phone"
+							{refreshNonce}
+							{selectedEntityId}
+							bind:globalSearchFilter
+							workspaceStatusFilter={statusFilter}
+							workspaceTagFilter={tagFilter}
+							onRowActivate={handleRowActivate}
+							onAddRequest={(d) => onAddRequest?.(d)}
+						/>
+					{/if}
+				</div>
+			{/if}
 
 			<section class="{DS_ENTITY_BOARD_CLASSES.section} space-y-4" data-testid="entities-board-section-connections">
 				<p class="{DS_ENTITY_BOARD_CLASSES.sectionLabel}">Association edges</p>

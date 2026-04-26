@@ -2,7 +2,19 @@
  * P128-01 — Proposals intake framing (static operator copy; candidate Timeline entries only; no authority).
  */
 
+/** Nav-aligned hero title (matches CaseWorkspaceCaseNavTabBar "Proposals"). */
+export const P128_PROPOSALS_HERO_TITLE = 'Proposals';
+
+/**
+ * @deprecated Use `P128_PROPOSALS_HERO_TITLE` for the primary heading; long form kept for tests/search.
+ */
 export const P128_PROPOSALS_SURFACE_TITLE = 'Proposals — Candidate Timeline Entries';
+
+/** One-line lead under the hero title (summary of what this surface is for). */
+export const P128_PROPOSALS_HERO_LEAD =
+	'Review candidate rows for the Timeline. Nothing here is the official case record until accepted.';
+
+export const P128_PROPOSALS_FRAMING_DETAILS_TOGGLE = 'About this surface';
 
 export const P128_PROPOSALS_FRAMING_BODY_PRIMARY =
 	'Proposals here are candidate rows for the Timeline. They are not the official case record, not Notes drafts, not file evidence, not workflow items, and not entity records.';

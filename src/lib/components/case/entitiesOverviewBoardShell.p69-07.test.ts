@@ -10,7 +10,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const shell = readFileSync(join(__dirname, 'EntitiesOverviewBoardShell.svelte'), 'utf8');
 const panel = readFileSync(join(__dirname, 'EntitiesRegistryPanel.svelte'), 'utf8');
-const toolbar = readFileSync(join(__dirname, 'EntitiesBoardToolbar.svelte'), 'utf8');
+const intelligencePage = readFileSync(
+	join(__dirname, '../../../routes/(app)/case/[id]/intelligence/+page.svelte'),
+	'utf8'
+);
+const registryRail = readFileSync(join(__dirname, 'SubjectsAssetsRegistryRail.svelte'), 'utf8');
 
 describe('P69-07 Entities overview board', () => {
 	it('shell composes grid, connections, intake, and focus handoff props', () => {
@@ -34,10 +38,10 @@ describe('P69-07 Entities overview board', () => {
 		expect(panel).toContain("panelMode === 'placeholder'");
 	});
 
-	it('toolbar exposes batch refresh and entity add menu', () => {
-		expect(toolbar).toContain('entities-board-refresh-all');
-		expect(toolbar).toContain('entities-board-add-entity');
-		expect(toolbar).toContain('/case/{caseId}/timeline');
-		expect(toolbar).toContain('/case/{caseId}/proposals');
+	it('intelligence route hero exposes intake toggle; registry rail exposes add entity menu', () => {
+		expect(intelligencePage).toContain('entities-board-toggle-intake');
+		expect(intelligencePage).toContain('bind:intakeExpanded');
+		expect(registryRail).toContain('entities-board-add-entity');
+		expect(registryRail).toContain('entities-board-add-menu');
 	});
 });

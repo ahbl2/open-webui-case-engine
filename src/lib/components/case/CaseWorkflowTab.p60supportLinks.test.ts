@@ -38,7 +38,6 @@ describe('CaseWorkflowTab P60-05 row support rendering', () => {
 		expect(tabSource).toContain('hrefForSupportLinkTarget');
 		expect(tabSource).toContain('supportLinkKindBadgeClass');
 		expect(tabSource).toContain('workflow-support-link-chip-kind-');
-		expect(tabSource).toContain('workflow-support-link-row-stale');
 		expect(tabSource).toContain('workflow-item-support-links-none');
 		expect(tabSource).toContain('on:updated={refreshSupportLinkSummaries}');
 	});

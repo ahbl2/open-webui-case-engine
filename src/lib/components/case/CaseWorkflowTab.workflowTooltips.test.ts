@@ -16,21 +16,15 @@ describe('CaseWorkflowTab workflow tooltips (P57-10)', () => {
 		);
 	});
 
-	it('adds column header tooltips for rank, origin, and citations', () => {
-		expect(tabSource).toContain('title={P127_WORKFLOW_LEGACY_RANK_TH_TITLE}');
-		expect(tabSource).toContain('title={P127_WORKFLOW_LEGACY_ORIGIN_TH_TITLE}');
-		expect(tabSource).toContain(
-			'title="Count of evidence links recorded on this workflow item."'
-		);
+	it('exposes P127 rank label as visible chip text (legacy rank field; not table header titles)', () => {
+		expect(tabSource).toContain('P127_WORKFLOW_LEGACY_RANK_CELL_PREFIX');
 	});
 
 	it('keeps core list controls and behavior wiring unchanged', () => {
 		expect(tabSource).toContain('data-testid="workflow-filter-cluster"');
-		expect(tabSource).toContain('filter = \'all\'');
+		expect(tabSource).toContain("listTab = 'all'");
 		expect(tabSource).toContain('await listWorkflowItems(caseId, token,');
 		expect(tabSource).toContain('await acceptWorkflowProposal(caseId, target.id, token)');
-		expect(tabSource).toContain('DS_WORKFLOW_CLASSES.th');
-		expect(tabSource).toMatch(/<th class="\{DS_WORKFLOW_CLASSES\.th\}">Type<\/th>/);
-		expect(tabSource).toMatch(/<th class="\{DS_WORKFLOW_CLASSES\.th\}">Status<\/th>/);
+		expect(tabSource).toContain('data-testid="workflow-type-select"');
 	});
 });

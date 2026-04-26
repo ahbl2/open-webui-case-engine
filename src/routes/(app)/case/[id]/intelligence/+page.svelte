@@ -1,6 +1,7 @@
 <script lang="ts">
 	/** P71-09 — Tier L shell / secondary nav demotion (P70-05 §3.2, P70-06); presentation only. */
 	import { onMount, tick } from 'svelte';
+	import { browser } from '$app/environment';
 	import { get } from 'svelte/store';
 	import { afterNavigate, goto } from '$app/navigation';
 	import { page } from '$app/stores';
@@ -39,6 +40,8 @@
 	import CaseEmptyState from '$lib/components/case/CaseEmptyState.svelte';
 	import EntitiesFocusModeShell from '$lib/components/case/EntitiesFocusModeShell.svelte';
 	import EntitiesOverviewBoardShell from '$lib/components/case/EntitiesOverviewBoardShell.svelte';
+	import SubjectsAssetsEntityDetailPane from '$lib/components/case/SubjectsAssetsEntityDetailPane.svelte';
+	import SubjectsAssetsRegistryRail from '$lib/components/case/SubjectsAssetsRegistryRail.svelte';
 	import CaseIntelligenceEntityCreateModal from '$lib/components/case/CaseIntelligenceEntityCreateModal.svelte';
 	import CaseIntelligenceEntityDetailModal from '$lib/components/case/CaseIntelligenceEntityDetailModal.svelte';
 	import CaseErrorState from '$lib/components/case/CaseErrorState.svelte';
@@ -64,6 +67,7 @@
 		CASE_DESTINATION_TITLES
 	} from '$lib/utils/caseDestinationLabels';
 	import {
+		DS_ENTITY_BOARD_CLASSES,
 		DS_INTELLIGENCE_CLASSES,
 		DS_TYPE_CLASSES,
 		DS_BTN_CLASSES,
@@ -73,6 +77,7 @@
 		DS_STACK_CLASSES,
 		DS_TIMELINE_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
+	import { InformationCircleIcon, UserGroupIcon } from 'heroicons-svelte/24/outline';
 
 	// ── Cross-case entity alerts (P28-40 load, P28-41 case-switch reliability) ─
 	// Read-only surface for ENTITY_OVERLAP alerts produced by the backend.
@@ -196,10 +201,23 @@
 		}
 	}
 
+	/** lg+ — row selection opens right detail pane; smaller viewports keep the modal. */
+	let useEntityDetailPane = false;
+
+	let subjectsOverviewDialogEl: HTMLDialogElement | undefined;
+
 	onMount(() => {
 		if ($caseEngineToken && $page.params.id) {
 			loadAlerts($page.params.id, $caseEngineToken);
 		}
+		if (!browser) return;
+		const mq = window.matchMedia('(min-width: 1024px)');
+		const apply = (): void => {
+			useEntityDetailPane = mq.matches;
+		};
+		apply();
+		mq.addEventListener('change', apply);
+		return () => mq.removeEventListener('change', apply);
 	});
 
 	type IntelligenceScope = 'THIS_CASE' | 'CID' | 'SIU' | 'ALL';
@@ -249,6 +267,8 @@
 	let entitiesBoardSnapshot: EntitiesBoardSnapshot | null = null;
 	let entitiesBoardShell: EntitiesOverviewBoardShell | null = null;
 	let entitiesFocusSeed: CaseIntelligenceCommittedEntity | null = null;
+	/** Intake / staging strip — bound to EntitiesOverviewBoardShell; toggle lives in the Subjects &amp; Assets hero. */
+	let intakeExpanded = false;
 	let directCreateSuccessMessage: string | null = null;
 	let directCreateSuccessClearHandle: ReturnType<typeof setTimeout> | null = null;
 
@@ -358,6 +378,7 @@
 		entitiesFocusMode = 'board';
 		entitiesBoardSnapshot = null;
 		entitiesFocusSeed = null;
+		intakeExpanded = false;
 
 		// Alerts — reload for the new case
 		alerts = [];
@@ -676,63 +697,181 @@
 <!-- P71-09 — Tier L shell; secondary mode segmented control demoted vs primary case tabs (P70-05 §3.2). -->
 <CaseWorkspaceContentRegion testId="case-intelligence-page">
 <div class="ce-l-intelligence-shell">
-	<div class="ce-l-intelligence-primary-scroll" data-testid="case-intelligence-primary-scroll">
-		<div class="{DS_INTELLIGENCE_CLASSES.primaryInner}">
-		<div class="ce-l-intelligence-intro">
-			<p class={DS_INTELLIGENCE_CLASSES.identityEyebrow}>Investigation · entity context</p>
-			<h1 class="ce-l-intelligence-intro-title {DS_TYPE_CLASSES.display}">Entity Intelligence</h1>
-			<p class="ce-l-intelligence-intro-body leading-relaxed">
-				<strong>Entities</strong> starts with <strong>committed registries</strong> (browse; <strong>Register</strong> with each
-				<strong>Add …</strong>). <strong>Stage&nbsp;1</strong> is for <strong>staging</strong> (intake / propose → promote), not
-				the default manual register path. <strong>Stage&nbsp;2</strong> covers association edges. Case Engine holds authority.
-				<strong>Intelligence</strong> mode adds alerts, Ask/search, and lookups (support only). <strong>P19</strong> stays on the
-				Proposals tab. Model text never replaces committed records.
-			</p>
+	{#if !$caseEngineToken}
+		<div class="ce-l-intelligence-primary-scroll" data-testid="case-intelligence-primary-scroll">
+			<div class="{DS_INTELLIGENCE_CLASSES.primaryInner}">
+				<section
+					class="shrink-0 border-b border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-elevated)] px-3 py-3 sm:px-4"
+					data-testid="subjects-assets-workspace-hero"
+					aria-labelledby="subjects-assets-workspace-hero-title"
+				>
+					<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+						<div class="min-w-0 flex-1">
+							<div class="flex items-start gap-2">
+								<UserGroupIcon
+									class="h-6 w-6 shrink-0 text-[color:var(--ce-l-text-muted)] sm:h-7 sm:w-7"
+									aria-hidden="true"
+								/>
+								<div class="min-w-0">
+									<h2
+										id="subjects-assets-workspace-hero-title"
+										class="m-0 text-lg font-semibold leading-snug tracking-tight text-[color:var(--ce-l-text-primary)] sm:text-xl"
+									>
+										Subjects &amp; Assets
+									</h2>
+									<p class="m-0 mt-1 max-w-3xl text-xs leading-snug text-[color:var(--ce-l-text-muted)] sm:text-sm">
+										Case Engine authentication is required to load intelligence data.
+									</p>
+								</div>
+							</div>
+						</div>
+					</div>
+				</section>
+			</div>
 		</div>
+	{:else}
+		<section
+			class="shrink-0 border-b border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-elevated)] px-3 py-3 sm:px-4"
+			data-testid="subjects-assets-workspace-hero"
+			aria-labelledby="subjects-assets-workspace-hero-title"
+		>
+			<div class="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+				<div class="min-w-0 flex-1">
+					<div class="flex items-start gap-2">
+						<UserGroupIcon
+							class="h-6 w-6 shrink-0 text-[color:var(--ce-l-text-muted)] sm:h-7 sm:w-7"
+							aria-hidden="true"
+						/>
+						<div class="min-w-0">
+							<h2
+								id="subjects-assets-workspace-hero-title"
+								class="m-0 text-lg font-semibold leading-snug tracking-tight text-[color:var(--ce-l-text-primary)] sm:text-xl"
+							>
+								Subjects &amp; Assets
+							</h2>
+							<p class="m-0 mt-1 max-w-3xl text-xs leading-snug text-[color:var(--ce-l-text-muted)] sm:text-sm">
+								Committed registries, staging, and intelligence lookups — Case Engine authority.
+							</p>
+						</div>
+					</div>
+				</div>
+				<div class="flex flex-shrink-0 flex-wrap items-center justify-end gap-2">
+					{#if workspaceMode === 'entities'}
+						<button
+							type="button"
+							class="{DS_ENTITY_BOARD_CLASSES.toolbarIntakeToggle} shrink-0"
+							data-testid="entities-board-toggle-intake"
+							aria-expanded={intakeExpanded}
+							on:click={() => (intakeExpanded = !intakeExpanded)}
+						>
+							{intakeExpanded ? 'Hide intake' : 'Intake / staging'}
+						</button>
+						<button
+							type="button"
+							class="{DS_BTN_CLASSES.secondary} inline-flex items-center gap-1.5"
+							data-testid="intelligence-entities-workflow-path-trigger"
+							aria-haspopup="dialog"
+							aria-controls="subjects-assets-overview-board-dialog"
+							title="How the Subjects &amp; Assets overview board works"
+							on:click={() => subjectsOverviewDialogEl?.showModal()}
+						>
+							<InformationCircleIcon class="h-4 w-4 shrink-0" aria-hidden="true" />
+							Overview board
+						</button>
+					{/if}
+					<div
+						class="ce-l-intelligence-segmented"
+						role="tablist"
+						aria-label="Case Intelligence workspace: Subjects or Intelligence mode"
+					>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={workspaceMode === 'entities'}
+							class="{DS_INTELLIGENCE_CLASSES.workspaceTab} {workspaceMode === 'entities'
+								? DS_INTELLIGENCE_CLASSES.workspaceTabActive
+								: DS_INTELLIGENCE_CLASSES.workspaceTabInactive}"
+							data-testid="intelligence-workspace-mode-entities"
+							title="Registries first (Register via Add); Stage 1 staging; Stage 2 associations — Case Engine"
+							on:click={() => setWorkspaceMode('entities')}
+						>
+							Subjects
+						</button>
+						<button
+							type="button"
+							role="tab"
+							aria-selected={workspaceMode === 'intelligence'}
+							class="{DS_INTELLIGENCE_CLASSES.workspaceTab} {workspaceMode === 'intelligence'
+								? DS_INTELLIGENCE_CLASSES.workspaceTabActive
+								: DS_INTELLIGENCE_CLASSES.workspaceTabInactive}"
+							data-testid="intelligence-workspace-mode-intelligence"
+							title="Cross-case alerts, Ask/search, structured queries, analysis readouts — not a substitute for committed records"
+							on:click={() => setWorkspaceMode('intelligence')}
+						>
+							Intelligence
+						</button>
+					</div>
+				</div>
+			</div>
+		</section>
 
-		{#if !$caseEngineToken}
-			<div class="ce-l-intelligence-intro">
-				<p class={DS_INTELLIGENCE_CLASSES.noAuthNote}>
-					Case Engine authentication is required to load intelligence data.
+		<dialog
+			bind:this={subjectsOverviewDialogEl}
+			id="subjects-assets-overview-board-dialog"
+			class="w-[calc(100vw-2rem)] max-w-lg rounded-xl border border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-elevated)] p-0 text-[color:var(--ce-l-text-primary)] shadow-2xl backdrop:bg-black/50"
+			data-testid="intelligence-entities-workflow-path"
+			aria-labelledby="subjects-assets-overview-board-dialog-title"
+			on:click={(e) => {
+				if (e.target === subjectsOverviewDialogEl) subjectsOverviewDialogEl?.close();
+			}}
+		>
+			<div class="border-b border-[color:var(--ce-l-border-default)] px-4 py-3">
+				<h2
+					id="subjects-assets-overview-board-dialog-title"
+					class="m-0 text-base font-semibold leading-snug text-[color:var(--ce-l-text-primary)]"
+				>
+					Subjects &amp; Assets overview board
+				</h2>
+			</div>
+			<div
+				class="max-h-[min(70vh,28rem)] overflow-y-auto px-4 py-3 text-sm leading-relaxed text-[color:var(--ce-l-text-secondary)]"
+			>
+				<p class="m-0">
+					Four registries (phone column is placeholder until P69-10 — use Intelligence mode search for phone evidence focus).
+					<strong class="text-[color:var(--ce-l-text-primary)]">Subjects &amp; Assets</strong> starts with
+					<strong class="text-[color:var(--ce-l-text-primary)]">committed registries</strong> (browse; Add …).
+					<strong class="text-[color:var(--ce-l-text-primary)]">Stage&nbsp;1</strong> is not the default manual register path — use
+					<strong class="text-[color:var(--ce-l-text-primary)]">Register</strong> via registry Add or panel Add —
+					Case Engine commit. Staging: expand <strong class="text-[color:var(--ce-l-text-primary)]">Intake / staging</strong>.
+					<strong class="text-[color:var(--ce-l-text-primary)]">P19</strong> remains on <a
+						class={DS_INTELLIGENCE_CLASSES.inlineLink}
+						href="/case/{caseId}/proposals"
+						title={CASE_DESTINATION_TITLES.caseProposals}
+						>{CASE_DESTINATION_LABELS.caseProposals}</a
+					>.
 				</p>
 			</div>
-		{:else}
-			<div
-				class="ce-l-intelligence-segmented"
-				role="tablist"
-				aria-label="Case Intelligence workspace: Entities or Intelligence mode"
-			>
+			<div class="flex justify-end border-t border-[color:var(--ce-l-border-default)] px-4 py-3">
 				<button
 					type="button"
-					role="tab"
-					aria-selected={workspaceMode === 'entities'}
-					class="{DS_INTELLIGENCE_CLASSES.workspaceTab} {workspaceMode === 'entities'
-						? DS_INTELLIGENCE_CLASSES.workspaceTabActive
-						: DS_INTELLIGENCE_CLASSES.workspaceTabInactive}"
-					data-testid="intelligence-workspace-mode-entities"
-					title="Registries first (Register via Add); Stage 1 staging; Stage 2 associations — Case Engine"
-					on:click={() => setWorkspaceMode('entities')}
+					class={DS_BTN_CLASSES.primary}
+					data-testid="intelligence-entities-workflow-path-close"
+					on:click={() => subjectsOverviewDialogEl?.close()}
 				>
-					Entities
-				</button>
-				<button
-					type="button"
-					role="tab"
-					aria-selected={workspaceMode === 'intelligence'}
-					class="{DS_INTELLIGENCE_CLASSES.workspaceTab} {workspaceMode === 'intelligence'
-						? DS_INTELLIGENCE_CLASSES.workspaceTabActive
-						: DS_INTELLIGENCE_CLASSES.workspaceTabInactive}"
-					data-testid="intelligence-workspace-mode-intelligence"
-					title="Cross-case alerts, Ask/search, structured queries, analysis readouts — not a substitute for committed records"
-					on:click={() => setWorkspaceMode('intelligence')}
-				>
-					Intelligence
+					Close
 				</button>
 			</div>
+		</dialog>
 
-			{#if workspaceMode === 'entities'}
-				<div class="space-y-4 -mx-2 md:-mx-4" data-testid="intelligence-workspace-entities-panel">
-					{#if directCreateSuccessMessage}
+		{#if workspaceMode === 'entities'}
+			<div
+				class="ce-l-files-shell flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+				data-testid="intelligence-workspace-entities-panel"
+			>
+				{#if directCreateSuccessMessage}
+					<div
+						class="flex min-h-0 flex-shrink-0 flex-col border-b border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-canvas)] px-4 py-3"
+					>
 						<div
 							class="rounded-md px-3 py-2 text-sm {DS_STATUS_SURFACE_CLASSES.success}"
 							data-testid="intelligence-direct-create-success"
@@ -740,73 +879,115 @@
 						>
 							<p class="ds-status-copy">{directCreateSuccessMessage}</p>
 						</div>
-					{/if}
-					<div class="{DS_INTELLIGENCE_CLASSES.entitiesRibbon} {DS_STACK_CLASSES.tight}" data-testid="intelligence-entities-workflow-path">
-						<p class="{DS_TYPE_CLASSES.label} text-[var(--ds-text-primary)]">Entities overview board</p>
-						<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
-							Four registries (phone column is placeholder until P69-10 — use Intelligence mode search for phone evidence focus). <strong class="text-[var(--ds-text-primary)]">Register</strong> via panel Add or
-							toolbar — Case Engine commit. Staging: expand <strong class="text-[var(--ds-text-primary)]">Intake / staging</strong>.
-							<strong class="text-[var(--ds-text-primary)]">P19</strong> remains on <a
-								class={DS_INTELLIGENCE_CLASSES.inlineLink}
-								href="/case/{caseId}/proposals"
-								title={CASE_DESTINATION_TITLES.caseProposals}
-								>{CASE_DESTINATION_LABELS.caseProposals}</a
-							>.
-						</p>
 					</div>
+				{/if}
 
-					<div
-						class={entitiesFocusMode === 'focus' ? 'hidden' : ''}
-						inert={entitiesFocusMode === 'focus'}
-						aria-hidden={entitiesFocusMode === 'focus' ? 'true' : 'false'}
-						data-testid="intelligence-entities-board-slot"
-					>
-						<EntitiesOverviewBoardShell
-							bind:this={entitiesBoardShell}
-							caseId={caseId ?? ''}
-							token={$caseEngineToken ?? ''}
-							caseTitle={$activeCaseMeta?.title ?? ''}
-							caseNumber={$activeCaseMeta?.case_number ?? ''}
-							refreshNonce={entityRegistryRefreshNonce}
-							selectedEntityId={selectedRegistryEntityId}
-							onFocusRequested={requestEntityFocus}
-							onRegistryRowActivate={(d) => {
-								if (entitiesFocusMode !== 'board') return;
-								selectedRegistryEntityId = d.entity.id;
-								entityDetailSeed = d.entity;
-								entityDetailOpen = true;
-							}}
-							onAddRequest={handleIntelCreateRequest}
-						/>
-					</div>
-					{#if entitiesFocusMode === 'focus' && entitiesFocusSeed && entitiesBoardSnapshot}
-						<EntitiesFocusModeShell
-							caseId={caseId ?? ''}
-							token={$caseEngineToken ?? ''}
-							focusedEntity={entitiesFocusSeed}
-							caseTitle={$activeCaseMeta?.title ?? ''}
-							caseNumber={$activeCaseMeta?.case_number ?? ''}
-							refreshNonce={entityRegistryRefreshNonce}
-							seedPanelState={entitiesBoardSnapshot.panels?.[entitiesFocusSeed.entity_kind]}
-							onBack={() => void exitEntityFocus()}
-							onAddRequest={handleIntelCreateRequest}
-							onOpenAssociationComposer={(ent) => {
-								entityDetailSeed = ent;
-								selectedRegistryEntityId = ent.id;
-								entityDetailOpen = true;
-							}}
-						/>
+				<div
+					class="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row"
+					data-testid="subjects-assets-workspace-split"
+				>
+					{#if $caseEngineToken}
+						<div
+							class="flex min-h-0 w-full min-w-0 flex-col overflow-hidden border-b border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-raised)] sm:w-56 sm:shrink-0 sm:border-b-0 sm:border-r lg:h-full lg:max-h-full"
+							data-testid="subjects-assets-left-rail-wrap"
+						>
+							<SubjectsAssetsRegistryRail
+								caseId={caseId ?? ''}
+								token={$caseEngineToken}
+								refreshEpoch={entityRegistryRefreshNonce}
+								addMenuDisabled={!$caseEngineToken}
+								onAddPerson={() => handleIntelCreateRequest({ entityKind: 'PERSON' })}
+								onAddVehicle={() => handleIntelCreateRequest({ entityKind: 'VEHICLE' })}
+								onAddLocation={() => handleIntelCreateRequest({ entityKind: 'LOCATION' })}
+							/>
+						</div>
 					{/if}
-					<span data-testid="entities-focus-mode" class="sr-only">{entitiesFocusMode}</span>
+					<div
+						class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+						data-testid="intelligence-workspace-entities-primary-column"
+					>
+						<div
+							class="ce-l-files-primary-scroll flex min-h-0 min-w-0 flex-1 flex-col"
+							data-testid="case-intelligence-primary-scroll"
+						>
+							<div
+								class="flex min-h-0 flex-1 flex-col overflow-hidden {entitiesFocusMode === 'focus'
+									? 'hidden'
+									: ''}"
+								inert={entitiesFocusMode === 'focus'}
+								aria-hidden={entitiesFocusMode === 'focus' ? 'true' : 'false'}
+								data-testid="intelligence-entities-board-slot"
+							>
+								<div
+									class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:flex-row"
+									data-testid="subjects-assets-main-and-pane"
+								>
+									<div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+										<EntitiesOverviewBoardShell
+											bind:this={entitiesBoardShell}
+											bind:intakeExpanded
+											caseId={caseId ?? ''}
+											token={$caseEngineToken ?? ''}
+											refreshNonce={entityRegistryRefreshNonce}
+											selectedEntityId={selectedRegistryEntityId}
+											onFocusRequested={requestEntityFocus}
+											onRegistryRowActivate={(d) => {
+												if (entitiesFocusMode !== 'board') return;
+												selectedRegistryEntityId = d.entity.id;
+												entityDetailSeed = d.entity;
+												entityDetailOpen = !useEntityDetailPane;
+											}}
+											onAddRequest={handleIntelCreateRequest}
+										/>
+									</div>
+									{#if useEntityDetailPane && entityDetailSeed && !entityDetailOpen}
+										<SubjectsAssetsEntityDetailPane
+											entity={entityDetailSeed}
+											onClose={() => {
+												selectedRegistryEntityId = null;
+												entityDetailSeed = null;
+											}}
+											onOpenFullDetail={() => {
+												entityDetailOpen = true;
+											}}
+										/>
+									{/if}
+								</div>
+							</div>
+							{#if entitiesFocusMode === 'focus' && entitiesFocusSeed && entitiesBoardSnapshot}
+								<EntitiesFocusModeShell
+									caseId={caseId ?? ''}
+									token={$caseEngineToken ?? ''}
+									focusedEntity={entitiesFocusSeed}
+									refreshNonce={entityRegistryRefreshNonce}
+									seedPanelState={entitiesBoardSnapshot.panels?.[entitiesFocusSeed.entity_kind]}
+									onBack={() => void exitEntityFocus()}
+									onAddRequest={handleIntelCreateRequest}
+									onOpenAssociationComposer={(ent) => {
+										entityDetailSeed = ent;
+										selectedRegistryEntityId = ent.id;
+										entityDetailOpen = true;
+									}}
+								/>
+							{/if}
+							<span data-testid="entities-focus-mode" class="sr-only">{entitiesFocusMode}</span>
+						</div>
+					</div>
 				</div>
+			</div>
 			{:else}
-				<div class="{DS_INTELLIGENCE_CLASSES.panelSectionStack}" data-testid="intelligence-workspace-intelligence-panel">
-				<div class="{DS_INTELLIGENCE_CLASSES.modeBanner} {DS_STACK_CLASSES.tight}" data-testid="intelligence-ws-framing">
+				<div
+					class="ce-l-intelligence-primary-scroll flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden"
+					data-testid="case-intelligence-primary-scroll"
+				>
+					<div class="{DS_INTELLIGENCE_CLASSES.primaryInner}">
+						<div class="{DS_INTELLIGENCE_CLASSES.panelSectionStack}" data-testid="intelligence-workspace-intelligence-panel">
+						<div class="{DS_INTELLIGENCE_CLASSES.modeBanner} {DS_STACK_CLASSES.tight}" data-testid="intelligence-ws-framing">
 					<h2 class="{DS_TYPE_CLASSES.panel}">
 						Intelligence mode — analysis &amp; non-authoritative support
 					</h2>
 					<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
-						<strong class="font-semibold text-[var(--ds-text-primary)]">Entities</strong> — registries first, then Stage&nbsp;1 staging and
+						<strong class="font-semibold text-[var(--ds-text-primary)]">Subjects &amp; Assets</strong> — registries first, then Stage&nbsp;1 staging and
 						Stage&nbsp;2 edges (Case Engine authority). This <strong class="font-semibold text-[var(--ds-text-primary)]">Intelligence</strong>
 						mode is for signals, Ask/search, and lookups. Treat outputs as support until they appear in committed registries,
 						governed proposals, or associations as appropriate.
@@ -830,7 +1011,7 @@
 					</h2>
 					<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
 						Cross-case overlap hints — triage with excerpts; they are not committed entity or association facts. For case
-						intel truth, open <strong class="font-semibold">Entities</strong> (registries first).
+						intel truth, open <strong class="font-semibold">Subjects &amp; Assets</strong> (registries first).
 					</p>
 				</div>
 
@@ -998,7 +1179,7 @@
 					<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
 						Run Ask/search and structured queries here (read-only retrieval). Results do not create timeline, notebook, or intel
 						records — use <strong class="font-semibold">Proposals</strong> or <strong
-							class="font-semibold">Entities</strong> when something must become official.
+							class="font-semibold">Subjects &amp; Assets</strong> when something must become official.
 					</p>
 				</div>
 
@@ -1050,7 +1231,7 @@
 					>
 						<strong class="text-[var(--ds-text-primary)]">Phone tip:</strong> For evidence-backed phone focus in this case,
 						use <strong>Structured Queries</strong> → <strong>Phone mentions</strong>, enter this number, run the query, then
-						use the phone evidence focus control below — not the Entities board phone column.
+						use the phone evidence focus control below — not the Subjects &amp; Assets board phone column.
 					</p>
 				{/if}
 				{#if selectedScope === 'THIS_CASE'}
@@ -1223,7 +1404,7 @@
 						Analysis, evidence &amp; citations
 					</h2>
 					<p class="{DS_TYPE_CLASSES.meta} leading-relaxed">
-						From your last run — compare to <strong class="font-semibold">Entities</strong> for who/what is
+						From your last run — compare to <strong class="font-semibold">Subjects &amp; Assets</strong> for who/what is
 						committed; citations support traceability only.
 					</p>
 				</div>
@@ -1433,10 +1614,10 @@
 					{/if}
 				</div>
 				<div class="{DS_INTELLIGENCE_CLASSES.panel} {DS_STACK_CLASSES.tight}">
-					<h2 class={DS_TYPE_CLASSES.panel}>Entity Intelligence (search)</h2>
+					<h2 class={DS_TYPE_CLASSES.panel}>Intelligence search (entity-shaped hits)</h2>
 					<p class={DS_TYPE_CLASSES.meta}>
 						<strong>Read-only:</strong> entity-shaped <strong>hits from intelligence search</strong>, not the
-						<strong>committed</strong> registry entities in Entities mode above.
+						<strong>committed</strong> registry subjects in Subjects mode above.
 					</p>
 					<p class="{DS_TYPE_CLASSES.meta} text-[var(--ds-text-secondary)]" data-testid="intelligence-ws-entity-search-action-hint">
 						<strong class="text-[var(--ds-text-primary)]">Row order:</strong> entity drill-down link first (when present), then
@@ -1448,7 +1629,7 @@
 							data-testid="intelligence-ws-entity-search-phone-note"
 						>
 							<strong class="text-[var(--ds-text-primary)]">Phone matches:</strong> use the phone evidence focus link on
-							the row for the supported evidence-backed view — not the Entities board phone column.
+							the row for the supported evidence-backed view — not the Subjects &amp; Assets board phone column.
 						</p>
 					{/if}
 					{#if ranSearch && !loading && entityTypeGroups.length === 0 && !allSectionsEmpty}
@@ -1460,7 +1641,7 @@
 						</p>
 						<p class={DS_TYPE_CLASSES.meta}>
 							This list appears when the backend returns identifiable entity-type matches for your search — separate
-							from the Entities workspace registries / staging panels.
+							from the Subjects &amp; Assets workspace registries / staging panels.
 						</p>
 						{#if matchedCaseSummaries.length > 0}
 							<p class={DS_TYPE_CLASSES.meta}>
@@ -1548,10 +1729,10 @@
 				{/if}
 			</div>
 				</div>
+					</div>
+				</div>
 			{/if}
 		{/if}
-		</div>
-	</div>
 </div>
 </CaseWorkspaceContentRegion>
 
@@ -1572,7 +1753,10 @@
 	on:close={async () => {
 		entityDetailOpen = false;
 		await tick();
-		entityDetailSeed = null;
+		if (!useEntityDetailPane) {
+			entityDetailSeed = null;
+			selectedRegistryEntityId = null;
+		}
 	}}
 />
 

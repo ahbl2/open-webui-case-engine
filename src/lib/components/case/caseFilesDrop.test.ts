@@ -36,7 +36,7 @@ describe('CaseFilesTab.svelte — P38-04 upload path parity', () => {
 		const src = readFileSync(tabPath, 'utf8');
 		expect(src).toContain('dataTransferHasFiles');
 		expect(src).toContain('async function handleDroppedFiles');
-		expect(src).toContain('await uploadCaseFile(caseId, file, token)');
+		expect(src).toMatch(/uploadCaseFile\(caseId,\s*file,\s*token/);
 		expect(src).toContain('proposeTimelineEntriesFromCaseFile');
 		expect(src).toContain('data-testid="propose-timeline-from-file-btn"');
 		expect(src).toContain('source_text_truncated_for_model');

@@ -11,11 +11,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab P59-06 / P59-11 proposal queue presentation', () => {
-	it('keeps queue semantics and P59-01 narrative strings intact', () => {
+	it('keeps queue semantics and P127 proposal-queue aria intact', () => {
 		expect(tabSource).toContain('Workflow proposal queue');
-		expect(tabSource).toContain(
-			'aria-label="Workflow proposal queue — suggestions for workflow items, separate from case Proposals drafts"'
-		);
+		expect(tabSource).toContain('aria-label={P127_WORKFLOW_PROPOSAL_QUEUE_ARIA}');
 		expect(tabSource).toContain('this queue is not the case Proposals tab');
 	});
 
@@ -25,13 +23,13 @@ describe('CaseWorkflowTab P59-06 / P59-11 proposal queue presentation', () => {
 		expect(tabSource).not.toContain('workflow-proposals-pending-badge');
 	});
 
-	it('keeps the proposal panel after the items list (sibling section after main; P59-13)', () => {
+	it('keeps the proposal panel after the items list (toolbar before main; list inside main; P59-13)', () => {
 		const main = tabSource.indexOf('data-testid="workflow-main-work-area"');
 		const list = tabSource.indexOf('data-testid="workflow-items-list-section"');
 		const toolbar = tabSource.indexOf('data-testid="workflow-items-toolbar"');
 		const panel = tabSource.indexOf('data-testid="workflow-proposals-panel"');
-		expect(main).toBeLessThan(toolbar);
-		expect(toolbar).toBeLessThan(list);
+		expect(toolbar).toBeLessThan(main);
+		expect(main).toBeLessThan(list);
 		expect(list).toBeLessThan(panel);
 	});
 

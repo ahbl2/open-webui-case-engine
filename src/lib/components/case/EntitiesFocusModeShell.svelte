@@ -1,6 +1,6 @@
 <script lang="ts">
 	/**
-	 * P69-08 — Focus mode shell: top chrome, anchored registry, detail region.
+	 * P69-08 — Focus mode shell: anchored registry, detail region (close control in detail header).
 	 * P69-09 — EntityDetailWorkspace + dirty gates (P69-05 §7).
 	 */
 	import { browser } from '$app/environment';
@@ -20,8 +20,6 @@
 	export let token: string;
 	/** Initial row from board (may be list-shaped; refreshed via GET). */
 	export let focusedEntity: CaseIntelligenceCommittedEntity;
-	export let caseTitle = '';
-	export let caseNumber = '';
 	export let onBack: () => void;
 	export let onAddRequest: ((detail: { entityKind: CaseIntelligenceEntityKind }) => void) | undefined =
 		undefined;
@@ -30,7 +28,7 @@
 	export let onOpenAssociationComposer: ((entity: CaseIntelligenceCommittedEntity) => void) | undefined =
 		undefined;
 
-	let detailEntity: CaseIntelligenceCommittedEntity = focusedEntity;
+	let detailEntity: CaseIntelligenceCommittedEntity | null = focusedEntity;
 	let detailLoading = false;
 	let detailLoadId = 0;
 	let prevFocusedId = '';
@@ -166,50 +164,29 @@
 </script>
 
 <div
-	class="{DS_ENTITY_BOARD_CLASSES.focusShell} entities-focus-mode motion-reduce:transition-none"
+	class="{DS_ENTITY_BOARD_CLASSES.focusShell} entities-focus-mode min-h-0 w-full min-w-0 flex-1 self-stretch motion-reduce:transition-none"
 	data-testid="entities-focus-mode-shell"
 	aria-busy={detailLoading ? 'true' : 'false'}
 >
-	<header class="{DS_ENTITY_BOARD_CLASSES.focusHeader}" data-testid="entities-focus-top-chrome">
-		<button
-			type="button"
-			class="{DS_ENTITY_BOARD_CLASSES.focusBackBtn}"
-			data-testid="entities-focus-back-to-board"
-			on:click={handleBackRequest}
-		>
-			<span aria-hidden="true">←</span>
-			Back to board
-		</button>
-		<div class="{DS_ENTITY_BOARD_CLASSES.focusCaseMeta}" data-testid="entities-focus-case-meta">
-			{#if caseNumber}
-				<span class="font-mono text-slate-300">{caseNumber}</span>
-			{/if}
-			{#if caseTitle}
-				<span class={caseNumber ? 'mx-2 text-slate-600' : ''}>·</span>
-				<span class="text-slate-300">{caseTitle}</span>
-			{/if}
-		</div>
-	</header>
+	<div class="{DS_ENTITY_BOARD_CLASSES.focusAnchoredCol}" data-testid="entities-focus-anchored-column">
+		<EntitiesRegistryPanel
+			{caseId}
+			{token}
+			entityKind={anchoredKind}
+			panelMode="live"
+			heading={registryHeading}
+			subheader={registrySubheader}
+			testId={registryTestId}
+			layoutVariant="anchored"
+			seedPanelState={seedPanelState ?? null}
+			{refreshNonce}
+			selectedEntityId={detailEntity?.id ?? focusedEntity.id}
+			onRowActivate={(d) => void handleAnchoredRow(d)}
+			onAddRequest={(d) => onAddRequest?.(d)}
+		/>
+	</div>
 
-	<div class="{DS_ENTITY_BOARD_CLASSES.focusBody}" data-testid="entities-focus-body">
-		<div class="{DS_ENTITY_BOARD_CLASSES.focusAnchoredCol}" data-testid="entities-focus-anchored-column">
-			<EntitiesRegistryPanel
-				{caseId}
-				{token}
-				entityKind={anchoredKind}
-				panelMode="live"
-				heading={registryHeading}
-				subheader={registrySubheader}
-				testId={registryTestId}
-				layoutVariant="anchored"
-				seedPanelState={seedPanelState ?? null}
-				{refreshNonce}
-				selectedEntityId={detailEntity?.id ?? focusedEntity.id}
-				onRowActivate={(d) => void handleAnchoredRow(d)}
-				onAddRequest={(d) => onAddRequest?.(d)}
-			/>
-		</div>
-
+	<div class="{DS_ENTITY_BOARD_CLASSES.focusDetailWrap}" data-testid="entities-focus-detail-stack">
 		<section class="{DS_ENTITY_BOARD_CLASSES.focusDetailRegion}" data-testid="entities-focus-detail-region">
 			<EntityDetailWorkspace
 				bind:this={detailWorkspace}
@@ -220,6 +197,7 @@
 				detailError={detailEntity ? '' : detailError}
 				readScope={detailReadScope}
 				onRetryDetail={retryDetailLoad}
+				onCloseDetails={handleBackRequest}
 				onDetailDirtyChange={handleDetailDirtyChange}
 				onOpenAssociationComposer={onOpenAssociationComposer}
 				onEntityNeedsRefresh={() => {

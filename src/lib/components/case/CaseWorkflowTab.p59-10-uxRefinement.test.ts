@@ -12,11 +12,10 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab P59-10 guidance UX refinement', () => {
-	it('defaults guidance + narrative expanded for orientation and resets open on case switch', () => {
-		expect(tabSource).toMatch(/let guidanceExpanded = true/);
-		expect(tabSource).toMatch(/let narrativeExpanded = true/);
+	it('defaults guidance + about collapsed for a dashboard-first surface; resets on case switch', () => {
+		expect(tabSource).toMatch(/let guidanceExpanded = false/);
 		expect(tabSource).toMatch(
-			/caseId !== prevWorkflowCaseId[\s\S]*?guidanceExpanded = true[\s\S]*?narrativeExpanded = true[\s\S]*?clearPostAcceptHighlight/s
+			/caseId !== prevWorkflowCaseId[\s\S]*?guidanceExpanded = false[\s\S]*?aboutSurfaceOpen = false[\s\S]*?clearPostAcceptHighlight/s
 		);
 	});
 

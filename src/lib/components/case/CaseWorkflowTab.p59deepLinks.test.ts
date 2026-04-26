@@ -37,7 +37,7 @@ describe('CaseWorkflowTab P59-04 case surface deep links', () => {
 
 	it('uses anchor navigation only (no goto) for deep links in the guidance block', () => {
 		const guid = tabSource.indexOf('data-testid="workflow-guidance-placeholder"');
-		const end = tabSource.indexOf('<!-- Create modal -->');
+		const end = tabSource.indexOf('data-testid="workflow-p127-create-modal"');
 		expect(guid).toBeGreaterThan(-1);
 		expect(end).toBeGreaterThan(guid);
 		const segment = tabSource.slice(guid, end);

@@ -34,9 +34,9 @@ describe('CaseWorkflowTab P59-07 shell state cohesion', () => {
 		expect(tabSource.slice(panel, panel + 20000)).toMatch(/proposalsLoading[\s\S]*?workflow-proposals-state-shell/);
 	});
 
-	it('uses chip-style attention cues for list load failure and loading (not floating text)', () => {
-		expect(tabSource).toMatch(/workflow-attention-list-error[\s\S]*?DS_WORKFLOW_CLASSES\.attentionChip/);
-		expect(tabSource).toMatch(/workflow-attention-list-loading[\s\S]*?DS_WORKFLOW_CLASSES\.attentionChip/);
+	it('surfaces list load failure and loading in the attention region (compact status lines under summary cards)', () => {
+		expect(tabSource).toMatch(/data-testid="workflow-attention-list-error"/);
+		expect(tabSource).toMatch(/data-testid="workflow-attention-list-loading"/);
 	});
 
 	it('keeps list section as flex column for coherent vertical rhythm with state shells', () => {

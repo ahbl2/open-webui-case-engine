@@ -1,11 +1,10 @@
 <script lang="ts">
 	/**
 	 * P77-08 — Wave 4 DS operational surface + route identity (scroll/layout preserved).
-	 * P127-01 — Operational framing (`CaseWorkflowFraming`); case id via `getRouteCaseIdString` only.
+	 * P127-01 — Hero + tab (`CaseWorkflowTab` includes `CaseWorkflowWorkspaceHero`); case id via `getRouteCaseIdString` only.
 	 */
 	import { page } from '$app/stores';
 	import { caseEngineToken, caseEngineAuthState, caseEngineUser } from '$lib/stores';
-	import CaseWorkflowFraming from '$lib/components/case/CaseWorkflowFraming.svelte';
 	import CaseWorkflowTab from '$lib/components/case/CaseWorkflowTab.svelte';
 	import CaseWorkspaceContentRegion from '$lib/components/case/CaseWorkspaceContentRegion.svelte';
 	import { getRouteCaseIdString } from '$lib/caseContext/routeCaseContext';
@@ -22,8 +21,6 @@
 
 <CaseWorkspaceContentRegion testId="case-workflow-page">
 	<div class="flex min-h-0 flex-1 flex-col overflow-hidden">
-		<!-- P127-01 — Identity framing: always first; visible for no-token, loading, empty, and populated. -->
-		<CaseWorkflowFraming />
 		{#if !$caseEngineToken}
 			<div class="ds-workflow-primary-scroll flex-1 p-4 md:p-6">
 				<div

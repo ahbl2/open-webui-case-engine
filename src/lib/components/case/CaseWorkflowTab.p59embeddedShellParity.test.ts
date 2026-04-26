@@ -16,7 +16,7 @@ const chatPage = readFileSync(
 describe('CaseWorkflowTab P59-08 embedded shell parity', () => {
 	it('uses tighter root and main vertical rhythm when embedded', () => {
 		expect(tabSource).toContain('DS_WORKFLOW_CLASSES.workspaceEmbedded');
-		expect(tabSource).toMatch(/workflow-main-work-area[\s\S]*?embedded \? 'gap-2\.5' : 'gap-5'/);
+		expect(tabSource).toMatch(/workflow-main-work-area[\s\S]*?embedded \? 'gap-2' : 'gap-3'/);
 	});
 
 	it('compacts attention and guidance headings plus nav chip density for embedded', () => {

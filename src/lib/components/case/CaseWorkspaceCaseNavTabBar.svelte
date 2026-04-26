@@ -22,7 +22,8 @@
 		{ segment: 'timeline', label: 'Timeline' },
 		{ segment: 'notes', label: 'Notes' },
 		{ segment: 'files', label: 'Files' },
-		{ segment: 'intelligence', label: 'Intelligence' },
+		{ segment: 'intelligence', label: 'Subjects & Assets' },
+		{ segment: 'proposals', label: 'Proposals' },
 		{ segment: 'workflow', label: 'Workflow' },
 		{ segment: 'activity', label: 'Activity' },
 		{ segment: 'ai-workspace', label: 'AI Assistant' }

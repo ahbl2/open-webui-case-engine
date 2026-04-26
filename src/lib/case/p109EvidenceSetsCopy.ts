@@ -7,6 +7,9 @@
 /** Evidence sets surface label; use where the route is linked (P109 panels / future nav). P123-02 rail is Timeline/Notes/Files only. */
 export const P109_EVIDENCE_SETS_NAV_LABEL = 'Evidence sets (grouping)';
 
+/** P109 — Files tab toolbar: go to the page where session selection is turned into a saved grouping. */
+export const P109_EVIDENCE_SETS_FILES_TAB_OPEN_LINK = 'Open Evidence sets';
+
 export const P109_EVIDENCE_SETS_PAGE_TITLE = P109_EVIDENCE_SETS_NAV_LABEL;
 
 export const P109_EVIDENCE_SETS_SUPPORTING_COPY =

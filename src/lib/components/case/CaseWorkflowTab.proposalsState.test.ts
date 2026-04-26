@@ -19,9 +19,9 @@ describe('CaseWorkflowTab proposal panel state presentation (P57-02)', () => {
 	it('uses CaseEmptyState for empty proposals with scoped test id', () => {
 		expect(tabSource).toContain('testId="workflow-proposals-empty"');
 		expect(tabSource).toContain('<CaseEmptyState');
-		expect(tabSource).toContain('title="Nothing in the workflow proposal queue yet."');
+		expect(tabSource).toContain('title="No workflow proposals yet"');
 		expect(tabSource).toContain(
-			'When intake suggests a new or changed workflow item, it appears in this queue on the Workflow tab. Governed timeline or note drafts for review and commit belong on the case Proposals tab—not here.'
+			'When intake suggests a new or changed workflow item, it appears here for your review.'
 		);
 	});
 

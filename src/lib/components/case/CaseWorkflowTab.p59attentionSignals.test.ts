@@ -11,11 +11,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab P59-03 attention signals', () => {
-	it('derives attention from items, proposalCount, filter, loading, and errors only', () => {
+	it('derives attention summary + scope label from listTab, items, proposalCount, loading, and errors only', () => {
 		expect(tabSource).toContain('// P59-03: attention signals');
 		expect(tabSource).toContain('$: attentionListReady = !loading && !loadError');
-		expect(tabSource).toMatch(/\$: attentionOpenInView = attentionListReady[\s\S]*?items\.filter/);
-		expect(tabSource).toMatch(/\$: attentionFilterScopeLabel =[\s\S]*?filter === 'all'/);
+		expect(tabSource).toMatch(/\$: countOpen = summaryScope\.filter/);
+		expect(tabSource).toMatch(/\$: attentionFilterScopeLabel =[\s\S]*?listTab === 'all'/);
 	});
 
 	it('clears proposals on case switch so derived pending count is not cross-case stale', () => {
@@ -25,15 +25,11 @@ describe('CaseWorkflowTab P59-03 attention signals', () => {
 		expect(slice).toMatch(/proposals = \[\];[\s\S]*?proposalError = null/);
 	});
 
-	it('renders attention chips with stable test ids and list load branches', () => {
+	it('renders attention summary + stable test ids and list load branches (dashboard cards)', () => {
 		expect(tabSource).toContain('data-testid="workflow-attention-signals"');
-		expect(tabSource).toContain('data-testid="workflow-attention-pending-chip"');
 		expect(tabSource).toContain('data-testid="workflow-attention-pending-count"');
-		expect(tabSource).toContain('data-testid="workflow-attention-listed-chip"');
-		expect(tabSource).toContain('data-testid="workflow-attention-listed-count"');
-		expect(tabSource).toContain('data-testid="workflow-attention-filter-scope"');
-		expect(tabSource).toContain('data-testid="workflow-attention-open-chip"');
 		expect(tabSource).toContain('data-testid="workflow-attention-open-count"');
+		expect(tabSource).toContain('data-testid="workflow-attention-listed-count"');
 		expect(tabSource).toContain('data-testid="workflow-attention-list-loading"');
 		expect(tabSource).toContain('data-testid="workflow-attention-list-error"');
 	});

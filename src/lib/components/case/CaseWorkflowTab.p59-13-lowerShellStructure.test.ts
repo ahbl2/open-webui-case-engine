@@ -18,7 +18,7 @@ describe('CaseWorkflowTab P59-13 lower shell structure', () => {
 		expect(guidOpen).toBeGreaterThan(panelOpen);
 		const queueOnly = tabSource.slice(panelOpen, guidOpen);
 		expect(queueOnly).toMatch(/<h3[^>]*>Workflow proposal queue<\/h3>/);
-		expect(queueOnly).toContain('this queue is not the case Proposals tab');
+		expect(queueOnly).toMatch(/this\s+queue is not the case Proposals tab/);
 		expect(queueOnly).toContain('data-testid="workflow-proposals-state-shell"');
 		expect(queueOnly).toContain('testId="workflow-proposals-empty"');
 		expect(queueOnly).not.toContain('data-testid="workflow-guidance-placeholder"');

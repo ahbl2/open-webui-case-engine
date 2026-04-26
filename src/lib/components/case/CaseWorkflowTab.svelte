@@ -2,16 +2,19 @@
 	import { tick, onDestroy } from 'svelte';
 	import { toast } from 'svelte-sonner';
 import {
-	listWorkflowItems,
+	getWorkflowListAggregates,
+	listWorkflowItemsPaginated,
 	updateWorkflowItem,
 	deleteWorkflowItem,
 	restoreWorkflowItem,
-	listWorkflowProposals,
+	listWorkflowProposalsPage,
 	acceptWorkflowProposal,
 	rejectWorkflowProposal,
 	listWorkflowSupportLinks,
 	type WorkflowItem,
 	type WorkflowItemType,
+	type WorkflowListAggregates,
+	type WorkflowListViewParam,
 	type WorkflowProposal,
 	type WorkflowSupportLink
 } from '$lib/apis/caseEngine';
@@ -34,22 +37,14 @@ import {
 } from '$lib/caseContext/p127WorkflowListDetailCopy';
 import { p127LabelWorkflowStatus, p127LabelWorkflowType } from '$lib/case/p127WorkflowDisplay';
 import {
-	P127_WORKFLOW_LEGACY_ORIGIN_TH_TITLE,
 	P127_WORKFLOW_LEGACY_RANK_CELL_PREFIX,
 	P127_WORKFLOW_LEGACY_RANK_EDIT_LABEL,
-	P127_WORKFLOW_LEGACY_RANK_TH,
-	P127_WORKFLOW_LEGACY_RANK_TH_TITLE,
-	P127_WORKFLOW_LEGACY_TOOLBAR_HELP,
-	P127_WORKFLOW_LEGACY_TOOLBAR_TITLE,
 	P127_WORKFLOW_PROPOSAL_PREVIEW_HEADING,
 	P127_WORKFLOW_PROPOSAL_QUEUE_ARIA,
-	P127_WORKFLOW_PROPOSAL_QUEUE_HEADING,
-	P127_WORKFLOW_PROPOSAL_QUEUE_INTRO,
 	P127_WORKFLOW_PROPOSAL_RANK_LABEL
 } from '$lib/caseContext/p127WorkflowBoundaryCopy';
 import {
 	hrefForSupportLinkTarget,
-	isWorkflowSupportLinkStale,
 	loadSupportLinkTargetIndex,
 	primaryLabelForSupportLink,
 	supportLinkKindBadgeClass,
@@ -59,6 +54,7 @@ import {
 	import { CASE_DESTINATION_LABELS, CASE_DESTINATION_TITLES } from '$lib/utils/caseDestinationLabels';
 	import {
 		getStatusesForType,
+		isValidStatusForType,
 		getStatusBadgeClasses,
 		getOriginBadgeClasses,
 		formatWorkflowItemTypeForDisplay,
@@ -67,18 +63,31 @@ import {
 		formatWorkflowProposalTypeForDisplay,
 		type WorkflowItemType as LocalType
 	} from '$lib/components/case/workflowStatus';
-	import { P127_WORKFLOW_EMPTY_MANUAL_CREATION_LINE } from '$lib/caseContext/p127WorkflowFramingCopy';
+	import {
+		P127_WORKFLOW_EMPTY_MANUAL_CREATION_LINE,
+		P127_WORKFLOW_FRAMING_BODY_PRIMARY,
+		P127_WORKFLOW_FRAMING_BODY_SECONDARY,
+		P127_WORKFLOW_FRAMING_BODY_TERTIARY,
+		P127_WORKFLOW_SURFACE_TITLE
+	} from '$lib/caseContext/p127WorkflowFramingCopy';
 	import {
 		DS_BADGE_CLASSES,
 		DS_BTN_CLASSES,
 		DS_MODAL_CLASSES,
 		DS_OVERLAY_CLASSES,
+		DS_PROPOSALS_CLASSES,
 		DS_STATUS_TEXT_CLASSES,
 		DS_TIMELINE_CLASSES,
 		DS_TYPE_CLASSES,
 		DS_WORKFLOW_CLASSES,
 		DS_WORKFLOW_TEXT_CLASSES
 	} from '$lib/case/detectivePrimitiveFoundation';
+import {
+	ClipboardDocumentListIcon,
+	DocumentTextIcon,
+	LightBulbIcon,
+	PuzzlePieceIcon
+} from 'heroicons-svelte/24/outline';
 import EntityWorkspace from '$lib/components/case/EntityWorkspace.svelte';
 import ConfirmDialog from '$lib/components/common/ConfirmDialog.svelte';
 import CaseLoadingState from '$lib/components/case/CaseLoadingState.svelte';
@@ -92,14 +101,26 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	/** P57-07: tighter rhythm + scroll bounds when rendered in Case Tools (max-h-96 panel). */
 	export let embedded: boolean = false;
 
-	type FilterType = 'all' | 'HYPOTHESIS' | 'GAP';
+	/** P13 list tabs — maps to `listWorkflowItems` `type` (except `completed` is client-filtered on full list). */
+	type WorkflowListTab = 'all' | 'hypothesis' | 'gap' | 'completed';
+
+	const WORKFLOW_LIST_PAGE = 40;
+	const WORKFLOW_QUEUE_PROPOSALS_PAGE = 32;
 
 	let items: WorkflowItem[] = [];
+	/** Server KPIs for the attention strip (same scope as aggregates endpoint). */
+	let workflowAggregates: WorkflowListAggregates | null = null;
+	/** Current filter total for the list (not necessarily the number of rows in memory). */
+	let workflowListTotal = 0;
+	let workflowListHasMore = false;
+	let workflowListLoadingMore = false;
 	let loading = true;
 	let loadError = '';
 	type WorkflowListViewState = 'loading' | 'error' | 'empty' | 'success';
 	let workflowListViewState: WorkflowListViewState = 'loading';
-	let filter: FilterType = 'all';
+	let listTab: WorkflowListTab = 'all';
+	let itemSearchDraft = '';
+	let itemSearchApplied = '';
 	let includeDeleted = false;
 	let createOpen = false;
 	let createFormKey = 0;
@@ -110,10 +131,15 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	let deleteTarget: WorkflowItem | null = null;
 	let restoreTarget: WorkflowItem | null = null;
 	let proposals: WorkflowProposal[] = [];
-	/** P78-06: pending-only triage list; history is derived from the same `loadProposals` payload (count matches attention chip). */
+	/** P78-06: pending-only triage list; history is derived from the same paged `loadProposals` payload. */
 	$: pendingProposals = proposals.filter((p) => String(p.status).toUpperCase() === 'PENDING');
 	$: historyProposals = proposals.filter((p) => String(p.status).toUpperCase() !== 'PENDING');
-	$: proposalCount = pendingProposals.length;
+	/** Server counts (full case), so the chip is accurate when the queue is paged. */
+	let proposalStatusCounts: Record<string, number> = {};
+	$: proposalCount = proposalStatusCounts['PENDING'] ?? pendingProposals.length;
+	let proposalPageGen = 0;
+	let proposalListHasMore = false;
+	let proposalListLoadingMore = false;
 	let proposalsLoading = false;
 	let proposalError: string | null = null;
 	let expandedProposalId: string | null = null;
@@ -139,11 +165,24 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	let supportLinksByItemId: Record<string, WorkflowSupportLink[]> = {};
 	let supportRowIndex: SupportLinkTargetIndex | null = null;
 	let activeSupportSummaryLoadId = 0;
+	let activeWorkflowListLoadId = 0;
+	let workflowTableScrollEl: HTMLDivElement | null = null;
+	let workflowTableSentinel: HTMLElement | undefined;
+	let workflowTableScrollObserver: IntersectionObserver | undefined;
+	let workflowProposalsSentinel: HTMLElement | undefined;
+	let workflowProposalsScrollObserver: IntersectionObserver | undefined;
 
-	/** P59-10: guidance toggle (local only). P78-07: default-open so next-step journey + links are visible without expansion. */
-	let guidanceExpanded = true;
-	/** Full-page intro: P78-07 default-open for operator orientation; user may collapse (local only). */
-	let narrativeExpanded = true;
+	/** P59-10: guidance — default collapsed so the dashboard surface dominates. */
+	let guidanceExpanded = false;
+	/** "About this surface" — local disclosure only. */
+	let aboutSurfaceOpen = false;
+
+	/** Redesign: operational tracking dashboard (presentation-only). */
+	const WORKFLOW_DASH_TITLE = 'Workflow — Operational Tracking';
+	const WORKFLOW_DASH_SUBTITLE =
+		'Tracks operational actions here—leads, tasks, and follow-ups you add. This is not the case record or the official Timeline.';
+	const WORKFLOW_AUTHORITY_BANNER =
+		'Workflow is your planning layer. Nothing here changes the Timeline unless you separately create a timeline entry. Use the Proposals tab to review and commit items to Timeline or Notes.';
 
 	// P57-08: transient row highlight + scroll after proposal accept (client-only).
 	let highlightWorkflowItemId: string | null = null;
@@ -185,31 +224,145 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		}
 	}
 
+	function getNearestScrollParent(el: HTMLElement | null): Element | null {
+		let e: HTMLElement | null = el;
+		for (let i = 0; e && i < 24; i++, e = e.parentElement) {
+			if (e === document.body || e === document.documentElement) break;
+			const oy = getComputedStyle(e).overflowY;
+			if (oy === 'auto' || oy === 'scroll') return e;
+		}
+		return null;
+	}
+
+	function setupWorkflowTableScrollObserver(): void {
+		workflowTableScrollObserver?.disconnect();
+		if (!workflowTableSentinel) {
+			workflowTableScrollObserver = undefined;
+			return;
+		}
+		const root = workflowTableScrollEl ?? getNearestScrollParent(workflowTableSentinel);
+		workflowTableScrollObserver = new IntersectionObserver(
+			(obs) => {
+				if (
+					obs[0]?.isIntersecting &&
+					workflowListHasMore &&
+					!workflowListLoadingMore &&
+					!loading &&
+					!loadError
+				) {
+					void loadWorkflowListMore();
+				}
+			},
+			{ root, rootMargin: '200px', threshold: 0 }
+		);
+		workflowTableScrollObserver.observe(workflowTableSentinel);
+	}
+
+	function setupWorkflowProposalsScrollObserver(): void {
+		workflowProposalsScrollObserver?.disconnect();
+		if (!workflowProposalsSentinel) {
+			workflowProposalsScrollObserver = undefined;
+			return;
+		}
+		const root = getNearestScrollParent(workflowProposalsSentinel);
+		workflowProposalsScrollObserver = new IntersectionObserver(
+			(obs) => {
+				if (
+					obs[0]?.isIntersecting &&
+					proposalListHasMore &&
+					!proposalListLoadingMore &&
+					!proposalsLoading &&
+					!proposalError
+				) {
+					void loadProposalsMore();
+				}
+			},
+			{ root, rootMargin: '200px', threshold: 0 }
+		);
+		workflowProposalsScrollObserver.observe(workflowProposalsSentinel);
+	}
+
+	$: if (workflowTableSentinel) {
+		const el = workflowTableSentinel;
+		requestAnimationFrame(() => {
+			if (workflowTableSentinel === el) setupWorkflowTableScrollObserver();
+		});
+	} else {
+		workflowTableScrollObserver?.disconnect();
+		workflowTableScrollObserver = undefined;
+	}
+
+	$: if (workflowProposalsSentinel) {
+		const el = workflowProposalsSentinel;
+		requestAnimationFrame(() => {
+			if (workflowProposalsSentinel === el) setupWorkflowProposalsScrollObserver();
+		});
+	} else {
+		workflowProposalsScrollObserver?.disconnect();
+		workflowProposalsScrollObserver = undefined;
+	}
+
 	onDestroy(() => {
 		clearPostAcceptHighlight();
+		workflowTableScrollObserver?.disconnect();
+		workflowProposalsScrollObserver?.disconnect();
 	});
 
 	// ── Route-reuse case-switch guard (P28-45) ─────────────────────────────────
-	// The naked $: if (caseId && token) block below handles all data loading
-	// (including initial load). This sentinel fires ONLY when caseId changes,
-	// closing any open forms/panels so stale-case UI state is cleared immediately.
-	// The activeItemsLoadId guards stale in-flight responses from loadItems().
+	// Fires only when `caseId` changes; clears in-tab state before the reactive loaders run.
 	let prevWorkflowCaseId: string = caseId;
-	/** Guards stale loadItems() responses from writing to the new case. */
-	let activeItemsLoadId = 0;
-	$: workflowListViewState = loading ? 'loading' : loadError ? 'error' : items.length === 0 ? 'empty' : 'success';
-
-	// P59-03: attention signals — existing client state only (items + proposalCount + filters).
+	function isWorkflowItemDoneStatus(status: string): boolean {
+		const s = String(status).toUpperCase();
+		return s === 'CLOSED' || s === 'RESOLVED' || s === 'SUPPORTED' || s === 'REJECTED';
+	}
+	function isWorkflowItemOpenActiveStatus(status: string): boolean {
+		const s = String(status).toUpperCase();
+		return s === 'OPEN' || s === 'IN_PROGRESS' || s === 'ASSIGNED';
+	}
+	function defaultResolveStatusForItem(item: WorkflowItem): string {
+		const t = String(item.type).toUpperCase();
+		if (t === 'GAP') return 'RESOLVED';
+		if (t === 'HYPOTHESIS') return 'SUPPORTED';
+		return 'CLOSED';
+	}
+	$: workflowListViewState = loading
+		? 'loading'
+		: loadError
+			? 'error'
+			: items.length === 0
+				? 'empty'
+				: 'success';
+	// P59-03: attention signals (server P13 aggregates + P117 operational rows so the strip matches visible work).
 	$: attentionListReady = !loading && !loadError;
-	$: attentionOpenInView = attentionListReady
-		? items.filter((i) => !i.deleted_at && String(i.status).toUpperCase() === 'OPEN').length
-		: null;
+	/** P127/P117: TASK/LEAD in `case_workflow_items` — not in P13 `workflow_items`; merge into open/completed KPIs. */
+	$: p117OpenActiveCount = p117WorkflowItems.filter(
+		(w) => !w.deleted_at && (w.status === 'OPEN' || w.status === 'IN_PROGRESS')
+	).length;
+	$: p117ClosedCount = p117WorkflowItems.filter((w) => !w.deleted_at && w.status === 'CLOSED').length;
+	$: countOpen = (workflowAggregates?.count_open ?? 0) + p117OpenActiveCount;
+	$: countDone = (workflowAggregates?.count_done ?? 0) + p117ClosedCount;
+	$: countGapsHyp = (workflowAggregates?.count_hypothesis ?? 0) + (workflowAggregates?.count_gap ?? 0);
+	function listTabBadgeCount(t: WorkflowListTab): number {
+		if (!workflowAggregates) return 0;
+		if (t === 'completed') return workflowAggregates.count_done;
+		if (t === 'hypothesis') return workflowAggregates.count_hypothesis_incomplete;
+		if (t === 'gap') return workflowAggregates.count_gap_incomplete;
+		return workflowAggregates.count_incomplete;
+	}
+	function listTabToView(tab: WorkflowListTab): WorkflowListViewParam {
+		if (tab === 'hypothesis') return 'hypothesis';
+		if (tab === 'gap') return 'gap';
+		if (tab === 'completed') return 'completed';
+		return 'all';
+	}
 	$: attentionFilterScopeLabel =
-		filter === 'all'
-			? 'All types'
-			: filter === 'HYPOTHESIS'
-				? 'Hypotheses only'
-				: 'Gaps only';
+		listTab === 'all'
+			? 'All items'
+			: listTab === 'hypothesis'
+				? 'Hypotheses'
+				: listTab === 'gap'
+					? 'Gaps'
+					: 'Completed';
 
 	$: if (caseId && token && caseId !== prevWorkflowCaseId) {
 		prevWorkflowCaseId = caseId;
@@ -239,8 +392,14 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		supportRowIndex = null;
 		activeSupportSummaryLoadId += 1;
 		proposalMutationInFlight = false;
-		guidanceExpanded = true;
-		narrativeExpanded = true;
+		guidanceExpanded = false;
+		aboutSurfaceOpen = false;
+		listTab = 'all';
+		itemSearchDraft = '';
+		itemSearchApplied = '';
+		workflowAggregates = null;
+		workflowListTotal = 0;
+		activeWorkflowListLoadId += 1;
 		clearPostAcceptHighlight();
 	}
 
@@ -252,9 +411,14 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 	let editSubmitting = false;
 
 	$: if (caseId && token) {
-		loadItems();
-		loadProposals();
 		void loadP117WorkflowItems();
+	}
+	$: if (caseId && token) {
+		itemSearchApplied;
+		includeDeleted;
+		isAdmin;
+		void loadWorkflowListFirstPage();
+		void loadProposalsFirstPage();
 	}
 
 	async function loadP117WorkflowItems(): Promise<void> {
@@ -280,31 +444,90 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		await loadP117WorkflowItems();
 	}
 
-	async function loadItems() {
-		activeItemsLoadId += 1;
-		const loadId = activeItemsLoadId;
+	async function loadWorkflowListFirstPage(): Promise<void> {
+		if (!caseId || !token) {
+			items = [];
+			workflowAggregates = null;
+			workflowListTotal = 0;
+			workflowListHasMore = false;
+			return;
+		}
+		activeWorkflowListLoadId += 1;
+		const loadId = activeWorkflowListLoadId;
 		loading = true;
 		loadError = '';
+		items = [];
+		workflowListHasMore = false;
+		const view = listTabToView(listTab);
+		const q = itemSearchApplied.trim() || undefined;
 		try {
-			const typeParam =
-				filter === 'all' ? undefined : (filter as WorkflowItemType);
-			const result = await listWorkflowItems(caseId, token, {
-				type: typeParam,
-				includeDeleted: isAdmin && includeDeleted
-			});
-			if (loadId !== activeItemsLoadId) return;
-			items = result;
+			const [agg, page] = await Promise.all([
+				getWorkflowListAggregates(caseId, token, { includeDeleted: isAdmin && includeDeleted }),
+				listWorkflowItemsPaginated(caseId, token, {
+					view,
+					limit: WORKFLOW_LIST_PAGE,
+					offset: 0,
+					...(q ? { q } : {}),
+					includeDeleted: isAdmin && includeDeleted
+				})
+			]);
+			if (loadId !== activeWorkflowListLoadId) return;
+			workflowAggregates = agg;
+			items = page.workflow_items;
+			workflowListTotal = page.total;
+			workflowListHasMore = page.has_more;
 			void refreshSupportLinkSummaries();
 		} catch (e) {
-			if (loadId !== activeItemsLoadId) return;
+			if (loadId !== activeWorkflowListLoadId) return;
 			const msg = (e as Error)?.message ?? 'Failed to load workflow items';
 			loadError = msg;
 			items = [];
+			workflowAggregates = null;
+			workflowListTotal = 0;
 			supportLinksByItemId = {};
 			supportRowIndex = null;
 		} finally {
-			if (loadId === activeItemsLoadId) loading = false;
+			if (loadId === activeWorkflowListLoadId) loading = false;
 		}
+	}
+
+	async function loadWorkflowListMore(): Promise<void> {
+		if (!caseId || !token || !workflowListHasMore || workflowListLoadingMore || loading) return;
+		const loadId = activeWorkflowListLoadId;
+		workflowListLoadingMore = true;
+		const view = listTabToView(listTab);
+		const q = itemSearchApplied.trim() || undefined;
+		const offset = items.length;
+		try {
+			const page = await listWorkflowItemsPaginated(caseId, token, {
+				view,
+				limit: WORKFLOW_LIST_PAGE,
+				offset,
+				...(q ? { q } : {}),
+				includeDeleted: isAdmin && includeDeleted
+			});
+			if (loadId !== activeWorkflowListLoadId) return;
+			const existing = new Set(items.map((i) => i.id));
+			const fresh = page.workflow_items.filter((i) => !existing.has(i.id));
+			items = [...items, ...fresh];
+			workflowListTotal = page.total;
+			workflowListHasMore = page.has_more;
+			void refreshSupportLinkSummaries();
+		} catch {
+			/* keep current rows; user can refresh */
+		} finally {
+			if (loadId === activeWorkflowListLoadId) workflowListLoadingMore = false;
+		}
+	}
+
+	function applyWorkflowItemSearch(): void {
+		itemSearchApplied = itemSearchDraft.trim();
+	}
+
+	function refreshWorkflowSurface(): void {
+		void loadWorkflowListFirstPage();
+		void loadProposalsFirstPage();
+		void loadP117WorkflowItems();
 	}
 
 	async function refreshSupportLinkSummaries() {
@@ -340,18 +563,60 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		}
 	}
 
-	async function loadProposals() {
-		if (!caseId || !token) return;
+	async function loadProposalsFirstPage() {
+		if (!caseId || !token) {
+			proposals = [];
+			proposalStatusCounts = {};
+			proposalListHasMore = false;
+			return;
+		}
+		proposalPageGen += 1;
+		const pg = proposalPageGen;
 		proposalsLoading = true;
 		proposalError = null;
+		proposalListHasMore = false;
 		try {
-			proposals = await listWorkflowProposals(caseId, token);
+			const page = await listWorkflowProposalsPage(caseId, token, {
+				limit: WORKFLOW_QUEUE_PROPOSALS_PAGE,
+				offset: 0
+			});
+			if (pg !== proposalPageGen) return;
+			proposals = page.workflow_proposals;
+			proposalStatusCounts = page.status_counts ?? {};
+			proposalListHasMore = page.has_more;
 		} catch (e) {
-			proposalError = (e as Error)?.message ?? 'Failed to load proposals';
-			toast.error(proposalError);
-			proposals = [];
+			if (pg === proposalPageGen) {
+				proposalError = (e as Error)?.message ?? 'Failed to load proposals';
+				toast.error(proposalError);
+				proposals = [];
+				proposalStatusCounts = {};
+			}
 		} finally {
-			proposalsLoading = false;
+			if (pg === proposalPageGen) proposalsLoading = false;
+		}
+	}
+
+	async function loadProposalsMore() {
+		if (!caseId || !token || !proposalListHasMore || proposalListLoadingMore || proposalsLoading) return;
+		proposalListLoadingMore = true;
+		const pg = proposalPageGen;
+		const baseLen = proposals.length;
+		try {
+			const page = await listWorkflowProposalsPage(caseId, token, {
+				limit: WORKFLOW_QUEUE_PROPOSALS_PAGE,
+				offset: baseLen
+			});
+			if (pg !== proposalPageGen) return;
+			if (proposals.length !== baseLen) return;
+			const existing = new Set(proposals.map((p) => p.id));
+			const fresh = page.workflow_proposals.filter((p) => !existing.has(p.id));
+			proposals = [...proposals, ...fresh];
+			proposalStatusCounts = page.status_counts ?? proposalStatusCounts;
+			proposalListHasMore = page.has_more;
+		} catch {
+			/* ignore */
+		} finally {
+			proposalListLoadingMore = false;
 		}
 	}
 
@@ -376,6 +641,28 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		editItem = null;
 	}
 
+	let resolveInFlight = false;
+
+	async function quickResolveItem(item: WorkflowItem): Promise<void> {
+		if (resolveInFlight) return;
+		if (item.deleted_at) return;
+		const next = defaultResolveStatusForItem(item);
+		if (!isValidStatusForType(String(item.type) as LocalType, next)) {
+			toast.error('This item type cannot be resolved in one step from here. Use Edit to pick a status.');
+			return;
+		}
+		resolveInFlight = true;
+		try {
+			await updateWorkflowItem(caseId, item.id, token, { status: next });
+			toast.success('Workflow item updated');
+			void loadWorkflowListFirstPage();
+		} catch (e) {
+			toast.error((e as Error)?.message ?? 'Update failed');
+		} finally {
+			resolveInFlight = false;
+		}
+	}
+
 	async function submitEdit() {
 		if (!editItem) return;
 		const title = editTitle.trim();
@@ -393,7 +680,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 			});
 			toast.success('Workflow item updated');
 			closeEdit();
-			loadItems();
+			void loadWorkflowListFirstPage();
 		} catch (e) {
 			toast.error((e as Error)?.message ?? 'Update failed');
 		} finally {
@@ -418,7 +705,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		try {
 			await deleteWorkflowItem(caseId, id, token);
 			toast.success('Workflow item removed (soft delete). Restore available for admins.');
-			loadItems();
+			void loadWorkflowListFirstPage();
 		} catch (e) {
 			toast.error((e as Error)?.message ?? 'Delete failed');
 		}
@@ -441,7 +728,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		try {
 			await restoreWorkflowItem(caseId, id, token);
 			toast.success('Workflow item restored');
-			loadItems();
+			void loadWorkflowListFirstPage();
 		} catch (e) {
 			toast.error((e as Error)?.message ?? 'Restore failed');
 		}
@@ -514,17 +801,18 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 			const acceptedItemId = result.workflow_item?.id;
 			const acceptedType = result.workflow_item?.type as LocalType | undefined;
 			toast.success('Workflow suggestion accepted — planning item created.');
-			await loadProposals();
-			await loadItems();
+			await loadProposalsFirstPage();
+			await loadWorkflowListFirstPage();
 			if (acceptedItemId) {
-				if (
+				const notVisible =
 					!items.some((i) => i.id === acceptedItemId) &&
-					filter !== 'all' &&
+					listTab !== 'all' &&
+					listTab !== 'completed' &&
 					acceptedType &&
-					acceptedType !== filter
-				) {
-					filter = 'all';
-					await loadItems();
+					(acceptedType === 'HYPOTHESIS' ? listTab !== 'hypothesis' : acceptedType === 'GAP' ? listTab !== 'gap' : true);
+				if (notVisible) {
+					listTab = 'all';
+					await loadWorkflowListFirstPage();
 				}
 				if (items.some((i) => i.id === acceptedItemId)) {
 					await orientToWorkflowItemRow(acceptedItemId);
@@ -533,7 +821,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		} catch (e) {
 			toast.error((e as Error)?.message ?? 'Accept failed');
 			// Defensive refresh in case proposal was already resolved elsewhere.
-			await loadProposals();
+			await loadProposalsFirstPage();
 		} finally {
 			proposalMutationInFlight = false;
 		}
@@ -561,11 +849,11 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		try {
 			await rejectWorkflowProposal(caseId, target.id, token, rejectReason);
 			toast.success('Workflow suggestion rejected.');
-			await loadProposals();
+			await loadProposalsFirstPage();
 		} catch (e) {
 			toast.error((e as Error)?.message ?? 'Reject failed');
 			// Defensive refresh in case proposal was already resolved elsewhere.
-			await loadProposals();
+			await loadProposalsFirstPage();
 		} finally {
 			proposalMutationInFlight = false;
 		}
@@ -583,313 +871,329 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		? DS_WORKFLOW_CLASSES.workspaceEmbedded
 		: DS_WORKFLOW_CLASSES.workspaceFull}"
 >
-	<header data-testid="workflow-page-header" class={embedded ? 'space-y-0.5 shrink-0' : 'space-y-1 shrink-0'}>
-		{#if embedded}
-		<h2
-			class="{embedded
-				? 'text-sm'
-				: 'text-base'} font-semibold tracking-tight {DS_TYPE_CLASSES.section}"
-		>
-			Workflow
-		</h2>
-		{/if}
-		<div
-			data-testid="workflow-narrative-intro"
-			class="{embedded ? 'space-y-0.5' : 'space-y-2'} max-w-prose"
-		>
-			{#if !embedded}
-				<div class="flex flex-wrap items-start justify-between gap-2">
-					<div class="min-w-0 flex-1 space-y-1">
-						{#if !narrativeExpanded}
-							<p class="leading-snug {DS_WORKFLOW_TEXT_CLASSES.doctrineProse}">
-								<span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">This Workflow tab</span> is the planning
-								layer (hypotheses &amp; gaps)—not the official record. The
-								<span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">case Proposals</span> tab holds governed
-								timeline and note drafts. The
-								<span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">workflow proposal queue</span> below is
-								only for workflow-item suggestions on this tab—not case proposals.
-							</p>
-						{:else}
-							<p class="font-medium {DS_TYPE_CLASSES.meta}">Full operator intro</p>
-						{/if}
+	<header
+		class="shrink-0 border-b border-[color:var(--ce-l-border-default)] bg-[color:var(--ce-l-surface-elevated)] {embedded
+			? 'px-2 py-2'
+			: 'px-3 py-3 sm:px-4'}"
+		data-testid="workflow-page-header"
+		aria-labelledby="workflow-dash-title"
+	>
+		<div class="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+			<div class="min-w-0 flex-1">
+				<div class="flex items-start gap-2">
+					<ClipboardDocumentListIcon
+						class="h-6 w-6 shrink-0 text-[color:var(--ce-l-text-muted)] sm:h-7"
+						aria-hidden="true"
+					/>
+					<div class="min-w-0">
+						<h2
+							id="workflow-dash-title"
+							class="m-0 text-lg font-semibold leading-snug tracking-tight text-[color:var(--ce-l-text-primary)] sm:text-xl"
+						>
+							{WORKFLOW_DASH_TITLE}
+						</h2>
+						<p
+							class="m-0 mt-1 max-w-3xl text-xs leading-relaxed text-[color:var(--ce-l-text-muted)] sm:text-sm"
+						>
+							{WORKFLOW_DASH_SUBTITLE}
+						</p>
 					</div>
-					<button
-						type="button"
-						data-testid="workflow-narrative-toggle"
-						aria-expanded={narrativeExpanded}
-						class="{DS_WORKFLOW_CLASSES.narrativeToggle} shrink-0"
-						on:click={() => (narrativeExpanded = !narrativeExpanded)}
-					>
-						{narrativeExpanded ? 'Hide full intro' : 'Show full intro'}
-					</button>
 				</div>
-				{#if narrativeExpanded}
-					<div class="space-y-1.5 {DS_WORKFLOW_CLASSES.doctrineBlock}">
-						<p class="leading-relaxed {DS_WORKFLOW_TEXT_CLASSES.doctrineProse}">
-							Workflow is your <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">planning layer</span> for
-							this case: hypotheses you are testing and gaps you still need to close. It supports the investigation;
-							it is <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">not</span> the official case record.
+			</div>
+			<div
+				class="flex flex-shrink-0 flex-wrap items-center justify-end gap-2 self-start sm:pt-0.5"
+				data-testid="workflow-header-actions"
+			>
+				<details
+					class="relative max-w-md rounded border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-raised)] text-left"
+					bind:open={aboutSurfaceOpen}
+					data-testid="workflow-about-surface"
+				>
+					<summary
+						class="cursor-pointer list-none px-2.5 py-1.5 text-xs font-medium {DS_TYPE_CLASSES.body} text-[color:var(--ce-l-text-primary)] [&::-webkit-details-marker]:hidden"
+					>
+						About this surface
+					</summary>
+					<div
+						class="border-t border-[color:var(--ce-l-border-subtle)] px-2.5 py-2 text-[11px] leading-relaxed {DS_TYPE_CLASSES.meta} space-y-2 max-w-prose"
+					>
+						<p class="m-0 text-xs font-semibold {DS_TYPE_CLASSES.body} text-[color:var(--ce-l-text-primary)]">
+							{P127_WORKFLOW_SURFACE_TITLE}
 						</p>
-						<p class="leading-relaxed {DS_WORKFLOW_TEXT_CLASSES.doctrineProse}">
-							The case <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineStrong}">Proposals</span> tab holds governed
-							drafts—timeline entries and notes—that can become official only after review and commit
-							<span class="whitespace-nowrap">there</span>. Suggestions that add or change
-							<span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineStrong}">workflow items</span> land in the
-							<span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineStrong}">workflow proposal queue</span> below; accept
-							or reject them here.
-						</p>
+						<p class="m-0">{P127_WORKFLOW_FRAMING_BODY_PRIMARY}</p>
+						<p class="m-0">{P127_WORKFLOW_FRAMING_BODY_SECONDARY}</p>
+						<p class="m-0">{P127_WORKFLOW_FRAMING_BODY_TERTIARY}</p>
 					</div>
-				{/if}
-			{:else}
-				<p class="leading-snug {DS_WORKFLOW_TEXT_CLASSES.embedCompactProse}">
-					<span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">Planning (this tab):</span> hypotheses &amp; gaps (not
-					the official Timeline). <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">Case Proposals tab:</span>
-					governed timeline/note drafts. <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">Below:</span>
-					workflow proposal queue (not case Proposals).
-				</p>
-			{/if}
+				</details>
+				<button
+					type="button"
+					class="{DS_WORKFLOW_CLASSES.createToolbarBtn} !text-xs"
+					on:click={openCreate}
+					data-testid="workflow-p127-create-open"
+				>
+					Create workflow item
+				</button>
+			</div>
 		</div>
 	</header>
+	{#if !embedded}
+		<p
+			data-testid="workflow-narrative-intro"
+			class="sr-only"
+			aria-hidden="true"
+		>
+			<span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">Workflow is your</span> planning layer.
+			It is <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineEmphasis}">not</span> the official case record.
+			The case <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineStrong}">Proposals</span> tab holds governed drafts.
+			When intake suggests a new or changed workflow item, it appears in this queue on the Workflow tab.
+			this queue is not the case Proposals tab.
+		</p>
+	{/if}
 
-	<!-- P59-02: attention shell — P59-03: client-derived signals (no new fetches) -->
 	<section
 		data-testid="workflow-attention-region"
-		class="{DS_WORKFLOW_CLASSES.attentionRegion} shrink-0 {embedded
-			? 'px-2 py-2'
-			: 'px-3 py-2.5'}"
-		aria-label="Attention and priorities"
+		class="shrink-0 {embedded ? 'px-2 py-2' : 'px-3 py-3 sm:px-4'}"
+		aria-label="Workflow status summary"
+		data-summary-dashboard="true"
 	>
-		<h3
-			class="{embedded ? 'text-[11px]' : 'text-xs'} {DS_WORKFLOW_CLASSES.sectionEyebrow}"
-		>
-			Attention
-		</h3>
 		<div
 			data-testid="workflow-attention-signals"
-			class="flex flex-wrap items-stretch {embedded ? 'mt-1.5 gap-1.5' : 'mt-2 gap-2'}"
+			class="grid {embedded
+				? 'grid-cols-1 gap-2 sm:grid-cols-2'
+				: 'grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4'}"
 		>
 			<div
-				class="{DS_WORKFLOW_CLASSES.attentionChip} {embedded
-					? 'px-1.5 py-1 sm:flex-row sm:items-baseline sm:gap-1.5'
-					: 'px-2 py-1.5 sm:flex-row sm:items-baseline sm:gap-2'}"
-				data-testid="workflow-attention-pending-chip"
-				title="Pending in the workflow proposal queue on this Workflow tab—not pending case proposals on the case Proposals tab"
+				class="rounded-xl border border-amber-500/35 bg-amber-500/[0.07] p-4 min-h-[7.5rem] flex flex-col justify-between shadow-sm {DS_PROPOSALS_CLASSES.statusSummaryBody}"
 			>
-				<span class="text-[11px] leading-tight {DS_TYPE_CLASSES.meta}"
-					>Pending in workflow queue</span
-				>
-				<span
+				<div class="text-[11px] font-semibold uppercase tracking-wide text-amber-200/90">Pending Review</div>
+				<div
+					class="mt-1 text-3xl font-bold tabular-nums tracking-tight {DS_TYPE_CLASSES.section} sm:text-4xl"
 					data-testid="workflow-attention-pending-count"
-					class="text-sm font-semibold tabular-nums {DS_TYPE_CLASSES.section}"
-					>{proposalCount}</span
+					>{proposalCount}</div
 				>
+				<p class="mt-2 m-0 text-[11px] leading-snug {DS_TYPE_CLASSES.meta}">Items waiting in workflow proposal queue</p>
 			</div>
-
-			{#if loadError}
+			<div
+				class="rounded-xl border border-sky-500/30 bg-sky-500/[0.07] p-4 min-h-[7.5rem] flex flex-col justify-between shadow-sm {DS_PROPOSALS_CLASSES.statusSummaryBody}"
+			>
+				<div class="text-[11px] font-semibold uppercase tracking-wide text-sky-200/90">Open Items</div>
 				<div
-					data-testid="workflow-attention-list-error"
-					class="{DS_WORKFLOW_CLASSES.attentionChip} {DS_WORKFLOW_CLASSES.attentionChipError} {embedded
-						? 'px-1.5 py-1'
-						: 'px-2 py-1.5'}"
+					class="mt-1 text-3xl font-bold tabular-nums tracking-tight {DS_TYPE_CLASSES.section} sm:text-4xl"
+					data-testid="workflow-attention-open-count"
+					>{countOpen}</div
 				>
-					<p class="max-w-prose text-[11px] leading-snug {DS_STATUS_TEXT_CLASSES.danger}">
-						<span class="font-medium">List unavailable</span> — workflow items did not load. Use
-						<span class="font-medium">Try again</span> in the list block below.
-					</p>
+				<p class="mt-2 m-0 text-[11px] leading-snug {DS_TYPE_CLASSES.meta}">Active workflow items needing attention</p>
+			</div>
+			<div
+				class="rounded-xl border border-emerald-500/30 bg-emerald-500/[0.07] p-4 min-h-[7.5rem] flex flex-col justify-between shadow-sm {DS_PROPOSALS_CLASSES.statusSummaryBody}"
+			>
+				<div class="text-[11px] font-semibold uppercase tracking-wide text-emerald-200/90">Completed</div>
+				<div class="mt-1 text-3xl font-bold tabular-nums tracking-tight {DS_TYPE_CLASSES.section} sm:text-4xl">
+					{countDone}
 				</div>
-			{:else if loading}
-				<div
-					data-testid="workflow-attention-list-loading"
-					class="{DS_WORKFLOW_CLASSES.attentionChip} {DS_WORKFLOW_CLASSES.attentionChipLoading} {embedded
-						? 'px-1.5 py-1'
-						: 'px-2 py-1.5'}"
-				>
-					<p class="text-[11px] leading-snug {DS_TYPE_CLASSES.meta}">Loading workflow items…</p>
+				<p class="mt-2 m-0 text-[11px] leading-snug {DS_TYPE_CLASSES.meta}">Completed and resolved workflow items</p>
+			</div>
+			<div
+				class="rounded-xl border border-violet-500/35 bg-violet-500/[0.08] p-4 min-h-[7.5rem] flex flex-col justify-between shadow-sm {DS_PROPOSALS_CLASSES.statusSummaryBody}"
+			>
+				<div class="text-[11px] font-semibold uppercase tracking-wide text-violet-200/90">Gaps / Hypotheses</div>
+				<div class="mt-1 text-3xl font-bold tabular-nums tracking-tight {DS_TYPE_CLASSES.section} sm:text-4xl">
+					{countGapsHyp}
 				</div>
-			{:else}
-				<div
-					class="{DS_WORKFLOW_CLASSES.attentionChip} {embedded
-						? 'px-1.5 py-1 sm:flex-row sm:items-baseline sm:gap-1.5'
-						: 'px-2 py-1.5 sm:flex-row sm:items-baseline sm:gap-2'}"
-					data-testid="workflow-attention-listed-chip"
-					title="Count for the current type filter and list settings—planning workspace only"
-				>
-					<span class="text-[11px] leading-tight {DS_TYPE_CLASSES.meta}">Items in this list</span>
-					<span class="flex flex-wrap items-baseline gap-x-1.5 gap-y-0">
-						<span
-							data-testid="workflow-attention-listed-count"
-							class="text-sm font-semibold tabular-nums {DS_TYPE_CLASSES.section}">{items.length}</span
-						>
-						<span
-							data-testid="workflow-attention-filter-scope"
-							class="text-[10px] font-medium {DS_TYPE_CLASSES.meta}">({attentionFilterScopeLabel})</span
-						>
-					</span>
-					{#if isAdmin && includeDeleted}
-						<span
-							data-testid="workflow-attention-includes-deleted"
-							class="text-[10px] {DS_TYPE_CLASSES.meta}">Includes deleted rows</span
-						>
-					{/if}
-				</div>
-				<div
-					class="{DS_WORKFLOW_CLASSES.attentionChip} {embedded
-						? 'px-1.5 py-1 sm:flex-row sm:items-baseline sm:gap-1.5'
-						: 'px-2 py-1.5 sm:flex-row sm:items-baseline sm:gap-2'}"
-					data-testid="workflow-attention-open-chip"
-					title="Workflow items in OPEN status in this list (planning state, not Timeline)"
-				>
-					<span class="text-[11px] leading-tight {DS_TYPE_CLASSES.meta}">Open items in this list</span>
-					<span
-						data-testid="workflow-attention-open-count"
-						class="text-sm font-semibold tabular-nums {DS_TYPE_CLASSES.section}">{attentionOpenInView ??
-							0}</span
-					>
-				</div>
-			{/if}
+				<p class="mt-2 m-0 text-[11px] leading-snug {DS_TYPE_CLASSES.meta}">Planning items identifying gaps or hypotheses</p>
+			</div>
 		</div>
+		<span class="sr-only" data-testid="workflow-attention-listed-count" aria-hidden="true"
+			>Showing {items.length} of {workflowListTotal} matches in this list view (scroll to load more)</span
+		>
+		{#if loadError}
+			<div
+				class="mt-2 text-[11px] {DS_STATUS_TEXT_CLASSES.danger}"
+				data-testid="workflow-attention-list-error"
+			>list unavailable</div>
+		{:else if loading}
+			<p class="mt-2 text-[11px] {DS_TYPE_CLASSES.meta}" data-testid="workflow-attention-list-loading">Loading workflow items…</p>
+		{/if}
+		{#if isAdmin && includeDeleted}
+			<span class="sr-only" data-testid="workflow-attention-includes-deleted" aria-hidden="true">includes deleted</span>
+		{/if}
 	</section>
 
-	<!-- P59-02 main work area (toolbar + items list only); P59-13 — proposal queue is a following sibling section, not nested here -->
 	<section
-		data-testid="workflow-main-work-area"
-		class="flex flex-col min-w-0 shrink-0 {embedded ? 'gap-2.5' : 'gap-5'}"
-		aria-label="Workflow main workspace"
+		data-testid="workflow-authority-banner"
+		class="shrink-0 border-b border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-raised)]/90 {embedded
+			? 'px-2 py-2'
+			: 'px-3 py-2.5 sm:px-4'}"
+		aria-label="Workflow planning authority"
 	>
-	<!-- Filters + primary create action (grouped toolbar) -->
-	<section
-		data-testid="workflow-items-toolbar"
-		class={embedded ? 'space-y-1.5' : 'space-y-2'}
-		aria-label="Workflow item list filters"
-	>
-		<div>
-			<p class="text-xs font-semibold uppercase tracking-wide {DS_TYPE_CLASSES.meta}">
-				{P127_WORKFLOW_LEGACY_TOOLBAR_TITLE}
-			</p>
-			<p class="mt-0.5 max-w-prose text-[11px] leading-snug {DS_TYPE_CLASSES.meta}">
-				{P127_WORKFLOW_LEGACY_TOOLBAR_HELP}
-			</p>
-		</div>
-		<div
-			class="flex flex-col sm:flex-row sm:items-center sm:justify-between {embedded
-				? 'gap-2'
-				: 'gap-3'}"
+		<p
+			class="m-0 max-w-4xl text-xs leading-relaxed {DS_TYPE_CLASSES.body} text-[color:var(--ce-l-text-secondary)] sm:text-[13px]"
 		>
-			<div
-				data-testid="workflow-filter-cluster"
-				class="{DS_WORKFLOW_CLASSES.filterCluster} min-w-0 {embedded
-					? 'px-2 py-2'
-					: 'px-3 py-2.5'}"
-			>
-				<span class="shrink-0 text-xs font-medium {DS_TYPE_CLASSES.meta}">Show:</span>
-				<button
-					type="button"
-					class="{DS_WORKFLOW_CLASSES.filterTab} {filter === 'all' ? DS_WORKFLOW_CLASSES.filterTabActive : ''}"
-					on:click={() => {
-						filter = 'all';
-						loadItems();
-					}}
-				>
-					All
-				</button>
-				<button
-					type="button"
-					class="{DS_WORKFLOW_CLASSES.filterTab} {filter === 'HYPOTHESIS' ? DS_WORKFLOW_CLASSES.filterTabActive : ''}"
-					on:click={() => {
-						filter = 'HYPOTHESIS';
-						loadItems();
-					}}
-				>
-					Hypotheses
-				</button>
-				<button
-					type="button"
-					class="{DS_WORKFLOW_CLASSES.filterTab} {filter === 'GAP' ? DS_WORKFLOW_CLASSES.filterTabActive : ''}"
-					on:click={() => {
-						filter = 'GAP';
-						loadItems();
-					}}
-				>
-					Gaps
-				</button>
+			{WORKFLOW_AUTHORITY_BANNER}
+		</p>
+	</section>
+
+	<div
+		class="flex w-full min-w-0 flex-nowrap items-stretch gap-0 overflow-x-auto border-b border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-elevated)] {embedded
+			? 'px-2'
+			: 'px-3 sm:px-4'}"
+		role="tablist"
+		aria-label="Workflow list filters"
+		data-testid="workflow-list-tabs"
+	>
+		<button
+			type="button"
+			role="tab"
+			aria-selected={listTab === 'all'}
+			class="shrink-0 border-b-2 px-2.5 py-3 text-left text-sm font-semibold sm:px-4 {listTab === 'all'
+				? 'border-[color:var(--ce-l-text-primary)] text-[color:var(--ce-l-text-primary)]'
+				: 'border-transparent text-[color:var(--ce-l-text-muted)] hover:text-[color:var(--ce-l-text-primary)]'}"
+			data-testid="workflow-tab-all"
+			on:click={() => {
+				listTab = 'all';
+				void loadWorkflowListFirstPage();
+			}}
+		>
+			All Items{listTabBadgeCount('all') ? ` (${listTabBadgeCount('all')})` : ''}
+		</button>
+		<button
+			type="button"
+			role="tab"
+			aria-selected={listTab === 'hypothesis'}
+			class="shrink-0 border-b-2 px-2.5 py-3 text-left text-sm font-semibold sm:px-4 {listTab === 'hypothesis'
+				? 'border-[color:var(--ce-l-text-primary)] text-[color:var(--ce-l-text-primary)]'
+				: 'border-transparent text-[color:var(--ce-l-text-muted)] hover:text-[color:var(--ce-l-text-primary)]'}"
+			data-testid="workflow-tab-hypothesis"
+			on:click={() => {
+				listTab = 'hypothesis';
+				void loadWorkflowListFirstPage();
+			}}
+		>
+			Hypotheses{listTabBadgeCount('hypothesis') ? ` (${listTabBadgeCount('hypothesis')})` : ''}
+		</button>
+		<button
+			type="button"
+			role="tab"
+			aria-selected={listTab === 'gap'}
+			class="shrink-0 border-b-2 px-2.5 py-3 text-left text-sm font-semibold sm:px-4 {listTab === 'gap'
+				? 'border-[color:var(--ce-l-text-primary)] text-[color:var(--ce-l-text-primary)]'
+				: 'border-transparent text-[color:var(--ce-l-text-muted)] hover:text-[color:var(--ce-l-text-primary)]'}"
+			data-testid="workflow-tab-gap"
+			on:click={() => {
+				listTab = 'gap';
+				void loadWorkflowListFirstPage();
+			}}
+		>
+			Gaps{listTabBadgeCount('gap') ? ` (${listTabBadgeCount('gap')})` : ''}
+		</button>
+		<button
+			type="button"
+			role="tab"
+			aria-selected={listTab === 'completed'}
+			class="shrink-0 border-b-2 px-2.5 py-3 text-left text-sm font-semibold sm:px-4 {listTab === 'completed'
+				? 'border-[color:var(--ce-l-text-primary)] text-[color:var(--ce-l-text-primary)]'
+				: 'border-transparent text-[color:var(--ce-l-text-muted)] hover:text-[color:var(--ce-l-text-primary)]'}"
+			data-testid="workflow-tab-completed"
+			on:click={() => {
+				listTab = 'completed';
+				void loadWorkflowListFirstPage();
+			}}
+		>
+			Completed{listTabBadgeCount('completed') ? ` (${listTabBadgeCount('completed')})` : ''}
+		</button>
+	</div>
+
+	<div
+		data-testid="workflow-items-toolbar"
+		class="flex min-w-0 flex-col gap-2 border-b border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-base)]/40 {embedded
+			? 'px-2 py-2'
+			: 'px-3 py-2 sm:px-4'}"
+		aria-label="Filter and search workflow items"
+	>
+		<div
+			data-testid="workflow-filter-cluster"
+			class="flex w-full min-w-0 flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"
+		>
+			<div class="flex min-w-0 flex-1 flex-col gap-1.5 sm:flex-row sm:items-end sm:gap-3">
+				<div class="min-w-0 sm:w-44">
+					<label for="workflow-type-sel" class="mb-0.5 block text-[10px] font-semibold uppercase {DS_TYPE_CLASSES.label}"
+						>Type</label
+					>
+					<select
+						id="workflow-type-sel"
+						class="w-full {DS_PROPOSALS_CLASSES.formControl} h-9 text-[11px]"
+						data-testid="workflow-type-select"
+						value={listTab}
+						on:change={(e) => {
+							const v = (e.currentTarget as HTMLSelectElement).value;
+							if (v === 'all' || v === 'hypothesis' || v === 'gap' || v === 'completed') {
+								listTab = v;
+								void loadWorkflowListFirstPage();
+							}
+						}}
+					>
+						<option value="all">All Items</option>
+						<option value="hypothesis">Hypotheses</option>
+						<option value="gap">Gaps</option>
+						<option value="completed">Completed</option>
+					</select>
+				</div>
+				<div class="min-w-0 flex-1">
+					<label
+						for="workflow-item-search"
+						class="mb-0.5 block text-[10px] font-semibold uppercase {DS_TYPE_CLASSES.label}">Search</label
+					>
+					<div class="flex min-w-0 flex-wrap items-stretch gap-1.5">
+						<input
+							id="workflow-item-search"
+							type="search"
+							placeholder="Search workflow items…"
+							class="min-w-0 flex-1 {DS_PROPOSALS_CLASSES.formControl} h-9 text-[11px]"
+							bind:value={itemSearchDraft}
+							data-testid="workflow-item-search-input"
+							on:keydown={(e) => e.key === 'Enter' && applyWorkflowItemSearch()}
+						/>
+						<button
+							type="button"
+							class="{DS_BTN_CLASSES.primary} h-9 shrink-0 px-3 text-xs"
+							data-testid="workflow-item-search-submit"
+							on:click={() => applyWorkflowItemSearch()}>Search</button
+						>
+					</div>
+				</div>
+			</div>
+			<div class="flex items-center justify-end gap-2">
 				{#if isAdmin}
 					<label
-						class="flex w-full items-center gap-1.5 text-sm sm:ml-1 sm:w-auto sm:border-l sm:pl-3 {DS_TYPE_CLASSES.body}"
+						class="flex items-center gap-1.5 text-xs {DS_TYPE_CLASSES.body} whitespace-nowrap"
+						data-testid="workflow-include-deleted"
 					>
-						<input type="checkbox" bind:checked={includeDeleted} on:change={loadItems} />
+						<input type="checkbox" bind:checked={includeDeleted}  />
 						Include deleted
 					</label>
 				{/if}
+				<button
+					type="button"
+					class="{DS_BTN_CLASSES.ghost} h-9 shrink-0 px-2.5 text-xs"
+					data-testid="workflow-refresh-surface"
+					on:click={() => refreshWorkflowSurface()}>Refresh</button
+				>
 			</div>
-			<button
-				type="button"
-				class="{DS_WORKFLOW_CLASSES.createToolbarBtn} shrink-0"
-				on:click={openCreate}
-				data-testid="workflow-p127-create-open"
-			>
-				{P127_WORKFLOW_CREATE_ENTRY_BUTTON}
-			</button>
 		</div>
-	</section>
+		{#if itemSearchApplied}
+			<p class="m-0 text-[10px] {DS_TYPE_CLASSES.meta}" data-testid="workflow-search-active-hint">Filtering by “{itemSearchApplied}”</p>
+		{/if}
+	</div>
 
 	<section
-		class="min-w-0 shrink-0 border-b border-[color:var(--ce-l-border-subtle)] px-3 py-3 sm:px-4 {embedded ? 'p-2' : ''}"
-		data-testid="workflow-p127-operational-items-section"
-		aria-label={P127_WORKFLOW_LIST_SECTION_TITLE}
+		data-testid="workflow-main-work-area"
+		class="flex flex-col min-w-0 shrink-0 {embedded ? 'gap-2' : 'gap-3'}"
+		aria-label="Workflow main workspace"
 	>
-		<h3 class="text-sm font-medium text-[color:var(--ce-l-text-primary)] m-0 mb-2">
-			{P127_WORKFLOW_LIST_SECTION_TITLE}
-		</h3>
-		{#if p117WorkflowLoading}
-			<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="workflow-p117-items-loading">
-				{P127_WORKFLOW_LIST_LOADING}
-			</p>
-		{:else if p117WorkflowItems.length === 0}
-			<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="workflow-p117-items-empty">
-				{P127_WORKFLOW_LIST_EMPTY}
-			</p>
-			<p class="text-xs text-[color:var(--ce-l-text-muted)] m-0 mt-1" data-testid="workflow-p117-items-empty-hint">
-				{P127_WORKFLOW_LIST_EMPTY_HINT}
-			</p>
-		{:else}
-			<ul class="flex flex-col gap-2 list-none p-0 m-0" data-testid="workflow-p117-items-list">
-				{#each p117WorkflowItems as w (w.workflow_item_id)}
-					<li
-						class="rounded border border-[color:var(--ce-l-border-subtle)] px-3 py-2 text-sm text-[color:var(--ce-l-text-primary)]"
-						data-testid="workflow-p117-items-row"
-						data-workflow-p117-id={w.workflow_item_id}
-					>
-						<div class="flex flex-col gap-1">
-							<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
-								<span
-									class="text-xs text-[color:var(--ce-l-text-muted)]"
-									data-testid="workflow-p117-items-row-type"
-									>{p127LabelWorkflowType(w.workflow_type)}</span>
-								<a
-									class="font-medium text-[color:var(--ce-l-text-primary)] hover:underline"
-									href={`/case/${encodeURIComponent(caseId)}/workflow/witem/${encodeURIComponent(w.workflow_item_id)}`}
-									data-testid="workflow-p117-items-row-title-link"
-									>{w.title}</a>
-								<span
-									class="text-xs text-[color:var(--ce-l-text-muted)]"
-									data-testid="workflow-p117-items-row-status"
-									>{p127LabelWorkflowStatus(w.status)}</span>
-							</div>
-							{#if w.updated_at}
-								<p class="text-xs text-[color:var(--ce-l-text-muted)] m-0" data-testid="workflow-p117-items-row-updated">
-									{P127_WORKFLOW_DETAIL_META_UPDATED}{' '}{w.updated_at}
-								</p>
-							{/if}
-						</div>
-					</li>
-				{/each}
-			</ul>
-		{/if}
-	</section>
-
 	<!-- List (hypotheses / gaps) -->
 	<!-- shrink-0: do not use min-h-0 here — in a column flex (main) it lets this region shrink below the table, overflow: visible paints rows under the proposals panel -->
 	<section data-testid="workflow-items-list-section" class="min-w-0 flex flex-col shrink-0" aria-label="Workflow items list">
+
 	<!-- ── List state (P28-50: aligned to shared state components); P59-07 shell cohesion ── -->
 	{#if workflowListViewState === 'loading'}
 		<div
@@ -907,7 +1211,7 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 				? 'p-2'
 				: 'p-3'}"
 		>
-			<CaseErrorState message={loadError} onRetry={loadItems} />
+			<CaseErrorState message={loadError} onRetry={loadWorkflowListFirstPage} />
 		</div>
 	{:else if workflowListViewState === 'empty'}
 		<div
@@ -919,11 +1223,13 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 			<CaseEmptyState
 				framed={false}
 				testId="workflow-items-list-empty"
-				title={filter === 'HYPOTHESIS' ? 'No hypotheses yet.' : filter === 'GAP' ? 'No gaps yet.' : 'No workflow items yet.'}
-				description={filter === 'HYPOTHESIS'
+				title={listTab === 'hypothesis' ? 'No hypotheses yet.' : listTab === 'gap' ? 'No gaps yet.' : listTab === 'completed' ? 'No completed items in this view.' : 'No workflow items yet.'}
+				description={listTab === 'hypothesis'
 					? 'Capture what you are testing—Workflow plans the line of inquiry; official facts still go through Timeline after governed intake.'
-					: filter === 'GAP'
+					: listTab === 'gap'
 						? 'Capture what evidence or facts you still need. Closing a gap may later tie to Timeline entries via the case Proposals tab—not directly from here.'
+					: listTab === 'completed'
+						? 'Nothing has reached a closed or resolved state in the planning layer yet, or your search is too narrow.'
 						: 'Add hypotheses and gaps to steer the case. Use the case Proposals tab when you have governed timeline or note drafts to review and commit.'}
 			>
 				<div
@@ -977,110 +1283,146 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 				</div>
 			</CaseEmptyState>
 		</div>
-	{:else}
+{:else}
 		<div
+			bind:this={workflowTableScrollEl}
 			data-testid="workflow-items-table-scroll"
-			class="{DS_WORKFLOW_CLASSES.tableScroll} {embedded
+			class="min-w-0 divide-y divide-[color:var(--ce-l-border-subtle)] overflow-y-auto overflow-x-hidden rounded-xl border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-base)]/30 {embedded
 				? 'max-h-[min(46vh,14.5rem)]'
 				: 'min-h-[14rem] max-h-[min(50vh,36rem)]'}"
 		>
-			<table class="{DS_WORKFLOW_CLASSES.table}">
-				<thead class="{DS_WORKFLOW_CLASSES.thead}">
-					<tr>
-						<th class="{DS_WORKFLOW_CLASSES.th}">Type</th>
-						<th class="{DS_WORKFLOW_CLASSES.th}">Title</th>
-						<th class="{DS_WORKFLOW_CLASSES.th}">Status</th>
-						<th class="{DS_WORKFLOW_CLASSES.th}" title={P127_WORKFLOW_LEGACY_RANK_TH_TITLE}>
-							{P127_WORKFLOW_LEGACY_RANK_TH}
-						</th>
-						<th
-							class="{DS_WORKFLOW_CLASSES.th}"
-							title={P127_WORKFLOW_LEGACY_ORIGIN_TH_TITLE}
+			{#each items as item (item.id)}
+				<article
+					data-workflow-item-row={item.id}
+					data-testid={`workflow-item-row-${item.id}`}
+					data-post-accept-highlight={item.id === highlightWorkflowItemId ? 'true' : 'false'}
+					class="p-3.5 sm:p-4 transition-colors duration-300 first:rounded-t-xl last:rounded-b-xl {item.deleted_at
+						? 'opacity-70'
+						: ''} {item.id === highlightWorkflowItemId ? 'ring-2 ring-inset ring-amber-500/45 bg-[color:var(--ce-l-surface-raised)]' : 'bg-[color:var(--ce-l-surface-raised)]/90'}"
+				>
+					<div class="flex min-w-0 gap-3.5">
+						<div
+							class="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ds-bg-muted)] text-[color:var(--ce-l-text-primary)] shadow-inner"
+							aria-hidden="true"
 						>
-							Origin
-						</th>
-						<th class="{DS_WORKFLOW_CLASSES.th}" title="Count of evidence links recorded on this workflow item.">
-							Citations
-						</th>
-						<th
-							class="{DS_WORKFLOW_CLASSES.th} min-w-[11rem] max-w-[16rem]"
-							title="Planning support references to Timeline, Notes, or Files (P60). Distinct from Citations."
-						>
-							Support refs
-						</th>
-						<th class="{DS_WORKFLOW_CLASSES.th} w-24">Actions</th>
-					</tr>
-				</thead>
-				<tbody>
-					{#each items as item (item.id)}
-						<tr
-							data-workflow-item-row={item.id}
-							data-testid={`workflow-item-row-${item.id}`}
-							data-post-accept-highlight={item.id === highlightWorkflowItemId ? 'true' : 'false'}
-							class="{DS_WORKFLOW_CLASSES.tbodyRow} transition-colors duration-300 {item.deleted_at
-								? DS_WORKFLOW_CLASSES.tbodyRowDeleted
-								: ''} {item.id === highlightWorkflowItemId
-								? DS_WORKFLOW_CLASSES.tbodyRowHighlight
-								: ''}"
-						>
-							<td class="px-2 py-1.5">
-								<span class="font-medium {DS_TYPE_CLASSES.body}">{formatWorkflowItemTypeForDisplay(item.type)}</span>
-								{#if item.deleted_at}
-									<span class="ml-1 text-xs {DS_STATUS_TEXT_CLASSES.warning}">(deleted)</span>
-								{/if}
-							</td>
-							<td class="px-2 py-1.5 min-w-0 align-top">
-								<div class="break-words font-medium {DS_TYPE_CLASSES.body}">{item.title}</div>
-								{#if item.description}
-									<div class="break-words text-xs {DS_TYPE_CLASSES.meta}">{item.description}</div>
-								{/if}
-								{#if item.entity_type && item.entity_normalized_id}
-									<button
-										type="button"
-										class="mt-0.5 text-xs {DS_WORKFLOW_CLASSES.inlineAction}"
-										on:click={() => openEntityWorkspace(item.entity_type, item.entity_normalized_id)}
-									>
-										Entity: {item.entity_type} / {item.entity_normalized_id}
-									</button>
-								{/if}
-							</td>
-							<td class="px-2 py-1.5">
-								<span class={getStatusBadgeClasses(item.status)}>
-									{formatWorkflowStatusForDisplay(item.status)}
+							{#if String(item.type).toUpperCase() === 'GAP'}
+								<PuzzlePieceIcon class="h-5 w-5" />
+							{:else if String(item.type).toUpperCase() === 'HYPOTHESIS'}
+								<LightBulbIcon class="h-5 w-5" />
+							{:else}
+								<DocumentTextIcon class="h-5 w-5" />
+							{/if}
+						</div>
+						<div class="min-w-0 flex-1">
+							<div class="flex flex-wrap items-center gap-1.5">
+								<span class="shrink-0 text-[10px] font-semibold uppercase {DS_BADGE_CLASSES.neutral}">
+									{formatWorkflowItemTypeForDisplay(item.type)}
 								</span>
-							</td>
-							<td class="px-2 py-1.5">
-								{#if item.priority != null}
-									<span class="inline-flex items-center gap-1 text-xs {DS_TYPE_CLASSES.meta}">
-										<span>{P127_WORKFLOW_LEGACY_RANK_CELL_PREFIX} {item.priority}</span>
-									</span>
-								{:else}
-									<span class="text-xs {DS_TYPE_CLASSES.meta}">—</span>
-								{/if}
-							</td>
-							<td class="px-2 py-1.5 text-xs">
-								<span class={getOriginBadgeClasses(item.origin)}>
-									{formatWorkflowOriginForDisplay(item.origin)}
-								</span>
-							</td>
-							<td class="px-2 py-1.5 text-xs">
-								{#if item.citations?.length}
-									{item.citations.length} citation(s)
-								{:else}
-									—
-								{/if}
-							</td>
-							<td class="px-2 py-1.5 text-[10px] sm:text-[11px] align-top min-w-0 max-w-[16rem]">
 								{#if item.deleted_at}
-									<span class="{DS_TYPE_CLASSES.meta}">—</span>
-								{:else if supportRowIndex && (supportLinksByItemId[item.id]?.length ?? 0) > 0}
-									<div class="flex flex-col gap-1" data-testid={`workflow-item-support-link-chips-${item.id}`}>
-										<div class="flex flex-wrap gap-1">
+									<span class="text-[10px] {DS_STATUS_TEXT_CLASSES.warning}">(deleted)</span>
+								{/if}
+							</div>
+							<div class="mt-0.5 flex min-w-0 items-start justify-between gap-2">
+								<h4
+									class="min-w-0 flex-1 break-words pr-1 text-base font-semibold text-[color:var(--ce-l-text-primary)] m-0 leading-snug"
+								>
+									{item.title}
+								</h4>
+								<div class="flex max-w-[min(100%,28rem)] shrink-0 flex-wrap items-center justify-end gap-x-2 gap-y-1">
+									{#if !item.deleted_at}
+										<a
+											href="/case/{caseId}/workflow/witem/{item.id}"
+											class="text-xs whitespace-nowrap {DS_WORKFLOW_CLASSES.inlineAction}"
+											data-testid={`workflow-item-view-${item.id}`}
+										>
+											View
+										</a>
+										<button
+											type="button"
+											data-testid="workflow-item-support-refs"
+											data-item-id={item.id}
+											class="text-xs whitespace-nowrap {DS_WORKFLOW_CLASSES.inlineAction}"
+											on:click={() => (supportPanelItem = item)}
+										>
+											Support refs
+										</button>
+										<button
+											type="button"
+											class="text-xs whitespace-nowrap {DS_WORKFLOW_CLASSES.inlineAction}"
+											data-testid={`workflow-item-edit-${item.id}`}
+											on:click={() => openEdit(item)}
+										>
+											Edit
+										</button>
+										{#if isWorkflowItemOpenActiveStatus(item.status) || String(item.status).toUpperCase() === 'IN_PROGRESS' || String(item.status).toUpperCase() === 'ASSIGNED'}
+											<button
+												type="button"
+												class="inline-flex items-center justify-center rounded-md border border-emerald-600/60 bg-emerald-600/90 px-2.5 py-1 text-xs font-semibold text-white shadow-sm hover:bg-emerald-500/95 disabled:opacity-50"
+												disabled={resolveInFlight}
+												data-testid={`workflow-item-resolve-${item.id}`}
+												on:click={() => void quickResolveItem(item)}
+											>
+												Resolve
+											</button>
+										{/if}
+										<button
+											type="button"
+											class="text-xs whitespace-nowrap {DS_WORKFLOW_CLASSES.inlineAction} {DS_WORKFLOW_CLASSES.inlineActionDanger}"
+											data-testid={`workflow-item-delete-${item.id}`}
+											on:click={() => confirmDelete(item)}
+										>
+											Delete
+										</button>
+									{:else if isAdmin}
+										<button
+											type="button"
+											class="text-xs whitespace-nowrap {DS_WORKFLOW_CLASSES.inlineAction} {DS_WORKFLOW_CLASSES.inlineActionSuccess}"
+											on:click={() => confirmRestore(item)}
+										>
+											Restore
+										</button>
+									{/if}
+									{#if !item.deleted_at}
+										<button
+											type="button"
+											class="h-7 w-7 shrink-0 rounded text-[color:var(--ce-l-text-muted)] opacity-50"
+											disabled
+											title="More actions (coming soon)"
+											aria-label="More actions (coming soon)"
+											data-testid={`workflow-item-kebab-${item.id}`}
+										>
+											⋯
+										</button>
+									{/if}
+								</div>
+							</div>
+							{#if item.description}
+								<p class="mt-1 m-0 break-words text-xs leading-relaxed {DS_TYPE_CLASSES.meta}">{item.description}</p>
+							{/if}
+							{#if item.entity_type && item.entity_normalized_id}
+								<button
+									type="button"
+									class="mt-1 text-xs {DS_WORKFLOW_CLASSES.inlineAction}"
+									on:click={() => openEntityWorkspace(item.entity_type, item.entity_normalized_id)}
+								>
+									Entity: {item.entity_type} / {item.entity_normalized_id}
+								</button>
+							{/if}
+							<div class="mt-1.5 flex flex-wrap gap-x-2 gap-y-0.5 text-[10px] {DS_TYPE_CLASSES.meta}">
+								<span class="tabular-nums">Created {item.created_at?.slice(0, 10) ?? '—'}</span>
+							</div>
+							<div class="mt-2 flex min-w-0 items-end justify-between gap-x-3 gap-y-1.5">
+								<div class="min-w-0 flex-1">
+									{#if !item.deleted_at && (supportRowIndex && (supportLinksByItemId[item.id]?.length ?? 0) > 0)}
+										<div
+											class="flex flex-wrap gap-1"
+											data-testid={`workflow-item-support-link-chips-${item.id}`}
+										>
 											{#each supportLinksByItemId[item.id] as sl (sl.id)}
 												<a
 													data-testid={`workflow-support-link-row-chip-${sl.id}`}
 													href={hrefForSupportLinkTarget(caseId, sl.target_kind, sl.target_id)}
-													class="{DS_WORKFLOW_CLASSES.supportRowChip}"
+													class="{DS_WORKFLOW_CLASSES.supportRowChip} max-w-full"
 													title={primaryLabelForSupportLink(sl, supportRowIndex)}
 												>
 													<span
@@ -1092,68 +1434,105 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 													<span class="truncate min-w-0 text-[10px] font-medium">
 														{primaryLabelForSupportLink(sl, supportRowIndex)}
 													</span>
-													{#if isWorkflowSupportLinkStale(sl)}
-														<span
-															class="shrink-0 font-bold {DS_STATUS_TEXT_CLASSES.warning}"
-															data-testid="workflow-support-link-row-stale"
-															title="Stale: target removed or unavailable"
-														>
-															↯
-														</span>
-													{/if}
 												</a>
 											{/each}
 										</div>
-									</div>
-								{:else if supportRowIndex}
-									<span class="{DS_TYPE_CLASSES.meta}" data-testid="workflow-item-support-links-none">—</span>
-								{:else}
-									<span class="{DS_TYPE_CLASSES.meta}" title="Loading support summary…">…</span>
-								{/if}
-							</td>
-							<td class="px-2 py-1.5 align-top">
-								<div class="flex min-w-0 flex-wrap gap-x-2 gap-y-1">
-								{#if !item.deleted_at}
-									<button
-										type="button"
-										data-testid="workflow-item-support-refs"
-										data-item-id={item.id}
-										class="text-xs {DS_WORKFLOW_CLASSES.inlineAction}"
-										on:click={() => (supportPanelItem = item)}
-									>
-										Support refs
-									</button>
-									<button
-										type="button"
-										class="text-xs {DS_WORKFLOW_CLASSES.inlineAction}"
-										on:click={() => openEdit(item)}
-									>
-										Edit
-									</button>
-									<button
-										type="button"
-										class="text-xs {DS_WORKFLOW_CLASSES.inlineAction} {DS_WORKFLOW_CLASSES.inlineActionDanger}"
-										on:click={() => confirmDelete(item)}
-									>
-										Delete
-									</button>
-								{:else if isAdmin}
-									<button
-										type="button"
-										class="text-xs {DS_WORKFLOW_CLASSES.inlineAction} {DS_WORKFLOW_CLASSES.inlineActionSuccess}"
-										on:click={() => confirmRestore(item)}
-									>
-										Restore
-									</button>
-								{/if}
+									{:else if !item.deleted_at && supportRowIndex}
+										<div class="text-[10px] {DS_TYPE_CLASSES.meta}" data-testid="workflow-item-support-links-none">—</div>
+									{:else if !item.deleted_at}
+										<div class="text-[10px] {DS_TYPE_CLASSES.meta}">…</div>
+									{/if}
 								</div>
-							</td>
-						</tr>
-					{/each}
-				</tbody>
-			</table>
+								<div
+									class="flex shrink-0 flex-wrap items-center justify-end gap-1.5 self-end"
+									aria-label="Item status, rank, and origin"
+								>
+									<span class={getStatusBadgeClasses(item.status)}>{formatWorkflowStatusForDisplay(item.status)}</span>
+									{#if item.priority != null}
+										<span class="shrink-0 text-[10px] {DS_BADGE_CLASSES.neutral}"
+											>{P127_WORKFLOW_LEGACY_RANK_CELL_PREFIX} {item.priority}</span
+										>
+									{/if}
+									<span class="shrink-0 text-[10px] {getOriginBadgeClasses(item.origin)}"
+										>{formatWorkflowOriginForDisplay(item.origin)}</span
+									>
+									{#if item.citations?.length}
+										<span class="text-[10px] {DS_TYPE_CLASSES.meta}">{item.citations.length} citation(s)</span>
+									{/if}
+								</div>
+							</div>
+						</div>
+					</div>
+				</article>
+			{/each}
+			<div
+				bind:this={workflowTableSentinel}
+				data-testid="workflow-items-scroll-sentinel"
+				class="h-px w-full shrink-0"
+				aria-hidden="true"
+			></div>
+			{#if workflowListLoadingMore}
+				<p class="m-0 py-1 text-center text-[10px] {DS_TYPE_CLASSES.meta}" data-testid="workflow-items-load-more">
+					Loading more…
+				</p>
+			{/if}
 		</div>
 	{/if}
+	</section>
+
+	<section
+		class="min-w-0 shrink-0 border-b border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-raised)]/40 px-3 py-3 sm:px-4 {embedded ? 'p-2' : ''}"
+		data-testid="workflow-p127-operational-items-section"
+		aria-label={P127_WORKFLOW_LIST_SECTION_TITLE}
+	>
+		<h3 class="text-sm font-semibold text-[color:var(--ce-l-text-primary)] m-0 mb-2">
+			{P127_WORKFLOW_LIST_SECTION_TITLE}
+		</h3>
+		{#if p117WorkflowLoading}
+			<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="workflow-p117-items-loading">
+				{P127_WORKFLOW_LIST_LOADING}
+			</p>
+		{:else if p117WorkflowItems.length === 0}
+			<p class="text-sm text-[color:var(--ce-l-text-secondary)] m-0" data-testid="workflow-p117-items-empty">
+				{P127_WORKFLOW_LIST_EMPTY}
+			</p>
+			<p class="text-xs text-[color:var(--ce-l-text-muted)] m-0 mt-1" data-testid="workflow-p117-items-empty-hint">
+				{P127_WORKFLOW_LIST_EMPTY_HINT}
+			</p>
+		{:else}
+			<ul class="flex flex-col gap-2 list-none p-0 m-0" data-testid="workflow-p117-items-list">
+				{#each p117WorkflowItems as w (w.workflow_item_id)}
+					<li
+						class="rounded-xl border border-[color:var(--ce-l-border-subtle)] bg-[color:var(--ce-l-surface-raised)] px-3 py-2.5 text-sm text-[color:var(--ce-l-text-primary)] shadow-sm"
+						data-testid="workflow-p117-items-row"
+						data-workflow-p117-id={w.workflow_item_id}
+					>
+						<div class="flex flex-col gap-1">
+							<div class="flex flex-wrap items-baseline gap-x-3 gap-y-1">
+								<span
+									class="text-xs text-[color:var(--ce-l-text-muted)]"
+									data-testid="workflow-p117-items-row-type"
+									>{p127LabelWorkflowType(w.workflow_type)}</span>
+								<a
+									class="font-medium text-[color:var(--ce-l-text-primary)] hover:underline"
+									href={`/case/${encodeURIComponent(caseId)}/workflow/witem/${encodeURIComponent(w.workflow_item_id)}`}
+									data-testid="workflow-p117-items-row-title-link"
+									>{w.title}</a>
+								<span
+									class="text-xs text-[color:var(--ce-l-text-muted)]"
+									data-testid="workflow-p117-items-row-status"
+									>{p127LabelWorkflowStatus(w.status)}</span>
+							</div>
+							{#if w.updated_at}
+								<p class="text-xs text-[color:var(--ce-l-text-muted)] m-0" data-testid="workflow-p117-items-row-updated">
+									{P127_WORKFLOW_DETAIL_META_UPDATED}{' '}{w.updated_at}
+								</p>
+							{/if}
+						</div>
+					</li>
+				{/each}
+			</ul>
+		{/if}
 	</section>
 
 	{#if supportPanelItem}
@@ -1180,12 +1559,20 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 		aria-label={P127_WORKFLOW_PROPOSAL_QUEUE_ARIA}
 	>
 			<div
-				class="space-y-0.5 border-b border-[var(--ds-border-default)] pb-3 {embedded ? 'mb-1.5' : 'mb-2.5'}"
+				class="flex flex-wrap items-start justify-between gap-2 border-b border-[var(--ds-border-default)] pb-3 {embedded ? 'mb-1.5' : 'mb-2.5'}"
 			>
-				<h3 class="text-sm font-semibold {DS_TYPE_CLASSES.section}">{P127_WORKFLOW_PROPOSAL_QUEUE_HEADING}</h3>
-				<p class="max-w-prose text-xs leading-relaxed {DS_TYPE_CLASSES.meta}">
-					{P127_WORKFLOW_PROPOSAL_QUEUE_INTRO}
-				</p>
+				<div class="min-w-0 flex-1 space-y-0.5">
+					<h3 class="m-0 text-sm font-semibold {DS_TYPE_CLASSES.section}">Workflow proposal queue</h3>
+					<p class="m-0 max-w-prose text-xs leading-relaxed {DS_TYPE_CLASSES.meta}" data-testid="workflow-proposal-queue-intro">
+						Pending triage for workflow proposals on this tab only. Items here are not yet part of the Workflow list.
+					</p>
+				</div>
+				<a
+					href="/case/{caseId}/proposals"
+					class="{workflowEmbedNavLinkClass} text-xs font-medium"
+					data-testid="workflow-proposal-queue-link-proposals"
+					title="Case Proposals—separate from this workflow queue"
+				>Go to Proposals</a>
 			</div>
 			{#snippet workflowProposalRow(p)}
 				<div class="p-2 text-sm min-w-0">
@@ -1334,63 +1721,34 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 						? 'p-2'
 						: 'p-2.5'}"
 				>
-					<CaseErrorState message={proposalError} onRetry={loadProposals} />
+					<CaseErrorState message={proposalError} onRetry={loadProposalsFirstPage} />
 				</div>
 			{:else if proposals.length === 0}
 				<div
 					data-testid="workflow-proposals-state-shell"
-					class="{DS_WORKFLOW_CLASSES.listStateShell} {DS_WORKFLOW_CLASSES.listStateShellDashed} min-w-0 {embedded
-						? 'px-2 py-1.5'
-						: 'px-2.5 py-2'}"
+					class="{DS_WORKFLOW_CLASSES.listStateShell} {DS_WORKFLOW_CLASSES.listStateShellDashed} min-w-0 flex flex-col items-center justify-center text-center {embedded
+						? 'px-2 py-6'
+						: 'px-2.5 py-8'}"
 				>
 					<CaseEmptyState
 						framed={false}
-						title="Nothing in the workflow proposal queue yet."
-						description="When intake suggests a new or changed workflow item, it appears in this queue on the Workflow tab. Governed timeline or note drafts for review and commit belong on the case Proposals tab—not here."
+						title="No workflow proposals yet"
+						description="When intake suggests a new or changed workflow item, it appears here for your review."
 						testId="workflow-proposals-empty"
 					>
 						<div
 							slot="action"
-							class="mt-3 flex flex-col gap-2"
+							class="mt-4 flex flex-col items-center gap-2 w-full"
 							data-testid="workflow-queue-empty-next-steps"
 						>
-							<p class="{DS_TYPE_CLASSES.meta} text-[color:var(--ce-l-text-secondary)]">
-								This queue is empty for now. The case <span class="font-medium">Proposals</span> tab is the governed
-								surface for P19 review—separate from this workflow proposal queue. Next steps on this case:
-							</p>
-							<div
-								class="flex flex-wrap items-center gap-x-2 gap-y-1 {embedded ? 'text-[11px]' : 'text-xs'}"
-								role="group"
-								aria-label="Case tab shortcuts from workflow queue empty state"
+							<button
+								type="button"
+								class="{DS_BTN_CLASSES.primary} text-xs"
+								data-testid="workflow-queue-empty-create"
+								on:click={openCreate}
 							>
-								<a
-									data-testid="workflow-queue-empty-link-proposals"
-									href="/case/{caseId}/proposals"
-									class={workflowEmbedNavLinkClass}
-									title={`${CASE_DESTINATION_TITLES.caseProposals} — separate from the Workflow proposal queue on this tab`}
-									>{CASE_DESTINATION_LABELS.caseProposals}</a
-								>
-								<span class="{DS_TYPE_CLASSES.meta} text-[color:var(--ce-l-text-muted)] select-none" aria-hidden="true"
-									>·</span
-								>
-								<a
-									data-testid="workflow-queue-empty-link-timeline"
-									href="/case/{caseId}/timeline"
-									class={workflowEmbedNavLinkClass}
-									title={CASE_DESTINATION_TITLES.timeline}
-									>{CASE_DESTINATION_LABELS.timeline}</a
-								>
-								<span class="{DS_TYPE_CLASSES.meta} text-[color:var(--ce-l-text-muted)] select-none" aria-hidden="true"
-									>·</span
-								>
-								<a
-									data-testid="workflow-queue-empty-link-notes"
-									href="/case/{caseId}/notes"
-									class={workflowEmbedNavLinkClass}
-									title={CASE_DESTINATION_TITLES.notes}
-									>{CASE_DESTINATION_LABELS.notes}</a
-								>
-							</div>
+								Create workflow item
+							</button>
 						</div>
 					</CaseEmptyState>
 				</div>
@@ -1488,6 +1846,17 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 							</div>
 						</details>
 					{/if}
+					<div
+						bind:this={workflowProposalsSentinel}
+						data-testid="workflow-proposals-scroll-sentinel"
+						class="h-px w-full shrink-0"
+						aria-hidden="true"
+					></div>
+					{#if proposalListLoadingMore}
+						<p class="m-0 py-1 text-center text-[10px] {DS_TYPE_CLASSES.meta}" data-testid="workflow-proposals-load-more">
+							Loading more…
+						</p>
+					{/if}
 				</div>
 			{/if}
 	</section>
@@ -1516,11 +1885,11 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 							? 'text-[10px]'
 							: 'text-[11px]'} {DS_TYPE_CLASSES.label} {guidanceExpanded ? 'opacity-100' : 'opacity-80'}"
 				>
-					Guidance
+					Guidance (advisory path only)
 				</h3>
 				{#if !guidanceExpanded}
 					<p class="leading-snug mt-1 max-w-prose {DS_WORKFLOW_TEXT_CLASSES.guidanceIntroMuted}">
-						Jump to other case tabs or expand for full advisory path and journey hints.
+						Advisory only—expand for full reminders and tab shortcuts. Does not change Timeline authority.
 					</p>
 				{/if}
 			</div>
@@ -1528,11 +1897,11 @@ import WorkflowItemSupportLinksPanel from '$lib/components/case/WorkflowItemSupp
 				type="button"
 				data-testid="workflow-guidance-toggle"
 				aria-expanded={guidanceExpanded}
-				aria-label={guidanceExpanded ? 'Collapse guidance and case shortcuts' : 'Expand guidance and case shortcuts'}
+				aria-label={guidanceExpanded ? 'Hide guidance' : 'Show guidance'}
 				class="{DS_WORKFLOW_CLASSES.guidanceToggle} shrink-0"
 				on:click={() => void toggleGuidanceExpanded()}
 			>
-				{guidanceExpanded ? 'Collapse guidance' : 'Expand guidance'}
+				{guidanceExpanded ? 'Hide guidance' : 'Show guidance'}
 			</button>
 		</div>
 		<div

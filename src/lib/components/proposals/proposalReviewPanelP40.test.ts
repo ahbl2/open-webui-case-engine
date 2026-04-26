@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const panelPath = join(process.cwd(), 'src/lib/components/proposals/ProposalReviewPanel.svelte');
+const proposalCardPath = join(process.cwd(), 'src/lib/components/proposals/ProposalCard.svelte');
 const detTsPath = join(
 	process.cwd(),
 	'src/lib/components/proposals/DeterministicTimestampCandidatesReview.svelte'
@@ -95,15 +96,16 @@ describe('ProposalReviewPanel.svelte — P41-04 deterministic timestamp candidat
 });
 
 describe('ProposalReviewPanel.svelte — P41-38 document ingest full narrative', () => {
-	it('uses full-body branch for document timeline ingest (no line-clamp list preview)', () => {
+	it('keeps a scrollable full operator narrative in expanded details (card list preview is truncated)', () => {
 		const src = readFileSync(panelPath, 'utf8');
 		expect(src).toContain('documentTimelineIngestOperatorNarrative');
 		expect(src).toContain('data-document-ingest-full-narrative="1"');
 		expect(src).toContain('whitespace-pre-wrap');
 		expect(src).toContain('overflow-y-auto');
 		expect(src).toContain('max-h-[min(50vh,28rem)]');
+		expect(src).toContain('proposalListPreviewPlain');
 		expect(src).toMatch(
-			/\{#if isDocumentTimelineIntakePayload\(payload\)\}[\s\S]*?documentTimelineIngestOperatorNarrative[\s\S]*?\{:else\}[\s\S]*?line-clamp-2/s
+			/\{#if isDocumentTimelineIntakePayload\(payload\)\}[\s\S]*?documentTimelineIngestOperatorNarrative[\s\S]*?\{\/if\}/s
 		);
 	});
 });
@@ -173,8 +175,10 @@ describe('ProposalReviewPanel.svelte — P41-13 operator-first layout', () => {
 
 	it('keeps approve / reject / commit controls in the panel', () => {
 		const src = readFileSync(panelPath, 'utf8');
+		const card = readFileSync(proposalCardPath, 'utf8');
 		expect(src).toContain('data-testid="approve-btn"');
-		expect(src).toContain('data-testid="reject-btn"');
+		expect(src).toContain('ProposalCard');
+		expect(card).toContain('data-testid="proposal-card-reject"');
 		expect(src).toContain('data-testid="commit-btn"');
 	});
 

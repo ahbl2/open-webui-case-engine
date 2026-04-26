@@ -6,6 +6,7 @@ import { join } from 'node:path';
 import { describe, expect, it } from 'vitest';
 
 const panelPath = join(process.cwd(), 'src/lib/components/proposals/ProposalReviewPanel.svelte');
+const proposalCardPath = join(process.cwd(), 'src/lib/components/proposals/ProposalCard.svelte');
 const proposalsPagePath = join(process.cwd(), 'src/routes/(app)/case/[id]/proposals/+page.svelte');
 const chatPath = join(process.cwd(), 'src/routes/(app)/case/[id]/chat/+page.svelte');
 const guardUtilPath = join(process.cwd(), 'src/lib/utils/proposalDocumentIngestEditGuard.ts');
@@ -26,13 +27,12 @@ describe('ProposalReviewPanel — P43-05 document-ingest unsaved guard', () => {
 		expect(src).toContain('isDocumentIngestEditDirtyForProposal');
 	});
 
-	it('does not call executeLoadProposals directly from refresh button (guarded loadProposals)', () => {
+	it('keeps list refetch guarded (loadProposals) via visibility + invalidation, not raw execute', () => {
 		const src = readFileSync(panelPath, 'utf8');
-		const refreshIdx = src.indexOf('data-testid="proposals-refresh-btn"');
-		expect(refreshIdx).toBeGreaterThan(-1);
-		const prior = src.slice(Math.max(0, refreshIdx - 350), refreshIdx);
-		expect(prior).toMatch(/on:click=\{?\(\)\s*=>\s*void\s+loadProposals\(\)\}?/);
-		expect(prior).not.toMatch(/on:click=\{executeLoadProposals\}/);
+		expect(src).toContain('onProposalsListVisibilityRefetch');
+		expect(src).toContain('CASE_PROPOSALS_INVALIDATE_EVENT');
+		expect(src).toMatch(/void loadProposals\(\)/);
+		expect(src).not.toContain('data-testid="proposals-refresh-btn"');
 	});
 });
 
@@ -92,8 +92,7 @@ describe('ProposalReviewPanel — P45-04 search scope copy', () => {
 	it('documents tab-specific scope hint and placeholder without changing search guards', () => {
 		const src = readFileSync(panelPath, 'utf8');
 		expect(src).toContain('data-testid="proposals-search-scope-hint"');
-		expect(src).toContain('saved proposal payload text');
-		expect(src).toContain('Substring in proposal text (this case, this tab, Type filter applies)');
+		expect(src).toContain('Search proposal text (this tab, Type applies)');
 		expect(src).toContain('loadSearchApplied');
 	});
 });
@@ -102,10 +101,12 @@ describe('ProposalReviewPanel — P45-05 empty-state messaging', () => {
 	it('keeps empty-state branches and refines queue vs search copy', () => {
 		const src = readFileSync(panelPath, 'utf8');
 		expect(src).toContain('data-testid="empty-state"');
+		expect(src).toContain('data-testid="empty-state-panel"');
 		expect(src).toContain('data-testid="empty-search-no-results"');
-		expect(src).toContain('No matching <strong>{activeTab === \'pending\' ? \'Pending\' : \'Approved\'}</strong>');
+		expect(src).toContain('P128_EMPTY_PANEL_TITLE_SEARCH');
 		expect(src).toContain('Loading proposals for this case');
-		expect(src).toContain('No <strong>Committed</strong> outcomes in this list');
+		expect(src).toContain('P128_EMPTY_PANEL_TITLE_PENDING');
+		expect(src).toContain('data-testid="empty-state-create-proposal"');
 	});
 
 	it('Proposals route clarifies Case Engine gate when token missing', () => {
@@ -164,25 +165,28 @@ describe('ProposalReviewPanel — P45-02 workflow vs outcome tab grouping', () =
 });
 
 describe('ProposalReviewPanel — P45-08 control order', () => {
-	it('renders status tabs and workflow hint before Type filter and search row in markup', () => {
+	it('renders status cards, authority banner, tabs, then type+search in toolbar', () => {
 		const src = readFileSync(panelPath, 'utf8');
+		const statusSummary = src.indexOf('data-testid="proposals-status-summary"');
+		const auth = src.indexOf('data-testid="proposals-authority-banner"');
 		const tabPending = src.indexOf('data-testid="tab-pending"');
-		const tabsHint = src.indexOf('data-testid="proposal-status-tabs-hint"');
 		const typeFilter = src.indexOf('data-testid="proposal-type-filter"');
 		const searchRow = src.indexOf('data-testid="proposals-search-row"');
-		expect(tabPending).toBeGreaterThan(-1);
-		expect(tabsHint).toBeGreaterThan(tabPending);
-		expect(typeFilter).toBeGreaterThan(tabsHint);
-		expect(searchRow).toBeGreaterThan(typeFilter);
+		expect(statusSummary).toBeGreaterThan(-1);
+		expect(auth).toBeGreaterThan(statusSummary);
+		expect(tabPending).toBeGreaterThan(auth);
+		expect(typeFilter).toBeGreaterThan(tabPending);
+		expect(searchRow).toBeGreaterThan(-1);
+		expect(typeFilter).toBeGreaterThan(searchRow);
 	});
 });
 
 describe('ProposalReviewPanel — P45-10 search-row layout stability', () => {
-	it('wraps search in always-present region with min-height and tab-off placeholder', () => {
+	it('wraps search in always-present filter toolbar with tab-off placeholder', () => {
 		const src = readFileSync(panelPath, 'utf8');
 		expect(src).toContain('data-testid="proposals-search-region"');
 		expect(src).toContain('data-testid="proposals-search-placeholder"');
-		expect(src).toContain('DS_PROPOSALS_CLASSES.searchControls');
+		expect(src).toContain('DS_PROPOSALS_CLASSES.filterToolbar');
 		const region = src.indexOf('data-testid="proposals-search-region"');
 		const row = src.indexOf('data-testid="proposals-search-row"');
 		const ph = src.indexOf('data-testid="proposals-search-placeholder"');
@@ -193,10 +197,8 @@ describe('ProposalReviewPanel — P45-10 search-row layout stability', () => {
 });
 
 describe('ProposalReviewPanel — P45-11 tooltips (native title)', () => {
-	it('carries intentional titles on refresh, workflow tabs, filters, search actions, bulk reject, expand, AI revise, reject, load-more, and thread lineage', () => {
+	it('carries intentional titles on workflow tabs, filters, search actions, bulk reject, expand, AI revise, reject, load-more, and thread lineage', () => {
 		const src = readFileSync(panelPath, 'utf8');
-		expect(src).toContain('data-testid="proposals-refresh-btn"');
-		expect(src).toMatch(/Reload proposal lists from Case Engine/);
 		expect(src).toMatch(/Pending — proposals awaiting review/);
 		expect(src).toMatch(/Approved — human-reviewed staging only/);
 		expect(src).toMatch(/Rejected — removed from the review workflow/);
@@ -205,9 +207,19 @@ describe('ProposalReviewPanel — P45-11 tooltips (native title)', () => {
 		expect(src).toMatch(/Apply search: server-side case-insensitive substring/);
 		expect(src).toMatch(/Clear applied search and reload the full list/);
 		expect(src).toMatch(/Reject selected pending proposals \(requires reason/);
-		expect(src).toMatch(/Show or hide full payload, editors, and technical details/);
+		const cardSrcP45 = readFileSync(proposalCardPath, 'utf8');
+		expect(
+			(src + cardSrcP45).match(
+				/Show or hide full payload, editors, and technical details|Open full content and details for review/
+			)
+		).toBeTruthy();
 		expect(src).toMatch(/Model-assisted revision for this chat-intake proposal/);
-		expect(src).toMatch(/Reject this pending proposal with a required reason/);
+		const cardSrcReject = readFileSync(proposalCardPath, 'utf8');
+		expect(
+			(src + '\n' + cardSrcReject).match(
+				/Reject this pending proposal with a required reason|Reject this candidate \(workflow only/
+			)
+		).toBeTruthy();
 		expect(src).toMatch(/Load the next page of proposals/);
 		expect(src).toMatch(/Sourced from a personal\/desktop thread linked to this case/);
 		expect(src).toMatch(/Sourced from this case’s scoped chat thread/);
@@ -221,13 +233,13 @@ describe('ProposalReviewPanel — P45-11 tooltips (native title)', () => {
 });
 
 describe('ProposalReviewPanel — P45-01 approved vs committed terminology', () => {
-	it('exposes workflow-vs-outcome hint and preserves Approved / Committed tab labels', () => {
+	it('exposes single authority banner and preserves Approved/Accepted + committed-to-timeline tab', () => {
 		const src = readFileSync(panelPath, 'utf8');
-		expect(src).toContain('data-testid="proposal-status-tabs-hint"');
-		expect(src).toMatch(/Workflow vs outcome/i);
+		expect(src).toContain('data-testid="proposals-authority-banner"');
+		expect(src).toContain('P128_PROPOSALS_AUTHORITY_BANNER');
 		expect(src).toContain('data-testid="tab-approved"');
 		expect(src).toMatch(/\{!p128Presentation \? 'Approved' : 'Accepted'\}\{approvedCount/);
-		expect(src).toContain('Committed{committedCount');
+		expect(src).toContain('Committed to');
 	});
 
 	it('Proposals route mounts P128 intake framing and proposal review panel', () => {
@@ -239,14 +251,14 @@ describe('ProposalReviewPanel — P45-01 approved vs committed terminology', () 
 });
 
 describe('ProposalReviewPanel — P45-09 doctrine de-duplication', () => {
-	it('uses shortened page-layout subtitle and tightened workflow hint', () => {
+	it('uses single authority banner in panel and P128 list toolbar label in compact header', () => {
 		const panel = readFileSync(panelPath, 'utf8');
 		const page = readFileSync(proposalsPagePath, 'utf8');
 		expect(panel).toMatch(/Review queue/);
 		expect(panel).toContain('P128_LIST_TOOLBAR_LABEL');
 		expect(panel).not.toContain('Review queue — staging until commit');
-		expect(panel).toMatch(/review queues only\./);
-		expect(panel).toMatch(/Committed<\/strong> — outcomes already/);
+		expect(panel).toContain('P128_PROPOSALS_AUTHORITY_BANNER');
+		expect(panel).not.toMatch(/review queues only\./);
 		expect(page).not.toContain('Governed intake from chat and other sources');
 	});
 });

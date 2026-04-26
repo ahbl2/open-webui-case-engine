@@ -14,13 +14,13 @@ const timelineCopy = join(__dirname, 'p124TimelineAuthorityCopy.ts');
 const separationCopy = join(__dirname, 'p124SurfaceSeparationCopy.ts');
 
 describe('P124-05 Timeline vs Notes separation', () => {
-	it('Timeline framing uses elevated case shell surface (Activity parity); Notes framing uses info', () => {
+	it('Timeline authority framing uses neutral banner; Notes draft framing uses tier-L chrome hero (Timeline route parity)', () => {
 		const tl = readFileSync(timelineFraming, 'utf8');
 		const nt = readFileSync(notesFraming, 'utf8');
-		expect(tl).toMatch(/ce-l-surface-elevated/);
+		expect(tl).toMatch(/DS_STATUS_SURFACE_CLASSES\.neutral/);
 		expect(tl).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);
-		expect(nt).toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);
-		expect(nt).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.neutral/);
+		expect(nt).toMatch(/ce-l-notes-hero/);
+		expect(nt).not.toMatch(/DS_STATUS_SURFACE_CLASSES\.info/);
 	});
 
 	it('Notes draft copy module does not claim authority or official record', () => {

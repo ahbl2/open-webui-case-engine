@@ -10,11 +10,11 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab P78-08 wording disambiguation', () => {
-	it('labels the collapsed narrative with Workflow tab vs case Proposals tab vs workflow proposal queue', () => {
+	it('labels guidance / chrome with Workflow tab vs case Proposals tab vs workflow proposal queue', () => {
 		expect(tabSource).toContain('This Workflow tab');
 		expect(tabSource).toContain('case Proposals');
 		expect(tabSource).toContain('workflow proposal queue');
-		expect(tabSource).toContain('not case proposals');
+		expect(tabSource).toContain('this queue is not the case Proposals tab');
 	});
 
 	it('uses workflow-queue language in confirm dialogs and toasts, not generic “proposal” alone', () => {

@@ -11,9 +11,9 @@ const __dirname = dirname(fileURLToPath(import.meta.url));
 const tabSource = readFileSync(join(__dirname, 'CaseWorkflowTab.svelte'), 'utf8');
 
 describe('CaseWorkflowTab P59-01 narrative (Workflow vs Proposals)', () => {
-	it('exposes a narrative intro for full and embedded modes (full: toggle + expanded doctrine; P78-07 default-open)', () => {
+	it('exposes a narrative intro for full (sr-only) + embedded doctrine; guidance is toggle-collapsed (not a duplicate narrative block)', () => {
 		expect(tabSource).toContain('data-testid="workflow-narrative-intro"');
-		expect(tabSource).toContain('data-testid="workflow-narrative-toggle"');
+		expect(tabSource).toContain('data-testid="workflow-guidance-toggle"');
 		expect(tabSource).toContain('{#if !embedded}');
 		expect(tabSource).toContain('{:else}');
 		expect(tabSource).toContain('Workflow is your');
@@ -21,14 +21,13 @@ describe('CaseWorkflowTab P59-01 narrative (Workflow vs Proposals)', () => {
 		expect(tabSource).toContain(
 			'The case <span class="{DS_WORKFLOW_TEXT_CLASSES.doctrineStrong}">Proposals</span> tab'
 		);
-		expect(tabSource).toContain('workflow proposal queue</span> below');
+		expect(tabSource).toContain('workflow proposal queue</span');
 	});
 
 	it('uses distinct workflow proposal queue labels separate from case Proposals tab', () => {
 		expect(tabSource).toContain('Workflow proposal queue');
-		expect(tabSource).toContain(
-			'aria-label="Workflow proposal queue — suggestions for workflow items, separate from case Proposals drafts"'
-		);
+		expect(tabSource).toContain('P127_WORKFLOW_PROPOSAL_QUEUE_ARIA');
+		expect(tabSource).toContain('aria-label={P127_WORKFLOW_PROPOSAL_QUEUE_ARIA}');
 	});
 
 	it('aligns accept-confirm copy with governed intake / Timeline distinction', () => {
@@ -36,8 +35,10 @@ describe('CaseWorkflowTab P59-01 narrative (Workflow vs Proposals)', () => {
 		expect(tabSource).toContain('does not publish to the official Timeline');
 	});
 
-	it('clarifies workflow items list as planning-only in toolbar helper text', () => {
-		expect(tabSource).toContain('Persisted hypotheses and gaps on this tab—planning only');
+	it('clarifies workflow as planning-only without the removed summary-strip authority banner', () => {
+		expect(tabSource).not.toContain('data-testid="workflow-operational-authority-banner"');
+		expect(tabSource).toContain('data-testid="workflow-narrative-intro"');
+		expect(tabSource).toContain('planning layer');
 	});
 
 	it('updates empty-list copy to distinguish planning from governed Proposals path', () => {

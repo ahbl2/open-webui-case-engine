@@ -16,19 +16,21 @@ describe('CaseWorkflowTab P59-11 top queue strip removal', () => {
 		expect(tabSource).not.toContain('toggleProposals');
 	});
 
-	it('orders toolbar + list inside main; proposal panel after main closes; guidance after panel (P59-13)', () => {
+	it('orders toolbar before main; list inside main; proposal panel after main closes; guidance after panel (P59-13)', () => {
 		const main = tabSource.indexOf('data-testid="workflow-main-work-area"');
 		const toolbar = tabSource.indexOf('data-testid="workflow-items-toolbar"');
 		const list = tabSource.indexOf('data-testid="workflow-items-list-section"');
 		const panel = tabSource.indexOf('data-testid="workflow-proposals-panel"');
 		const guid = tabSource.indexOf('data-testid="workflow-guidance-placeholder"');
-		expect(main).toBeLessThan(toolbar);
+		expect(toolbar).toBeLessThan(main);
 		expect(toolbar).toBeLessThan(list);
+		expect(main).toBeLessThan(list);
 		expect(list).toBeLessThan(panel);
 		expect(panel).toBeLessThan(guid);
 		const mainOnly = tabSource.slice(main, panel);
 		expect(mainOnly).toContain('data-testid="workflow-items-list-section"');
 		expect(mainOnly).not.toContain('data-testid="workflow-proposals-panel"');
+		expect(mainOnly).not.toContain('data-testid="workflow-items-toolbar"');
 	});
 
 	it('retains proposal panel loading, empty, error, and list shells', () => {

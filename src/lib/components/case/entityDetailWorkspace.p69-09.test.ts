@@ -43,6 +43,8 @@ describe('EntityDetailWorkspace (P69-09)', () => {
 
 	it('exposes dirty hook and discard API for focus shell gates', () => {
 		expect(source).toContain('onDetailDirtyChange');
+		expect(source).toContain('onCloseDetails');
+		expect(source).toContain('data-testid="entities-focus-close-details"');
 		expect(source).toContain('discardUnsavedWorkspaceDraft');
 		expect(source).toContain('data-testid="entity-detail-notes-draft"');
 	});

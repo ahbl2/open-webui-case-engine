@@ -34,11 +34,14 @@ describe('P68-08-FU1 intelligence direct-create wiring (P69-07 shell)', () => {
 		expect(pageSource).toContain('on:created={handleIntelDirectEntityCreated}');
 	});
 
-	it('EntitiesRegistryPanel invokes onAddRequest from direct create (header + empty-add)', () => {
-		expect(registrySource).toContain('function requestDirectCreate(): void {');
+	it('EntitiesRegistryPanel invokes onAddRequest from direct create (header + ADD)', () => {
+		expect(registrySource).toMatch(/function requestDirectCreate\(e\?: MouseEvent\): void/);
 		expect(registrySource).toContain('onAddRequest?.({ entityKind: apiKind })');
 		expect(registrySource).toContain('data-testid="{testId}-add"');
-		expect(registrySource).toContain('data-testid="{testId}-empty-add"');
-		expect(registrySource.match(/on:click=\{requestDirectCreate\}/g)?.length).toBe(2);
+		expect(
+			registrySource.match(
+				/on:click\|stopPropagation\|preventDefault=\{requestDirectCreate\}/g
+			)?.length
+		).toBe(1);
 	});
 });
